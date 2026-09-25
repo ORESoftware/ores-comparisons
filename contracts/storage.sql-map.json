@@ -1,0 +1,10 @@
+{
+  "schema": "ores.comparisons.storage-map/v1",
+  "source_schema": "./comparison-domain.schema.json",
+  "entities": {
+    "Tenant": {"table": "tenants", "primary_key": ["tenant_id"], "uniques": [["slug"]], "indexes": []},
+    "Principal": {"table": "principals", "primary_key": ["principal_id"], "uniques": [["tenant_id", "email"]], "indexes": [["tenant_id"]], "references": {"tenant_id": {"entity": "Tenant", "column": "tenant_id", "on_delete": "CASCADE"}}},
+    "WorkItem": {"table": "work_items", "primary_key": ["work_item_id"], "uniques": [], "indexes": [["tenant_id"], ["scenario"], ["status"]], "references": {"tenant_id": {"entity": "Tenant", "column": "tenant_id", "on_delete": "CASCADE"}}},
+    "AuditEvent": {"table": "audit_events", "primary_key": ["audit_event_id"], "uniques": [], "indexes": [["tenant_id"], ["event_type"]], "references": {"tenant_id": {"entity": "Tenant", "column": "tenant_id", "on_delete": "CASCADE"}, "principal_id": {"entity": "Principal", "column": "principal_id", "on_delete": "SET NULL"}}}
+  }
+}

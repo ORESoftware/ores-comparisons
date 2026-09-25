@@ -1,0 +1,32 @@
+name: contracts-local-dev
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.9.0"
+      - name: TypeSpec and JSON Schema parity
+        run: |
+          mkdir -p artifacts
+          npx -y -p @oresoftware/typespec-json-schema-validator@0.1.1 tjsv check \
+            --typespec=contracts/comparison-domain.tsp \
+            --schema=contracts/comparison-domain.schema.json \
+            --instances=contracts/instances \
+            --report=artifacts/schema-parity.json
+      - name: Generated projection drift
+        run: node scripts/generate-contract-artifacts.mjs --check
+      - name: Project layout conformance
+        run: node conformance/verify-project-layout.mjs
+      - name: Shell syntax
+        run: bash -n scripts/local/*.sh scripts/install-ores-compose.sh

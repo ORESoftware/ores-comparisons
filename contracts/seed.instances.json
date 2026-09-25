@@ -1,0 +1,9 @@
+{
+  "schema": "ores.comparisons.seed/v1",
+  "instances": {
+    "Tenant": [{"tenant_id": "tenant_demo", "slug": "demo", "name": "Comparison Demo", "created_at": "2026-01-01T00:00:00Z"}],
+    "Principal": [{"principal_id": "principal_demo", "tenant_id": "tenant_demo", "email": "demo@example.test", "display_name": "Demo User", "created_at": "2026-01-01T00:00:00Z"}],
+    "WorkItem": [{"work_item_id": "work_demo", "tenant_id": "tenant_demo", "scenario": "http-observability", "status": "queued", "payload": {"data": "seed=true"}, "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}],
+    "AuditEvent": [{"audit_event_id": "audit_demo", "tenant_id": "tenant_demo", "principal_id": "principal_demo", "event_type": "seed.created", "payload": {"data": "source=contracts/seed.instances.json"}, "created_at": "2026-01-01T00:00:00Z"}]
+  }
+}

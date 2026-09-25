@@ -1,0 +1,6 @@
+{
+  "tenant_id": "tenant_demo",
+  "principal_id": "principal_demo",
+  "scenario": "cached-rpc",
+  "payload": {"data": "value=1"}
+}
