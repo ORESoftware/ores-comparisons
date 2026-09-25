@@ -19,4 +19,3 @@ export interface ConversationMessage {
   body: string;
   createdAt: string;
 }
-

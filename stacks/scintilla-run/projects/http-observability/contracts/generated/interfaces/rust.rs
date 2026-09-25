@@ -25,4 +25,3 @@ pub struct RequestObservation {
     pub outcome: Outcome,
     pub createdAt: String,
 }
-

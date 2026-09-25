@@ -32,4 +32,3 @@ message ConversationMessage {
   string body = 4;
   string created_at = 5;
 }
-

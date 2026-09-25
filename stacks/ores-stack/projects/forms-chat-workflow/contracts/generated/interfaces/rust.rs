@@ -50,4 +50,3 @@ pub struct ConversationMessage {
     pub body: String,
     pub createdAt: String,
 }
-

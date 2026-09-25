@@ -22,4 +22,3 @@ pub type RequestObservation {
     createdAt: String
   )
 }
-

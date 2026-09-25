@@ -10,4 +10,3 @@ export interface RequestObservation {
   outcome: Outcome;
   createdAt: string;
 }
-

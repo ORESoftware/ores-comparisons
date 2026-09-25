@@ -18,4 +18,3 @@ message RequestObservation {
   Outcome outcome = 6;
   string created_at = 7;
 }
-

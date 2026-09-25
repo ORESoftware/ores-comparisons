@@ -25,4 +25,3 @@ message CacheEntry {
   string expires_at = 3;
   string created_at = 4;
 }
-

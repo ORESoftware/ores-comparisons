@@ -45,4 +45,3 @@ pub type ConversationMessage {
     createdAt: String
   )
 }
-
