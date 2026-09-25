@@ -238,8 +238,8 @@ def run(base_ref: str) -> list[Finding]:
     base_paths = git_paths(base_ref)
     current_paths = {
         str(path.relative_to(ROOT))
-        for path in ROOT.glob("stacks/*/projects/*/contracts/**/*")
-        if path.is_file()
+        for path in ROOT.rglob(SCHEMA_SUFFIX)
+        if path.is_file() and ".git" not in path.parts
     }
     findings: list[Finding] = []
 
