@@ -1,5 +1,0 @@
-version = 1
-workload = "form-service"
-stack = "scintilla-run"
-execution_model = "container_subprocess"
-routes = ["POST /v1/forms/submit"]

@@ -1,0 +1,11 @@
+{
+  "schema": "ores.comparisons.projection-lock/v1",
+  "proto_package": "ores.comparisons.http_observability.v1",
+  "enums": {"HttpOutcome": {"ok": 0, "client_error": 1, "server_error": 2}},
+  "messages": {
+    "HttpObservation": {"id": 1, "tenant_id": 2, "request_id": 3, "method": 4, "path": 5, "status_code": 6, "duration_ms": 7, "outcome": 8, "created_at": 9},
+    "TelemetrySpan": {"id": 1, "tenant_id": 2, "http_observation_id": 3, "trace_id": 4, "span_name": 5, "duration_ms": 6, "created_at": 7},
+    "RecordObservationRequest": {"tenant_id": 1, "request_id": 2, "method": 3, "path": 4, "status_code": 5, "duration_ms": 6},
+    "RecordObservationResponse": {"observation": 1}
+  }
+}

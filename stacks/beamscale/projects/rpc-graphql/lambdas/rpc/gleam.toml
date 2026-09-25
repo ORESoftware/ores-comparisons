@@ -1,7 +1,0 @@
-name = "comparison_rpc"
-version = "0.1.0"
-target = "erlang"
-
-[dependencies]
-gleam_stdlib = ">= 0.44.0 and < 2.0.0"
-bmscl_sdk = { git = "https://github.com/beamscale/bmscl-pub-lib-core.git", ref = "28f8e4f35c6e153bf0ea6fe0e20123db57297f9c" }

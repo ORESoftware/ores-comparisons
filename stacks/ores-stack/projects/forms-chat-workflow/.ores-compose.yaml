@@ -1,0 +1,16 @@
+schema_version: ores.compose.v1
+project: ores-stack-forms-chat-workflow
+allow_lazy_start: false
+services:
+  postgres:
+    runtime: host
+    command: ["../../../../scripts/local-postgres.sh", "ores-stack-forms-chat-workflow"]
+    healthcheck:
+      command: ["../../../../scripts/local-postgres-health.sh", "ores-stack-forms-chat-workflow"]
+      interval_ms: 1000
+      timeout_ms: 1000
+      retries: 20
+  app:
+    runtime: host
+    command: ["../../../../scripts/dev-project.sh", "ores-stack", "."]
+    depends_on: ["postgres"]

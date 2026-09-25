@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-for workload in form-service realtime-chat rpc-graphql; do
+for workload in http-observability forms-chat-workflow cached-rpc; do
   w="$root/workloads/$workload"
   "$root/scripts/admit-and-generate.sh" "$w"
   witness="$w/generated/typespec-witness/typespec.generated.schema.json"

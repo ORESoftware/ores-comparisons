@@ -1,1 +1,0 @@
-Route-local `page.rs` / `client.rs` files can be added here for MASH/Leptos/Dioxus SSR+WASM rendering. The first comparison keeps the HTTP workload minimal so server-runtime measurements remain attributable.

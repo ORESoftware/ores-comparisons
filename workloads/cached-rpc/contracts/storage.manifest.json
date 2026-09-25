@@ -1,0 +1,7 @@
+{
+  "schema":"ores.comparisons.storage/v1",
+  "tables":[
+    {"model":"RpcMethod","name":"rpc_methods","primary_key":["id"],"column_types":{"id":"UUID","tenant_id":"UUID","created_at":"TIMESTAMPTZ"},"defaults":{"id":"gen_random_uuid()","active":"TRUE","created_at":"CURRENT_TIMESTAMP"},"indexes":[["tenant_id","operation_key"]]},
+    {"model":"RpcCacheEntry","name":"rpc_cache_entries","primary_key":["id"],"column_types":{"id":"UUID","tenant_id":"UUID","rpc_method_id":"UUID","expires_at":"TIMESTAMPTZ","created_at":"TIMESTAMPTZ"},"defaults":{"id":"gen_random_uuid()","state":"'fresh'","expires_at":"CURRENT_TIMESTAMP + INTERVAL '5 minutes'","revision":"1","created_at":"CURRENT_TIMESTAMP"},"foreign_keys":[{"column":"rpc_method_id","references_table":"rpc_methods","references_column":"id"}],"indexes":[["tenant_id","cache_key"],["rpc_method_id","expires_at"]]}
+  ]
+}

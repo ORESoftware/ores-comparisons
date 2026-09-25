@@ -1,0 +1,10 @@
+{
+  "schema":"ores.comparisons.projection-lock/v1","proto_package":"ores.comparisons.cached_rpc.v1",
+  "enums":{"CacheState":{"fresh":0,"stale":1,"bypassed":2}},
+  "messages":{
+    "RpcMethod":{"id":1,"tenant_id":2,"operation_key":3,"transport":4,"active":5,"created_at":6},
+    "RpcCacheEntry":{"id":1,"tenant_id":2,"rpc_method_id":3,"cache_key":4,"response_json":5,"state":6,"expires_at":7,"revision":8,"created_at":9},
+    "InvokeCachedRpcRequest":{"tenant_id":1,"operation_key":2,"cache_key":3,"request_json":4},
+    "InvokeCachedRpcResponse":{"entry":1}
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema":"ores.comparisons.projection-lock/v1","proto_package":"ores.comparisons.forms_chat_workflow.v1",
+  "enums":{"WorkflowStatus":{"draft":0,"awaiting_message":1,"completed":2},"WorkflowMessageKind":{"text":0,"system":1}},
+  "messages":{
+    "WorkflowRun":{"id":1,"tenant_id":2,"form_key":3,"status":4,"revision":5,"created_at":6},
+    "FormResponse":{"id":1,"tenant_id":2,"workflow_run_id":3,"response_json":4,"created_at":5},
+    "WorkflowMessage":{"id":1,"tenant_id":2,"workflow_run_id":3,"sender_id":4,"kind":5,"body":6,"sequence":7,"created_at":8},
+    "AdvanceWorkflowRequest":{"tenant_id":1,"workflow_run_id":2,"response_json":3,"message_body":4},
+    "AdvanceWorkflowResponse":{"run":1}
+  }
+}

@@ -1,3 +1,12 @@
 # ORES Stack comparison projects
 
-Three matched Rust/WASM-first workloads. Each project uses `.ores-stack.toml`, an `api-docs` route-map boundary, and a standalone Rust server build so route/RPC/GraphQL generation can be compared against BeamScale and Scintilla without changing the application goal.
+These are native Rust/Axum projects driven by `ores-stack` and the canonical
+`ORESoftware/api-docs` page/route contract. Each project uses the actual
+api-docs Cargo build bridge and generated `ORES_PAGES_RS` router.
+
+- `http-observability` — middleware/telemetry-focused native server.
+- `forms-chat-workflow` — forms/sync/chat/conversation surface.
+- `cached-rpc` — api-docs RPC identity + Redis/LRU cache port.
+
+Use `ores-stack check`, `ores-stack routes`, `ores-stack build`, and
+`ores-stack dev`.

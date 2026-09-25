@@ -1,5 +1,0 @@
-version = 1
-workload = "rpc-graphql"
-stack = "scintilla-run"
-execution_model = "container_subprocess"
-routes = ["POST /rpc", "POST /graphql"]

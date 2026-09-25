@@ -1,5 +1,0 @@
-version = 1
-workload = "rpc-graphql"
-stack = "ores-stack"
-execution_model = "rust_standalone_server"
-routes = ["POST /rpc", "POST /graphql"]

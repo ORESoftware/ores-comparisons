@@ -1,0 +1,22 @@
+version = 1
+stack = "beamscale"
+scenario = "http-observability"
+integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
+
+[commands]
+dev = "bmscl dev ."
+build = "bmscl build . --out-dir ./dist --policy ./bmscl-policy.toml --worker-config ./.ores-lambda.toml"
+deploy = "bmscl deploy ./dist --project comparison-http-observability --environment dev --dry-run"
+
+[integration_adapters]
+ores_otel = "ctx.log -> ores-otel host bridge"
+ores_forms = "trusted same-cluster/platform adapter"
+opto_sync = "trusted same-cluster/platform adapter"
+ores_chat = "trusted same-cluster/platform adapter"
+ores_convo = "trusted same-cluster/platform adapter"
+ores_rate_limit = "ores-middleware host stage"
+ores_middleware = "host-owned middleware"
+ores_redis_lru_cache = "trusted cache adapter"
+api_docs = "api-docs operation contract"
+ores_sops_legacy = "sops-age-dotenv"
+ores_sops_org = "sops-age-dotenv-org-target"

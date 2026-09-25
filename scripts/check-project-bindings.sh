@@ -4,7 +4,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 expected_rev="$(jq -r '.ores_compose.rev' "$root/toolchain.lock.json")"
 bin="${ORES_COMPOSE_BIN:-$root/.tools/ores-compose/bin/ores-compose}"
 for stack in beamscale scintilla-run ores-stack; do
-  for workload in form-service realtime-chat rpc-graphql; do
+  for workload in http-observability forms-chat-workflow cached-rpc; do
     p="$root/stacks/$stack/projects/$workload"
     binding="$p/contracts/contract-set.json"
     test "$(jq -r '.workload' "$binding")" = "$workload"

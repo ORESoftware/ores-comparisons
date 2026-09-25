@@ -1,0 +1,16 @@
+schema_version: ores.compose.v1
+project: beamscale-cached-rpc
+allow_lazy_start: false
+services:
+  postgres:
+    runtime: host
+    command: ["../../../../scripts/local-postgres.sh", "beamscale-cached-rpc"]
+    healthcheck:
+      command: ["../../../../scripts/local-postgres-health.sh", "beamscale-cached-rpc"]
+      interval_ms: 1000
+      timeout_ms: 1000
+      retries: 20
+  app:
+    runtime: host
+    command: ["../../../../scripts/dev-project.sh", "beamscale", "."]
+    depends_on: ["postgres"]

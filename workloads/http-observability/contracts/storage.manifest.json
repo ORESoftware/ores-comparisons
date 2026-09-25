@@ -1,0 +1,22 @@
+{
+  "schema": "ores.comparisons.storage/v1",
+  "tables": [
+    {
+      "model": "HttpObservation",
+      "name": "http_observations",
+      "primary_key": ["id"],
+      "column_types": {"id": "UUID", "tenant_id": "UUID", "created_at": "TIMESTAMPTZ"},
+      "defaults": {"id": "gen_random_uuid()", "created_at": "CURRENT_TIMESTAMP"},
+      "indexes": [["tenant_id", "created_at"], ["request_id"]]
+    },
+    {
+      "model": "TelemetrySpan",
+      "name": "telemetry_spans",
+      "primary_key": ["id"],
+      "column_types": {"id": "UUID", "tenant_id": "UUID", "http_observation_id": "UUID", "created_at": "TIMESTAMPTZ"},
+      "defaults": {"id": "gen_random_uuid()", "created_at": "CURRENT_TIMESTAMP"},
+      "foreign_keys": [{"column": "http_observation_id", "references_table": "http_observations", "references_column": "id"}],
+      "indexes": [["tenant_id", "trace_id"], ["http_observation_id"]]
+    }
+  ]
+}

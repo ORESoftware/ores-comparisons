@@ -1,3 +1,0 @@
-registry = "../../../../integrations/registry.toml"
-required = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_cli", "ores_sops_org"]
-primary = ["ores_forms", "opto_sync"]
