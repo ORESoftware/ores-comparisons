@@ -1,0 +1,40 @@
+{
+  "schema": "ores.comparisons.github-org/v1",
+  "organization": "scintilla-run-cached-rpc",
+  "stack": "scintilla-run",
+  "scenario": "cached-rpc",
+  "repositories": [
+    {
+      "name": ".github",
+      "path": ".github",
+      "kind": "governance",
+      "dependsOn": []
+    },
+    {
+      "name": "app",
+      "path": "app",
+      "kind": "application",
+      "dependsOn": [
+        ".github"
+      ]
+    },
+    {
+      "name": "sdk-typescript",
+      "path": "sdk-typescript",
+      "kind": "generated-sdk",
+      "dependsOn": [
+        ".github"
+      ],
+      "generatedFrom": ".github/contracts/generated/interfaces/typescript.ts"
+    },
+    {
+      "name": "contract-tests",
+      "path": "contract-tests",
+      "kind": "contract-tests",
+      "dependsOn": [
+        ".github",
+        "app"
+      ]
+    }
+  ]
+}
