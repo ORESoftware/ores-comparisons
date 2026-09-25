@@ -4,9 +4,9 @@ scenario = "cached-rpc"
 integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
 
 [commands]
-dev = "cd repos/app && ores-stack dev"
-build = "cd repos/app && ores-stack check && ores-stack build"
-deploy = "cd repos/app && ores-stack build # hand resulting immutable package to the selected deployment target"
+dev = "cd ../app && ores-stack dev"
+build = "cd ../app && ores-stack check && ores-stack build"
+deploy = "cd ../app && ores-stack build # hand resulting immutable package to the selected deployment target"
 
 [integration_adapters]
 ores_otel = "ores-middleware/ores-otel port"

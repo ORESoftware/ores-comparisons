@@ -4,10 +4,10 @@ scenario = "big-org-example-commerce"
 integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
 
 [commands]
-dev = "cd repos/app && SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once"
-build = "cd repos/app && scintilla build --project . --out-dir .scintilla"
-verify = "cd repos/app && scintilla deploy --project . --out-dir .scintilla --dry-run"
-deploy = "cd repos/app && scintilla deploy --project . --out-dir .scintilla"
+dev = "cd ../app && SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once"
+build = "cd ../app && scintilla build --project . --out-dir .scintilla"
+verify = "cd ../app && scintilla deploy --project . --out-dir .scintilla --dry-run"
+deploy = "cd ../app && scintilla deploy --project . --out-dir .scintilla"
 
 [contracts]
 typespec = "contracts/typespec/main.tsp"

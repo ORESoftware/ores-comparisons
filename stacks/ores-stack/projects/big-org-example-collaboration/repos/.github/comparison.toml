@@ -4,15 +4,15 @@ scenario = "big-org-example-collaboration"
 integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
 
 [commands]
-dev = "cd repos/app && ores-stack dev"
-build = "cd repos/app && ores-stack check && ores-stack build"
-serve = "cd repos/app && cargo run --release --locked"
-deploy = "cd repos/app && ores-stack build # hand immutable server/lambda package to the selected deployment target"
+dev = "cd ../app && ores-stack dev"
+build = "cd ../app && ores-stack check && ores-stack build"
+serve = "cd ../app && cargo run --release --locked"
+deploy = "cd ../app && ores-stack build # hand immutable server/lambda package to the selected deployment target"
 
 [contracts]
 typespec = "contracts/typespec/main.tsp"
 json_schema = "contracts/json-schema/domain.schema.json"
-route_map = "repos/app/contracts/service.route-map.json"
+route_map = "../app/contracts/service.route-map.json"
 rpc_projection = "api-docs v1 unary + RIDL-compatible semantic operation identities"
 graphql_projection = "api-docs GraphQL resolver projection at /v1/graphql"
 
