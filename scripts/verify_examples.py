@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+import re
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,8 +93,8 @@ for f in ROOT.rglob("*"):
             text = f.read_text()
         except UnicodeDecodeError:
             continue
-        if "AGE-SECRET-KEY-" in text:
-            errors.append(f"private age identity marker committed in {f.relative_to(ROOT)}")
+        if re.search(r"AGE-SECRET-KEY-1[0-9A-Z]{40,}", text):
+            errors.append(f"private age identity committed in {f.relative_to(ROOT)}")
 
 if errors:
     print("comparison verification FAILED")
