@@ -9,6 +9,9 @@ language = "mixed"
 "oresoftware/ores-compose" = "=0.1.0"
 "oresoftware/typespec-json-schema-validator" = "=0.1.1"
 
+[interop.git]
+consume_gitmodules = true
+
 [targets.contracts]
 dir = "shared"
 name = "ores-comparisons-contracts"
@@ -20,4 +23,4 @@ name = "ores-comparisons-conformance"
 adapter = "none"
 
 [scripts]
-test = "python3 scripts/verify_examples.py && python3 scripts/verify_toolchain_pins.py && bash conformance/check-all.sh"
+test = "python3 scripts/verify_examples.py && python3 scripts/verify_dummy_org_map.py && python3 scripts/verify_toolchain_pins.py && bash conformance/check-all.sh"

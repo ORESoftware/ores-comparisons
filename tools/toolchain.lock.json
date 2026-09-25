@@ -1,6 +1,12 @@
 {
   "schema": "ores.comparisons.toolchain-lock/v1",
   "tools": {
+    "zed-cli": {
+      "package": "zed-pkg/zed-cli",
+      "version": "0.3.0",
+      "repository": "https://github.com/zed-pkg/zed-cli",
+      "commit": "17412050a0f4c4f963008f0de9abf3651d42af08"
+    },
     "ores-compose": {
       "package": "oresoftware/ores-compose",
       "version": "0.1.0",

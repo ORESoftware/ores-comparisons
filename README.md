@@ -213,6 +213,35 @@ as `repos/app/`. CI rejects shared files in the project envelope and rejects
 arbitrary files directly in `repos/`.
 
 
+## Dummy organizations and Git submodules
+
+The six comparison scenarios map one-to-one onto `ores-dummy-org-1` through
+`ores-dummy-org-6`. The governed mapping, repository sets, and per-stack
+branch names live in `shared/dummy-org-map.json`.
+
+Each component keeps one stable GitHub repository identity while its three
+stack implementations live on `stack/beamscale`, `stack/ores-stack`, and
+`stack/scintilla-run`. After cutover, every repository child under
+`stacks/<stack>/projects/<scenario>/repos/` (including `.github`) is a git
+submodule; only `repos/readme.md` remains owned directly by this
+superproject.
+
+Zed is the supported synchronization path. The root manifest declares
+`[interop.git].consume_gitmodules = true`, and the exact `zed-cli` revision
+is pinned in `tools/toolchain.lock.json`.
+
+```sh
+just dummy-org-plan
+just dummy-org-materialize
+just submodules-sync
+just submodules-status
+just submodules-verify
+```
+
+See `docs/DUMMY-ORG-SUBMODULES.md` for the branch model, migration safety
+rules, fresh-clone flow, and private-repository CI requirements.
+
+
 ## Governed multi-repo topology
 
 Every project now materializes at least four sibling repositories:

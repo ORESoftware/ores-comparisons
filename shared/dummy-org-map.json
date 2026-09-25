@@ -1,0 +1,34 @@
+{
+  "schema": "ores.comparisons.dummy-org-map/v1",
+  "stacks": {
+    "beamscale": {"branch": "stack/beamscale"},
+    "ores-stack": {"branch": "stack/ores-stack"},
+    "scintilla-run": {"branch": "stack/scintilla-run"}
+  },
+  "projects": {
+    "big-org-example-collaboration": {
+      "org": "ores-dummy-org-1",
+      "repos": [".github", "app", "contract-tests", "message-worker", "presence-service", "sdk-typescript", "workspace-web"]
+    },
+    "big-org-example-commerce": {
+      "org": "ores-dummy-org-2",
+      "repos": [".github", "app", "catalog-service", "contract-tests", "orders-worker", "sdk-typescript", "storefront-web"]
+    },
+    "big-org-example-operations": {
+      "org": "ores-dummy-org-3",
+      "repos": [".github", "app", "automation-worker", "contract-tests", "ingest-service", "ops-console", "sdk-typescript"]
+    },
+    "cached-rpc": {
+      "org": "ores-dummy-org-4",
+      "repos": [".github", "app", "contract-tests", "sdk-typescript"]
+    },
+    "forms-chat-workflow": {
+      "org": "ores-dummy-org-5",
+      "repos": [".github", "app", "contract-tests", "sdk-typescript"]
+    },
+    "http-observability": {
+      "org": "ores-dummy-org-6",
+      "repos": [".github", "app", "contract-tests", "sdk-typescript"]
+    }
+  }
+}
