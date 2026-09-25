@@ -17,7 +17,8 @@
       "enum": [
         "http-observability",
         "forms-chat-workflow",
-        "cached-rpc"
+        "cached-rpc",
+        "big-org-example"
       ]
     },
     "SqlType": {
@@ -36,24 +37,12 @@
       "$id": "ColumnProjection",
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "source": {
-          "type": "string"
-        },
-        "sql_type": {
-          "$ref": "SqlType"
-        },
-        "nullable": {
-          "type": "boolean"
-        }
+        "name": {"type": "string"},
+        "source": {"type": "string"},
+        "sql_type": {"$ref": "SqlType"},
+        "nullable": {"type": "boolean"}
       },
-      "required": [
-        "name",
-        "source",
-        "sql_type"
-      ],
+      "required": ["name", "source", "sql_type"],
       "unevaluatedProperties": false
     },
     "TableProjection": {
@@ -61,28 +50,12 @@
       "$id": "TableProjection",
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "primary_key": {
-          "type": "string"
-        },
-        "columns": {
-          "type": "array",
-          "items": {
-            "$ref": "ColumnProjection"
-          }
-        }
+        "name": {"type": "string"},
+        "model": {"type": "string"},
+        "primary_key": {"type": "string"},
+        "columns": {"type": "array", "items": {"$ref": "ColumnProjection"}}
       },
-      "required": [
-        "name",
-        "model",
-        "primary_key",
-        "columns"
-      ],
+      "required": ["name", "model", "primary_key", "columns"],
       "unevaluatedProperties": false
     },
     "SeedProjection": {
@@ -90,18 +63,10 @@
       "$id": "SeedProjection",
       "type": "object",
       "properties": {
-        "table": {
-          "type": "string"
-        },
-        "rows": {
-          "type": "array",
-          "items": {}
-        }
+        "table": {"type": "string"},
+        "rows": {"type": "array", "items": {}}
       },
-      "required": [
-        "table",
-        "rows"
-      ],
+      "required": ["table", "rows"],
       "unevaluatedProperties": false
     },
     "ProtoFieldProjection": {
@@ -109,21 +74,11 @@
       "$id": "ProtoFieldProjection",
       "type": "object",
       "properties": {
-        "type": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "number": {
-          "type": "integer"
-        }
+        "type": {"type": "string"},
+        "name": {"type": "string"},
+        "number": {"type": "integer"}
       },
-      "required": [
-        "type",
-        "name",
-        "number"
-      ],
+      "required": ["type", "name", "number"],
       "unevaluatedProperties": false
     },
     "ProtoMessageProjection": {
@@ -131,20 +86,10 @@
       "$id": "ProtoMessageProjection",
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "fields": {
-          "type": "array",
-          "items": {
-            "$ref": "ProtoFieldProjection"
-          }
-        }
+        "name": {"type": "string"},
+        "fields": {"type": "array", "items": {"$ref": "ProtoFieldProjection"}}
       },
-      "required": [
-        "name",
-        "fields"
-      ],
+      "required": ["name", "fields"],
       "unevaluatedProperties": false
     },
     "ProtoRpcProjection": {
@@ -152,21 +97,11 @@
       "$id": "ProtoRpcProjection",
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "request": {
-          "type": "string"
-        },
-        "response": {
-          "type": "string"
-        }
+        "name": {"type": "string"},
+        "request": {"type": "string"},
+        "response": {"type": "string"}
       },
-      "required": [
-        "name",
-        "request",
-        "response"
-      ],
+      "required": ["name", "request", "response"],
       "unevaluatedProperties": false
     },
     "ProtoProjection": {
@@ -174,45 +109,20 @@
       "$id": "ProtoProjection",
       "type": "object",
       "properties": {
-        "package": {
-          "type": "string"
-        },
-        "service": {
-          "type": "string"
-        },
-        "messages": {
-          "type": "array",
-          "items": {
-            "$ref": "ProtoMessageProjection"
-          }
-        },
-        "rpcs": {
-          "type": "array",
-          "items": {
-            "$ref": "ProtoRpcProjection"
-          }
-        }
+        "package": {"type": "string"},
+        "service": {"type": "string"},
+        "messages": {"type": "array", "items": {"$ref": "ProtoMessageProjection"}},
+        "rpcs": {"type": "array", "items": {"$ref": "ProtoRpcProjection"}}
       },
-      "required": [
-        "package",
-        "service",
-        "messages",
-        "rpcs"
-      ],
+      "required": ["package", "service", "messages", "rpcs"],
       "unevaluatedProperties": false
     },
     "InterfaceProjection": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$id": "InterfaceProjection",
       "type": "object",
-      "properties": {
-        "model": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "model"
-      ],
+      "properties": {"model": {"type": "string"}},
+      "required": ["model"],
       "unevaluatedProperties": false
     },
     "ProjectionContract": {
@@ -220,42 +130,14 @@
       "$id": "ProjectionContract",
       "type": "object",
       "properties": {
-        "schema": {
-          "$ref": "ProjectionSchema"
-        },
-        "scenario": {
-          "$ref": "ProjectionScenario"
-        },
-        "tables": {
-          "type": "array",
-          "items": {
-            "$ref": "TableProjection"
-          }
-        },
-        "seed": {
-          "type": "array",
-          "items": {
-            "$ref": "SeedProjection"
-          }
-        },
-        "proto": {
-          "$ref": "ProtoProjection"
-        },
-        "interfaces": {
-          "type": "array",
-          "items": {
-            "$ref": "InterfaceProjection"
-          }
-        }
+        "schema": {"$ref": "ProjectionSchema"},
+        "scenario": {"$ref": "ProjectionScenario"},
+        "tables": {"type": "array", "items": {"$ref": "TableProjection"}},
+        "seed": {"type": "array", "items": {"$ref": "SeedProjection"}},
+        "proto": {"$ref": "ProtoProjection"},
+        "interfaces": {"type": "array", "items": {"$ref": "InterfaceProjection"}}
       },
-      "required": [
-        "schema",
-        "scenario",
-        "tables",
-        "seed",
-        "proto",
-        "interfaces"
-      ],
+      "required": ["schema", "scenario", "tables", "seed", "proto", "interfaces"],
       "unevaluatedProperties": false
     }
   }
