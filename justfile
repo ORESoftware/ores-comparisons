@@ -23,3 +23,15 @@ compose-plan project:
 
 compose-up project:
     ./.local/bin/ores-compose up "{{project}}/.ores-compose.yaml"
+
+smoke-check:
+    python3 scripts/smoke_projects.py --check
+
+smoke-execute:
+    python3 scripts/smoke_projects.py --execute
+
+benchmark stack scenario url:
+    python3 scripts/run_benchmark.py --stack "{{stack}}" --scenario "{{scenario}}" --url "{{url}}"
+
+benchmark-matrix:
+    python3 scripts/render_benchmark_matrix.py
