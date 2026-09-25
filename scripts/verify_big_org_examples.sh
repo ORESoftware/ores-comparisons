@@ -21,12 +21,12 @@ for id in "${ids[@]}"; do
 done
 
 for stack in "${stacks[@]}"; do
-  [[ -f "stacks/$stack/repos/README.md" ]] || fail "$stack missing repos/ source snapshot guidance"
+  [[ ! -e "stacks/$stack/repos" ]] || fail "stacks/$stack/repos is forbidden; repos/ belongs inside each project"
 
   for project in "${projects[@]}"; do
     root="stacks/$stack/projects/$project"
     [[ -d "$root" ]] || fail "missing $root"
-    for rel in README.md comparison.toml .sops.yaml .env.example env/enc/README.md env/dec/.gitignore; do
+    for rel in README.md comparison.toml .sops.yaml .env.example env/enc/README.md env/dec/.gitignore repos/readme.md; do
       [[ -f "$root/$rel" ]] || fail "$root missing $rel"
     done
 
@@ -42,6 +42,12 @@ for stack in "${stacks[@]}"; do
 
     tracked_dec=$(git ls-files "$root/env/dec" | grep -v '/\.gitignore$' || true)
     [[ -z "$tracked_dec" ]] || fail "$root tracks decrypted env material: $tracked_dec"
+
+    while IFS=$'\t' read -r meta path; do
+      mode=${meta%% *}
+      [[ "$mode" != "160000" ]] || [[ "$path" == "$root/repos/"* ]] \
+        || fail "submodule $path for $root is outside project-owned repos/"
+    done < <(git ls-files --stage "$root")
 
     case "$stack" in
       beamscale)
@@ -83,4 +89,4 @@ if git grep -nE 'AGE-SECRET-KEY-1[0-9A-Z]{40,}' -- . ':!*.md' >/dev/null 2>&1; t
   fail "private age identity appears to be committed"
 fi
 
-echo "big-org verification OK: 3 stacks x 3 projects, 11 integrations each"
+echo "big-org verification OK: 3 stacks x 3 projects, project-owned repos/, 11 integrations each"
