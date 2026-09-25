@@ -1,8 +1,9 @@
 {
   "schema": "ores.comparisons.toolchain-lock/v1",
   "typespec_json_schema_validator": {
-    "package": "@oresoftware/typespec-json-schema-validator",
-    "version": "0.1.1",
+    "repository": "https://github.com/ORESoftware/typespec-json-schema-validator.git",
+    "rev": "e29a91d7ef74e3b0613ea79e988bec4c467535d2",
+    "package_version": "0.1.1",
     "typespec_version": "1.16.0"
   },
   "ores_compose": {
