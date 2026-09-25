@@ -1,0 +1,16 @@
+{
+  "schema": "ores.comparisons.repo-contract/v1",
+  "name": "storefront-web",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-commerce",
+  "kind": "frontend",
+  "contractAuthority": "../.github/contracts/json-schema/domain.schema.json",
+  "generatedSdk": "../sdk-typescript",
+  "ownership": {
+    "governanceRepo": "../.github"
+  },
+  "local": {
+    "healthPath": "/healthz",
+    "logicalRoute": "/v1/storefront"
+  }
+}

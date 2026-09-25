@@ -1,0 +1,16 @@
+{
+  "schema": "ores.comparisons.repo-contract/v1",
+  "name": "presence-service",
+  "stack": "scintilla-run",
+  "scenario": "big-org-example-collaboration",
+  "kind": "service",
+  "contractAuthority": "../.github/contracts/json-schema/domain.schema.json",
+  "generatedSdk": "../sdk-typescript",
+  "ownership": {
+    "governanceRepo": "../.github"
+  },
+  "local": {
+    "healthPath": "/healthz",
+    "logicalRoute": "/v1/presence"
+  }
+}

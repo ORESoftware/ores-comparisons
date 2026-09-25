@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "operationId": "storefront_web_health",
+      "method": "GET",
+      "path": "/healthz"
+    },
+    {
+      "operationId": "storefront_web_work",
+      "method": "POST",
+      "path": "/v1/storefront"
+    }
+  ]
+}

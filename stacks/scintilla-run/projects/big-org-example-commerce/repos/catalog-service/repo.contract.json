@@ -1,0 +1,16 @@
+{
+  "schema": "ores.comparisons.repo-contract/v1",
+  "name": "catalog-service",
+  "stack": "scintilla-run",
+  "scenario": "big-org-example-commerce",
+  "kind": "service",
+  "contractAuthority": "../.github/contracts/json-schema/domain.schema.json",
+  "generatedSdk": "../sdk-typescript",
+  "ownership": {
+    "governanceRepo": "../.github"
+  },
+  "local": {
+    "healthPath": "/healthz",
+    "logicalRoute": "/v1/catalog"
+  }
+}

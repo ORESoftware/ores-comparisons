@@ -1,0 +1,3 @@
+name = "big_org_example_collaboration_workspace_web"
+version = "0.1.0"
+target = "erlang"

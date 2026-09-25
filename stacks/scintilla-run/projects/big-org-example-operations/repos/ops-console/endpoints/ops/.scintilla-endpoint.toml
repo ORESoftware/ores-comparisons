@@ -1,0 +1,10 @@
+version = 1
+slug = "big-org-example-operations-ops"
+display_name = "ops-console"
+path = "/v1/ops"
+method = "POST"
+response = "json"
+runtime = "nodejs"
+entrypoint = "lambda.mjs"
+containerized = true
+max_run_ms = 30000

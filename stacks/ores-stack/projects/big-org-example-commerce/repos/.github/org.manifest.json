@@ -11,14 +11,6 @@
       "dependsOn": []
     },
     {
-      "name": "app",
-      "path": "app",
-      "kind": "application",
-      "dependsOn": [
-        ".github"
-      ]
-    },
-    {
       "name": "sdk-typescript",
       "path": "sdk-typescript",
       "kind": "generated-sdk",
@@ -28,12 +20,54 @@
       "generatedFrom": ".github/contracts/generated/interfaces/typescript.ts"
     },
     {
+      "name": "catalog-service",
+      "path": "catalog-service",
+      "kind": "service",
+      "dependsOn": [
+        ".github",
+        "sdk-typescript"
+      ]
+    },
+    {
+      "name": "orders-worker",
+      "path": "orders-worker",
+      "kind": "worker",
+      "dependsOn": [
+        ".github",
+        "catalog-service"
+      ]
+    },
+    {
+      "name": "storefront-web",
+      "path": "storefront-web",
+      "kind": "frontend",
+      "dependsOn": [
+        ".github",
+        "sdk-typescript",
+        "catalog-service"
+      ]
+    },
+    {
+      "name": "app",
+      "path": "app",
+      "kind": "application",
+      "dependsOn": [
+        ".github",
+        "catalog-service",
+        "orders-worker",
+        "storefront-web"
+      ]
+    },
+    {
       "name": "contract-tests",
       "path": "contract-tests",
       "kind": "contract-tests",
       "dependsOn": [
         ".github",
-        "app"
+        "app",
+        "catalog-service",
+        "orders-worker",
+        "storefront-web"
       ]
     }
   ]

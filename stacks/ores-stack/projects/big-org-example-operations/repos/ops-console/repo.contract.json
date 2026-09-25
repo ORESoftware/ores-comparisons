@@ -1,0 +1,16 @@
+{
+  "schema": "ores.comparisons.repo-contract/v1",
+  "name": "ops-console",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-operations",
+  "kind": "frontend",
+  "contractAuthority": "../.github/contracts/json-schema/domain.schema.json",
+  "generatedSdk": "../sdk-typescript",
+  "ownership": {
+    "governanceRepo": "../.github"
+  },
+  "local": {
+    "healthPath": "/healthz",
+    "logicalRoute": "/v1/ops"
+  }
+}
