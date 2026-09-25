@@ -18,8 +18,8 @@
         "request_id": {"type": "string"},
         "method": {"type": "string"},
         "path": {"type": "string"},
-        "status_code": {"type": "integer"},
-        "duration_ms": {"type": "integer"},
+        "status_code": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+        "duration_ms": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
         "outcome": {"$ref": "HttpOutcome"},
         "created_at": {"type": "string"}
       },
@@ -36,7 +36,7 @@
         "http_observation_id": {"type": "string"},
         "trace_id": {"type": "string"},
         "span_name": {"type": "string"},
-        "duration_ms": {"type": "integer"},
+        "duration_ms": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
         "created_at": {"type": "string"}
       },
       "required": ["id", "tenant_id", "http_observation_id", "trace_id", "span_name", "duration_ms", "created_at"],
@@ -51,8 +51,8 @@
         "request_id": {"type": "string"},
         "method": {"type": "string"},
         "path": {"type": "string"},
-        "status_code": {"type": "integer"},
-        "duration_ms": {"type": "integer"}
+        "status_code": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+        "duration_ms": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}
       },
       "required": ["tenant_id", "request_id", "method", "path", "status_code", "duration_ms"],
       "unevaluatedProperties": false
