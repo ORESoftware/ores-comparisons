@@ -41,3 +41,6 @@ generated-interfaces-check:
 
 postgres-contract-check:
     python3 scripts/verify_postgres_contracts.py
+
+projection-contract-check:
+    python3 scripts/verify_projection_contract.py

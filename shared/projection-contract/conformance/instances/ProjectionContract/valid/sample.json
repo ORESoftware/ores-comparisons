@@ -1,0 +1,21 @@
+{
+  "schema": "ores.comparisons.projection/v1",
+  "scenario": "http-observability",
+  "tables": [{
+    "name": "request_observations",
+    "model": "RequestObservation",
+    "primary_key": "id",
+    "columns": [
+      {"name":"id","source":"id","sql_type":"TEXT"},
+      {"name":"outcome","source":"outcome","sql_type":"TEXT"}
+    ]
+  }],
+  "seed": [{"table":"request_observations","rows":[{"id":"obs-1","outcome":"ok"}]}],
+  "proto": {
+    "package":"ores.comparisons.http.v1",
+    "service":"HttpComparisonService",
+    "messages":[{"name":"ObservationRequest","fields":[{"type":"string","name":"request_id","number":1}]}],
+    "rpcs":[{"name":"GetObservation","request":"ObservationRequest","response":"ObservationRequest"}]
+  },
+  "interfaces":[{"model":"RequestObservation"}]
+}
