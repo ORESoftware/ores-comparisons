@@ -3,8 +3,10 @@ set -euo pipefail
 
 project=${1:?usage: materialize-env.sh <project-dir> [environment]}
 environment=${2:-dev}
-enc="$project/env/enc/$environment.env.yaml"
-dec="$project/env/dec/$environment.env"
+project_name=$(basename "$project")
+stack_root=$(dirname "$(dirname "$project")")
+enc="$stack_root/env/enc/$environment.env.yaml"
+dec="$stack_root/env/dec/$project_name.$environment.env"
 
 if [[ ! -f "$enc" ]]; then
   echo "missing encrypted environment: $enc" >&2
