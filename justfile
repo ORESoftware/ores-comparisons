@@ -44,3 +44,6 @@ postgres-contract-check:
 
 projection-contract-check:
     python3 scripts/verify_projection_contract.py
+
+compatibility base="main":
+    python3 scripts/verify_contract_compatibility.py --base-ref "{{base}}" --receipt artifacts/contract-compatibility.json
