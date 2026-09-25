@@ -54,6 +54,34 @@ def safe(value: str) -> str:
         raise ValueError(f"unsafe SQL identifier {value!r}")
     return value
 
+def sql_literal(value) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, int):
+        return str(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+def constraint_name(table: str, column: str) -> str:
+    value = f"ck_{table}_{column}_enum"
+    if len(value.encode("utf-8")) > 63:
+        raise ValueError(f"constraint name exceeds PostgreSQL limit: {value}")
+    return safe(value)
+
+def psql_should_fail(database: str, sql: str) -> bool:
+    env = BASE_ENV.copy()
+    env["PGDATABASE"] = database
+    result = subprocess.run(
+        ["psql", "-v", "ON_ERROR_STOP=1", "-c", sql],
+        env=env,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return result.returncode != 0
+
 def database_name(project: Path) -> str:
     stack = project.parents[1].name.replace("-", "_")
     scenario = project.name.replace("-", "_")
@@ -64,26 +92,41 @@ errors: list[str] = []
 for project in PROJECTS:
     db = database_name(project)
     projection = json.loads((project / "contracts/projection.json").read_text())
-    migration = project / "contracts/generated/sql/001_init.sql"
+    schema = json.loads((project / "contracts/json-schema/domain.schema.json").read_text())
+    defs = schema.get("$defs", {})
+    migrations = [
+        project / "contracts/generated/sql/001_init.sql",
+        project / "contracts/generated/sql/010_domain_constraints.sql",
+    ]
     seed = project / "contracts/generated/sql/002_seed.sql"
 
     try:
         run(["dropdb", "--if-exists", db])
         run(["createdb", db])
 
-        # Run both lanes twice: the contract promises idempotent developer startup.
+        # Run the complete migration set twice: dev startup must be idempotent
+        # even when a previously-created local database already exists.
         for _ in range(2):
-            run(["psql", "-v", "ON_ERROR_STOP=1", "-f", str(migration)], database=db)
+            for migration in migrations:
+                run(["psql", "-v", "ON_ERROR_STOP=1", "-f", str(migration)], database=db)
         for _ in range(2):
             run(["psql", "-v", "ON_ERROR_STOP=1", "-f", str(seed)], database=db)
 
         seeded = defaultdict(int)
+        seed_rows: dict[str, list[dict]] = defaultdict(list)
         for item in projection.get("seed", []):
-            seeded[safe(item["table"])] += len(item.get("rows", []))
+            table = safe(item["table"])
+            rows = item.get("rows", [])
+            seeded[table] += len(rows)
+            seed_rows[table].extend(rows)
 
         for table in projection["tables"]:
             table_name = safe(table["name"])
             expected_columns = []
+            enum_columns: list[tuple[str, list]] = []
+            model = table["model"]
+            model_schema = defs.get(model, {})
+            properties = model_schema.get("properties", {})
             for col in table["columns"]:
                 name = safe(col["name"])
                 sql_type = col["sql_type"]
@@ -92,6 +135,13 @@ for project in PROJECTS:
                 expected_columns.append(
                     (name, TYPE_MAP[sql_type], "YES" if col.get("nullable", False) else "NO")
                 )
+                field = properties.get(col["source"], {})
+                ref = field.get("$ref")
+                if ref:
+                    target = ref.rsplit("/", 1)[-1]
+                    values = defs.get(target, {}).get("enum")
+                    if values is not None:
+                        enum_columns.append((name, values))
 
             rows = psql(
                 db,
@@ -123,6 +173,51 @@ for project in PROJECTS:
                     f"{table_name} primary-key drift: expected={expected_pk!r} actual={pk_rows!r}"
                 )
 
+            actual_checks = set(
+                psql(
+                    db,
+                    "SELECT conname FROM pg_constraint "
+                    f"WHERE conrelid='public.{table_name}'::regclass AND contype='c' "
+                    "ORDER BY conname",
+                )
+            )
+            expected_checks = {
+                constraint_name(table_name, column)
+                for column, _ in enum_columns
+            }
+            missing_checks = expected_checks - actual_checks
+            if missing_checks:
+                raise AssertionError(
+                    f"{table_name} missing generated domain constraints: {sorted(missing_checks)}"
+                )
+
+            for column, values in enum_columns:
+                if not seed_rows.get(table_name):
+                    raise AssertionError(
+                        f"{table_name}.{column} needs a seed fixture for rejection evidence"
+                    )
+                invalid = dict(seed_rows[table_name][0])
+                primary_key = safe(table["primary_key"])
+                if primary_key not in invalid:
+                    raise AssertionError(
+                        f"{table_name} seed fixture does not populate primary key {primary_key}"
+                    )
+                invalid[primary_key] = f"{invalid[primary_key]}-invalid-{column}"
+                invalid[column] = "__outside_contract_enum__"
+                names = [safe(name) for name in invalid]
+                values_sql = [sql_literal(invalid[name]) for name in invalid]
+                statement = (
+                    "BEGIN; "
+                    f"INSERT INTO {table_name} ({', '.join(names)}) "
+                    f"VALUES ({', '.join(values_sql)}); "
+                    "ROLLBACK;"
+                )
+                if not psql_should_fail(db, statement):
+                    raise AssertionError(
+                        f"{table_name}.{column} accepted an out-of-contract enum value; "
+                        f"allowed={values!r}"
+                    )
+
             count_rows = psql(db, f"SELECT COUNT(*) FROM {table_name}")
             actual_count = int(count_rows[0])
             expected_count = seeded.get(table_name, 0)
@@ -146,4 +241,4 @@ if errors:
         print(" -", error)
     raise SystemExit(1)
 
-print("postgres contract verification OK: all 9 projects migrated and seeded twice")
+print("postgres contract verification OK: all 9 projects migrated/seeded twice and reject invalid enum domains")
