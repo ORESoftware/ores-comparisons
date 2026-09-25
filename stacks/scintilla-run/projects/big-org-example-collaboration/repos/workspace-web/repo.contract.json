@@ -6,11 +6,7 @@
   "kind": "frontend",
   "contractAuthority": "../.github/contracts/json-schema/domain.schema.json",
   "generatedSdk": "../sdk-typescript",
-  "ownership": {
-    "governanceRepo": "../.github"
-  },
-  "local": {
-    "healthPath": "/healthz",
-    "logicalRoute": "/v1/workspace"
-  }
+  "governanceRepo": "../.github",
+  "healthPath": "/healthz",
+  "logicalRoute": "/v1/workspace"
 }
