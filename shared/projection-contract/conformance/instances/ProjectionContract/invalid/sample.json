@@ -1,0 +1,13 @@
+{
+  "schema": "ores.comparisons.projection/v1",
+  "scenario": "http-observability",
+  "tables": [{
+    "name": "request_observations",
+    "model": "RequestObservation",
+    "primary_key": "id",
+    "columns": [{"name":"id","source":"id","sql_type":"VARCHAR"}]
+  }],
+  "seed": [],
+  "proto": {"package":"x","service":"X","messages":[],"rpcs":[]},
+  "interfaces":[]
+}
