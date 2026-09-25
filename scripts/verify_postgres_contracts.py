@@ -10,7 +10,7 @@ from pathlib import Path
 
 from project_matrix import ROOT, contract_project_specs
 
-PROJECTS = [spec.path for spec in contract_project_specs()]
+PROJECTS = [spec.shared_repo_path for spec in contract_project_specs()]
 SAFE = re.compile(r"^[a-z][a-z0-9_]*$")
 TYPE_MAP = {
     "TEXT": "text",
@@ -88,8 +88,9 @@ def psql_should_fail(database: str, sql: str) -> bool:
 
 
 def database_name(project: Path) -> str:
-    stack = project.parents[1].name.replace("-", "_")
-    scenario = project.name.replace("-", "_")
+    envelope = project.parents[1]
+    stack = envelope.parents[1].name.replace("-", "_")
+    scenario = envelope.name.replace("-", "_")
     return safe(f"cmp_{stack}_{scenario}")[:60]
 
 
@@ -104,7 +105,7 @@ for project in PROJECTS:
         project / "contracts/generated/sql/010_domain_constraints.sql",
     ]
     seed = project / "contracts/generated/sql/002_seed.sql"
-    repos_readme = project / "repos/readme.md"
+    repos_readme = project.parent / "readme.md"
 
     try:
         for required in (projection_path, schema_path, *migrations, seed, repos_readme):

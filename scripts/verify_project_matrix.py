@@ -15,7 +15,7 @@ except Exception as exc:
 expected = {spec.path for spec in specs}
 actual = {
     path for path in ROOT.glob("stacks/*/projects/*")
-    if path.is_dir() and (path / "comparison.toml").is_file()
+    if path.is_dir() and (path / "repos/.github/comparison.toml").is_file()
 }
 
 for path in sorted(expected - actual):
@@ -25,25 +25,28 @@ for path in sorted(actual - expected):
 
 for spec in specs:
     project = spec.path
+    shared = spec.shared_repo_path
+    rel = project.relative_to(ROOT)
     if not project.is_dir():
         continue
-    rel = project.relative_to(ROOT)
-    repos_readme = project / "repos/readme.md"
-    if not repos_readme.is_file():
+    if not (spec.repos_path / "readme.md").is_file():
         errors.append(f"{rel} missing project-owned repos/readme.md")
+    if not shared.is_dir():
+        errors.append(f"{rel} missing simulated repos/.github repository")
+        continue
 
     try:
-        comparison = tomllib.loads((project / "comparison.toml").read_text())
+        comparison = tomllib.loads((shared / "comparison.toml").read_text())
         if comparison.get("stack") != spec.stack:
             errors.append(f"{rel} stack identity differs from project matrix")
         if comparison.get("scenario") != spec.scenario:
             errors.append(f"{rel} scenario identity differs from project matrix")
     except Exception as exc:
-        errors.append(f"{rel} has invalid comparison.toml: {exc}")
+        errors.append(f"{rel} has invalid repos/.github/comparison.toml: {exc}")
 
-    projection = project / "contracts/projection.json"
+    projection = shared / "contracts/projection.json"
     if spec.contracts and not projection.is_file():
-        errors.append(f"{rel} is contract-enabled but lacks contracts/projection.json")
+        errors.append(f"{rel} is contract-enabled but repos/.github lacks contracts/projection.json")
     if not spec.contracts and projection.exists():
         errors.append(f"{rel} has a projection but matrix contracts=false")
 
@@ -59,4 +62,4 @@ if errors:
         print(f" - {error}")
     raise SystemExit(1)
 
-print(f"project matrix verification OK: {len(specs)} project-owned entries")
+print(f"project matrix verification OK: {len(specs)} GitHub-org-mirrored projects")
