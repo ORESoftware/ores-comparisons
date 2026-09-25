@@ -31,11 +31,38 @@ services:
       interval_ms: 500
       timeout_ms: 400
       retries: 20
-  app:
+  db-bootstrap:
     runtime: host
-    command: ["bash", "scripts/dev-server.sh"]
+    command: ["bash", "scripts/db-bootstrap.sh"]
     build:
       - ["bash", "scripts/contracts-check.sh"]
       - ["bash", "scripts/db-migrate.sh"]
       - ["bash", "scripts/db-seed.sh"]
-    depends_on: [postgres, backend]
+    depends_on: [postgres]
+    healthcheck:
+      command: ["bash", "scripts/db-bootstrap-health.sh"]
+      interval_ms: 200
+      timeout_ms: 200
+      retries: 20
+  ingest-service:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "ingest-service"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "ingest-service"]
+    depends_on: ["backend", "db-bootstrap"]
+  automation-worker:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "automation-worker"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "automation-worker"]
+    depends_on: ["backend", "db-bootstrap", "ingest-service"]
+  ops-console:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "ops-console"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "ops-console"]
+    depends_on: ["backend", "db-bootstrap", "ingest-service", "automation-worker"]
+  app:
+    runtime: host
+    command: ["bash", "scripts/dev-server.sh"]
+    depends_on: ["backend", "db-bootstrap", "ingest-service", "automation-worker", "ops-console"]

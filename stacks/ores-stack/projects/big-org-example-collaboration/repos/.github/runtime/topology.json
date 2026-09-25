@@ -1,0 +1,47 @@
+{
+  "schema": "ores.comparisons.runtime-topology/v1",
+  "projectId": "compareoresbigcollab",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-collaboration",
+  "services": [
+    {
+      "name": "presence-service",
+      "repository": "presence-service",
+      "role": "service",
+      "dependsOn": [],
+      "localBind": "127.0.0.1:32201",
+      "healthUrl": "http://127.0.0.1:32201/healthz"
+    },
+    {
+      "name": "message-worker",
+      "repository": "message-worker",
+      "role": "worker",
+      "dependsOn": [
+        "presence-service"
+      ],
+      "localBind": "127.0.0.1:32202",
+      "healthUrl": "http://127.0.0.1:32202/healthz"
+    },
+    {
+      "name": "workspace-web",
+      "repository": "workspace-web",
+      "role": "frontend",
+      "dependsOn": [
+        "presence-service",
+        "message-worker"
+      ],
+      "localBind": "127.0.0.1:32203",
+      "healthUrl": "http://127.0.0.1:32203/healthz"
+    },
+    {
+      "name": "app",
+      "repository": "app",
+      "role": "application",
+      "dependsOn": [
+        "presence-service",
+        "message-worker",
+        "workspace-web"
+      ]
+    }
+  ]
+}

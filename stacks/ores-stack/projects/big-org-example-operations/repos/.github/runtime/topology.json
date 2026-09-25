@@ -1,0 +1,47 @@
+{
+  "schema": "ores.comparisons.runtime-topology/v1",
+  "projectId": "compareoresbigops",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-operations",
+  "services": [
+    {
+      "name": "ingest-service",
+      "repository": "ingest-service",
+      "role": "service",
+      "dependsOn": [],
+      "localBind": "127.0.0.1:32301",
+      "healthUrl": "http://127.0.0.1:32301/healthz"
+    },
+    {
+      "name": "automation-worker",
+      "repository": "automation-worker",
+      "role": "worker",
+      "dependsOn": [
+        "ingest-service"
+      ],
+      "localBind": "127.0.0.1:32302",
+      "healthUrl": "http://127.0.0.1:32302/healthz"
+    },
+    {
+      "name": "ops-console",
+      "repository": "ops-console",
+      "role": "frontend",
+      "dependsOn": [
+        "ingest-service",
+        "automation-worker"
+      ],
+      "localBind": "127.0.0.1:32303",
+      "healthUrl": "http://127.0.0.1:32303/healthz"
+    },
+    {
+      "name": "app",
+      "repository": "app",
+      "role": "application",
+      "dependsOn": [
+        "ingest-service",
+        "automation-worker",
+        "ops-console"
+      ]
+    }
+  ]
+}

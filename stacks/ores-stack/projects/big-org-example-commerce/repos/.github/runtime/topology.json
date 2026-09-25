@@ -1,0 +1,46 @@
+{
+  "schema": "ores.comparisons.runtime-topology/v1",
+  "projectId": "compareoresbigcommerce",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-commerce",
+  "services": [
+    {
+      "name": "catalog-service",
+      "repository": "catalog-service",
+      "role": "service",
+      "dependsOn": [],
+      "localBind": "127.0.0.1:32101",
+      "healthUrl": "http://127.0.0.1:32101/healthz"
+    },
+    {
+      "name": "orders-worker",
+      "repository": "orders-worker",
+      "role": "worker",
+      "dependsOn": [
+        "catalog-service"
+      ],
+      "localBind": "127.0.0.1:32102",
+      "healthUrl": "http://127.0.0.1:32102/healthz"
+    },
+    {
+      "name": "storefront-web",
+      "repository": "storefront-web",
+      "role": "frontend",
+      "dependsOn": [
+        "catalog-service"
+      ],
+      "localBind": "127.0.0.1:32103",
+      "healthUrl": "http://127.0.0.1:32103/healthz"
+    },
+    {
+      "name": "app",
+      "repository": "app",
+      "role": "application",
+      "dependsOn": [
+        "catalog-service",
+        "orders-worker",
+        "storefront-web"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "ores.comparisons.runtime-topology/v1",
+  "projectId": "comparescintillabigcommerce",
+  "stack": "scintilla-run",
+  "scenario": "big-org-example-commerce",
+  "services": [
+    {
+      "name": "catalog-service",
+      "repository": "catalog-service",
+      "role": "service",
+      "dependsOn": []
+    },
+    {
+      "name": "orders-worker",
+      "repository": "orders-worker",
+      "role": "worker",
+      "dependsOn": [
+        "catalog-service"
+      ]
+    },
+    {
+      "name": "storefront-web",
+      "repository": "storefront-web",
+      "role": "frontend",
+      "dependsOn": [
+        "catalog-service"
+      ]
+    },
+    {
+      "name": "app",
+      "repository": "app",
+      "role": "application",
+      "dependsOn": [
+        "catalog-service",
+        "orders-worker",
+        "storefront-web"
+      ]
+    }
+  ]
+}

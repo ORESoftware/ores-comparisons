@@ -31,11 +31,38 @@ services:
       interval_ms: 500
       timeout_ms: 400
       retries: 20
-  app:
+  db-bootstrap:
     runtime: host
-    command: ["bash", "scripts/dev-server.sh"]
+    command: ["bash", "scripts/db-bootstrap.sh"]
     build:
       - ["bash", "scripts/contracts-check.sh"]
       - ["bash", "scripts/db-migrate.sh"]
       - ["bash", "scripts/db-seed.sh"]
-    depends_on: [postgres, backend]
+    depends_on: [postgres]
+    healthcheck:
+      command: ["bash", "scripts/db-bootstrap-health.sh"]
+      interval_ms: 200
+      timeout_ms: 200
+      retries: 20
+  presence-service:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "presence-service"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "presence-service"]
+    depends_on: ["backend", "db-bootstrap"]
+  message-worker:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "message-worker"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "message-worker"]
+    depends_on: ["backend", "db-bootstrap", "presence-service"]
+  workspace-web:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "workspace-web"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "workspace-web"]
+    depends_on: ["backend", "db-bootstrap", "presence-service", "message-worker"]
+  app:
+    runtime: host
+    command: ["bash", "scripts/dev-server.sh"]
+    depends_on: ["backend", "db-bootstrap", "presence-service", "message-worker", "workspace-web"]
