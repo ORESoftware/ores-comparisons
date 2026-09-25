@@ -1,0 +1,26 @@
+{
+  "schema": "ores.comparisons.toolchain-lock/v1",
+  "typespec_json_schema_validator": {
+    "package": "@oresoftware/typespec-json-schema-validator",
+    "version": "0.1.1",
+    "typespec_version": "1.16.0"
+  },
+  "ores_compose": {
+    "repository": "https://github.com/ORESoftware/ores-compose.git",
+    "rev": "fbfad966f9770a9a8d3895880523280324b4ddc6",
+    "crate_version": "0.1.0",
+    "manifest_schema": "ores.compose.v1"
+  },
+  "scintilla_backend": {
+    "repository": "https://github.com/scintilla-run/scintilla-backend.rs.git",
+    "rev": "ac28d4a6faf3eb991b596a6a7a4f12615589bcad",
+    "host": "127.0.0.1",
+    "port": 8091
+  },
+  "postgres": {
+    "image": "postgres:16-alpine",
+    "database": "ores_compare",
+    "user": "ores",
+    "local_port": 55432
+  }
+}
