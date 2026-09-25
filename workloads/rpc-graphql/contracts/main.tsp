@@ -1,11 +1,16 @@
+import "@typespec/json-schema";
+using TypeSpec.JsonSchema;
+
 namespace OresComparisons.RpcGraphql;
 
+@id("RpcEventKind")
 enum RpcEventKind {
   created: "created",
   updated: "updated",
   deleted: "deleted",
 }
 
+@id("RpcResource")
 model RpcResource {
   id: string;
   tenant_id: string;
@@ -15,6 +20,7 @@ model RpcResource {
   active: boolean;
 }
 
+@id("RpcEvent")
 model RpcEvent {
   id: string;
   tenant_id: string;
@@ -24,11 +30,13 @@ model RpcEvent {
   sequence: int32;
 }
 
+@id("GetResourceRequest")
 model GetResourceRequest {
   tenant_id: string;
   resource_key: string;
 }
 
+@id("GetResourceResponse")
 model GetResourceResponse {
   resource: RpcResource;
 }

@@ -1,11 +1,16 @@
+import "@typespec/json-schema";
+using TypeSpec.JsonSchema;
+
 namespace OresComparisons.RealtimeChat;
 
+@id("MessageKind")
 enum MessageKind {
   text: "text",
   image: "image",
   system: "system",
 }
 
+@id("Conversation")
 model Conversation {
   id: string;
   tenant_id: string;
@@ -13,6 +18,7 @@ model Conversation {
   created_at: string;
 }
 
+@id("ChatMessage")
 model ChatMessage {
   id: string;
   tenant_id: string;
@@ -24,6 +30,7 @@ model ChatMessage {
   created_at: string;
 }
 
+@id("PublishMessageRequest")
 model PublishMessageRequest {
   tenant_id: string;
   conversation_id: string;
@@ -32,6 +39,7 @@ model PublishMessageRequest {
   body: string;
 }
 
+@id("PublishMessageResponse")
 model PublishMessageResponse {
   message: ChatMessage;
 }

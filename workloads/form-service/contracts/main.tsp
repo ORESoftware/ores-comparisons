@@ -1,11 +1,16 @@
+import "@typespec/json-schema";
+using TypeSpec.JsonSchema;
+
 namespace OresComparisons.FormService;
 
+@id("SubmissionStatus")
 enum SubmissionStatus {
   draft: "draft",
   submitted: "submitted",
   processed: "processed",
 }
 
+@id("FormDefinition")
 model FormDefinition {
   id: string;
   tenant_id: string;
@@ -16,6 +21,7 @@ model FormDefinition {
   created_at: string;
 }
 
+@id("FormSubmission")
 model FormSubmission {
   id: string;
   tenant_id: string;
@@ -25,12 +31,14 @@ model FormSubmission {
   created_at: string;
 }
 
+@id("SubmitFormRequest")
 model SubmitFormRequest {
   tenant_id: string;
   form_definition_id: string;
   response_json: string;
 }
 
+@id("SubmitFormResponse")
 model SubmitFormResponse {
   submission: FormSubmission;
 }

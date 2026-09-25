@@ -1,9 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.oresoftware.com/ores-comparisons/realtime-chat/entities/v1",
+  "$id": "ores-comparisons.realtime-chat.entities.schema.json",
   "$defs": {
-    "MessageKind": {"type": "string", "enum": ["text", "image", "system"]},
+    "MessageKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "MessageKind",
+      "type": "string",
+      "enum": ["text", "image", "system"]
+    },
     "Conversation": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Conversation",
       "type": "object",
       "properties": {
         "id": {"type": "string"},
@@ -11,37 +18,47 @@
         "topic": {"type": "string"},
         "created_at": {"type": "string"}
       },
-      "required": ["id", "tenant_id", "topic", "created_at"]
+      "required": ["id", "tenant_id", "topic", "created_at"],
+      "unevaluatedProperties": false
     },
     "ChatMessage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ChatMessage",
       "type": "object",
       "properties": {
         "id": {"type": "string"},
         "tenant_id": {"type": "string"},
         "conversation_id": {"type": "string"},
         "sender_id": {"type": "string"},
-        "kind": {"$ref": "#/$defs/MessageKind"},
+        "kind": {"$ref": "MessageKind"},
         "body": {"type": "string"},
-        "sequence": {"type": "integer", "format": "int32"},
+        "sequence": {"type": "integer"},
         "created_at": {"type": "string"}
       },
-      "required": ["id", "tenant_id", "conversation_id", "sender_id", "kind", "body", "sequence", "created_at"]
+      "required": ["id", "tenant_id", "conversation_id", "sender_id", "kind", "body", "sequence", "created_at"],
+      "unevaluatedProperties": false
     },
     "PublishMessageRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "PublishMessageRequest",
       "type": "object",
       "properties": {
         "tenant_id": {"type": "string"},
         "conversation_id": {"type": "string"},
         "sender_id": {"type": "string"},
-        "kind": {"$ref": "#/$defs/MessageKind"},
+        "kind": {"$ref": "MessageKind"},
         "body": {"type": "string"}
       },
-      "required": ["tenant_id", "conversation_id", "sender_id", "kind", "body"]
+      "required": ["tenant_id", "conversation_id", "sender_id", "kind", "body"],
+      "unevaluatedProperties": false
     },
     "PublishMessageResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "PublishMessageResponse",
       "type": "object",
-      "properties": {"message": {"$ref": "#/$defs/ChatMessage"}},
-      "required": ["message"]
+      "properties": {"message": {"$ref": "ChatMessage"}},
+      "required": ["message"],
+      "unevaluatedProperties": false
     }
   }
 }

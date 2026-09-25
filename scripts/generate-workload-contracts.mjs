@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
 
 const workloadRoot = resolve(process.argv[2] ?? '');
 if (!process.argv[2]) throw new Error('usage: generate-workload-contracts.mjs <workload-root> [--check]');
 const checkOnly = process.argv.includes('--check');
 const readText = (p) => readFile(p, 'utf8');
-const readJson = async (p) => JSON.parse(await readText(p));
 const sha = (value) => createHash('sha256').update(value).digest('hex');
 const schemaPath = join(workloadRoot, 'contracts/entities.schema.json');
 const tspPath = join(workloadRoot, 'contracts/main.tsp');
@@ -22,7 +21,13 @@ const projection = JSON.parse(lockText);
 if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') throw new Error('JSON Schema must be Draft 2020-12');
 if (!schema.$defs || typeof schema.$defs !== 'object') throw new Error('schema must contain $defs');
 
-const refName = (value) => value?.$ref?.startsWith('#/$defs/') ? value.$ref.slice('#/$defs/'.length) : null;
+const refName = (value) => {
+  const ref = value?.$ref;
+  if (typeof ref !== 'string') return null;
+  if (ref.startsWith('#/$defs/')) return ref.slice('#/$defs/'.length);
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/u.test(ref)) return ref;
+  return null;
+};
 const enumValues = (name) => schema.$defs[name]?.enum ?? null;
 const primitive = (node) => {
   if (node.type === 'string') return 'string';
@@ -178,7 +183,7 @@ for (const [relative, value] of outputs) {
       if (await readText(destination) !== value) { console.error(`generated drift: ${destination}`); drift = true; }
     } catch { console.error(`generated missing: ${destination}`); drift = true; }
   } else {
-    await mkdir(resolve(destination, '..'), { recursive: true });
+    await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, value);
   }
 }

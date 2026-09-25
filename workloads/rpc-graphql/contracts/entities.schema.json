@@ -1,44 +1,61 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.oresoftware.com/ores-comparisons/rpc-graphql/entities/v1",
+  "$id": "ores-comparisons.rpc-graphql.entities.schema.json",
   "$defs": {
-    "RpcEventKind": {"type": "string", "enum": ["created", "updated", "deleted"]},
+    "RpcEventKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RpcEventKind",
+      "type": "string",
+      "enum": ["created", "updated", "deleted"]
+    },
     "RpcResource": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RpcResource",
       "type": "object",
       "properties": {
         "id": {"type": "string"},
         "tenant_id": {"type": "string"},
         "resource_key": {"type": "string"},
         "display_name": {"type": "string"},
-        "revision": {"type": "integer", "format": "int32"},
+        "revision": {"type": "integer"},
         "active": {"type": "boolean"}
       },
-      "required": ["id", "tenant_id", "resource_key", "display_name", "revision", "active"]
+      "required": ["id", "tenant_id", "resource_key", "display_name", "revision", "active"],
+      "unevaluatedProperties": false
     },
     "RpcEvent": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RpcEvent",
       "type": "object",
       "properties": {
         "id": {"type": "string"},
         "tenant_id": {"type": "string"},
         "resource_id": {"type": "string"},
-        "kind": {"$ref": "#/$defs/RpcEventKind"},
+        "kind": {"$ref": "RpcEventKind"},
         "payload_json": {"type": "string"},
-        "sequence": {"type": "integer", "format": "int32"}
+        "sequence": {"type": "integer"}
       },
-      "required": ["id", "tenant_id", "resource_id", "kind", "payload_json", "sequence"]
+      "required": ["id", "tenant_id", "resource_id", "kind", "payload_json", "sequence"],
+      "unevaluatedProperties": false
     },
     "GetResourceRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "GetResourceRequest",
       "type": "object",
       "properties": {
         "tenant_id": {"type": "string"},
         "resource_key": {"type": "string"}
       },
-      "required": ["tenant_id", "resource_key"]
+      "required": ["tenant_id", "resource_key"],
+      "unevaluatedProperties": false
     },
     "GetResourceResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "GetResourceResponse",
       "type": "object",
-      "properties": {"resource": {"$ref": "#/$defs/RpcResource"}},
-      "required": ["resource"]
+      "properties": {"resource": {"$ref": "RpcResource"}},
+      "required": ["resource"],
+      "unevaluatedProperties": false
     }
   }
 }
