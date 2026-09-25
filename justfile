@@ -56,3 +56,6 @@ big-org-check:
 
 big-org-build:
     bash scripts/build_big_org_repos.sh
+
+compatibility base="main":
+    python3 scripts/verify_contract_compatibility.py --base-ref "{{base}}" --receipt artifacts/contract-compatibility.json
