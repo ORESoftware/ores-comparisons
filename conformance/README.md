@@ -13,3 +13,14 @@ npm run contracts:layout
 Install scripts are intentionally enabled because the pinned `flags-2-env` dependency builds its native Node binding during installation. The validator itself is sourced from the exact `ORESoftware/typespec-json-schema-validator` commit recorded in `governance/toolchain.lock.json`.
 
 `contracts:parity` treats TypeSpec and authored JSON Schema Draft 2020-12 as peer authorities and fails closed on unexplained structural or behavioral disagreement. The layout verifier requires every project in every stack to carry contracts, conformance, governance and `.ores-compose.yaml` metadata.
+
+To validate the local orchestration contract with the exact reviewed `ores-compose` source revision:
+
+```sh
+./scripts/install-ores-compose.sh
+for project in stacks/*/projects/*; do
+  (cd "$project" && ores-compose check)
+done
+```
+
+`ores-compose check` validates each project manifest and deterministic dependency plan without launching Postgres or application workloads.
