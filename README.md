@@ -227,3 +227,26 @@ organization schema, requires every declared repo to exist, rejects undeclared
 repo directories, validates dependency edges and cycles, checks generated-source
 references, proves SDK drift has not occurred, and runs every sibling
 `contract-tests` repository.
+
+
+## Real big-org sibling repositories
+
+The three `big-org-example-*` scenarios now materialize domain repositories
+instead of using only a generic app repo.
+
+| Scenario | Service | Worker | Frontend |
+| --- | --- | --- | --- |
+| commerce | `catalog-service` | `orders-worker` | `storefront-web` |
+| collaboration | `presence-service` | `message-worker` | `workspace-web` |
+| operations | `ingest-service` | `automation-worker` | `ops-console` |
+
+Each exists in BeamScale, Scintilla, and ORES Stack form, for **27 additional
+stack-native sibling repositories**. Every repo carries a typed
+`repo.contract.json` governed by `shared/github-org-contract/`, points back
+to the sibling `.github` contract authority and generated SDK, and is declared
+in the org dependency graph.
+
+Always-on CI validates all repository contracts and stack-native metadata.
+It also runs `cargo check` on the nine ORES Stack domain repositories. When
+the private cross-repo token is configured, CI additionally builds all 27
+domain repositories through their real pinned stack CLIs.
