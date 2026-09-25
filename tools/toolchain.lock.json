@@ -44,6 +44,12 @@
       "version": "0.1.0",
       "repository": "https://github.com/ORESoftware/ores-stack",
       "commit": "3915e7088cba0a77d3101c82ff14706c58870077"
+    },
+    "ores-clis-core": {
+      "package": "oresoftware/ores-clis-core",
+      "version": "0.1.1",
+      "repository": "https://github.com/ORESoftware/ores-clis-core",
+      "commit": "e42c7ae533562a796c945070e71a8ce0f45628bf"
     }
   }
 }
