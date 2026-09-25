@@ -7,17 +7,16 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-PROJECTS = sorted(
-    p for p in ROOT.glob("stacks/*/projects/*")
-    if p.is_dir() and (p / "contracts/projection.json").is_file()
-)
+from project_matrix import ROOT, contract_project_specs
 
-for executable in ("protoc", "rustc"):
+PROJECTS = [spec.path for spec in contract_project_specs()]
+if not PROJECTS:
+    raise SystemExit("project matrix contains no contract-enabled projects")
+
+for executable in ("protoc", "rustc", "tsc"):
     if shutil.which(executable) is None:
         raise SystemExit(f"missing required compiler {executable}")
 
-tsc = shutil.which("tsc")
 errors: list[str] = []
 
 with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
@@ -31,8 +30,13 @@ with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
         gleam = project / "contracts/generated/interfaces/gleam.gleam"
         validation = project / "contracts/generated/validation/domain.schema.json"
         authored = project / "contracts/json-schema/domain.schema.json"
+        projection = project / "contracts/projection.json"
+        repos_readme = project / "repos/readme.md"
 
         try:
+            for required in (projection, rust, typescript, gleam, validation, authored, repos_readme):
+                if not required.is_file():
+                    raise FileNotFoundError(f"missing governed artifact: {required.relative_to(ROOT)}")
             if {path.name for path in protos} != {"comparison.proto", "domain.proto"}:
                 raise AssertionError(
                     f"unexpected protobuf projection set: {[path.name for path in protos]}"
@@ -58,18 +62,17 @@ with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
                 ],
                 check=True,
             )
-            if tsc:
-                subprocess.run(
-                    [
-                        tsc,
-                        "--strict",
-                        "--noEmit",
-                        "--target",
-                        "ES2022",
-                        str(typescript),
-                    ],
-                    check=True,
-                )
+            subprocess.run(
+                [
+                    "tsc",
+                    "--strict",
+                    "--noEmit",
+                    "--target",
+                    "ES2022",
+                    str(typescript),
+                ],
+                check=True,
+            )
 
             gleam_bin = shutil.which("gleam")
             if gleam_bin:
@@ -95,4 +98,4 @@ if errors:
         print(" -", error)
     raise SystemExit(1)
 
-print("generated interface verification OK: service/domain Protobuf and typed language projections compile")
+print(f"generated interface verification OK: {len(PROJECTS)} matrix-governed service/domain Protobuf and typed language projections compile")
