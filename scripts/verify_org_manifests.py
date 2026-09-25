@@ -18,6 +18,24 @@ def ref_name(value: str) -> str:
     return value.rsplit("/", 1)[-1]
 
 
+def gitlinks_under(path: Path) -> set[Path]:
+    relative = path.relative_to(ROOT)
+    result = subprocess.run(
+        ["git", "ls-files", "--stage", "--", str(relative)],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    gitlinks: set[Path] = set()
+    for line in result.stdout.splitlines():
+        metadata, tracked_path = line.split("\t", 1)
+        mode = metadata.split(" ", 1)[0]
+        if mode == "160000":
+            gitlinks.add(ROOT / tracked_path)
+    return gitlinks
+
+
 def validate(value, spec: dict, path: str = "$") -> list[str]:
     out: list[str] = []
     if "$ref" in spec:
@@ -63,11 +81,43 @@ def validate(value, spec: dict, path: str = "$") -> list[str]:
 if root_schema is None:
     raise SystemExit("organization manifest authority lacks OrganizationManifest")
 
-for spec in load_project_specs():
+project_specs = load_project_specs()
+known_projects = {(spec.stack, spec.scenario): spec for spec in project_specs}
+known_stacks = {spec.stack for spec in project_specs}
+
+for stack in sorted(known_stacks):
+    flattened = ROOT / "stacks" / stack / "repos"
+    if flattened.exists():
+        errors.append(
+            f"{flattened.relative_to(ROOT)}: forbidden flattened repos/; "
+            "repositories belong to stacks/<stack>/projects/<project>/repos/"
+        )
+
+for gitlink in gitlinks_under(ROOT / "stacks"):
+    relative = gitlink.relative_to(ROOT)
+    parts = relative.parts
+    if len(parts) < 6 or parts[0] != "stacks" or parts[2] != "projects" or parts[4] != "repos":
+        errors.append(
+            f"{relative}: git submodule must live under "
+            "stacks/<stack>/projects/<project>/repos/"
+        )
+        continue
+    key = (parts[1], parts[3])
+    if key not in known_projects:
+        errors.append(f"{relative}: git submodule belongs to an undeclared project")
+
+for spec in project_specs:
     org = spec.repos_path
     shared = spec.shared_repo_path
     rel = org.relative_to(ROOT)
     manifest_path = shared / "org.manifest.json"
+    repos_readme = org / "readme.md"
+
+    if not org.is_dir():
+        errors.append(f"{rel}: missing project-owned repos/ directory")
+        continue
+    if not repos_readme.is_file():
+        errors.append(f"{rel}: missing project-owned repos/readme.md")
 
     try:
         manifest = json.loads(manifest_path.read_text())
@@ -90,6 +140,10 @@ for spec in load_project_specs():
     declared = set(names)
 
     actual_dirs = {path.name for path in org.iterdir() if path.is_dir()}
+    for gitlink in gitlinks_under(org):
+        relative_gitlink = gitlink.relative_to(org)
+        if len(relative_gitlink.parts) == 1:
+            actual_dirs.add(relative_gitlink.parts[0])
     if declared != actual_dirs:
         errors.append(
             f"{rel}: manifest/directory drift declared={sorted(declared)} "
@@ -127,7 +181,8 @@ for spec in load_project_specs():
                 errors.append(f"{rel}: {name} cannot depend on itself")
 
         repo_path = org / entry.get("path", "")
-        if not repo_path.is_dir():
+        repo_is_gitlink = repo_path in gitlinks_under(org)
+        if not repo_path.is_dir() and not repo_is_gitlink:
             errors.append(f"{rel}: declared repository directory missing: {repo_path.name}")
 
         generated_from = entry.get("generatedFrom")
@@ -186,6 +241,7 @@ if errors:
     raise SystemExit(1)
 
 print(
-    "GitHub organization manifest verification OK: every project has governed "
+    "GitHub organization manifest verification OK: every project owns repos/, "
+    "gitlinks stay within that boundary, and every org mirror has governed "
     ".github/app/sdk-typescript/contract-tests sibling repositories"
 )
