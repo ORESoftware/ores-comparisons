@@ -10,6 +10,7 @@ from project_matrix import ROOT, contract_project_specs
 PROJECTS = [spec.shared_repo_path for spec in contract_project_specs()] + [
     ROOT / "benchmarks",
     ROOT / "shared/projection-contract",
+    ROOT / "shared/github-org-contract",
 ]
 ID = r'[A-Za-z_][A-Za-z0-9_]*'
 errors: list[str] = []

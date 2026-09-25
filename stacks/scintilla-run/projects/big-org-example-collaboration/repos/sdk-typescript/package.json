@@ -1,0 +1,9 @@
+{
+  "name": "@ores-comparisons/scintilla-run-big-org-example-collaboration-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit"
+  }
+}

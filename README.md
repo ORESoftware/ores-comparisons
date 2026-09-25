@@ -51,6 +51,8 @@ repos/
     env/
     scripts/
   app/
+  sdk-typescript/
+  contract-tests/
   <future-sibling-repo>/
 ```
 
@@ -198,7 +200,10 @@ of a GitHub organization. Its top level contains only:
 - `.github/` — the simulated organization `.github` repository;
 - one or more sibling application/service repositories such as `app/`.
 
-All cross-repository material now belongs to `repos/.github/`: compose
+The sibling repository graph is declared by `repos/.github/org.manifest.json`
+under a shared TypeSpec + JSON Schema authority in
+`shared/github-org-contract/`. All cross-repository material belongs to
+`repos/.github/`: compose
 orchestration, TypeSpec/JSON Schema authorities, generated SQL/Protobuf/types,
 conformance, governance, SOPS/age environment policy, database lifecycle
 scripts, and the organization profile at `profile/README.md`.
@@ -206,3 +211,19 @@ scripts, and the organization profile at `profile/README.md`.
 Stack-native source and build configuration remain in sibling repositories such
 as `repos/app/`. CI rejects shared files in the project envelope and rejects
 arbitrary files directly in `repos/`.
+
+
+## Governed multi-repo topology
+
+Every project now materializes at least four sibling repositories:
+
+- `.github` — organization governance, contracts, conformance, compose and env policy;
+- `app` — the stack-native runnable application;
+- `sdk-typescript` — a generated client/type repository whose domain snapshot must be byte-identical to the shared contract projection;
+- `contract-tests` — a standalone Python repository that independently checks the sibling `.github` JSON Schema authority against the valid/invalid corpus.
+
+`scripts/verify_org_manifests.py` validates the manifest against the shared
+organization schema, requires every declared repo to exist, rejects undeclared
+repo directories, validates dependency edges and cycles, checks generated-source
+references, proves SDK drift has not occurred, and runs every sibling
+`contract-tests` repository.

@@ -1,0 +1,9 @@
+{
+  "name": "@ores-comparisons/scintilla-run-http-observability-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit"
+  }
+}
