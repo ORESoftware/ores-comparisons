@@ -1,7 +1,18 @@
 {
   "schema": "ores.comparisons.toolchain-lock/v1",
-  "ores_compose": {"version": "0.1.0", "repository": "https://github.com/ORESoftware/ores-compose", "commit": "fbfad966f9770a9a8d3895880523280324b4ddc6", "manifest": ".ores-compose.yaml"},
-  "typespec_json_schema_validator": {"version": "0.1.1", "package": "@oresoftware/typespec-json-schema-validator", "command": "tjsv"},
+  "ores_compose": {
+    "version": "0.1.0",
+    "repository": "https://github.com/ORESoftware/ores-compose",
+    "commit": "fbfad966f9770a9a8d3895880523280324b4ddc6",
+    "manifest": ".ores-compose.yaml"
+  },
+  "typespec_json_schema_validator": {
+    "version": "0.1.1",
+    "repository": "https://github.com/ORESoftware/typespec-json-schema-validator",
+    "commit": "e29a91d7ef74e3b0613ea79e988bec4c467535d2",
+    "command": "tjsv"
+  },
+  "typespec": {"compiler": "1.16.0", "json_schema": "1.16.0"},
   "node": {"minimum": "22.9.0"},
   "postgres": {"image": "postgres:16-alpine", "host": "127.0.0.1", "port": 55432}
 }
