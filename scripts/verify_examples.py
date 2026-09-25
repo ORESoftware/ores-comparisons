@@ -19,6 +19,7 @@ CONTRACT_FILES = (
     "contracts/projection.json",
     "contracts/generated/sql/001_init.sql",
     "contracts/generated/sql/002_seed.sql",
+    "contracts/generated/sql/010_domain_constraints.sql",
     "contracts/generated/protobuf/comparison.proto",
     "contracts/generated/interfaces/typescript.ts",
     "contracts/generated/interfaces/rust.rs",
@@ -133,9 +134,14 @@ for stack in STACKS:
             errors.append(f"{p.relative_to(ROOT)} missing local DATABASE_URL")
 
         migration = (p / "contracts/generated/sql/001_init.sql").read_text()
+        domains = (p / "contracts/generated/sql/010_domain_constraints.sql").read_text()
         seed = (p / "contracts/generated/sql/002_seed.sql").read_text()
         if "CREATE TABLE IF NOT EXISTS" not in migration:
             errors.append(f"{p.relative_to(ROOT)} generated migration is not idempotent")
+        if "IF NOT EXISTS (" not in domains or "ADD CONSTRAINT" not in domains:
+            errors.append(f"{p.relative_to(ROOT)} generated domain migration is not additive/idempotent")
+        if "010_domain_constraints.sql" not in (p / "scripts/db-migrate.sh").read_text():
+            errors.append(f"{p.relative_to(ROOT)} dev migration script omits domain constraints")
         if "ON CONFLICT DO NOTHING" not in seed:
             errors.append(f"{p.relative_to(ROOT)} generated seed is not idempotent")
 
