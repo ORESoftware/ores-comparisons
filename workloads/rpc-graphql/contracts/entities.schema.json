@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.oresoftware.com/ores-comparisons/rpc-graphql/entities/v1",
+  "$defs": {
+    "RpcEventKind": {"type": "string", "enum": ["created", "updated", "deleted"]},
+    "RpcResource": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "resource_key": {"type": "string"},
+        "display_name": {"type": "string"},
+        "revision": {"type": "integer", "format": "int32"},
+        "active": {"type": "boolean"}
+      },
+      "required": ["id", "tenant_id", "resource_key", "display_name", "revision", "active"]
+    },
+    "RpcEvent": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "resource_id": {"type": "string"},
+        "kind": {"$ref": "#/$defs/RpcEventKind"},
+        "payload_json": {"type": "string"},
+        "sequence": {"type": "integer", "format": "int32"}
+      },
+      "required": ["id", "tenant_id", "resource_id", "kind", "payload_json", "sequence"]
+    },
+    "GetResourceRequest": {
+      "type": "object",
+      "properties": {
+        "tenant_id": {"type": "string"},
+        "resource_key": {"type": "string"}
+      },
+      "required": ["tenant_id", "resource_key"]
+    },
+    "GetResourceResponse": {
+      "type": "object",
+      "properties": {"resource": {"$ref": "#/$defs/RpcResource"}},
+      "required": ["resource"]
+    }
+  }
+}

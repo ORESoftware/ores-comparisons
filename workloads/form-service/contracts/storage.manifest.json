@@ -1,0 +1,22 @@
+{
+  "schema": "ores.comparisons.storage/v1",
+  "tables": [
+    {
+      "model": "FormDefinition",
+      "name": "form_definitions",
+      "primary_key": ["id"],
+      "column_types": {"id": "UUID", "tenant_id": "UUID", "created_at": "TIMESTAMPTZ"},
+      "defaults": {"id": "gen_random_uuid()", "version": "1", "active": "TRUE", "created_at": "CURRENT_TIMESTAMP"},
+      "indexes": [["tenant_id", "form_key"]]
+    },
+    {
+      "model": "FormSubmission",
+      "name": "form_submissions",
+      "primary_key": ["id"],
+      "column_types": {"id": "UUID", "tenant_id": "UUID", "form_definition_id": "UUID", "created_at": "TIMESTAMPTZ"},
+      "defaults": {"id": "gen_random_uuid()", "status": "'submitted'", "created_at": "CURRENT_TIMESTAMP"},
+      "foreign_keys": [{"column": "form_definition_id", "references_table": "form_definitions", "references_column": "id"}],
+      "indexes": [["tenant_id", "created_at"], ["form_definition_id"]]
+    }
+  ]
+}

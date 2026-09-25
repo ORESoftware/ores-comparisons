@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.oresoftware.com/ores-comparisons/form-service/entities/v1",
+  "$defs": {
+    "SubmissionStatus": {
+      "type": "string",
+      "enum": ["draft", "submitted", "processed"]
+    },
+    "FormDefinition": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "form_key": {"type": "string"},
+        "title": {"type": "string"},
+        "version": {"type": "integer", "format": "int32"},
+        "active": {"type": "boolean"},
+        "created_at": {"type": "string"}
+      },
+      "required": ["id", "tenant_id", "form_key", "title", "version", "active", "created_at"]
+    },
+    "FormSubmission": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "form_definition_id": {"type": "string"},
+        "status": {"$ref": "#/$defs/SubmissionStatus"},
+        "response_json": {"type": "string"},
+        "created_at": {"type": "string"}
+      },
+      "required": ["id", "tenant_id", "form_definition_id", "status", "response_json", "created_at"]
+    },
+    "SubmitFormRequest": {
+      "type": "object",
+      "properties": {
+        "tenant_id": {"type": "string"},
+        "form_definition_id": {"type": "string"},
+        "response_json": {"type": "string"}
+      },
+      "required": ["tenant_id", "form_definition_id", "response_json"]
+    },
+    "SubmitFormResponse": {
+      "type": "object",
+      "properties": {
+        "submission": {"$ref": "#/$defs/FormSubmission"}
+      },
+      "required": ["submission"]
+    }
+  }
+}

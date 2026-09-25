@@ -1,0 +1,11 @@
+{
+  "schema": "ores.comparisons.projection-lock/v1",
+  "proto_package": "ores.comparisons.rpc_graphql.v1",
+  "enums": {"RpcEventKind": {"created": 0, "updated": 1, "deleted": 2}},
+  "messages": {
+    "RpcResource": {"id": 1, "tenant_id": 2, "resource_key": 3, "display_name": 4, "revision": 5, "active": 6},
+    "RpcEvent": {"id": 1, "tenant_id": 2, "resource_id": 3, "kind": 4, "payload_json": 5, "sequence": 6},
+    "GetResourceRequest": {"tenant_id": 1, "resource_key": 2},
+    "GetResourceResponse": {"resource": 1}
+  }
+}

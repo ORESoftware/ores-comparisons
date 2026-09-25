@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.oresoftware.com/ores-comparisons/realtime-chat/entities/v1",
+  "$defs": {
+    "MessageKind": {"type": "string", "enum": ["text", "image", "system"]},
+    "Conversation": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "topic": {"type": "string"},
+        "created_at": {"type": "string"}
+      },
+      "required": ["id", "tenant_id", "topic", "created_at"]
+    },
+    "ChatMessage": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "conversation_id": {"type": "string"},
+        "sender_id": {"type": "string"},
+        "kind": {"$ref": "#/$defs/MessageKind"},
+        "body": {"type": "string"},
+        "sequence": {"type": "integer", "format": "int32"},
+        "created_at": {"type": "string"}
+      },
+      "required": ["id", "tenant_id", "conversation_id", "sender_id", "kind", "body", "sequence", "created_at"]
+    },
+    "PublishMessageRequest": {
+      "type": "object",
+      "properties": {
+        "tenant_id": {"type": "string"},
+        "conversation_id": {"type": "string"},
+        "sender_id": {"type": "string"},
+        "kind": {"$ref": "#/$defs/MessageKind"},
+        "body": {"type": "string"}
+      },
+      "required": ["tenant_id", "conversation_id", "sender_id", "kind", "body"]
+    },
+    "PublishMessageResponse": {
+      "type": "object",
+      "properties": {"message": {"$ref": "#/$defs/ChatMessage"}},
+      "required": ["message"]
+    }
+  }
+}

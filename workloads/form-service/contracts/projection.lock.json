@@ -1,0 +1,13 @@
+{
+  "schema": "ores.comparisons.projection-lock/v1",
+  "proto_package": "ores.comparisons.form_service.v1",
+  "enums": {
+    "SubmissionStatus": {"draft": 0, "submitted": 1, "processed": 2}
+  },
+  "messages": {
+    "FormDefinition": {"id": 1, "tenant_id": 2, "form_key": 3, "title": 4, "version": 5, "active": 6, "created_at": 7},
+    "FormSubmission": {"id": 1, "tenant_id": 2, "form_definition_id": 3, "status": 4, "response_json": 5, "created_at": 6},
+    "SubmitFormRequest": {"tenant_id": 1, "form_definition_id": 2, "response_json": 3},
+    "SubmitFormResponse": {"submission": 1}
+  }
+}
