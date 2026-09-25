@@ -24,19 +24,25 @@ with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
     tmpdir = Path(tmp)
     for index, project in enumerate(PROJECTS):
         rel = project.relative_to(ROOT)
-        proto = project / "contracts/generated/protobuf/comparison.proto"
+        proto_dir = project / "contracts/generated/protobuf"
+        protos = sorted(proto_dir.glob("*.proto"))
         rust = project / "contracts/generated/interfaces/rust.rs"
         typescript = project / "contracts/generated/interfaces/typescript.ts"
+        gleam = project / "contracts/generated/interfaces/gleam.gleam"
         validation = project / "contracts/generated/validation/domain.schema.json"
         authored = project / "contracts/json-schema/domain.schema.json"
 
         try:
+            if {path.name for path in protos} != {"comparison.proto", "domain.proto"}:
+                raise AssertionError(
+                    f"unexpected protobuf projection set: {[path.name for path in protos]}"
+                )
             subprocess.run(
                 [
                     "protoc",
-                    f"--proto_path={proto.parent}",
+                    f"--proto_path={proto_dir}",
                     f"--descriptor_set_out={tmpdir / f'{index}.pb'}",
-                    str(proto),
+                    *[str(path) for path in protos],
                 ],
                 check=True,
             )
@@ -65,6 +71,17 @@ with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
                     check=True,
                 )
 
+            gleam_bin = shutil.which("gleam")
+            if gleam_bin:
+                gleam_root = tmpdir / f"gleam-{index}"
+                source = gleam_root / "src"
+                source.mkdir(parents=True)
+                (gleam_root / "gleam.toml").write_text(
+                    f'name = "generated_{index}"\nversion = "0.1.0"\n'
+                )
+                (source / "domain.gleam").write_text(gleam.read_text())
+                subprocess.run([gleam_bin, "check"], cwd=gleam_root, check=True)
+
             if json.loads(validation.read_text()) != json.loads(authored.read_text()):
                 raise AssertionError("generated validation schema diverges from admitted authored schema")
 
@@ -78,4 +95,4 @@ if errors:
         print(" -", error)
     raise SystemExit(1)
 
-print("generated interface verification OK: Protobuf/Rust/TypeScript projections compile")
+print("generated interface verification OK: service/domain Protobuf and typed language projections compile")
