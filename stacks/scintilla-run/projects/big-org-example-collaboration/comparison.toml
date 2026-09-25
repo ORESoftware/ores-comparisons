@@ -1,0 +1,30 @@
+version = 1
+name = "big-org-example-collaboration"
+stack = "scintilla-run"
+scenario = "collaboration"
+integration_manifest = "../../../../integrations.toml"
+
+[contracts]
+typespec = "../../../../contracts/big-org-example.tsp"
+json_schema = "../../../../contracts/big-org-example.schema.json"
+
+[environment]
+encrypted_dir = "../../env/enc"
+decrypted_dir = "../../env/dec"
+
+[deploy]
+build = "scintilla build --project . --out-dir .scintilla"
+verify = "scintilla deploy --project . --out-dir .scintilla --dry-run"
+deploy = "scintilla deploy --project . --out-dir .scintilla"
+
+[features]
+otel = true
+forms = true
+sync = true
+chat = true
+convo = true
+rate_limit = true
+middleware = true
+redis_lru = true
+rpc_docs = true
+sops_age = true
