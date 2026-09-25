@@ -35,3 +35,9 @@ benchmark stack scenario url:
 
 benchmark-matrix:
     python3 scripts/render_benchmark_matrix.py
+
+generated-interfaces-check:
+    python3 scripts/verify_generated_interfaces.py
+
+postgres-contract-check:
+    python3 scripts/verify_postgres_contracts.py

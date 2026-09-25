@@ -1,0 +1,50 @@
+name: generated-artifact-integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-and-generated-interfaces:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install generated-artifact validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client protobuf-compiler
+          npm install --global typescript@5.9.3
+      - name: Apply migrations and seeds twice
+        run: python3 scripts/verify_postgres_contracts.py
+      - name: Compile generated interfaces
+        run: python3 scripts/verify_generated_interfaces.py

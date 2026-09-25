@@ -122,3 +122,15 @@ The optional full CI lane expects `COMPARISON_REPO_READ_TOKEN` to be a
 read-only token covering the pinned private repositories used by the three
 stacks. With that secret present, CI bootstraps the exact revisions, runs full
 tjsv parity, validates every ores-compose plan, and executes the smoke matrix.
+
+
+## Generated artifact integration tests
+
+CI now runs every generated migration and seed against PostgreSQL 16 **twice**
+to prove idempotent dev startup, then checks the live table columns, SQL types,
+nullability, primary keys, and seeded row counts against each project's
+projection contract.
+
+Generated Protobuf descriptors are compiled with `protoc`, Rust interfaces
+with `rustc`, TypeScript interfaces with `tsc --strict --noEmit`, and the
+runtime validation schema is checked against the admitted JSON Schema.
