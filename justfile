@@ -1,6 +1,7 @@
 verify:
     python3 scripts/verify_examples.py
     python3 scripts/verify_project_matrix.py
+    python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_org_manifests.py
     python3 scripts/verify_toolchain_pins.py
@@ -14,6 +15,22 @@ generate-check:
 
 tools-bootstrap:
     bash scripts/bootstrap_pinned_tools.sh
+
+dummy-org-plan:
+    python3 scripts/materialize_dummy_orgs.py
+
+dummy-org-materialize: tools-bootstrap
+    python3 scripts/materialize_dummy_orgs.py --apply --rewrite-submodules
+
+submodules-sync: tools-bootstrap
+    ./.local/bin/zed install --git-submodules
+
+submodules-status:
+    git submodule status --recursive
+
+submodules-verify:
+    python3 scripts/verify_dummy_org_map.py
+    python3 scripts/verify_project_repo_layout.py
 
 env-init project:
     bash scripts/bootstrap-env.sh "{{project}}"
