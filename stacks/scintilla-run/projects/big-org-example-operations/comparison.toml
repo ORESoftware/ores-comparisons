@@ -1,30 +1,32 @@
 version = 1
-name = "big-org-example-operations"
 stack = "scintilla-run"
-scenario = "operations"
-integration_manifest = "../../../../integrations.toml"
+scenario = "big-org-example-operations"
+integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
 
-[contracts]
-typespec = "../../../../contracts/big-org-example.tsp"
-json_schema = "../../../../contracts/big-org-example.schema.json"
-
-[environment]
-encrypted_dir = "../../env/enc"
-decrypted_dir = "../../env/dec"
-
-[deploy]
+[commands]
+dev = "SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once"
 build = "scintilla build --project . --out-dir .scintilla"
 verify = "scintilla deploy --project . --out-dir .scintilla --dry-run"
 deploy = "scintilla deploy --project . --out-dir .scintilla"
 
-[features]
-otel = true
-forms = true
-sync = true
-chat = true
-convo = true
-rate_limit = true
-middleware = true
-redis_lru = true
-rpc_docs = true
-sops_age = true
+[contracts]
+typespec = "../../../../contracts/big-org-example.tsp"
+json_schema = "../../../../contracts/big-org-example.schema.json"
+protocol = "scintilla-run/scintilla-lambda-pub-core:stdio-json-v1"
+
+[secrets]
+encrypted_dir = "env/enc"
+decrypted_dir = "env/dec"
+
+[integration_adapters]
+ores_otel = "traceparent + ores-otel adapter"
+ores_forms = "HTTP JSON operator-form port"
+opto_sync = "HTTP JSON operator-sync port"
+ores_chat = "HTTP JSON collaboration port"
+ores_convo = "HTTP JSON encrypted-conversation port"
+ores_rate_limit = "ores-rate-limit middleware/service"
+ores_middleware = "approved dependency injection/release stage"
+ores_redis_lru_cache = "Redis/LRU integration port"
+api_docs = "shared TypeSpec/JSON Schema + api-docs route contract"
+ores_sops_legacy = "sops-age-dotenv"
+ores_sops_org = "sops-age-dotenv-org-target"
