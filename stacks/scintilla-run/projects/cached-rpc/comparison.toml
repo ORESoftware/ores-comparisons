@@ -4,9 +4,9 @@ scenario = "cached-rpc"
 integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
 
 [commands]
-dev = "SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once"
-build = "scintilla build --project . --out-dir .scintilla --check"
-deploy = "scintilla deploy --project . --out-dir .scintilla --dry-run"
+dev = "cd repos/app && SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once"
+build = "cd repos/app && scintilla build --project . --out-dir .scintilla --check"
+deploy = "cd repos/app && scintilla deploy --project . --out-dir .scintilla --dry-run"
 
 [integration_adapters]
 ores_otel = "env + ores-otel adapter"

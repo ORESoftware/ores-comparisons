@@ -76,3 +76,29 @@ request
 BeamScale tenant code receives admitted capabilities instead of ambient network
 or filesystem authority. Scintilla endpoint configs declare env references, not
 secret values. ORES Stack retains api-docs as the route/RPC identity authority.
+
+
+## Project vs repository boundary
+
+A comparison **project** is deliberately a multi-repository envelope:
+
+```text
+projects/<scenario>/
+  .ores-compose.yaml
+  contracts/
+  conformance/
+  governance/
+  env/
+  scripts/
+  repos/
+    README.md
+    app/
+    <future-api-repo>/
+    <future-web-repo>/
+    ...
+```
+
+The project root owns orchestration and cross-repository authorities. Stack-specific source,
+build files, endpoint manifests, Cargo manifests, and lambda definitions must live inside a
+child of `repos/`; they must not be flattened into the project root. CI fails if those
+stack-native files escape `repos/app/`.

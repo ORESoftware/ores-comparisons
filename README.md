@@ -17,6 +17,26 @@ All nine projects expose the same integration graph: ores-otel, ores-forms,
 opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
 ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
 
+## Project/repository structure
+
+Every project is an orchestration envelope that can contain multiple repositories. Stack-specific source belongs under `repos/`, never at the project root.
+
+```text
+projects/<scenario>/
+  .ores-compose.yaml
+  contracts/
+  conformance/
+  governance/
+  env/
+  scripts/
+  repos/
+    README.md
+    app/
+    <future-sibling-repo>/
+```
+
+The current runnable app is materialized at `repos/app/`; future API/web/worker repos belong beside it. Project-level infra and cross-repo authorities remain above `repos/`.
+
 ## Contract structure
 
 Every project contains:

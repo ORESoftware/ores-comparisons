@@ -54,6 +54,7 @@ for stack in STACKS:
         for rel in (
             "README.md", "comparison.toml", ".sops.yaml", ".env.example",
             "env/enc/README.md", "env/dec/.gitignore",
+            "repos/README.md",
             *CONTRACT_FILES, *LOCAL_FILES,
         ):
             if not (p / rel).is_file():
@@ -139,22 +140,35 @@ for stack in STACKS:
         if "ON CONFLICT DO NOTHING" not in seed:
             errors.append(f"{p.relative_to(ROOT)} generated seed is not idempotent")
 
+        repo_dir = p / "repos" / "app"
+        if not repo_dir.is_dir():
+            errors.append(f"{p.relative_to(ROOT)} missing repos/app application repository")
+            continue
+
         if stack == "beamscale":
-            if not (p / ".ores-lambda.toml").is_file():
-                errors.append(f"{p.relative_to(ROOT)} missing .ores-lambda.toml")
-            if not list((p / "lambdas").glob("**/gleam.toml")):
-                errors.append(f"{p.relative_to(ROOT)} has no BeamScale lambda project")
+            if not (repo_dir / ".ores-lambda.toml").is_file():
+                errors.append(f"{p.relative_to(ROOT)} repos/app missing .ores-lambda.toml")
+            if not list((repo_dir / "lambdas").glob("**/gleam.toml")):
+                errors.append(f"{p.relative_to(ROOT)} repos/app has no BeamScale lambda project")
+            for forbidden in (".ores-lambda.toml", "bmscl-policy.toml", "lambdas"):
+                if (p / forbidden).exists():
+                    errors.append(f"{p.relative_to(ROOT)} flattened BeamScale repo content escaped repos/app: {forbidden}")
         elif stack == "scintilla-run":
-            endpoints = list(p.glob("**/.scintilla-endpoint.toml"))
+            endpoints = list(repo_dir.glob("**/.scintilla-endpoint.toml"))
             if not endpoints:
-                errors.append(f"{p.relative_to(ROOT)} has no Scintilla endpoint")
+                errors.append(f"{p.relative_to(ROOT)} repos/app has no Scintilla endpoint")
+            if (p / "endpoints").exists():
+                errors.append(f"{p.relative_to(ROOT)} flattened Scintilla repo content escaped repos/app: endpoints")
             for rel in ("scripts/scintilla-runtime-build.sh", "scripts/scintilla-runner.sh", "scripts/scintilla-backend.sh"):
                 if not (p / rel).is_file():
                     errors.append(f"{p.relative_to(ROOT)} missing {rel}")
         else:
             for rel in (".ores-stack.toml", "Cargo.toml", "build.rs", "contracts/service.route-map.json"):
-                if not (p / rel).is_file():
-                    errors.append(f"{p.relative_to(ROOT)} missing {rel}")
+                if not (repo_dir / rel).is_file():
+                    errors.append(f"{p.relative_to(ROOT)} repos/app missing {rel}")
+            for forbidden in (".ores-stack.toml", "Cargo.toml", "build.rs", "src"):
+                if (p / forbidden).exists():
+                    errors.append(f"{p.relative_to(ROOT)} flattened ORES Stack repo content escaped repos/app: {forbidden}")
 
 for f in ROOT.rglob("*"):
     if f.is_file() and ".git" not in f.parts:

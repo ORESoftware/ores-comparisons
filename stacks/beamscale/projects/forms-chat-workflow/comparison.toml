@@ -4,9 +4,9 @@ scenario = "forms-chat-workflow"
 integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
 
 [commands]
-dev = "bmscl dev ."
-build = "bmscl build . --out-dir ./dist --policy ./bmscl-policy.toml --worker-config ./.ores-lambda.toml"
-deploy = "bmscl deploy ./dist --project comparison-forms-chat-workflow --environment dev --dry-run"
+dev = "cd repos/app && bmscl dev ."
+build = "cd repos/app && bmscl build . --out-dir ./dist --policy ./bmscl-policy.toml --worker-config ./.ores-lambda.toml"
+deploy = "cd repos/app && bmscl deploy ./dist --project comparison-forms-chat-workflow --environment dev --dry-run"
 
 [integration_adapters]
 ores_otel = "ctx.log -> ores-otel host bridge"
