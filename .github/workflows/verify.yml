@@ -32,7 +32,7 @@ jobs:
   private-authorities:
     runs-on: ubuntu-latest
     env:
-      ORES_REPO_READ_TOKEN: ${{ secrets.ORES_REPO_READ_TOKEN }}
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,32 +42,28 @@ jobs:
         with:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run exact private tjsv and ores-compose gates when authorized
+      - name: Run exact private authorities and stack smoke tests when authorized
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${ORES_REPO_READ_TOKEN:-}" ]]; then
-            echo "::notice::ORES_REPO_READ_TOKEN is not configured; mandatory static gates still ran, private cross-repo gates are skipped."
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "::notice::COMPARISON_REPO_READ_TOKEN is not configured; mandatory static gates still ran, private cross-repo gates are skipped."
             exit 0
           fi
 
-          rewrite="url.https://x-access-token:${ORES_REPO_READ_TOKEN}@github.com/.insteadOf"
+          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
           git config --global "$rewrite" "https://github.com/"
           trap 'git config --global --unset-all "$rewrite" || true' EXIT
 
-          mkdir -p .private-tools
-          git clone --no-checkout https://github.com/ORESoftware/typespec-json-schema-validator.git .private-tools/tjsv
-          git -C .private-tools/tjsv fetch --depth=1 origin e29a91d7ef74e3b0613ea79e988bec4c467535d2
-          git -C .private-tools/tjsv checkout --detach e29a91d7ef74e3b0613ea79e988bec4c467535d2
-          (cd .private-tools/tjsv && npm ci)
-          export PATH="$PWD/.private-tools/tjsv/bin:$PATH"
+          bash scripts/bootstrap_pinned_tools.sh
+          export PATH="$PWD/.local/bin:$PATH"
 
           bash conformance/check-all.sh
-
-          CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install             --git https://github.com/ORESoftware/ores-compose             --rev fbfad966f9770a9a8d3895880523280324b4ddc6             --locked             --bin ores-compose
 
           for project in stacks/*/projects/*/; do
             echo "==> $project"
             ores-compose check "$project/.ores-compose.yaml"
             ores-compose plan "$project/.ores-compose.yaml"
           done
+
+          python3 scripts/smoke_projects.py --execute
