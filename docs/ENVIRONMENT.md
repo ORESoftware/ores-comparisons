@@ -1,6 +1,6 @@
 # Environment encryption
 
-Each project follows the ORES SOPS v0.4 layout:
+Each project's simulated `repos/.github/` organization repository follows the ORES SOPS v0.4 layout:
 
 ```text
 env/enc/dev.env.enc
@@ -15,7 +15,7 @@ Only `env/enc/*.env.enc` is intended for Git. `env/dec` is plaintext and
 runtime-only. The checked-in `.sops.yaml` contains placeholders for **public**
 age recipients only.
 
-Use `scripts/bootstrap-env.sh <project>` to replace those placeholders and
+Use `scripts/bootstrap-env.sh <project>`; the script resolves `<project>/repos/.github/` as the secret-policy repository to replace those placeholders and
 produce real SOPS ciphertext. It refuses to run without separate dev, stage,
 prod, and recovery public recipients.
 

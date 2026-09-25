@@ -1,7 +1,7 @@
 # Integration matrix
 
 Every one of the nine projects declares all integration IDs in
-`comparison.toml`. The scenario determines which ports are exercised on the
+`repos/.github/comparison.toml`. The scenario determines which ports are exercised on the
 hot path; the others remain wired and testable so comparison projects do not
 silently drift apart.
 

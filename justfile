@@ -1,5 +1,7 @@
 verify:
     python3 scripts/verify_examples.py
+    python3 scripts/verify_project_matrix.py
+    python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_toolchain_pins.py
     bash conformance/check-all.sh
 
@@ -16,13 +18,13 @@ env-init project:
     bash scripts/bootstrap-env.sh "{{project}}"
 
 compose-check project:
-    ./.local/bin/ores-compose check "{{project}}/.ores-compose.yaml"
+    ./.local/bin/ores-compose check "{{project}}/repos/.github/.ores-compose.yaml"
 
 compose-plan project:
-    ./.local/bin/ores-compose plan "{{project}}/.ores-compose.yaml"
+    ./.local/bin/ores-compose plan "{{project}}/repos/.github/.ores-compose.yaml"
 
 compose-up project:
-    ./.local/bin/ores-compose up "{{project}}/.ores-compose.yaml"
+    ./.local/bin/ores-compose up "{{project}}/repos/.github/.ores-compose.yaml"
 
 smoke-check:
     python3 scripts/smoke_projects.py --check

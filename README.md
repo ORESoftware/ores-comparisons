@@ -61,7 +61,7 @@ just compose-plan stacks/beamscale/projects/http-observability
 just compose-up stacks/beamscale/projects/http-observability
 ```
 
-Every `.ores-compose.yaml` includes PostgreSQL as a supervised host process.
+Every `repos/.github/.ores-compose.yaml` includes PostgreSQL as a supervised host process.
 The current pinned `ores-compose` executor intentionally runs host processes
 only, so the examples do not pretend OCI execution is available. Startup waits
 for `pg_isready`, checks contracts, runs the generated idempotent migration and
@@ -73,12 +73,12 @@ runs the exact-pinned `ores-stack` CLI.
 
 ## Secrets
 
-Each project preserves the SOPS + age boundary:
+Each simulated `.github` repository preserves the SOPS + age boundary:
 
-- `env/enc/` — committed ciphertext only;
-- `env/dec/` — runtime-only plaintext, ignored by Git;
-- `.sops.yaml` — exact dev/stage/prod recipient rules;
-- `.env.example` — non-secret local defaults.
+- `repos/.github/env/enc/` — committed ciphertext only;
+- `repos/.github/env/dec/` — runtime-only plaintext, ignored by Git;
+- `repos/.github/.sops.yaml` — exact dev/stage/prod recipient rules;
+- `repos/.github/.env.example` — non-secret local defaults.
 
 Use `just env-init <project-path>` after supplying public age recipients. No
 age private key and no decrypted environment file belongs in Git.
@@ -174,13 +174,20 @@ models/fields, primary keys, enum storage types, seeds, and RPC references
 actually exist and agree with the project's domain authorities.
 
 
-## Project/repository boundary
+## GitHub organization mirror
 
-Every `stacks/<stack>/projects/<scenario>/` directory is a multi-repository
-orchestration envelope. Project-owned compose, contracts, conformance,
-governance, environment policy, and database scripts stay at that level.
-Stack-native source and build configuration live under `repos/<repo>/`.
+Every `stacks/<stack>/projects/<scenario>/repos/` directory emulates the root
+of a GitHub organization. Its top level contains only:
 
-The current runnable repository is materialized as `repos/app/`; additional
-API, web, worker, or service repositories may be added beside it or represented
-as git submodules. CI rejects stack-native source flattened into the project root.
+- `readme.md` — explains the local organization mirror;
+- `.github/` — the simulated organization `.github` repository;
+- one or more sibling application/service repositories such as `app/`.
+
+All cross-repository material now belongs to `repos/.github/`: compose
+orchestration, TypeSpec/JSON Schema authorities, generated SQL/Protobuf/types,
+conformance, governance, SOPS/age environment policy, database lifecycle
+scripts, and the organization profile at `profile/README.md`.
+
+Stack-native source and build configuration remain in sibling repositories such
+as `repos/app/`. CI rejects shared files in the project envelope and rejects
+arbitrary files directly in `repos/`.
