@@ -8,11 +8,9 @@ import subprocess
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-PROJECTS = sorted(
-    p for p in ROOT.glob("stacks/*/projects/*")
-    if p.is_dir() and (p / "contracts/projection.json").is_file()
-)
+from project_matrix import ROOT, contract_project_specs
+
+PROJECTS = [spec.path for spec in contract_project_specs()]
 SAFE = re.compile(r"^[a-z][a-z0-9_]*$")
 TYPE_MAP = {
     "TEXT": "text",
@@ -25,8 +23,9 @@ BASE_ENV.setdefault("PGHOST", "127.0.0.1")
 BASE_ENV.setdefault("PGPORT", "5432")
 BASE_ENV.setdefault("PGUSER", "postgres")
 
-if len(PROJECTS) != 9:
-    raise SystemExit(f"expected 9 comparison projects, found {len(PROJECTS)}")
+if not PROJECTS:
+    raise SystemExit("project matrix contains no contract-enabled projects")
+
 
 def run(argv: list[str], *, database: str | None = None, capture: bool = False) -> str:
     env = BASE_ENV.copy()
@@ -41,6 +40,7 @@ def run(argv: list[str], *, database: str | None = None, capture: bool = False) 
     )
     return result.stdout if capture else ""
 
+
 def psql(database: str, sql: str) -> list[str]:
     output = run(
         ["psql", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "\t", "-c", sql],
@@ -49,10 +49,12 @@ def psql(database: str, sql: str) -> list[str]:
     )
     return [line for line in output.splitlines() if line]
 
+
 def safe(value: str) -> str:
     if not SAFE.fullmatch(value):
         raise ValueError(f"unsafe SQL identifier {value!r}")
     return value
+
 
 def sql_literal(value) -> str:
     if value is None:
@@ -63,11 +65,13 @@ def sql_literal(value) -> str:
         return str(value)
     return "'" + str(value).replace("'", "''") + "'"
 
+
 def constraint_name(table: str, column: str) -> str:
     value = f"ck_{table}_{column}_enum"
     if len(value.encode("utf-8")) > 63:
         raise ValueError(f"constraint name exceeds PostgreSQL limit: {value}")
     return safe(value)
+
 
 def psql_should_fail(database: str, sql: str) -> bool:
     env = BASE_ENV.copy()
@@ -82,18 +86,19 @@ def psql_should_fail(database: str, sql: str) -> bool:
     )
     return result.returncode != 0
 
+
 def database_name(project: Path) -> str:
     stack = project.parents[1].name.replace("-", "_")
     scenario = project.name.replace("-", "_")
     return safe(f"cmp_{stack}_{scenario}")[:60]
 
+
 errors: list[str] = []
 
 for project in PROJECTS:
     db = database_name(project)
-    projection = json.loads((project / "contracts/projection.json").read_text())
-    schema = json.loads((project / "contracts/json-schema/domain.schema.json").read_text())
-    defs = schema.get("$defs", {})
+    projection_path = project / "contracts/projection.json"
+    schema_path = project / "contracts/json-schema/domain.schema.json"
     migrations = [
         project / "contracts/generated/sql/001_init.sql",
         project / "contracts/generated/sql/010_domain_constraints.sql",
@@ -101,6 +106,14 @@ for project in PROJECTS:
     seed = project / "contracts/generated/sql/002_seed.sql"
 
     try:
+        for required in (projection_path, schema_path, *migrations, seed):
+            if not required.is_file():
+                raise FileNotFoundError(f"missing governed artifact: {required.relative_to(ROOT)}")
+
+        projection = json.loads(projection_path.read_text())
+        schema = json.loads(schema_path.read_text())
+        defs = schema.get("$defs", {})
+
         run(["dropdb", "--if-exists", db])
         run(["createdb", db])
 
@@ -241,4 +254,7 @@ if errors:
         print(" -", error)
     raise SystemExit(1)
 
-print("postgres contract verification OK: all 9 projects migrated/seeded twice and reject invalid enum domains")
+print(
+    f"postgres contract verification OK: all {len(PROJECTS)} governed projects "
+    "migrated/seeded twice and reject invalid enum domains"
+)
