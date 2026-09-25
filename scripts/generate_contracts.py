@@ -27,6 +27,32 @@ def require_field(model: str, field: str) -> None:
     if model not in defs or field not in defs[model].get("properties", {}):
         raise SystemExit(f"projection references missing field {model}.{field}")
 
+def resolve_ref(spec: dict) -> dict:
+    ref = spec.get("$ref")
+    if not ref:
+        return spec
+    name = ref.rsplit("/", 1)[-1]
+    if name not in defs:
+        raise SystemExit(f"schema reference {ref!r} does not resolve to a local declaration")
+    return defs[name]
+
+def enum_domain(spec: dict) -> list | None:
+    resolved = resolve_ref(spec)
+    values = resolved.get("enum")
+    if values is None:
+        return None
+    if not isinstance(values, list) or not values:
+        raise SystemExit("enum domain must be a non-empty array")
+    if any(isinstance(value, (dict, list)) for value in values):
+        raise SystemExit("SQL enum projection supports scalar enum members only")
+    return values
+
+def constraint_name(table: str, column: str) -> str:
+    value = f"ck_{table}_{column}_enum"
+    if len(value.encode("utf-8")) > 63:
+        raise SystemExit(f"generated PostgreSQL constraint name exceeds 63 bytes: {value}")
+    return safe(value)
+
 def sql_literal(value):
     if value is None:
         return "NULL"
@@ -37,6 +63,7 @@ def sql_literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 table_columns: dict[str, set[str]] = {}
+domain_constraints: list[tuple[str, str, str, list]] = []
 sql = ["-- GENERATED. DO NOT EDIT.", "BEGIN;"]
 for table in projection["tables"]:
     name = safe(table["name"])
@@ -58,6 +85,16 @@ for table in projection["tables"]:
             raise SystemExit(f"unapproved SQL type {sql_type!r} for {name}.{cname}")
         suffix = "" if col.get("nullable", False) else " NOT NULL"
         columns.append(f"  {cname} {sql_type}{suffix}")
+        field_spec = defs[model]["properties"][col["source"]]
+        enum_values = enum_domain(field_spec)
+        if enum_values is not None:
+            if sql_type != "TEXT":
+                raise SystemExit(
+                    f"enum-backed field {model}.{col['source']} must project to TEXT, got {sql_type}"
+                )
+            domain_constraints.append(
+                (name, cname, constraint_name(name, cname), enum_values)
+            )
     pk = safe(table["primary_key"])
     if pk not in projected_names:
         raise SystemExit(f"primary key {name}.{pk} is not a projected column")
@@ -65,6 +102,29 @@ for table in projection["tables"]:
     table_columns[name] = projected_names
     sql += [f"CREATE TABLE IF NOT EXISTS {name} (", ",\n".join(columns), ");"]
 sql += ["COMMIT;", ""]
+
+domain_sql = [
+    "-- GENERATED. DO NOT EDIT.",
+    "-- Additive domain constraints projected from JSON Schema enum authorities.",
+    "BEGIN;",
+]
+for table, column, name, values in domain_constraints:
+    allowed = ", ".join(sql_literal(value) for value in values)
+    domain_sql += [
+        "DO $ores$",
+        "BEGIN",
+        "  IF NOT EXISTS (",
+        "    SELECT 1 FROM pg_constraint",
+        f"    WHERE conname = {sql_literal(name)}",
+        f"      AND conrelid = 'public.{table}'::regclass",
+        "  ) THEN",
+        f"    ALTER TABLE public.{table}",
+        f"      ADD CONSTRAINT {name} CHECK ({column} IN ({allowed}));",
+        "  END IF;",
+        "END",
+        "$ores$;",
+    ]
+domain_sql += ["COMMIT;", ""]
 
 seed = ["-- GENERATED. DO NOT EDIT.", "BEGIN;"]
 for item in projection.get("seed", []):
@@ -147,6 +207,7 @@ for iface in projection["interfaces"]:
 outputs = {
     "contracts/generated/sql/001_init.sql": "\n".join(sql),
     "contracts/generated/sql/002_seed.sql": "\n".join(seed),
+    "contracts/generated/sql/010_domain_constraints.sql": "\n".join(domain_sql),
     "contracts/generated/protobuf/comparison.proto": "\n".join(proto),
     "contracts/generated/interfaces/typescript.ts": "\n".join(typescript),
     "contracts/generated/interfaces/rust.rs": "\n".join(rust),
