@@ -4,10 +4,10 @@ scenario = "big-org-example-commerce"
 integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
 
 [commands]
-dev = "bmscl dev ."
-build = "bmscl build . --out-dir ./dist --policy ./bmscl-policy.toml --worker-config ./.ores-lambda.toml"
-verify = "bmscl verify ./dist"
-deploy = "bmscl deploy ./dist --project big-org-example-commerce --environment dev"
+dev = "cd repos/app && bmscl dev ."
+build = "cd repos/app && bmscl build . --out-dir ./dist --policy ./bmscl-policy.toml --worker-config ./.ores-lambda.toml"
+verify = "cd repos/app && bmscl verify ./dist"
+deploy = "cd repos/app && bmscl deploy ./dist --project big-org-example-commerce --environment dev"
 
 [contracts]
 typespec = "contracts/typespec/main.tsp"
