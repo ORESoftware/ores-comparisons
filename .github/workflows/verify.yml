@@ -21,6 +21,30 @@ jobs:
       - run: python3 scripts/verify_contract_authorities_static.py
       - run: python3 scripts/verify_benchmark_matrix.py
       - run: python3 scripts/smoke_projects.py --check
+      - name: Exercise benchmark recorder
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 18765 --bind 127.0.0.1 >/tmp/ores-comparisons-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" >/dev/null 2>&1 || true' EXIT
+          for _ in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:18765/ >/dev/null; then break; fi
+            sleep 0.1
+          done
+          python3 scripts/run_benchmark.py \
+            --stack beamscale \
+            --scenario http-observability \
+            --url http://127.0.0.1:18765/ \
+            --requests 5 \
+            --warmup 1 \
+            --pid "$server_pid" \
+            --artifact README.md \
+            --cost-per-million-usd 0.125 \
+            --output benchmarks/results/benchmark-ci.json
+          python3 scripts/render_benchmark_matrix.py --output benchmarks/results/matrix-ci.md
+          grep -q "http-observability" benchmarks/results/matrix-ci.md
+          rm -f benchmarks/results/benchmark-ci.json benchmarks/results/matrix-ci.md
       - run: python3 scripts/generate_all_contracts.py --check
       - name: Run per-project conformance drift gates
         run: |
