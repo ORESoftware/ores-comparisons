@@ -36,8 +36,8 @@ for stack in "${stacks[@]}"; do
       grep -q "\"$id\"" "$root/comparison.toml" || fail "$root missing integration $id"
     done
 
-    for rule in 'env/enc/dev\\.env\\.enc' 'env/enc/stage\\.env\\.enc' 'env/enc/prod\\.env\\.enc'; do
-      grep -q "$rule" "$root/.sops.yaml" || fail "$root missing SOPS rule $rule"
+    for rule in '^env/enc/dev\.env\.enc$' '^env/enc/stage\.env\.enc$' '^env/enc/prod\.env\.enc$'; do
+      grep -Fq "$rule" "$root/.sops.yaml" || fail "$root missing SOPS rule $rule"
     done
 
     tracked_dec=$(git ls-files "$root/env/dec" | grep -v '/\.gitignore$' || true)
@@ -75,8 +75,8 @@ for stack in "${stacks[@]}"; do
   done
 done
 
-if git ls-files | grep -E '/projects/example-' >/dev/null; then
-  fail "example-* prefix found; big-org projects must use big-org-example-*"
+if find stacks -type d -path '*/projects/example*' -print -quit | grep -q .; then
+  fail "example* project prefix found; organization-scale projects must use big-org-example-*"
 fi
 
 if git grep -nE 'AGE-SECRET-KEY-1[0-9A-Z]{40,}' -- . ':!*.md' >/dev/null 2>&1; then
