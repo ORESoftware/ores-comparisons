@@ -1,0 +1,16 @@
+schema_version: ores.compose.v1
+project: ores-stack-rpc-graphql
+allow_lazy_start: false
+services:
+  postgres:
+    runtime: host
+    command: ["../../../../scripts/local-postgres.sh", "ores-stack-rpc-graphql"]
+    healthcheck:
+      command: ["../../../../scripts/local-postgres-health.sh", "ores-stack-rpc-graphql"]
+      interval_ms: 1000
+      timeout_ms: 1000
+      retries: 20
+  app:
+    runtime: host
+    command: ["../../../../scripts/dev-project.sh", "ores-stack", "."]
+    depends_on: ["postgres"]

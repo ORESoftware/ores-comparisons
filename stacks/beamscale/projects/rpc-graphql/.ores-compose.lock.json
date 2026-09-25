@@ -1,0 +1,1 @@
+{"schema":"ores.comparisons.ores-compose-lock/v1","ores_compose":{"repository":"https://github.com/ORESoftware/ores-compose.git","rev":"fbfad966f9770a9a8d3895880523280324b4ddc6","crate_version":"0.1.0","manifest_schema":"ores.compose.v1"}}
