@@ -30,12 +30,13 @@ install_cargo_git() {
   ln -sfn "$root/bin/$bin" "$BIN/$bin"
 }
 
-checkout_runtime() {
+checkout_to() {
   name="$1"
+  dir="$2"
   repo="$(read_pin "$name" repository)"
   rev="$(read_pin "$name" commit)"
-  dir="$RUNTIMES/$name"
   if [[ ! -d "$dir/.git" ]]; then
+    mkdir -p "$(dirname "$dir")"
     git clone --no-checkout "$repo.git" "$dir"
   fi
   git -C "$dir" fetch --depth=1 origin "$rev"
@@ -44,10 +45,27 @@ checkout_runtime() {
   [[ "$actual" == "$rev" ]] || { echo "$name revision mismatch" >&2; exit 1; }
 }
 
+checkout_runtime() {
+  checkout_to "$1" "$RUNTIMES/$1"
+}
+
+install_scintilla_cli() {
+  checkout_runtime scintilla-cli
+  cli_dir="$RUNTIMES/scintilla-cli"
+  dep_dir="$cli_dir/.vendor/.zed/oresoftware/ores-clis-core"
+  checkout_to ores-clis-core "$dep_dir"
+  root="$ROOT/.local/tools/scintilla-cli"
+  mkdir -p "$root"
+  if [[ ! -x "$root/bin/scintilla" ]]; then
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install       --path "$cli_dir"       --locked       --root "$root"       --bin scintilla
+  fi
+  ln -sfn "$root/bin/scintilla" "$BIN/scintilla"
+}
+
 install_cargo_git ores-compose ores-compose
 install_cargo_git bmscl-cli bmscl
 install_cargo_git bmscl-compiler bmscl-compiler
-install_cargo_git scintilla-cli scintilla
+install_scintilla_cli
 install_cargo_git ores-stack ores-stack ores-stack-cli
 
 checkout_runtime bmscl-supervisor
