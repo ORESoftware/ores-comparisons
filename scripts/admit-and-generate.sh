@@ -2,11 +2,12 @@
 set -euo pipefail
 workload_root="$(cd "${1:?workload root required}" && pwd)"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-version="$(jq -r '.typespec_json_schema_validator.version' "$repo_root/toolchain.lock.json")"
+validator_rev="$(jq -r '.typespec_json_schema_validator.rev' "$repo_root/toolchain.lock.json")"
+validator_package="https://github.com/ORESoftware/typespec-json-schema-validator/archive/${validator_rev}.tar.gz"
 evidence="$workload_root/generated/typespec-witness"
 report="$workload_root/generated/tjsv-report.json"
 mkdir -p "$evidence"
-npx --yes --package "@oresoftware/typespec-json-schema-validator@$version" tjsv check \
+npx --yes --package "$validator_package" tjsv check \
   --typespec="$workload_root/contracts/main.tsp" \
   --schema="$workload_root/contracts/entities.schema.json" \
   --instances="$workload_root/conformance/instances" \
