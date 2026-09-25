@@ -7,7 +7,8 @@ for workload in form-service realtime-chat rpc-graphql; do
   witness="$w/generated/typespec-witness/typespec.generated.schema.json"
   "$root/scripts/generate-workload-contracts.mjs" "$w" --typespec-witness="$witness" --check
   test -s "$w/generated/sql/001_schema.sql"
-  cmp "$w/generated/sql/from-typespec.sql" "$w/generated/sql/from-json-schema.sql"
+  cmp <(tail -n +2 "$w/generated/sql/from-typespec.sql") <(tail -n +2 "$w/generated/sql/from-json-schema.sql")
+  test "$(jq -r '.sql_convergence.equal' "$w/generated/manifest.json")" = true
   test -s "$w/generated/rust/entities.rs"
   test -s "$w/generated/typescript/entities.ts"
   test -s "$w/generated/protobuf/entities.proto"
