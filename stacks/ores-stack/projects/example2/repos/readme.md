@@ -1,0 +1,1 @@
+example repos that use ores-stack go in here as git submodules
