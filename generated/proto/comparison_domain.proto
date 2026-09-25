@@ -1,0 +1,57 @@
+// GENERATED. Do not edit.
+syntax = "proto3";
+package ores.comparisons.v1;
+
+message Payload {
+  string data = 1;
+}
+
+message Tenant {
+  string tenant_id = 1;
+  string slug = 2;
+  string name = 3;
+  string created_at = 4;
+}
+
+message Principal {
+  string principal_id = 1;
+  string tenant_id = 2;
+  string email = 3;
+  string display_name = 4;
+  string created_at = 5;
+}
+
+message WorkItem {
+  string work_item_id = 1;
+  string tenant_id = 2;
+  string scenario = 3;
+  string status = 4;
+  Payload payload = 5;
+  string created_at = 6;
+  string updated_at = 7;
+}
+
+message AuditEvent {
+  string audit_event_id = 1;
+  string tenant_id = 2;
+  string principal_id = 3;
+  string event_type = 4;
+  Payload payload = 5;
+  string created_at = 6;
+}
+
+message WorkRequest {
+  string tenant_id = 1;
+  string principal_id = 2;
+  string scenario = 3;
+  Payload payload = 4;
+}
+
+message WorkResponse {
+  string work_item_id = 1;
+  string status = 2;
+}
+
+service ComparisonApi {
+  rpc Run(WorkRequest) returns (WorkResponse);
+}

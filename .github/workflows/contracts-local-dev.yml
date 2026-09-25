@@ -16,17 +16,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.9.0"
+      - name: Install pinned contract toolchain
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: TypeSpec and JSON Schema parity
         run: |
           mkdir -p artifacts
-          npx -y -p @oresoftware/typespec-json-schema-validator@0.1.1 tjsv check \
-            --typespec=contracts/comparison-domain.tsp \
-            --schema=contracts/comparison-domain.schema.json \
-            --instances=contracts/instances \
-            --report=artifacts/schema-parity.json
+          npm run contracts:parity
       - name: Generated projection drift
-        run: node scripts/generate-contract-artifacts.mjs --check
+        run: npm run contracts:generated-check
       - name: Project layout conformance
-        run: node conformance/verify-project-layout.mjs
+        run: npm run contracts:layout
       - name: Shell syntax
         run: bash -n scripts/local/*.sh scripts/install-ores-compose.sh

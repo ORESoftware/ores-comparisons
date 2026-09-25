@@ -12,3 +12,6 @@ result
 **/target/
 **/node_modules/
 **/.local-age/
+**/.runtime/
+artifacts/
+.typespec-json-schema-validator/

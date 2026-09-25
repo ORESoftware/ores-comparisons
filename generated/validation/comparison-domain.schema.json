@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores-comparisons.domain.schema.json",
+  "$defs": {
+    "Scenario": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Scenario",
+      "type": "string",
+      "enum": ["http-observability", "forms-chat-workflow", "cached-rpc", "big-org-example-commerce", "big-org-example-collaboration", "big-org-example-operations"]
+    },
+    "WorkStatus": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WorkStatus",
+      "type": "string",
+      "enum": ["queued", "running", "done", "failed"]
+    },
+    "Payload": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Payload",
+      "type": "object",
+      "properties": {"data": {"type": "string"}},
+      "required": ["data"],
+      "unevaluatedProperties": false
+    },
+    "Tenant": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Tenant",
+      "type": "object",
+      "properties": {
+        "tenant_id": {"type": "string"},
+        "slug": {"type": "string"},
+        "name": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["tenant_id", "slug", "name", "created_at"],
+      "unevaluatedProperties": false
+    },
+    "Principal": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Principal",
+      "type": "object",
+      "properties": {
+        "principal_id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "email": {"type": "string"},
+        "display_name": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["principal_id", "tenant_id", "email", "created_at"],
+      "unevaluatedProperties": false
+    },
+    "WorkItem": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WorkItem",
+      "type": "object",
+      "properties": {
+        "work_item_id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "scenario": {"$ref": "Scenario"},
+        "status": {"$ref": "WorkStatus"},
+        "payload": {"$ref": "Payload"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["work_item_id", "tenant_id", "scenario", "status", "payload", "created_at", "updated_at"],
+      "unevaluatedProperties": false
+    },
+    "AuditEvent": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "AuditEvent",
+      "type": "object",
+      "properties": {
+        "audit_event_id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "principal_id": {"type": "string"},
+        "event_type": {"type": "string"},
+        "payload": {"$ref": "Payload"},
+        "created_at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["audit_event_id", "tenant_id", "event_type", "payload", "created_at"],
+      "unevaluatedProperties": false
+    },
+    "WorkRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WorkRequest",
+      "type": "object",
+      "properties": {
+        "tenant_id": {"type": "string"},
+        "principal_id": {"type": "string"},
+        "scenario": {"$ref": "Scenario"},
+        "payload": {"$ref": "Payload"}
+      },
+      "required": ["tenant_id", "scenario", "payload"],
+      "unevaluatedProperties": false
+    },
+    "WorkResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WorkResponse",
+      "type": "object",
+      "properties": {
+        "work_item_id": {"type": "string"},
+        "status": {"$ref": "WorkStatus"}
+      },
+      "required": ["work_item_id", "status"],
+      "unevaluatedProperties": false
+    }
+  }
+}

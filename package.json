@@ -1,0 +1,16 @@
+{
+  "name": "ores-comparisons-contracts",
+  "private": true,
+  "engines": {"node": ">=22.9.0"},
+  "devDependencies": {
+    "@oresoftware/typespec-json-schema-validator": "0.1.1",
+    "@typespec/compiler": "1.16.0",
+    "@typespec/json-schema": "1.16.0"
+  },
+  "scripts": {
+    "contracts:parity": "tjsv check --typespec=contracts/comparison-domain.tsp --schema=contracts/comparison-domain.schema.json --instances=contracts/instances --report=artifacts/schema-parity.json",
+    "contracts:generate": "node scripts/generate-contract-artifacts.mjs",
+    "contracts:generated-check": "node scripts/generate-contract-artifacts.mjs --check",
+    "contracts:layout": "node conformance/verify-project-layout.mjs"
+  }
+}
