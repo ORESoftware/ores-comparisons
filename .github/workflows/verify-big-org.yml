@@ -1,0 +1,17 @@
+name: verify-big-org-comparisons
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify big-org projects
+        run: bash scripts/verify_big_org_examples.sh
