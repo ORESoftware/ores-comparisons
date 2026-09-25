@@ -10,10 +10,10 @@ generate-check:
     python3 scripts/generate_all_contracts.py --check
 
 tools-bootstrap:
-    ./scripts/bootstrap_pinned_tools.sh
+    bash scripts/bootstrap_pinned_tools.sh
 
 env-init project:
-    ./scripts/bootstrap-env.sh "{{project}}"
+    bash scripts/bootstrap-env.sh "{{project}}"
 
 compose-check project:
     ./.local/bin/ores-compose check "{{project}}/.ores-compose.yaml"

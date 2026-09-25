@@ -6,12 +6,15 @@ import sys
 from pathlib import Path
 
 SAFE = re.compile(r"^[a-z][a-z0-9_]*$")
+SQL_TYPES = {"TEXT", "INTEGER", "TIMESTAMPTZ", "JSONB"}
 PROJECT = Path(sys.argv[1]).resolve()
 CHECK = "--check" in sys.argv[2:]
 schema = json.loads((PROJECT / "contracts/json-schema/domain.schema.json").read_text())
 projection = json.loads((PROJECT / "contracts/projection.json").read_text())
 defs = schema.get("$defs", {})
 
+if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+    raise SystemExit("authored schema must declare JSON Schema Draft 2020-12")
 if projection.get("schema") != "ores.comparisons.projection/v1":
     raise SystemExit("unsupported projection schema")
 
@@ -33,28 +36,46 @@ def sql_literal(value):
         return str(value)
     return "'" + str(value).replace("'", "''") + "'"
 
+table_columns: dict[str, set[str]] = {}
 sql = ["-- GENERATED. DO NOT EDIT.", "BEGIN;"]
 for table in projection["tables"]:
     name = safe(table["name"])
+    if name in table_columns:
+        raise SystemExit(f"duplicate table projection {name}")
     model = table["model"]
-    if model not in defs:
-        raise SystemExit(f"missing schema model {model}")
+    if model not in defs or defs[model].get("type") != "object":
+        raise SystemExit(f"table {name} references missing/non-model schema {model}")
     columns = []
+    projected_names: set[str] = set()
     for col in table["columns"]:
         cname = safe(col["name"])
+        if cname in projected_names:
+            raise SystemExit(f"duplicate projected column {name}.{cname}")
+        projected_names.add(cname)
         require_field(model, col["source"])
+        sql_type = col["sql_type"]
+        if sql_type not in SQL_TYPES:
+            raise SystemExit(f"unapproved SQL type {sql_type!r} for {name}.{cname}")
         suffix = "" if col.get("nullable", False) else " NOT NULL"
-        columns.append(f"  {cname} {col['sql_type']}{suffix}")
+        columns.append(f"  {cname} {sql_type}{suffix}")
     pk = safe(table["primary_key"])
+    if pk not in projected_names:
+        raise SystemExit(f"primary key {name}.{pk} is not a projected column")
     columns.append(f"  PRIMARY KEY ({pk})")
+    table_columns[name] = projected_names
     sql += [f"CREATE TABLE IF NOT EXISTS {name} (", ",\n".join(columns), ");"]
 sql += ["COMMIT;", ""]
 
 seed = ["-- GENERATED. DO NOT EDIT.", "BEGIN;"]
 for item in projection.get("seed", []):
     table = safe(item["table"])
+    if table not in table_columns:
+        raise SystemExit(f"seed references unknown projected table {table}")
     for row in item["rows"]:
         names = [safe(name) for name in row]
+        unknown = set(names) - table_columns[table]
+        if unknown:
+            raise SystemExit(f"seed for {table} contains unknown columns {sorted(unknown)}")
         values = [sql_literal(row[name]) for name in row]
         seed.append(
             f"INSERT INTO {table} ({', '.join(names)}) VALUES ({', '.join(values)}) "
@@ -70,22 +91,36 @@ proto = [
     f"package {proto_cfg['package']};",
     "",
 ]
+message_names = set()
 for message in proto_cfg["messages"]:
-    proto.append(f"message {message['name']} {{")
+    name = message["name"]
+    if name in message_names:
+        raise SystemExit(f"duplicate protobuf message {name}")
+    message_names.add(name)
+    proto.append(f"message {name} {{")
+    numbers = set()
     for field in message["fields"]:
-        proto.append(f"  {field['type']} {field['name']} = {field['number']};")
+        number = field["number"]
+        if number <= 0 or number in numbers:
+            raise SystemExit(f"invalid/duplicate protobuf field number in {name}: {number}")
+        numbers.add(number)
+        proto.append(f"  {field['type']} {field['name']} = {number};")
     proto += ["}", ""]
 proto.append(f"service {proto_cfg['service']} {{")
 for rpc in proto_cfg["rpcs"]:
+    if rpc["request"] not in message_names or rpc["response"] not in message_names:
+        raise SystemExit(f"RPC {rpc['name']} references an unknown message")
     proto.append(f"  rpc {rpc['name']} ({rpc['request']}) returns ({rpc['response']});")
 proto += ["}", ""]
 
 typescript = ["// GENERATED. DO NOT EDIT."]
-rust = ["// GENERATED. DO NOT EDIT.", "#![allow(dead_code)]"]
+rust = ["// GENERATED. DO NOT EDIT.", "#![allow(dead_code, non_snake_case)]"]
 gleam = ["// GENERATED. DO NOT EDIT."]
 
 for iface in projection["interfaces"]:
     model = iface["model"]
+    if model not in defs or defs[model].get("type") != "object":
+        raise SystemExit(f"interface projection references missing model {model}")
     spec = defs[model]
     required = set(spec.get("required", []))
     typescript.append(f"export interface {model} {{")
@@ -134,3 +169,5 @@ if drift:
     for relative in drift:
         print(" -", relative)
     raise SystemExit(1)
+
+print(("checked" if CHECK else "generated"), PROJECT)

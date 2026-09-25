@@ -16,4 +16,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-save @oresoftware/typespec-json-schema-validator@0.1.1
       - run: python3 scripts/verify_examples.py
+      - run: python3 scripts/verify_toolchain_pins.py
+      - run: python3 scripts/generate_all_contracts.py --check
+      - run: bash conformance/check-all.sh

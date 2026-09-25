@@ -17,12 +17,15 @@ PY
 install_cargo_git() {
   name="$1"
   bin="$2"
+  package="${3:-}"
   repo="$(read_pin "$name" repository)"
   rev="$(read_pin "$name" commit)"
   root="$ROOT/.local/tools/$name"
   mkdir -p "$root"
   if [[ ! -x "$root/bin/$bin" ]]; then
-    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install --git "$repo" --rev "$rev" --locked --root "$root" --bin "$bin"
+    args=(cargo install --git "$repo" --rev "$rev" --locked --root "$root" --bin "$bin")
+    if [[ -n "$package" ]]; then args+=(--package "$package"); fi
+    CARGO_NET_GIT_FETCH_WITH_CLI=true "${args[@]}"
   fi
   ln -sfn "$root/bin/$bin" "$BIN/$bin"
 }
@@ -43,7 +46,7 @@ install_cargo_git ores-compose ores-compose
 install_cargo_git bmscl-cli bmscl
 install_cargo_git bmscl-compiler bmscl-compiler
 install_cargo_git scintilla-cli scintilla
-install_cargo_git ores-stack ores-stack
+install_cargo_git ores-stack ores-stack ores-stack-cli
 
 checkout_runtime bmscl-supervisor
 checkout_runtime scintilla-runner

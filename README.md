@@ -1,94 +1,86 @@
 # ores-comparisons
 
-Deployable, side-by-side example projects for the three ORES application stacks.
+Deployable, side-by-side example projects for BeamScale, Scintilla, and ORES
+Stack. Each stack implements the same three workloads:
 
-| Stack | Execution model | Projects |
-| --- | --- | --- |
-| [BeamScale](https://github.com/beamscale) | admitted Gleam -> Erlang/BEAM; one host-supervised actor/process per invocation | `http-observability`, `forms-chat-workflow`, `cached-rpc` |
-| [Scintilla](https://github.com/scintilla-run) | polyglot functions in containers/sub-processes | `http-observability`, `forms-chat-workflow`, `cached-rpc` |
-| [ORES Stack](https://github.com/ores-stack) | Rust native servers + WASM/page assets + RPC/API generation | `http-observability`, `forms-chat-workflow`, `cached-rpc` |
+- `http-observability`
+- `forms-chat-workflow`
+- `cached-rpc`
 
-Every project uses the same comparison contract and declares adapters for:
+| Stack | Execution model |
+| --- | --- |
+| BeamScale | admitted Gleam -> Erlang/BEAM actor/lambda execution |
+| Scintilla | polyglot lambda/container/sub-process runtime |
+| ORES Stack | Rust native servers, WASM/page assets, RPC/API generation |
 
-- https://github.com/ores-otel
-- https://github.com/ores-forms
-- https://github.com/opto-sync
-- https://github.com/ores-chat
-- https://github.com/ores-convo
-- https://github.com/ores-rate-limit
-- https://github.com/ORESoftware/ores-middleware
-- https://github.com/ores-redis-lru-cache
-- https://github.com/ORESoftware/api-docs
-- https://github.com/ORESoftware/ores-sops
-- https://github.com/ores-sops
+All nine projects expose the same integration graph: ores-otel, ores-forms,
+opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
+ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
 
-The duplicated SOPS references are intentional: `ORESoftware/ores-sops` is the
-currently readable canonical implementation while `ores-sops` is the target
-organization boundary. Example code treats them as one secret-management
-contract, not two competing formats.
+## Contract structure
 
-## Layout
+Every project contains:
 
 ```text
-stacks/
-  beamscale/projects/{http-observability,forms-chat-workflow,cached-rpc}
-  scintilla-run/projects/{http-observability,forms-chat-workflow,cached-rpc}
-  ores-stack/projects/{http-observability,forms-chat-workflow,cached-rpc}
-shared/
-  integrations.json
-scripts/
-  verify_examples.py
-  bootstrap-env.sh
+contracts/
+  typespec/main.tsp
+  json-schema/domain.schema.json
+  projection.json
+  generated/
+    validation/domain.schema.json
+    sql/{001_init,002_seed}.sql
+    protobuf/comparison.proto
+    interfaces/{typescript.ts,rust.rs,gleam.gleam}
+conformance/
+  instances/
+  check.sh
+governance/
+  authority-contract.json
+  README.md
 ```
 
-Each project contains:
+TypeSpec and JSON Schema Draft 2020-12 are **peer authorities**. Neither is
+generated from or silently replaces the other.
+`ORESoftware/typespec-json-schema-validator` compares them fail-closed and
+executes the recorded valid/invalid corpus. Only after that gate do reviewed
+projection declarations produce SQL, seed data, Protobuf and language
+interfaces. Generated outputs are committed so drift is visible in review.
 
-- `comparison.toml` — scenario, deployment commands, and the complete integration set.
-- `.sops.yaml` — exact dev/stage/prod age-recipient policy template.
-- `env/enc/` — encrypted dotenv files live here after bootstrap.
-- `env/dec/` — runtime-only plaintext; Git ignores everything except its guard file.
-- `.env.example` — names only / non-secret local defaults.
-- stack-native source and deployment configuration.
+## Reproducible local clusters
 
-## Quick start
-
-Enter the Nix shell:
+`tools/toolchain.lock.json` pins `ores-compose`, contract tooling, stack CLIs
+and local runtimes to exact Git revisions. The Nix shell supplies PostgreSQL 16
+and the language toolchains.
 
 ```sh
 nix develop
+just tools-bootstrap
 just verify
+
+just compose-plan stacks/beamscale/projects/http-observability
+just compose-up stacks/beamscale/projects/http-observability
 ```
 
-Initialize encrypted environment files for one project after supplying **public**
-age recipients:
+Every `.ores-compose.yaml` includes PostgreSQL as a supervised host process.
+The current pinned `ores-compose` executor intentionally runs host processes
+only, so the examples do not pretend OCI execution is available. Startup waits
+for `pg_isready`, checks contracts, runs the generated idempotent migration and
+seed scripts, then launches the stack-native dev runtime.
 
-```sh
-export DEV_AGE_RECIPIENT=age1...
-export STAGE_AGE_RECIPIENT=age1...
-export PROD_AGE_RECIPIENT=age1...
-export RECOVERY_AGE_RECIPIENT=age1...
+Scintilla additionally launches its exact-pinned Gleam runner and Rust backend.
+BeamScale points its CLI at the exact-pinned supervisor/compiler. ORES Stack
+runs the exact-pinned `ores-stack` CLI.
 
-just env-init stacks/beamscale/projects/http-observability
-```
+## Secrets
 
-No private age key and no decrypted `*.env` file belongs in Git.
+Each project preserves the SOPS + age boundary:
 
-Then use the project's README. The stack CLIs remain the deployment authorities:
+- `env/enc/` — committed ciphertext only;
+- `env/dec/` — runtime-only plaintext, ignored by Git;
+- `.sops.yaml` — exact dev/stage/prod recipient rules;
+- `.env.example` — non-secret local defaults.
 
-```sh
-bmscl check . && bmscl build . --out-dir dist && bmscl deploy dist --project comparison-http
-scintilla build --project . --out-dir .scintilla && scintilla deploy --project . --out-dir .scintilla
-ores-stack check && ores-stack build
-```
+Use `just env-init <project-path>` after supplying public age recipients. No
+age private key and no decrypted environment file belongs in Git.
 
-## Comparison philosophy
-
-The projects intentionally hold workload semantics constant while allowing the
-runtime to differ. Telemetry, forms/sync/chat, rate limiting/cache, API docs,
-middleware, and secret activation are represented as explicit ports. That makes
-latency, cold-start, memory, isolation, artifact size, deployment behavior, and
-cost measurements attributable to the stack rather than to three unrelated apps.
-
-Run `python3 scripts/verify_examples.py` before adding another project. It
-fails closed if a project drops an integration, loses its encrypted/decrypted env
-boundary, or misses the stack-specific deployment contract.
+See `docs/ARCHITECTURE.md` for the authority and startup model.

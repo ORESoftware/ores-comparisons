@@ -9,7 +9,7 @@ services:
       command: ["bash", "scripts/db-health.sh"]
       interval_ms: 300
       timeout_ms: 250
-      retries: 40
+      retries: 20
   app:
     runtime: host
     command: ["bash", "scripts/dev-server.sh"]

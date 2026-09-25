@@ -1,6 +1,10 @@
 .DS_Store
 result
 .direnv/
+.local/
+**/.local/
+**/.artifacts/
+node_modules/
 **/.env
 **/.env.*
 !**/.env.example

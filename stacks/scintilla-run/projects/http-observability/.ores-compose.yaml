@@ -9,7 +9,7 @@ services:
       command: ["bash", "scripts/db-health.sh"]
       interval_ms: 300
       timeout_ms: 250
-      retries: 40
+      retries: 20
   runner:
     runtime: host
     command: ["bash", "scripts/scintilla-runner.sh"]
@@ -19,7 +19,7 @@ services:
       command: ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8083/readyz"]
       interval_ms: 500
       timeout_ms: 400
-      retries: 60
+      retries: 20
   backend:
     runtime: host
     command: ["bash", "scripts/scintilla-backend.sh"]
@@ -30,7 +30,7 @@ services:
       command: ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/readyz"]
       interval_ms: 500
       timeout_ms: 400
-      retries: 60
+      retries: 20
   app:
     runtime: host
     command: ["bash", "scripts/dev-server.sh"]
