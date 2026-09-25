@@ -64,6 +64,8 @@ def json_type_matches(value, typ: str) -> bool:
     return False
 
 def validate_instance(value, declaration: dict, defs: dict) -> bool:
+    if not declaration:
+        return True
     if declaration.get("$ref"):
         target = normalize_ref(declaration["$ref"])
         return target in defs and validate_instance(value, defs[target], defs)
