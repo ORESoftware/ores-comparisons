@@ -9,6 +9,7 @@ lock = json.loads((ROOT / "tools/toolchain.lock.json").read_text())
 errors = []
 
 required = {
+    "zed-cli": ("0.3.0", "17412050a0f4c4f963008f0de9abf3651d42af08"),
     "ores-compose": ("0.1.0", "fbfad966f9770a9a8d3895880523280324b4ddc6"),
     "typespec-json-schema-validator": ("0.1.1", "e29a91d7ef74e3b0613ea79e988bec4c467535d2"),
     "bmscl-cli": (None, "2a9dd1bf8835ec59c84362ac756839730fbbc7f4"),
@@ -38,6 +39,8 @@ zpkg = (ROOT / ".zpkg.toml").read_text()
 for needle in (
     '"oresoftware/ores-compose" = "=0.1.0"',
     '"oresoftware/typespec-json-schema-validator" = "=0.1.1"',
+    "[interop.git]",
+    "consume_gitmodules = true",
 ):
     if needle not in zpkg:
         errors.append(f"root .zpkg.toml missing {needle}")
