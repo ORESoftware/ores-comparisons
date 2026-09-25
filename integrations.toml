@@ -1,0 +1,56 @@
+version = 1
+
+[[integration]]
+name = "ores-otel"
+repo = "https://github.com/ores-otel"
+role = "telemetry"
+
+[[integration]]
+name = "ores-forms"
+repo = "https://github.com/ores-forms"
+role = "forms"
+
+[[integration]]
+name = "opto-sync"
+repo = "https://github.com/opto-sync"
+role = "offline_sync"
+
+[[integration]]
+name = "ores-chat"
+repo = "https://github.com/ores-chat"
+role = "chat"
+
+[[integration]]
+name = "ores-convo"
+repo = "https://github.com/ores-convo"
+role = "encrypted_conversations"
+
+[[integration]]
+name = "ores-rate-limit"
+repo = "https://github.com/ores-rate-limit"
+role = "rate_limit"
+
+[[integration]]
+name = "ores-middleware"
+repo = "https://github.com/ORESoftware/ores-middleware"
+role = "middleware"
+
+[[integration]]
+name = "ores-redis-lru-cache"
+repo = "https://github.com/ores-redis-lru-cache"
+role = "cache"
+
+[[integration]]
+name = "api-docs"
+repo = "https://github.com/ORESoftware/api-docs"
+role = "rpc_graphql_contracts"
+
+[[integration]]
+name = "ores-sops-legacy"
+repo = "https://github.com/ORESoftware/ores-sops"
+role = "secrets_compat"
+
+[[integration]]
+name = "ores-sops"
+repo = "https://github.com/ores-sops"
+role = "secrets"
