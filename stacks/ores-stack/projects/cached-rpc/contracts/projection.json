@@ -1,0 +1,147 @@
+{
+  "schema": "ores.comparisons.projection/v1",
+  "scenario": "cached-rpc",
+  "tables": [
+    {
+      "name": "rpc_invocations",
+      "model": "RpcInvocation",
+      "primary_key": "id",
+      "columns": [
+        {
+          "name": "id",
+          "source": "id",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "operation",
+          "source": "operation",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "cache_key",
+          "source": "cacheKey",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "cache_state",
+          "source": "cacheState",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "duration_ms",
+          "source": "durationMs",
+          "sql_type": "INTEGER"
+        },
+        {
+          "name": "created_at",
+          "source": "createdAt",
+          "sql_type": "TIMESTAMPTZ"
+        }
+      ]
+    },
+    {
+      "name": "rpc_cache_entries",
+      "model": "CacheEntry",
+      "primary_key": "cache_key",
+      "columns": [
+        {
+          "name": "cache_key",
+          "source": "cacheKey",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "payload_json",
+          "source": "payloadJson",
+          "sql_type": "JSONB"
+        },
+        {
+          "name": "expires_at",
+          "source": "expiresAt",
+          "sql_type": "TIMESTAMPTZ"
+        },
+        {
+          "name": "created_at",
+          "source": "createdAt",
+          "sql_type": "TIMESTAMPTZ"
+        }
+      ]
+    }
+  ],
+  "seed": [
+    {
+      "table": "rpc_invocations",
+      "rows": [
+        {
+          "id": "rpc-demo-1",
+          "operation": "GetCachedComparison",
+          "cache_key": "comparison:demo",
+          "cache_state": "miss",
+          "duration_ms": 7,
+          "created_at": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "table": "rpc_cache_entries",
+      "rows": [
+        {
+          "cache_key": "comparison:demo",
+          "payload_json": "{\"value\":\"seeded\"}",
+          "expires_at": "2099-01-01T00:00:00Z",
+          "created_at": "2026-01-01T00:00:00Z"
+        }
+      ]
+    }
+  ],
+  "proto": {
+    "package": "ores.comparisons.rpc.v1",
+    "service": "CachedRpcComparisonService",
+    "messages": [
+      {
+        "name": "CachedRpcRequest",
+        "fields": [
+          {
+            "type": "string",
+            "name": "operation",
+            "number": 1
+          },
+          {
+            "type": "string",
+            "name": "cache_key",
+            "number": 2
+          }
+        ]
+      },
+      {
+        "name": "CachedRpcResponse",
+        "fields": [
+          {
+            "type": "string",
+            "name": "payload_json",
+            "number": 1
+          },
+          {
+            "type": "string",
+            "name": "cache_state",
+            "number": 2
+          }
+        ]
+      }
+    ],
+    "rpcs": [
+      {
+        "name": "GetCachedComparison",
+        "request": "CachedRpcRequest",
+        "response": "CachedRpcResponse"
+      }
+    ]
+  },
+  "interfaces": [
+    {
+      "model": "RpcInvocation"
+    },
+    {
+      "model": "CacheEntry"
+    }
+  ]
+}
