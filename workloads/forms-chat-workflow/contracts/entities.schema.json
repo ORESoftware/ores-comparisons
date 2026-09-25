@@ -6,7 +6,7 @@
     "WorkflowMessageKind": {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"WorkflowMessageKind","type":"string","enum":["text","system"]},
     "WorkflowRun": {
       "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"WorkflowRun","type":"object",
-      "properties":{"id":{"type":"string"},"tenant_id":{"type":"string"},"form_key":{"type":"string"},"status":{"$ref":"WorkflowStatus"},"revision":{"type":"integer"},"created_at":{"type":"string"}},
+      "properties":{"id":{"type":"string"},"tenant_id":{"type":"string"},"form_key":{"type":"string"},"status":{"$ref":"WorkflowStatus"},"revision":{"type":"integer","minimum":-2147483648,"maximum":2147483647},"created_at":{"type":"string"}},
       "required":["id","tenant_id","form_key","status","revision","created_at"],"unevaluatedProperties":false
     },
     "FormResponse": {
@@ -16,7 +16,7 @@
     },
     "WorkflowMessage": {
       "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"WorkflowMessage","type":"object",
-      "properties":{"id":{"type":"string"},"tenant_id":{"type":"string"},"workflow_run_id":{"type":"string"},"sender_id":{"type":"string"},"kind":{"$ref":"WorkflowMessageKind"},"body":{"type":"string"},"sequence":{"type":"integer"},"created_at":{"type":"string"}},
+      "properties":{"id":{"type":"string"},"tenant_id":{"type":"string"},"workflow_run_id":{"type":"string"},"sender_id":{"type":"string"},"kind":{"$ref":"WorkflowMessageKind"},"body":{"type":"string"},"sequence":{"type":"integer","minimum":-2147483648,"maximum":2147483647},"created_at":{"type":"string"}},
       "required":["id","tenant_id","workflow_run_id","sender_id","kind","body","sequence","created_at"],"unevaluatedProperties":false
     },
     "AdvanceWorkflowRequest": {
