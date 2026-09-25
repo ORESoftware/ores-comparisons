@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "operationId": "ops_console_health",
+      "method": "GET",
+      "path": "/healthz"
+    },
+    {
+      "operationId": "ops_console_work",
+      "method": "POST",
+      "path": "/v1/ops"
+    }
+  ]
+}

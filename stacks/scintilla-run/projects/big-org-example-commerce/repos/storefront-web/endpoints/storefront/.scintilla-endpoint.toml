@@ -1,0 +1,10 @@
+version = 1
+slug = "big-org-example-commerce-storefront"
+display_name = "storefront-web"
+path = "/v1/storefront"
+method = "POST"
+response = "json"
+runtime = "nodejs"
+entrypoint = "lambda.mjs"
+containerized = true
+max_run_ms = 30000

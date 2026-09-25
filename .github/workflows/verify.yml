@@ -17,8 +17,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 scripts/verify_workflow_pins.py
+      - run: python3 scripts/verify_project_matrix.py
       - run: python3 scripts/verify_examples.py
       - run: python3 scripts/verify_project_repo_layout.py
+      - run: python3 scripts/verify_org_manifests.py
+      - run: python3 scripts/verify_big_org_repos.py
       - run: python3 scripts/verify_toolchain_pins.py
       - run: python3 scripts/verify_contract_authorities_static.py
       - run: python3 scripts/verify_projection_contract.py
@@ -35,16 +38,7 @@ jobs:
             if curl --fail --silent http://127.0.0.1:18765/ >/dev/null; then break; fi
             sleep 0.1
           done
-          python3 scripts/run_benchmark.py \
-            --stack beamscale \
-            --scenario http-observability \
-            --url http://127.0.0.1:18765/ \
-            --requests 5 \
-            --warmup 1 \
-            --pid "$server_pid" \
-            --artifact README.md \
-            --cost-per-million-usd 0.125 \
-            --output benchmarks/results/benchmark-ci.json
+          python3 scripts/run_benchmark.py             --stack beamscale             --scenario http-observability             --url http://127.0.0.1:18765/             --requests 5             --warmup 1             --pid "$server_pid"             --artifact README.md             --cost-per-million-usd 0.125             --output benchmarks/results/benchmark-ci.json
           python3 scripts/render_benchmark_matrix.py --output benchmarks/results/matrix-ci.md
           grep -q "http-observability" benchmarks/results/matrix-ci.md
           rm -f benchmarks/results/benchmark-ci.json benchmarks/results/matrix-ci.md
@@ -52,7 +46,7 @@ jobs:
       - name: Run per-project conformance drift gates
         run: |
           set -euo pipefail
-          for project in stacks/*/projects/*/; do
+          for project in stacks/*/projects/*/repos/.github/; do
             bash "$project/conformance/check.sh"
           done
 
@@ -87,10 +81,11 @@ jobs:
 
           bash conformance/check-all.sh
 
-          for project in stacks/*/projects/*/; do
+          for project in stacks/*/projects/*/repos/.github/; do
             echo "==> $project"
             ores-compose check "$project/.ores-compose.yaml"
             ores-compose plan "$project/.ores-compose.yaml"
           done
 
           python3 scripts/smoke_projects.py --execute
+          bash scripts/build_big_org_repos.sh

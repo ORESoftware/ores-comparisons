@@ -1,3 +1,10 @@
-example repos that use scintilla-run go in here as git submodules
+# Local GitHub organization mirror
 
-This `repos/` directory belongs to this project. A project may contain multiple repositories/submodules here to model a whole GitHub organization or multi-repo application. Do not move this directory to the stack root.
+This directory intentionally emulates the root of a GitHub organization.
+
+Allowed top-level entries here are:
+- `.github/` — the simulated organization `.github` repository containing shared contracts, governance, conformance, environment policy, local orchestration, and org profile material.
+- one or more sibling application/service repositories such as `app/`.
+- this `readme.md`, which explains the local organization mirror.
+
+Do not place shared project code or configuration directly in `repos/`; put org-shared material in `repos/.github/` and repository-specific material in its sibling repository directory.

@@ -1,0 +1,16 @@
+{
+  "schema": "ores.comparisons.github-org/v1",
+  "organization": "example-org",
+  "stack": "beamscale",
+  "scenario": "example",
+  "repositories": [
+    {
+      "name": "app",
+      "path": "app",
+      "kind": "unknown",
+      "dependsOn": [
+        "missing"
+      ]
+    }
+  ]
+}

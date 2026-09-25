@@ -1,0 +1,3 @@
+name = "big_org_example_operations_automation_worker"
+version = "0.1.0"
+target = "erlang"

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "operationId": "orders_worker_health",
+      "method": "GET",
+      "path": "/healthz"
+    },
+    {
+      "operationId": "orders_worker_work",
+      "method": "POST",
+      "path": "/v1/orders"
+    }
+  ]
+}

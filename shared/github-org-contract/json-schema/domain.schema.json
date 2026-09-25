@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores.comparisons.github-org.schema.json",
+  "$defs": {
+    "RepositoryKind": {
+      "$id": "RepositoryKind",
+      "type": "string",
+      "enum": [
+        "governance",
+        "application",
+        "service",
+        "worker",
+        "frontend",
+        "generated-sdk",
+        "contract-tests"
+      ]
+    },
+    "RepositoryRole": {
+      "$id": "RepositoryRole",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "RepositoryKind"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "generatedFrom": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "kind",
+        "dependsOn"
+      ],
+      "unevaluatedProperties": false
+    },
+    "OrganizationManifest": {
+      "$id": "OrganizationManifest",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string"
+        },
+        "organization": {
+          "type": "string"
+        },
+        "stack": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "$ref": "RepositoryRole"
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "organization",
+        "stack",
+        "scenario",
+        "repositories"
+      ],
+      "unevaluatedProperties": false
+    },
+    "RepositoryContract": {
+      "$id": "RepositoryContract",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "stack": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "RepositoryKind"
+        },
+        "contractAuthority": {
+          "type": "string"
+        },
+        "generatedSdk": {
+          "type": "string"
+        },
+        "governanceRepo": {
+          "type": "string"
+        },
+        "healthPath": {
+          "type": "string"
+        },
+        "logicalRoute": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "name",
+        "stack",
+        "scenario",
+        "kind",
+        "contractAuthority",
+        "generatedSdk",
+        "governanceRepo",
+        "healthPath",
+        "logicalRoute"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

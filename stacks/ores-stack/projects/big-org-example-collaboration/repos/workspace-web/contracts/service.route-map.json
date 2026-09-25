@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "operationId": "workspace_web_health",
+      "method": "GET",
+      "path": "/healthz"
+    },
+    {
+      "operationId": "workspace_web_work",
+      "method": "POST",
+      "path": "/v1/workspace"
+    }
+  ]
+}
