@@ -1,0 +1,12 @@
+{
+  "schema": "ores.comparisons.repo-contract/v1",
+  "name": "orders-worker",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-commerce",
+  "kind": "worker",
+  "contractAuthority": "../.github/contracts/json-schema/domain.schema.json",
+  "generatedSdk": "../sdk-typescript",
+  "governanceRepo": "../.github",
+  "healthPath": "/healthz",
+  "logicalRoute": "/v1/orders"
+}

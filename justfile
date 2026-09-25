@@ -50,3 +50,9 @@ projection-contract-check:
 
 org-contract-check:
     python3 scripts/verify_org_manifests.py
+
+big-org-check:
+    python3 scripts/verify_big_org_repos.py
+
+big-org-build:
+    bash scripts/build_big_org_repos.sh

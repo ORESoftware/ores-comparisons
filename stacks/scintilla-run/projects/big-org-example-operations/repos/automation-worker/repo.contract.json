@@ -1,0 +1,12 @@
+{
+  "schema": "ores.comparisons.repo-contract/v1",
+  "name": "automation-worker",
+  "stack": "scintilla-run",
+  "scenario": "big-org-example-operations",
+  "kind": "worker",
+  "contractAuthority": "../.github/contracts/json-schema/domain.schema.json",
+  "generatedSdk": "../sdk-typescript",
+  "governanceRepo": "../.github",
+  "healthPath": "/healthz",
+  "logicalRoute": "/v1/automation"
+}

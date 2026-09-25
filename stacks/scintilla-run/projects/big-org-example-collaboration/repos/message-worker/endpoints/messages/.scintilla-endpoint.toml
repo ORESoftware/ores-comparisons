@@ -1,0 +1,10 @@
+version = 1
+slug = "big-org-example-collaboration-messages"
+display_name = "message-worker"
+path = "/v1/messages"
+method = "POST"
+response = "json"
+runtime = "nodejs"
+entrypoint = "lambda.mjs"
+containerized = true
+max_run_ms = 30000

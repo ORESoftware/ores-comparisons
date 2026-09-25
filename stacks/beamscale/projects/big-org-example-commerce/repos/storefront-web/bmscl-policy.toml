@@ -1,0 +1,12 @@
+policy_version = "bmscl-hosted-gleam-v2-read-only"
+allowed_dependencies = ["gleam_stdlib"]
+trusted_sdk_sha256 = "2c5818e5306d4bbcc02796a6a58cb3f1942eb0cbabb19a7dee6c3d7df178ea6b"
+forbidden_import_prefixes = ["gleam/erlang", "gleam/otp", "gleam_erlang", "gleam/io", "gleam/iterator"]
+forbidden_source_patterns = ["@external(erlang", "@external(elixir", "@external(javascript"]
+forbidden_erlang_patterns = ["os:", "file:", "code:", "erl_eval:", "persistent_term:", "ets:", "dets:", "mnesia:", "gen_tcp:", "gen_udp:", "socket:", "ssl:", "httpc:", "erlang:spawn", "erlang:open_port", "erlang:load_nif"]
+max_wall_ms = 30000
+max_reductions = 50000000
+max_heap_bytes = 67108864
+max_processes = 1
+
+[allowed_dependency_checksums]

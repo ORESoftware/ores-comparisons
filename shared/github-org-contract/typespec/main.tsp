@@ -7,6 +7,9 @@ namespace OresComparisons.GitHubOrg;
 enum RepositoryKind {
   governance: "governance",
   application: "application",
+  service: "service",
+  worker: "worker",
+  frontend: "frontend",
   generatedSdk: "generated-sdk",
   contractTests: "contract-tests",
 }
@@ -27,4 +30,18 @@ model OrganizationManifest {
   stack: string;
   scenario: string;
   repositories: RepositoryRole[];
+}
+
+@id("RepositoryContract")
+model RepositoryContract {
+  schema: string;
+  name: string;
+  stack: string;
+  scenario: string;
+  kind: RepositoryKind;
+  contractAuthority: string;
+  generatedSdk: string;
+  governanceRepo: string;
+  healthPath: string;
+  logicalRoute: string;
 }

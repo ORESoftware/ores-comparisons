@@ -21,6 +21,7 @@ jobs:
       - run: python3 scripts/verify_examples.py
       - run: python3 scripts/verify_project_repo_layout.py
       - run: python3 scripts/verify_org_manifests.py
+      - run: python3 scripts/verify_big_org_repos.py
       - run: python3 scripts/verify_toolchain_pins.py
       - run: python3 scripts/verify_contract_authorities_static.py
       - run: python3 scripts/verify_projection_contract.py
@@ -87,3 +88,4 @@ jobs:
           done
 
           python3 scripts/smoke_projects.py --execute
+          bash scripts/build_big_org_repos.sh

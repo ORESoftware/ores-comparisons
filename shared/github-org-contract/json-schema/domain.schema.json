@@ -8,6 +8,9 @@
       "enum": [
         "governance",
         "application",
+        "service",
+        "worker",
+        "frontend",
         "generated-sdk",
         "contract-tests"
       ]
@@ -72,6 +75,55 @@
         "stack",
         "scenario",
         "repositories"
+      ],
+      "unevaluatedProperties": false
+    },
+    "RepositoryContract": {
+      "$id": "RepositoryContract",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "stack": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "RepositoryKind"
+        },
+        "contractAuthority": {
+          "type": "string"
+        },
+        "generatedSdk": {
+          "type": "string"
+        },
+        "governanceRepo": {
+          "type": "string"
+        },
+        "healthPath": {
+          "type": "string"
+        },
+        "logicalRoute": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "name",
+        "stack",
+        "scenario",
+        "kind",
+        "contractAuthority",
+        "generatedSdk",
+        "governanceRepo",
+        "healthPath",
+        "logicalRoute"
       ],
       "unevaluatedProperties": false
     }
