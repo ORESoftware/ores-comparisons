@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "integrations": [
+    {
+      "id": "ores_otel",
+      "repository": "https://github.com/ores-otel",
+      "purpose": "OpenTelemetry logs, traces, metrics and request context",
+      "adapter": "otel_or_platform_log"
+    },
+    {
+      "id": "ores_forms",
+      "repository": "https://github.com/ores-forms",
+      "purpose": "Form/intake validation and submission contracts",
+      "adapter": "http_json_or_native"
+    },
+    {
+      "id": "opto_sync",
+      "repository": "https://github.com/opto-sync",
+      "purpose": "Optimistic/local-first synchronization and completion events",
+      "adapter": "http_json_or_native"
+    },
+    {
+      "id": "ores_chat",
+      "repository": "https://github.com/ores-chat",
+      "purpose": "Chat delivery",
+      "adapter": "http_json"
+    },
+    {
+      "id": "ores_convo",
+      "repository": "https://github.com/ores-convo",
+      "purpose": "Conversation state",
+      "adapter": "http_json"
+    },
+    {
+      "id": "ores_rate_limit",
+      "repository": "https://github.com/ores-rate-limit",
+      "purpose": "Distributed request admission",
+      "adapter": "middleware_or_http"
+    },
+    {
+      "id": "ores_middleware",
+      "repository": "https://github.com/ORESoftware/ores-middleware",
+      "purpose": "Shared middleware composition",
+      "adapter": "native_or_edge"
+    },
+    {
+      "id": "ores_redis_lru_cache",
+      "repository": "https://github.com/ores-redis-lru-cache",
+      "purpose": "Redis/LRU cache port",
+      "adapter": "http_or_native"
+    },
+    {
+      "id": "api_docs",
+      "repository": "https://github.com/ORESoftware/api-docs",
+      "purpose": "Route maps, RPC identity, OpenAPI/OpenRPC projections",
+      "adapter": "contract"
+    },
+    {
+      "id": "ores_sops_legacy",
+      "repository": "https://github.com/ORESoftware/ores-sops",
+      "purpose": "Canonical SOPS+age encrypted dotenv lifecycle",
+      "adapter": "build_and_activation"
+    },
+    {
+      "id": "ores_sops_org",
+      "repository": "https://github.com/ores-sops",
+      "purpose": "Target org boundary for the same ORES SOPS contract",
+      "adapter": "repository_alias"
+    }
+  ]
+}

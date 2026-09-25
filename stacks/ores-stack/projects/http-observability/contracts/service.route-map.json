@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "service": "comparison-http-observability",
+  "map": {
+    "healthz": {
+      "path": "/api/healthz",
+      "methods": [
+        "GET"
+      ],
+      "transports": [
+        "http"
+      ],
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

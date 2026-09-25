@@ -1,0 +1,4 @@
+name = "comparison_forms_chat_workflow"
+version = "1.0.0"
+target = "erlang"
+gleam = ">= 1.18.0"

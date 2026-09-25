@@ -1,1 +1,0 @@
-example repos that use scintilla-run go in here as git submodules
