@@ -23,7 +23,7 @@ jobs:
       - name: Run per-project conformance drift gates
         run: |
           set -euo pipefail
-          for project in stacks/*/projects/*; do
+          for project in stacks/*/projects/*/; do
             bash "$project/conformance/check.sh"
           done
 
@@ -64,7 +64,7 @@ jobs:
 
           CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install             --git https://github.com/ORESoftware/ores-compose             --rev fbfad966f9770a9a8d3895880523280324b4ddc6             --locked             --bin ores-compose
 
-          for project in stacks/*/projects/*; do
+          for project in stacks/*/projects/*/; do
             echo "==> $project"
             ores-compose check "$project/.ores-compose.yaml"
             ores-compose plan "$project/.ores-compose.yaml"
