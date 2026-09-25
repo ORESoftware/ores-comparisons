@@ -13,6 +13,6 @@
     "command": "tjsv"
   },
   "typespec": {"compiler": "1.16.0", "json_schema": "1.16.0"},
-  "node": {"minimum": "22.9.0"},
+  "node": {"minimum": "22.13.0", "ci": "22.13.1"},
   "postgres": {"image": "postgres:16-alpine", "host": "127.0.0.1", "port": 55432}
 }

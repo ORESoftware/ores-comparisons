@@ -1,7 +1,7 @@
 {
   "name": "ores-comparisons-contracts",
   "private": true,
-  "engines": {"node": ">=22.9.0"},
+  "engines": {"node": ">=22.13.0"},
   "devDependencies": {
     "@oresoftware/typespec-json-schema-validator": "https://github.com/ORESoftware/typespec-json-schema-validator/archive/e29a91d7ef74e3b0613ea79e988bec4c467535d2.tar.gz",
     "@typespec/compiler": "1.16.0",
