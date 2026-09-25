@@ -1,11 +1,14 @@
 # ores-comparisons
 
 Deployable, side-by-side example projects for BeamScale, Scintilla, and ORES
-Stack. Each stack implements the same three workloads:
+Stack. Each stack implements three benchmark workloads plus three larger multi-repo organization examples:
 
 - `http-observability`
 - `forms-chat-workflow`
 - `cached-rpc`
+- `big-org-example-commerce`
+- `big-org-example-collaboration`
+- `big-org-example-operations`
 
 | Stack | Execution model |
 | --- | --- |
@@ -13,30 +16,42 @@ Stack. Each stack implements the same three workloads:
 | Scintilla | polyglot lambda/container/sub-process runtime |
 | ORES Stack | Rust native servers, WASM/page assets, RPC/API generation |
 
-All nine projects expose the same integration graph: ores-otel, ores-forms,
+All 18 matrix-governed projects expose the same integration graph: ores-otel, ores-forms,
 opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
 ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
 
 ## Contract structure
 
-Every project contains:
+Every project is a local GitHub-organization mirror. Shared authority is owned by
+the simulated `.github` repository:
 
 ```text
-contracts/
-  typespec/main.tsp
-  json-schema/domain.schema.json
-  projection.json
-  generated/
-    validation/domain.schema.json
-    sql/{001_init,002_seed}.sql
-    protobuf/comparison.proto
-    interfaces/{typescript.ts,rust.rs,gleam.gleam}
-conformance/
-  instances/
-  check.sh
-governance/
-  authority-contract.json
-  README.md
+repos/
+  readme.md
+  .github/
+    README.md
+    profile/README.md
+    comparison.toml
+    .ores-compose.yaml
+    contracts/
+      typespec/main.tsp
+      json-schema/domain.schema.json
+      projection.json
+      generated/
+        validation/domain.schema.json
+        sql/{001_init,002_seed,010_domain_constraints}.sql
+        protobuf/{comparison,domain}.proto
+        interfaces/{typescript.ts,rust.rs,gleam.gleam}
+    conformance/
+      instances/
+      check.sh
+    governance/
+      authority-contract.json
+      README.md
+    env/
+    scripts/
+  app/
+  <future-sibling-repo>/
 ```
 
 TypeSpec and JSON Schema Draft 2020-12 are **peer authorities**. Neither is
@@ -61,7 +76,7 @@ just compose-plan stacks/beamscale/projects/http-observability
 just compose-up stacks/beamscale/projects/http-observability
 ```
 
-Every `.ores-compose.yaml` includes PostgreSQL as a supervised host process.
+Every `repos/.github/.ores-compose.yaml` includes PostgreSQL as a supervised host process.
 The current pinned `ores-compose` executor intentionally runs host processes
 only, so the examples do not pretend OCI execution is available. Startup waits
 for `pg_isready`, checks contracts, runs the generated idempotent migration and
@@ -73,12 +88,12 @@ runs the exact-pinned `ores-stack` CLI.
 
 ## Secrets
 
-Each project preserves the SOPS + age boundary:
+Each simulated `.github` repository preserves the SOPS + age boundary:
 
-- `env/enc/` — committed ciphertext only;
-- `env/dec/` — runtime-only plaintext, ignored by Git;
-- `.sops.yaml` — exact dev/stage/prod recipient rules;
-- `.env.example` — non-secret local defaults.
+- `repos/.github/env/enc/` — committed ciphertext only;
+- `repos/.github/env/dec/` — runtime-only plaintext, ignored by Git;
+- `repos/.github/.sops.yaml` — exact dev/stage/prod recipient rules;
+- `repos/.github/.env.example` — non-secret local defaults.
 
 Use `just env-init <project-path>` after supplying public age recipients. No
 age private key and no decrypted environment file belongs in Git.
@@ -165,7 +180,7 @@ plain strings. `comparison.proto` remains the service/RPC projection, while
 
 The generator input `contracts/projection.json` is itself governed by peer
 TypeSpec and JSON Schema authorities under `shared/projection-contract/`.
-Every one of the nine live projection documents must be admitted before the
+Every one of the 18 live projection documents must be admitted before the
 generator can emit SQL, Protobuf, validation artifacts, or language interfaces.
 
 This separates two checks deliberately: the projection meta-contract validates
@@ -174,13 +189,20 @@ models/fields, primary keys, enum storage types, seeds, and RPC references
 actually exist and agree with the project's domain authorities.
 
 
-## Project/repository boundary
+## GitHub organization mirror
 
-Every `stacks/<stack>/projects/<scenario>/` directory is a multi-repository
-orchestration envelope. Project-owned compose, contracts, conformance,
-governance, environment policy, and database scripts stay at that level.
-Stack-native source and build configuration live under `repos/<repo>/`.
+Every `stacks/<stack>/projects/<scenario>/repos/` directory emulates the root
+of a GitHub organization. Its top level contains only:
 
-The current runnable repository is materialized as `repos/app/`; additional
-API, web, worker, or service repositories may be added beside it or represented
-as git submodules. CI rejects stack-native source flattened into the project root.
+- `readme.md` — explains the local organization mirror;
+- `.github/` — the simulated organization `.github` repository;
+- one or more sibling application/service repositories such as `app/`.
+
+All cross-repository material now belongs to `repos/.github/`: compose
+orchestration, TypeSpec/JSON Schema authorities, generated SQL/Protobuf/types,
+conformance, governance, SOPS/age environment policy, database lifecycle
+scripts, and the organization profile at `profile/README.md`.
+
+Stack-native source and build configuration remain in sibling repositories such
+as `repos/app/`. CI rejects shared files in the project envelope and rejects
+arbitrary files directly in `repos/`.

@@ -5,8 +5,9 @@ import json
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-PROJECTS = sorted(ROOT.glob("stacks/*/projects/*")) + [
+from project_matrix import ROOT, contract_project_specs
+
+PROJECTS = [spec.shared_repo_path for spec in contract_project_specs()] + [
     ROOT / "benchmarks",
     ROOT / "shared/projection-contract",
 ]

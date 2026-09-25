@@ -2,7 +2,12 @@
 set -euo pipefail
 
 project="${1:?usage: bootstrap-env.sh stacks/<stack>/projects/<project>}"
-cd "$project"
+if [[ "$(basename "$project")" == ".github" && "$(basename "$(dirname "$project")")" == "repos" ]]; then
+  shared="$project"
+else
+  shared="$project/repos/.github"
+fi
+cd "$shared"
 
 for bin in sops python3; do
   command -v "$bin" >/dev/null || { echo "missing $bin; run nix develop" >&2; exit 2; }

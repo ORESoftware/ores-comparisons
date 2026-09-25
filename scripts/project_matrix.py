@@ -18,7 +18,27 @@ class ProjectSpec:
 
     @property
     def path(self) -> Path:
+        """Project envelope containing only the local GitHub-org mirror."""
         return ROOT / "stacks" / self.stack / "projects" / self.scenario
+
+    @property
+    def repos_path(self) -> Path:
+        """Local mirror of the GitHub organization root."""
+        return self.path / "repos"
+
+    @property
+    def shared_repo_path(self) -> Path:
+        """Simulated organization .github repository."""
+        return self.repos_path / ".github"
+
+    @property
+    def app_repo_path(self) -> Path:
+        """Current runnable application repository within the org mirror."""
+        return self.repos_path / "app"
+
+    @property
+    def profile_readme_path(self) -> Path:
+        return self.shared_repo_path / "profile" / "README.md"
 
 
 def load_project_specs() -> list[ProjectSpec]:

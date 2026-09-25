@@ -9,7 +9,7 @@ from pathlib import Path
 
 from project_matrix import ROOT, contract_project_specs
 
-PROJECTS = [spec.path for spec in contract_project_specs()]
+PROJECTS = [spec.shared_repo_path for spec in contract_project_specs()]
 if not PROJECTS:
     raise SystemExit("project matrix contains no contract-enabled projects")
 
@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
         validation = project / "contracts/generated/validation/domain.schema.json"
         authored = project / "contracts/json-schema/domain.schema.json"
         projection = project / "contracts/projection.json"
-        repos_readme = project / "repos/readme.md"
+        repos_readme = project.parent / "readme.md"
 
         try:
             for required in (projection, rust, typescript, gleam, validation, authored, repos_readme):
