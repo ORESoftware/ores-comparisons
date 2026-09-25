@@ -1,0 +1,25 @@
+version = 1
+slug = "comparison-forms-chat-workflow"
+display_name = "Comparison forms-chat-workflow"
+description = "ores-comparisons forms-chat-workflow endpoint"
+path = "/comparison/forms-chat-workflow"
+method = "POST"
+response = "json"
+runtime = "python3"
+entrypoint = "main.py"
+entry_command = ""
+containerized = true
+idle_timeout_seconds = 60
+max_run_ms = 30000
+labels = ["comparison", "forms-chat-workflow"]
+env_from = [
+  "APP_ENV",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "ORES_FORMS_URL",
+  "OPTO_SYNC_URL",
+  "ORES_CHAT_URL",
+  "ORES_CONVO_URL",
+  "ORES_RATE_LIMIT_URL",
+  "ORES_REDIS_LRU_CACHE_URL",
+  "API_DOCS_CONTRACT_PATH"
+]
