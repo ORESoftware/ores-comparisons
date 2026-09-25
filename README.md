@@ -134,3 +134,12 @@ projection contract.
 Generated Protobuf descriptors are compiled with `protoc`, Rust interfaces
 with `rustc`, TypeScript interfaces with `tsc --strict --noEmit`, and the
 runtime validation schema is checked against the admitted JSON Schema.
+
+
+### Database domain enforcement
+
+JSON Schema enum domains are now projected into an additive generated PostgreSQL
+migration (`010_domain_constraints.sql`). Local startup applies it after table
+creation, and CI proves each constraint by attempting an invalid write. This
+keeps the database from becoming a weaker contract boundary than the generated
+validation/interface layers.
