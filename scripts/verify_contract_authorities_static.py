@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECTS = sorted(ROOT.glob("stacks/*/projects/*"))
+PROJECTS = sorted(ROOT.glob("stacks/*/projects/*")) + [ROOT / "benchmarks"]
 ID = r'[A-Za-z_][A-Za-z0-9_]*'
 errors: list[str] = []
 
