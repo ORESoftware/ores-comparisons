@@ -143,3 +143,19 @@ migration (`010_domain_constraints.sql`). Local startup applies it after table
 creation, and CI proves each constraint by attempting an invalid write. This
 keeps the database from becoming a weaker contract boundary than the generated
 validation/interface layers.
+
+
+### Typed domain projections
+
+Schema references are preserved as types across generated targets. A JSON Schema
+enum such as `SubmissionState`, `Outcome`, or `CacheState` now becomes:
+
+- a TypeScript literal union;
+- a Rust enum with stable `as_str()` wire values;
+- a Gleam custom type with a generated `*_to_string` function;
+- a Protobuf enum in `contracts/generated/protobuf/domain.proto`;
+- the existing PostgreSQL enum-domain `CHECK` constraint.
+
+Generated model fields reference those domain types rather than degrading to
+plain strings. `comparison.proto` remains the service/RPC projection, while
+`domain.proto` is the data-model projection.
