@@ -22,7 +22,13 @@ The canonical data contracts live under `workloads/<workload>/`. Every concrete 
 
 ## Contract and generation model
 
-TypeSpec and JSON Schema Draft 2020-12 are independent peer authorities. `@oresoftware/typespec-json-schema-validator` fails closed when they disagree. After admission, `scripts/generate-workload-contracts.mjs` produces downstream SQL, Rust interfaces, TypeScript interfaces, a JSON Schema validation projection, Protobuf, and a deterministic digest manifest.
+TypeSpec and JSON Schema Draft 2020-12 are independent peer authorities. `@oresoftware/typespec-json-schema-validator` fails closed when they disagree and emits the official TypeSpec comparison witness plus Contract IR.
+
+Generation is intentionally split:
+
+- **TypeSpec lane:** official `tjsv` witness → Protobuf + SQL.
+- **JSON Schema lane:** authored Draft 2020-12 schema → Rust interfaces + TypeScript interfaces + executable validation schema + SQL.
+- **Cross-check:** the two independently produced SQL projections must converge before `generated/sql/001_schema.sql` exists.
 
 `storage.manifest.json` supplies the reviewed relational mapping for Postgres. `projection.lock.json` fixes Protobuf field numbers and enum ordinals. Generated outputs are ignored by Git and must never be hand-edited.
 
@@ -34,7 +40,7 @@ Every project owns a `.ores-compose.yaml` at the project root. Ores Compose itse
 nix develop
 ./scripts/install-ores-compose.sh
 
-# Example: Postgres -> migrate/seed -> BeamScale dev
+# Postgres -> contract admission/codegen -> migrate/seed -> BeamScale dev
 ./scripts/up-project.sh stacks/beamscale/projects/form-service
 
 # Same shape for the other stacks/workloads
@@ -42,7 +48,7 @@ nix develop
 ./scripts/up-project.sh stacks/ores-stack/projects/rpc-graphql
 ```
 
-All projects start a local `postgres:16-alpine` service on loopback port `55432` by default. The app startup wrapper regenerates SQL, applies the schema with `psql -v ON_ERROR_STOP=1`, applies an idempotent seed, then starts `bmscl dev`, `scintilla dev`, or `ores-stack dev`. Override the database port with `ORES_COMPARE_PG_PORT`.
+All projects start a local `postgres:16-alpine` service on loopback port `55432` by default. The app startup wrapper runs full TypeSpec/JSON Schema admission, regenerates both SQL lanes, requires convergence, applies the canonical SQL with `psql -v ON_ERROR_STOP=1`, applies an idempotent seed, then starts `bmscl dev`, `scintilla dev`, or `ores-stack dev`. Override the database port with `ORES_COMPARE_PG_PORT`.
 
 Scintilla projects also launch a pinned local `scintilla-backend.rs` control plane on `127.0.0.1:8091` and wait for `/healthz` before `scintilla dev` synchronizes endpoints.
 
@@ -64,4 +70,4 @@ BeamScale tenant actors intentionally do not receive ambient database/secret aut
 ./scripts/check-contracts.sh
 ```
 
-The contract gate executes both TypeSpec and JSON Schema over recorded instances through `tjsv`, then generates the downstream projections and immediately re-checks deterministic output.
+The contract gate executes both authorities over recorded valid/invalid instances through `tjsv`, emits Contract IR/witness evidence, generates both downstream lanes, verifies Protobuf locks, and requires SQL convergence.

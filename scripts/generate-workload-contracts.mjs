@@ -4,22 +4,28 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 
 const workloadRoot = resolve(process.argv[2] ?? '');
-if (!process.argv[2]) throw new Error('usage: generate-workload-contracts.mjs <workload-root> [--check]');
+if (!process.argv[2]) throw new Error('usage: generate-workload-contracts.mjs <workload-root> --typespec-witness=<schema> [--check]');
 const checkOnly = process.argv.includes('--check');
+const witnessArg = process.argv.find((arg) => arg.startsWith('--typespec-witness='));
+if (!witnessArg) throw new Error('generation requires --typespec-witness from a successful tjsv admission run');
+const witnessPath = resolve(witnessArg.slice('--typespec-witness='.length));
 const readText = (p) => readFile(p, 'utf8');
 const sha = (value) => createHash('sha256').update(value).digest('hex');
 const schemaPath = join(workloadRoot, 'contracts/entities.schema.json');
 const tspPath = join(workloadRoot, 'contracts/main.tsp');
 const storagePath = join(workloadRoot, 'contracts/storage.manifest.json');
 const lockPath = join(workloadRoot, 'contracts/projection.lock.json');
-const [schemaText, tspText, storageText, lockText] = await Promise.all([
-  readText(schemaPath), readText(tspPath), readText(storagePath), readText(lockPath),
+const [schemaText, tspText, storageText, lockText, witnessText] = await Promise.all([
+  readText(schemaPath), readText(tspPath), readText(storagePath), readText(lockPath), readText(witnessPath),
 ]);
 const schema = JSON.parse(schemaText);
+const witness = JSON.parse(witnessText);
 const storage = JSON.parse(storageText);
 const projection = JSON.parse(lockText);
-if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') throw new Error('JSON Schema must be Draft 2020-12');
-if (!schema.$defs || typeof schema.$defs !== 'object') throw new Error('schema must contain $defs');
+for (const [label, doc] of [['authored JSON Schema', schema], ['TypeSpec witness', witness]]) {
+  if (doc.$schema !== 'https://json-schema.org/draft/2020-12/schema') throw new Error(`${label} must be Draft 2020-12`);
+  if (!doc.$defs || typeof doc.$defs !== 'object') throw new Error(`${label} must contain $defs`);
+}
 
 const refName = (value) => {
   const ref = value?.$ref;
@@ -28,7 +34,7 @@ const refName = (value) => {
   if (/^[A-Za-z_][A-Za-z0-9_]*$/u.test(ref)) return ref;
   return null;
 };
-const enumValues = (name) => schema.$defs[name]?.enum ?? null;
+const enumValues = (doc, name) => doc.$defs[name]?.enum ?? null;
 const primitive = (node) => {
   if (node.type === 'string') return 'string';
   if (node.type === 'integer') return 'integer';
@@ -61,23 +67,27 @@ const protoType = (node) => {
   return p;
 };
 
-for (const [name, fields] of Object.entries(projection.messages ?? {})) {
-  const model = schema.$defs[name];
-  if (!model || model.type !== 'object') throw new Error(`projection message ${name} has no object schema`);
-  const props = Object.keys(model.properties ?? {}).sort();
-  const locked = Object.keys(fields).sort();
-  if (JSON.stringify(props) !== JSON.stringify(locked)) throw new Error(`protobuf field lock drift for ${name}`);
-  const numbers = Object.values(fields);
-  if (new Set(numbers).size !== numbers.length || numbers.some((n) => !Number.isInteger(n) || n < 1)) throw new Error(`invalid protobuf field numbers for ${name}`);
-}
-for (const [name, ordinals] of Object.entries(projection.enums ?? {})) {
-  const values = enumValues(name);
-  if (!values) throw new Error(`projection enum ${name} has no enum schema`);
-  if (JSON.stringify([...values].sort()) !== JSON.stringify(Object.keys(ordinals).sort())) throw new Error(`protobuf enum lock drift for ${name}`);
-  if (!Object.values(ordinals).includes(0)) throw new Error(`protobuf enum ${name} must reserve ordinal 0`);
-}
+const validateProjectionLock = (doc, lane) => {
+  for (const [name, fields] of Object.entries(projection.messages ?? {})) {
+    const model = doc.$defs[name];
+    if (!model || model.type !== 'object') throw new Error(`${lane}: projection message ${name} has no object schema`);
+    const props = Object.keys(model.properties ?? {}).sort();
+    const locked = Object.keys(fields).sort();
+    if (JSON.stringify(props) !== JSON.stringify(locked)) throw new Error(`${lane}: protobuf field lock drift for ${name}`);
+    const numbers = Object.values(fields);
+    if (new Set(numbers).size !== numbers.length || numbers.some((n) => !Number.isInteger(n) || n < 1)) throw new Error(`invalid protobuf field numbers for ${name}`);
+  }
+  for (const [name, ordinals] of Object.entries(projection.enums ?? {})) {
+    const values = enumValues(doc, name);
+    if (!values) throw new Error(`${lane}: projection enum ${name} has no enum schema`);
+    if (JSON.stringify([...values].sort()) !== JSON.stringify(Object.keys(ordinals).sort())) throw new Error(`${lane}: protobuf enum lock drift for ${name}`);
+    if (!Object.values(ordinals).includes(0)) throw new Error(`protobuf enum ${name} must reserve ordinal 0`);
+  }
+};
+validateProjectionLock(schema, 'json-schema');
+validateProjectionLock(witness, 'typespec');
 
-let ts = '// GENERATED. DO NOT EDIT.\n\n';
+let ts = '// GENERATED FROM AUTHORED JSON SCHEMA. DO NOT EDIT.\n\n';
 for (const [name, def] of Object.entries(schema.$defs)) {
   if (Array.isArray(def.enum)) ts += `export type ${name} = ${def.enum.map((v) => JSON.stringify(v)).join(' | ')};\n\n`;
 }
@@ -89,7 +99,7 @@ for (const [name, def] of Object.entries(schema.$defs)) {
   ts += '}\n\n';
 }
 
-let rust = '// GENERATED. DO NOT EDIT.\n\n';
+let rust = '// GENERATED FROM AUTHORED JSON SCHEMA. DO NOT EDIT.\n\n';
 for (const [name, def] of Object.entries(schema.$defs)) {
   if (!Array.isArray(def.enum)) continue;
   rust += '#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n';
@@ -107,69 +117,85 @@ for (const [name, def] of Object.entries(schema.$defs)) {
   rust += '}\n\n';
 }
 
-let proto = `syntax = "proto3";\n\npackage ${projection.proto_package};\n\n`;
+let proto = `// GENERATED FROM TYPESPEC WITNESS. DO NOT EDIT.\nsyntax = "proto3";\n\npackage ${projection.proto_package};\n\n`;
 for (const [name, ordinals] of Object.entries(projection.enums ?? {})) {
   proto += `enum ${name} {\n`;
   for (const [value, number] of Object.entries(ordinals).sort((a, b) => a[1] - b[1])) proto += `  ${upperSnake(name)}_${upperSnake(value)} = ${number};\n`;
   proto += '}\n\n';
 }
 for (const [name, fields] of Object.entries(projection.messages ?? {})) {
-  const def = schema.$defs[name];
+  const def = witness.$defs[name];
   proto += `message ${name} {\n`;
   for (const [field, number] of Object.entries(fields).sort((a, b) => a[1] - b[1])) proto += `  ${protoType(def.properties[field])} ${field} = ${number};\n`;
   proto += '}\n\n';
 }
 
-const sqlType = (node, override) => {
+const sqlType = (doc, node, override) => {
   if (override) return override;
   const p = primitive(node);
   if (p === 'string') return 'TEXT';
   if (p === 'integer') return 'INTEGER';
   if (p === 'boolean') return 'BOOLEAN';
-  if (enumValues(p)) return 'TEXT';
+  if (enumValues(doc, p)) return 'TEXT';
   throw new Error(`no SQL mapping for ${p}`);
 };
-let sql = 'BEGIN;\nCREATE EXTENSION IF NOT EXISTS pgcrypto;\n\n';
-for (const table of storage.tables) {
-  const def = schema.$defs[table.model];
-  if (!def || def.type !== 'object') throw new Error(`storage model ${table.model} missing`);
-  const required = new Set(def.required ?? []);
-  const lines = [];
-  for (const [field, node] of Object.entries(def.properties ?? {})) {
-    let line = `  "${field}" ${sqlType(node, table.column_types?.[field])}`;
-    if (required.has(field)) line += ' NOT NULL';
-    if (table.defaults?.[field]) line += ` DEFAULT ${table.defaults[field]}`;
-    if ((table.primary_key ?? []).includes(field) && (table.primary_key ?? []).length === 1) line += ' PRIMARY KEY';
-    const enumName = refName(node);
-    const values = enumName ? enumValues(enumName) : null;
-    if (values) line += ` CHECK ("${field}" IN (${values.map((v) => `'${String(v).replaceAll("'", "''")}'`).join(', ')}))`;
-    lines.push(line);
+const renderSql = (doc, lane) => {
+  let sql = `-- GENERATED FROM ${lane}. DO NOT EDIT.\nBEGIN;\nCREATE EXTENSION IF NOT EXISTS pgcrypto;\n\n`;
+  for (const table of storage.tables) {
+    const def = doc.$defs[table.model];
+    if (!def || def.type !== 'object') throw new Error(`${lane}: storage model ${table.model} missing`);
+    const required = new Set(def.required ?? []);
+    const lines = [];
+    for (const [field, node] of Object.entries(def.properties ?? {})) {
+      let line = `  "${field}" ${sqlType(doc, node, table.column_types?.[field])}`;
+      if (required.has(field)) line += ' NOT NULL';
+      if (table.defaults?.[field]) line += ` DEFAULT ${table.defaults[field]}`;
+      if ((table.primary_key ?? []).includes(field) && (table.primary_key ?? []).length === 1) line += ' PRIMARY KEY';
+      const enumName = refName(node);
+      const values = enumName ? enumValues(doc, enumName) : null;
+      if (values) line += ` CHECK ("${field}" IN (${values.map((v) => `'${String(v).replaceAll("'", "''")}'`).join(', ')}))`;
+      lines.push(line);
+    }
+    if ((table.primary_key ?? []).length > 1) lines.push(`  PRIMARY KEY (${table.primary_key.map((x) => `"${x}"`).join(', ')})`);
+    for (const fk of table.foreign_keys ?? []) lines.push(`  FOREIGN KEY ("${fk.column}") REFERENCES "${fk.references_table}"("${fk.references_column}")`);
+    sql += `CREATE TABLE IF NOT EXISTS "${table.name}" (\n${lines.join(',\n')}\n);\n\n`;
+    for (const index of table.indexes ?? []) {
+      const indexName = `idx_${table.name}_${index.join('_')}`;
+      sql += `CREATE INDEX IF NOT EXISTS "${indexName}" ON "${table.name}" (${index.map((x) => `"${x}"`).join(', ')});\n`;
+    }
+    if ((table.indexes ?? []).length) sql += '\n';
   }
-  if ((table.primary_key ?? []).length > 1) lines.push(`  PRIMARY KEY (${table.primary_key.map((x) => `"${x}"`).join(', ')})`);
-  for (const fk of table.foreign_keys ?? []) lines.push(`  FOREIGN KEY ("${fk.column}") REFERENCES "${fk.references_table}"("${fk.references_column}")`);
-  sql += `CREATE TABLE IF NOT EXISTS "${table.name}" (\n${lines.join(',\n')}\n);\n\n`;
-  for (const index of table.indexes ?? []) {
-    const indexName = `idx_${table.name}_${index.join('_')}`;
-    sql += `CREATE INDEX IF NOT EXISTS "${indexName}" ON "${table.name}" (${index.map((x) => `"${x}"`).join(', ')});\n`;
-  }
-  if ((table.indexes ?? []).length) sql += '\n';
-}
-sql += 'COMMIT;\n';
+  return `${sql}COMMIT;\n`;
+};
+const sqlFromTypeSpec = renderSql(witness, 'TYPESPEC WITNESS');
+const sqlFromJsonSchema = renderSql(schema, 'AUTHORED JSON SCHEMA');
+const normalizeSql = (value) => value.split('\n').filter((line) => !line.startsWith('-- GENERATED FROM ')).join('\n');
+if (normalizeSql(sqlFromTypeSpec) !== normalizeSql(sqlFromJsonSchema)) throw new Error('TypeSpec-lane SQL and JSON-Schema-lane SQL diverged');
+const canonicalSql = `-- GENERATED AFTER TYPESPEC/JSON-SCHEMA SQL CONVERGENCE. DO NOT EDIT.\n${normalizeSql(sqlFromTypeSpec)}`;
 
 const outputs = new Map([
   ['typescript/entities.ts', ts],
   ['rust/entities.rs', rust],
   ['protobuf/entities.proto', proto],
-  ['sql/001_schema.sql', sql],
+  ['sql/from-typespec.sql', sqlFromTypeSpec],
+  ['sql/from-json-schema.sql', sqlFromJsonSchema],
+  ['sql/001_schema.sql', canonicalSql],
   ['json-schema/entities.schema.json', `${JSON.stringify(schema, null, 2)}\n`],
 ]);
 const manifest = {
-  schema: 'ores.comparisons.generated-manifest/v1',
+  schema: 'ores.comparisons.generated-manifest/v2',
+  authorities: ['typespec', 'json-schema-draft-2020-12'],
   inputs: {
     typespec_sha256: sha(tspText),
+    typespec_witness_sha256: sha(witnessText),
     json_schema_sha256: sha(schemaText),
     storage_manifest_sha256: sha(storageText),
     projection_lock_sha256: sha(lockText),
+  },
+  sql_convergence: {
+    typespec_sha256: sha(normalizeSql(sqlFromTypeSpec)),
+    json_schema_sha256: sha(normalizeSql(sqlFromJsonSchema)),
+    equal: true
   },
   outputs: Object.fromEntries([...outputs].map(([path, value]) => [path, sha(value)])),
 };
