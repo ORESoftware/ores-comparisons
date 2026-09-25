@@ -21,7 +21,6 @@ CONTRACT_FILES = (
     "contracts/generated/sql/002_seed.sql",
     "contracts/generated/sql/010_domain_constraints.sql",
     "contracts/generated/protobuf/comparison.proto",
-    "contracts/generated/protobuf/domain.proto",
     "contracts/generated/interfaces/typescript.ts",
     "contracts/generated/interfaces/rust.rs",
     "contracts/generated/interfaces/gleam.gleam",
