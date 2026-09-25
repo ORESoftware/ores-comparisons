@@ -1,0 +1,3 @@
+# Encrypted environment files
+
+After `just env-init stacks/beamscale/projects/big-org-example-commerce`, this directory contains `dev.env.enc`, `stage.env.enc`, and `prod.env.enc` as SOPS dotenv ciphertext encrypted to the public age recipients in `.sops.yaml`. Never commit an `AGE-SECRET-KEY-...` identity here.
