@@ -1,25 +1,29 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from pathlib import Path
+
+from project_matrix import ROOT, contract_project_specs
 from projection_schema import load_projection
 
-ROOT = Path(__file__).resolve().parents[1]
-projects = sorted(
-    p for p in ROOT.glob("stacks/*/projects/*")
-    if p.is_dir() and (p / "contracts/projection.json").is_file()
-)
+projects = [spec.path for spec in contract_project_specs()]
 errors: list[str] = []
-if len(projects) != 9:
-    errors.append(f"expected 9 project projections, found {len(projects)}")
+if not projects:
+    errors.append("project matrix contains no contract-enabled projects")
+
 for project in projects:
+    projection = project / "contracts/projection.json"
+    if not projection.is_file():
+        errors.append(f"{project.relative_to(ROOT)}: missing contracts/projection.json")
+        continue
     try:
-        load_projection(project / "contracts/projection.json")
+        load_projection(projection)
         print(f"projection contract OK: {project.relative_to(ROOT)}")
     except Exception as exc:
         errors.append(f"{project.relative_to(ROOT)}: {exc}")
+
 if errors:
     print("projection contract verification FAILED")
     for error in errors:
         print(" -", error)
     raise SystemExit(1)
-print("projection contract verification OK: all 9 live projection files are admitted")
+
+print(f"projection contract verification OK: all {len(projects)} matrix-governed projection files are admitted")

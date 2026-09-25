@@ -4,11 +4,20 @@
     {"stack": "beamscale", "scenario": "http-observability", "contracts": true, "benchmark": true},
     {"stack": "beamscale", "scenario": "forms-chat-workflow", "contracts": true, "benchmark": true},
     {"stack": "beamscale", "scenario": "cached-rpc", "contracts": true, "benchmark": true},
+    {"stack": "beamscale", "scenario": "big-org-example-commerce", "contracts": true, "benchmark": false},
+    {"stack": "beamscale", "scenario": "big-org-example-collaboration", "contracts": true, "benchmark": false},
+    {"stack": "beamscale", "scenario": "big-org-example-operations", "contracts": true, "benchmark": false},
     {"stack": "scintilla-run", "scenario": "http-observability", "contracts": true, "benchmark": true},
     {"stack": "scintilla-run", "scenario": "forms-chat-workflow", "contracts": true, "benchmark": true},
     {"stack": "scintilla-run", "scenario": "cached-rpc", "contracts": true, "benchmark": true},
+    {"stack": "scintilla-run", "scenario": "big-org-example-commerce", "contracts": true, "benchmark": false},
+    {"stack": "scintilla-run", "scenario": "big-org-example-collaboration", "contracts": true, "benchmark": false},
+    {"stack": "scintilla-run", "scenario": "big-org-example-operations", "contracts": true, "benchmark": false},
     {"stack": "ores-stack", "scenario": "http-observability", "contracts": true, "benchmark": true},
     {"stack": "ores-stack", "scenario": "forms-chat-workflow", "contracts": true, "benchmark": true},
-    {"stack": "ores-stack", "scenario": "cached-rpc", "contracts": true, "benchmark": true}
+    {"stack": "ores-stack", "scenario": "cached-rpc", "contracts": true, "benchmark": true},
+    {"stack": "ores-stack", "scenario": "big-org-example-commerce", "contracts": true, "benchmark": false},
+    {"stack": "ores-stack", "scenario": "big-org-example-collaboration", "contracts": true, "benchmark": false},
+    {"stack": "ores-stack", "scenario": "big-org-example-operations", "contracts": true, "benchmark": false}
   ]
 }

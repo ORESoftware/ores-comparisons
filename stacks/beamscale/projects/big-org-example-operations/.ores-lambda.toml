@@ -1,0 +1,39 @@
+version = 1
+runtime = "beam"
+language = "gleam"
+compiler = "beamscale/bmscl-compiler"
+entrypoint = "main:handler/2"
+
+[security]
+filesystem = "deny"
+process_exec = "deny"
+process_creation = "deny"
+raw_sockets = "deny"
+native_code = "deny"
+code_loading = "deny"
+beam_distribution = "deny"
+global_ets = "deny"
+persistent_term = "deny"
+customer_ffi = "deny"
+
+[permissions]
+http = []
+env = []
+secrets = []
+kv = []
+databases = []
+queues = []
+
+[limits]
+max_wall_ms = 30000
+max_reductions = 50000000
+max_heap_bytes = 67108864
+max_processes = 1
+max_mailbox_bytes = 8388608
+max_output_bytes = 10485760
+max_outbound_requests = 100
+
+[io]
+mode = "capability_message_passing"
+allow_blocking_host_calls = false
+allow_sync_iterators_over_io = false

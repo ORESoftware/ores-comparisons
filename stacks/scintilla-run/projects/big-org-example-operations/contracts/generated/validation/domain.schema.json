@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores-comparisons.big-org-example.schema.json",
+  "$defs": {
+    "WorkKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WorkKind",
+      "type": "string",
+      "enum": [
+        "create",
+        "update",
+        "sync"
+      ]
+    },
+    "EnterpriseWorkItem": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "EnterpriseWorkItem",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "actorId": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "WorkKind"
+        },
+        "payload": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tenantId",
+        "actorId",
+        "kind",
+        "payload",
+        "createdAt"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}
