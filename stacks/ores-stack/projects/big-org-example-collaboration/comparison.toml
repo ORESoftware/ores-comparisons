@@ -1,30 +1,34 @@
 version = 1
-name = "big-org-example-collaboration"
 stack = "ores-stack"
-scenario = "collaboration"
-integration_manifest = "../../../../integrations.toml"
+scenario = "big-org-example-collaboration"
+integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
+
+[commands]
+dev = "ores-stack dev"
+build = "ores-stack check && ores-stack build"
+serve = "cargo run --release --locked"
+deploy = "ores-stack build # hand immutable server/lambda package to the selected deployment target"
 
 [contracts]
 typespec = "../../../../contracts/big-org-example.tsp"
 json_schema = "../../../../contracts/big-org-example.schema.json"
+route_map = "contracts/service.route-map.json"
+rpc_projection = "api-docs v1 unary + RIDL-compatible semantic operation identities"
+graphql_projection = "api-docs GraphQL resolver projection at /v1/graphql"
 
-[environment]
-encrypted_dir = "../../env/enc"
-decrypted_dir = "../../env/dec"
+[secrets]
+encrypted_dir = "env/enc"
+decrypted_dir = "env/dec"
 
-[deploy]
-check = "ores-stack check"
-build = "ores-stack build"
-deploy = "cargo run --release --locked"
-
-[features]
-otel = true
-forms = true
-sync = true
-chat = true
-convo = true
-rate_limit = true
-middleware = true
-redis_lru = true
-rpc_docs = true
-sops_age = true
+[integration_adapters]
+ores_otel = "ores-middleware/ores-otel port"
+ores_forms = "typed forms adapter"
+opto_sync = "typed sync adapter"
+ores_chat = "typed chat adapter"
+ores_convo = "typed encrypted-conversation adapter"
+ores_rate_limit = "ores-middleware rate-limit port"
+ores_middleware = "native approved dependency injection boundary"
+ores_redis_lru_cache = "Redis/LRU adapter port"
+api_docs = "route map + RPC/OpenAPI/OpenRPC/GraphQL projection authority"
+ores_sops_legacy = "sops-age-dotenv"
+ores_sops_org = "sops-age-dotenv-org-target"
