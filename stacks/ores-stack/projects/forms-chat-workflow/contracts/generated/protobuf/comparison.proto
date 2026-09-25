@@ -1,0 +1,18 @@
+// GENERATED. DO NOT EDIT.
+syntax = "proto3";
+
+package ores.comparisons.forms.v1;
+
+message SubmitFormRequest {
+  string form_key = 1;
+  string audience = 2;
+}
+
+message SubmitFormResponse {
+  string submission_id = 1;
+  string conversation_id = 2;
+}
+
+service FormsComparisonService {
+  rpc SubmitForm (SubmitFormRequest) returns (SubmitFormResponse);
+}
