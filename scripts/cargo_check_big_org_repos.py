@@ -8,6 +8,8 @@ from project_matrix import ROOT, load_project_specs
 
 checked = 0
 errors: list[str] = []
+shared_target = ROOT / ".artifacts/cargo-big-org"
+shared_target.mkdir(parents=True, exist_ok=True)
 
 for spec in load_project_specs():
     if spec.stack != "ores-stack" or not spec.scenario.startswith("big-org-example-"):
@@ -23,6 +25,7 @@ for spec in load_project_specs():
         result = subprocess.run(
             ["cargo", "check", "--manifest-path", str(cargo)],
             cwd=repo,
+            env={**__import__("os").environ, "CARGO_TARGET_DIR": str(shared_target)},
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
