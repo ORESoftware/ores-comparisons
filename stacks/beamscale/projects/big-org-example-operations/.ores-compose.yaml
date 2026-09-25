@@ -1,0 +1,20 @@
+schema_version: ores.compose.v1
+project: comparebeambigops
+allow_lazy_start: false
+services:
+  postgres:
+    runtime: host
+    command: ["bash", "scripts/postgres-local.sh"]
+    healthcheck:
+      command: ["bash", "scripts/db-health.sh"]
+      interval_ms: 300
+      timeout_ms: 250
+      retries: 20
+  app:
+    runtime: host
+    command: ["bash", "scripts/dev-server.sh"]
+    build:
+      - ["bash", "scripts/contracts-check.sh"]
+      - ["bash", "scripts/db-migrate.sh"]
+      - ["bash", "scripts/db-seed.sh"]
+    depends_on: [postgres]

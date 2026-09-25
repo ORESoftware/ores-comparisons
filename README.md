@@ -17,31 +17,6 @@ All nine projects expose the same integration graph: ores-otel, ores-forms,
 opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
 ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
 
-## Project/repository structure
-
-Each `projects/<name>/` directory is a **multi-repository project envelope**.
-The stack-specific source is never stored directly at the project root:
-
-```text
-projects/<name>/
-  .ores-compose.yaml
-  contracts/
-  conformance/
-  governance/
-  env/
-  scripts/
-  repos/
-    readme.md
-    app/
-    <future-api-repo>/
-    <future-web-repo>/
-    <future-worker-repo>/
-```
-
-The historical intent is preserved: repos belong under `repos/` and may be
-tracked as git submodules as they are split into standalone repositories.
-`repos/app/` is the current materialized example repository.
-
 ## Contract structure
 
 Every project contains:
@@ -184,3 +159,16 @@ enum such as `SubmissionState`, `Outcome`, or `CacheState` now becomes:
 Generated model fields reference those domain types rather than degrading to
 plain strings. `comparison.proto` remains the service/RPC projection, while
 `domain.proto` is the data-model projection.
+
+
+### Governed generator metadata
+
+The generator input `contracts/projection.json` is itself governed by peer
+TypeSpec and JSON Schema authorities under `shared/projection-contract/`.
+Every one of the nine live projection documents must be admitted before the
+generator can emit SQL, Protobuf, validation artifacts, or language interfaces.
+
+This separates two checks deliberately: the projection meta-contract validates
+the instruction shape, while the project-domain checks validate that referenced
+models/fields, primary keys, enum storage types, seeds, and RPC references
+actually exist and agree with the project's domain authorities.

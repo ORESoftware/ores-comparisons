@@ -21,6 +21,7 @@ jobs:
       - run: python3 scripts/verify_project_repo_layout.py
       - run: python3 scripts/verify_toolchain_pins.py
       - run: python3 scripts/verify_contract_authorities_static.py
+      - run: python3 scripts/verify_projection_contract.py
       - run: python3 scripts/verify_benchmark_matrix.py
       - run: python3 scripts/smoke_projects.py --check
       - name: Exercise benchmark recorder

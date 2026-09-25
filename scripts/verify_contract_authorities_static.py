@@ -6,7 +6,10 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECTS = sorted(ROOT.glob("stacks/*/projects/*")) + [ROOT / "benchmarks"]
+PROJECTS = sorted(ROOT.glob("stacks/*/projects/*")) + [
+    ROOT / "benchmarks",
+    ROOT / "shared/projection-contract",
+]
 ID = r'[A-Za-z_][A-Za-z0-9_]*'
 errors: list[str] = []
 
@@ -32,10 +35,12 @@ def parse_typespec(text: str) -> dict[str, dict]:
     for explicit, name, body in model_re.findall(text):
         key = explicit or name
         fields: dict[str, tuple[str, bool]] = {}
-        for field, optional, typ in re.findall(rf'({ID})(\?)?\s*:\s*({ID})\s*;', body):
+        field_re = re.compile(rf'({ID})(\?)?\s*:\s*({ID})(\[\])?\s*;')
+        for field, optional, typ, array_suffix in field_re.findall(body):
             if field in fields:
                 raise ValueError(f"duplicate field {key}.{field}")
-            fields[field] = (typ, optional != "?")
+            full_type = typ + ("[]" if array_suffix else "")
+            fields[field] = (full_type, optional != "?")
         if not fields:
             raise ValueError(f"model {key} has no fields")
         result[key] = {"kind": "model", "fields": fields}
@@ -59,6 +64,8 @@ def json_type_matches(value, typ: str) -> bool:
     return False
 
 def validate_instance(value, declaration: dict, defs: dict) -> bool:
+    if not declaration:
+        return True
     if declaration.get("$ref"):
         target = normalize_ref(declaration["$ref"])
         return target in defs and validate_instance(value, defs[target], defs)
@@ -67,6 +74,11 @@ def validate_instance(value, declaration: dict, defs: dict) -> bool:
     typ = declaration.get("type")
     if typ in {"string", "integer", "boolean"}:
         return json_type_matches(value, typ)
+    if typ == "array":
+        if not isinstance(value, list):
+            return False
+        item_spec = declaration.get("items", {})
+        return all(validate_instance(item, item_spec, defs) for item in value)
     if typ != "object" or not isinstance(value, dict):
         return False
     props = declaration.get("properties", {})
@@ -116,9 +128,25 @@ def compare(project: Path) -> None:
 
         for field, (typ, _) in fields.items():
             prop = props[field]
-            if typ in {"string", "integer", "boolean"}:
+            if typ.endswith("[]"):
+                base = typ[:-2]
+                if prop.get("type") != "array":
+                    raise ValueError(f"array drift for {name}.{field}: {typ} vs {prop}")
+                item = prop.get("items", {})
+                if base == "unknown":
+                    if item:
+                        raise ValueError(f"unknown-array item drift for {name}.{field}: {item}")
+                elif base in {"string", "integer", "boolean"}:
+                    if item.get("type") != base:
+                        raise ValueError(f"array item drift for {name}.{field}: {base} vs {item}")
+                elif normalize_ref(item.get("$ref", "")) != base:
+                    raise ValueError(f"array reference drift for {name}.{field}: {base} vs {item}")
+            elif typ in {"string", "integer", "boolean"}:
                 if prop.get("type") != typ:
                     raise ValueError(f"type drift for {name}.{field}: {typ} vs {prop}")
+            elif typ == "unknown":
+                if prop:
+                    raise ValueError(f"unknown field drift for {name}.{field}: {prop}")
             else:
                 if normalize_ref(prop.get("$ref", "")) != typ:
                     raise ValueError(f"reference drift for {name}.{field}: {typ} vs {prop}")

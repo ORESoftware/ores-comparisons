@@ -4,13 +4,14 @@ import json
 import re
 import sys
 from pathlib import Path
+from projection_schema import load_projection
 
 SAFE = re.compile(r"^[a-z][a-z0-9_]*$")
 SQL_TYPES = {"TEXT", "INTEGER", "TIMESTAMPTZ", "JSONB"}
 PROJECT = Path(sys.argv[1]).resolve()
 CHECK = "--check" in sys.argv[2:]
 schema = json.loads((PROJECT / "contracts/json-schema/domain.schema.json").read_text())
-projection = json.loads((PROJECT / "contracts/projection.json").read_text())
+projection = load_projection(PROJECT / "contracts/projection.json")
 defs = schema.get("$defs", {})
 
 if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":

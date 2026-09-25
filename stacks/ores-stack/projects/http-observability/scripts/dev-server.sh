@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
-ROOT="$(cd "$PROJECT/../../../.." && pwd)"
-cd "$PROJECT"
-source scripts/load-env.sh
-cd repos/app
+cd "$(dirname "$0")/.."; source scripts/load-env.sh; ROOT="$(cd ../../../.. && pwd)"
 exec "$ROOT/.local/bin/ores-stack" dev
