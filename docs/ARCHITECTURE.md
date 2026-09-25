@@ -108,3 +108,24 @@ Protobuf. This is the same semantic domain enforced by PostgreSQL
 The service Protobuf and domain Protobuf are separate on purpose: service
 request/response shape can evolve independently from reusable persisted domain
 models while both remain generated from admitted authorities.
+
+
+## Project vs repository boundary
+
+```text
+projects/<scenario>/
+  .ores-compose.yaml
+  contracts/
+  conformance/
+  governance/
+  env/
+  scripts/
+  repos/
+    readme.md
+    app/
+    <future-sibling-repo>/
+```
+
+A project is the cross-repository orchestration and policy boundary. Application
+source, endpoint manifests, lambda definitions, Cargo manifests, and stack-native
+build configuration belong inside a child of `repos/`, currently `repos/app/`.

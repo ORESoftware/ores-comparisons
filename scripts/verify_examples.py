@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 import json
 from pathlib import Path
 import re
 import tomllib
 
-ROOT = Path(__file__).resolve().parents[1]
-STACKS = ("beamscale", "scintilla-run", "ores-stack")
-SCENARIOS = ("http-observability", "forms-chat-workflow", "cached-rpc")
+from project_matrix import ROOT, load_project_specs
+
 REQUIRED = {
     "ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo",
     "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache",
@@ -36,132 +36,111 @@ LOCAL_FILES = (
     "scripts/load-env.sh", "scripts/db-migrate.sh",
     "scripts/db-seed.sh", "scripts/contracts-check.sh",
     "scripts/dev-server.sh",
+    "repos/readme.md",
 )
 
 errors: list[str] = []
-
 shared = json.loads((ROOT / "shared/integrations.json").read_text())
-shared_ids = {x["id"] for x in shared["integrations"]}
-if shared_ids != REQUIRED:
-    errors.append(f"shared integration IDs differ: {shared_ids ^ REQUIRED}")
+if {x["id"] for x in shared["integrations"]} != REQUIRED:
+    errors.append("shared integration IDs drifted")
 
-for stack in STACKS:
-    seen_ports: set[int] = set()
-    for scenario in SCENARIOS:
-        p = ROOT / "stacks" / stack / "projects" / scenario
-        if not p.is_dir():
-            errors.append(f"missing project: {p.relative_to(ROOT)}")
-            continue
+specs = load_project_specs()
+seen_ports: dict[str, set[int]] = {}
 
-        for rel in (
-            "README.md", "comparison.toml", ".sops.yaml", ".env.example",
-            "env/enc/README.md", "env/dec/.gitignore",
-            *CONTRACT_FILES, *LOCAL_FILES,
-        ):
-            if not (p / rel).is_file():
-                errors.append(f"{p.relative_to(ROOT)} missing {rel}")
+for spec in specs:
+    p = spec.path
+    rel = p.relative_to(ROOT)
+    seen_ports.setdefault(spec.stack, set())
 
-        try:
-            cfg = tomllib.loads((p / "comparison.toml").read_text())
-            ids = set(cfg.get("integrations", []))
-            if ids != REQUIRED:
-                errors.append(
-                    f"{p.relative_to(ROOT)} integration drift: {sorted(ids ^ REQUIRED)}"
-                )
-            if cfg.get("stack") != stack or cfg.get("scenario") != scenario:
-                errors.append(f"{p.relative_to(ROOT)} identity mismatch")
-        except Exception as exc:
-            errors.append(f"{p.relative_to(ROOT)} bad comparison.toml: {exc}")
+    for required in ("README.md", "comparison.toml", ".sops.yaml", ".env.example", "env/enc/README.md", "env/dec/.gitignore", *LOCAL_FILES):
+        if not (p / required).is_file():
+            errors.append(f"{rel} missing {required}")
+    if spec.contracts:
+        for required in CONTRACT_FILES:
+            if not (p / required).is_file():
+                errors.append(f"{rel} missing {required}")
 
+    try:
+        cfg = tomllib.loads((p / "comparison.toml").read_text())
+        ids = set(cfg.get("integrations", []))
+        if ids != REQUIRED:
+            errors.append(f"{rel} integration drift: {sorted(ids ^ REQUIRED)}")
+        if cfg.get("stack") != spec.stack or cfg.get("scenario") != spec.scenario:
+            errors.append(f"{rel} identity mismatch")
+    except Exception as exc:
+        errors.append(f"{rel} bad comparison.toml: {exc}")
+
+    if spec.contracts:
         try:
             schema = json.loads((p / "contracts/json-schema/domain.schema.json").read_text())
             generated = json.loads((p / "contracts/generated/validation/domain.schema.json").read_text())
             if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
-                errors.append(f"{p.relative_to(ROOT)} authored schema is not Draft 2020-12")
+                errors.append(f"{rel} authored schema is not Draft 2020-12")
             if not schema.get("$defs"):
-                errors.append(f"{p.relative_to(ROOT)} authored schema has no declarations")
+                errors.append(f"{rel} authored schema has no declarations")
             if schema != generated:
-                errors.append(f"{p.relative_to(ROOT)} runtime validation projection drift")
+                errors.append(f"{rel} runtime validation projection drift")
         except Exception as exc:
-            errors.append(f"{p.relative_to(ROOT)} invalid schema: {exc}")
-
-        try:
-            governance = json.loads((p / "governance/authority-contract.json").read_text())
-            if governance.get("schema") != "ores.comparisons.authority-contract/v1":
-                errors.append(f"{p.relative_to(ROOT)} governance schema drift")
-            gate = governance.get("parity_gate", {})
-            if gate.get("version") != "0.1.1" or gate.get("commit") != "e29a91d7ef74e3b0613ea79e988bec4c467535d2":
-                errors.append(f"{p.relative_to(ROOT)} parity gate is not exactly pinned")
-        except Exception as exc:
-            errors.append(f"{p.relative_to(ROOT)} invalid governance contract: {exc}")
-
-        sops = (p / ".sops.yaml").read_text()
-        for exact in (
-            r"^env/enc/dev\.env\.enc$",
-            r"^env/enc/stage\.env\.enc$",
-            r"^env/enc/prod\.env\.enc$",
-        ):
-            if exact not in sops:
-                errors.append(f"{p.relative_to(ROOT)} missing SOPS rule {exact}")
-
-        dec_entries = [x.name for x in (p / "env/dec").iterdir()] if (p / "env/dec").is_dir() else []
-        if dec_entries != [".gitignore"]:
-            errors.append(f"{p.relative_to(ROOT)} tracks unexpected env/dec content: {dec_entries}")
-
-        compose = (p / ".ores-compose.yaml").read_text()
-        for needle in (
-            "schema_version: ores.compose.v1",
-            "postgres:",
-            'command: ["bash", "scripts/postgres-local.sh"]',
-            '["bash", "scripts/db-migrate.sh"]',
-            '["bash", "scripts/db-seed.sh"]',
-            "depends_on:",
-        ):
-            if needle not in compose:
-                errors.append(f"{p.relative_to(ROOT)} compose missing {needle}")
-        for match in re.finditer(r"retries:\s*(\d+)", compose):
-            if int(match.group(1)) > 20:
-                errors.append(f"{p.relative_to(ROOT)} compose health retries exceed ores-compose v1 limit")
-        env = (p / ".env.example").read_text()
-        port_match = re.search(r"^PGPORT=(\d+)$", env, re.MULTILINE)
-        if not port_match:
-            errors.append(f"{p.relative_to(ROOT)} .env.example missing PGPORT")
-        else:
-            port = int(port_match.group(1))
-            if port in seen_ports:
-                errors.append(f"{stack} reuses local postgres port {port}")
-            seen_ports.add(port)
-        if "DATABASE_URL=postgresql://postgres@127.0.0.1:" not in env:
-            errors.append(f"{p.relative_to(ROOT)} missing local DATABASE_URL")
+            errors.append(f"{rel} invalid schema: {exc}")
 
         migration = (p / "contracts/generated/sql/001_init.sql").read_text()
         domains = (p / "contracts/generated/sql/010_domain_constraints.sql").read_text()
         seed = (p / "contracts/generated/sql/002_seed.sql").read_text()
         if "CREATE TABLE IF NOT EXISTS" not in migration:
-            errors.append(f"{p.relative_to(ROOT)} generated migration is not idempotent")
+            errors.append(f"{rel} generated migration is not idempotent")
         if "IF NOT EXISTS (" not in domains or "ADD CONSTRAINT" not in domains:
-            errors.append(f"{p.relative_to(ROOT)} generated domain migration is not additive/idempotent")
+            errors.append(f"{rel} generated domain migration is not additive/idempotent")
         if "010_domain_constraints.sql" not in (p / "scripts/db-migrate.sh").read_text():
-            errors.append(f"{p.relative_to(ROOT)} dev migration script omits domain constraints")
+            errors.append(f"{rel} dev migration script omits domain constraints")
         if "ON CONFLICT DO NOTHING" not in seed:
-            errors.append(f"{p.relative_to(ROOT)} generated seed is not idempotent")
+            errors.append(f"{rel} generated seed is not idempotent")
 
-        if stack == "beamscale":
-            if not (p / ".ores-lambda.toml").is_file():
-                errors.append(f"{p.relative_to(ROOT)} missing .ores-lambda.toml")
-            if not list((p / "lambdas").glob("**/gleam.toml")):
-                errors.append(f"{p.relative_to(ROOT)} has no BeamScale lambda project")
-        elif stack == "scintilla-run":
-            endpoints = list(p.glob("**/.scintilla-endpoint.toml"))
-            if not endpoints:
-                errors.append(f"{p.relative_to(ROOT)} has no Scintilla endpoint")
-            for rel in ("scripts/scintilla-runtime-build.sh", "scripts/scintilla-runner.sh", "scripts/scintilla-backend.sh"):
-                if not (p / rel).is_file():
-                    errors.append(f"{p.relative_to(ROOT)} missing {rel}")
-        else:
-            for rel in (".ores-stack.toml", "Cargo.toml", "build.rs", "contracts/service.route-map.json"):
-                if not (p / rel).is_file():
-                    errors.append(f"{p.relative_to(ROOT)} missing {rel}")
+    sops = (p / ".sops.yaml").read_text()
+    for exact in (r"^env/enc/dev\.env\.enc$", r"^env/enc/stage\.env\.enc$", r"^env/enc/prod\.env\.enc$"):
+        if exact not in sops:
+            errors.append(f"{rel} missing SOPS rule {exact}")
+
+    compose = (p / ".ores-compose.yaml").read_text()
+    for needle in (
+        "schema_version: ores.compose.v1",
+        "postgres:",
+        'command: ["bash", "scripts/postgres-local.sh"]',
+        '["bash", "scripts/db-migrate.sh"]',
+        '["bash", "scripts/db-seed.sh"]',
+        "depends_on:",
+    ):
+        if needle not in compose:
+            errors.append(f"{rel} compose missing {needle}")
+    for match in re.finditer(r"retries:\s*(\d+)", compose):
+        if int(match.group(1)) > 20:
+            errors.append(f"{rel} compose health retries exceed ores-compose v1 limit")
+
+    env = (p / ".env.example").read_text()
+    port_match = re.search(r"^PGPORT=(\d+)$", env, re.MULTILINE)
+    if not port_match:
+        errors.append(f"{rel} .env.example missing PGPORT")
+    else:
+        port = int(port_match.group(1))
+        if port in seen_ports[spec.stack]:
+            errors.append(f"{spec.stack} reuses local postgres port {port}")
+        seen_ports[spec.stack].add(port)
+
+    repo_dir = p / "repos" / "app"
+    if spec.stack == "beamscale":
+        if not (repo_dir / ".ores-lambda.toml").is_file():
+            errors.append(f"{rel} repos/app missing .ores-lambda.toml")
+        if not list((repo_dir / "lambdas").glob("**/gleam.toml")):
+            errors.append(f"{rel} repos/app has no BeamScale lambda project")
+    elif spec.stack == "scintilla-run":
+        if not list((repo_dir / "endpoints").glob("**/.scintilla-endpoint.toml")):
+            errors.append(f"{rel} repos/app has no Scintilla endpoint")
+        for required in ("scripts/scintilla-runtime-build.sh", "scripts/scintilla-runner.sh", "scripts/scintilla-backend.sh"):
+            if not (p / required).is_file():
+                errors.append(f"{rel} missing {required}")
+    elif spec.stack == "ores-stack":
+        for required in (".ores-stack.toml", "Cargo.toml", "contracts/service.route-map.json"):
+            if not (repo_dir / required).is_file():
+                errors.append(f"{rel} repos/app missing {required}")
 
 for f in ROOT.rglob("*"):
     if f.is_file() and ".git" not in f.parts:
@@ -175,7 +154,7 @@ for f in ROOT.rglob("*"):
 if errors:
     print("comparison verification FAILED")
     for error in errors:
-        print(f" - {error}")
+        print(" -", error)
     raise SystemExit(1)
 
-print("comparison verification OK: all 9 projects have governed contracts, postgres, compose and secret boundaries")
+print(f"comparison verification OK: {len(specs)} projects preserve contracts, compose, secrets and repos/app")

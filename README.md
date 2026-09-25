@@ -172,3 +172,15 @@ This separates two checks deliberately: the projection meta-contract validates
 the instruction shape, while the project-domain checks validate that referenced
 models/fields, primary keys, enum storage types, seeds, and RPC references
 actually exist and agree with the project's domain authorities.
+
+
+## Project/repository boundary
+
+Every `stacks/<stack>/projects/<scenario>/` directory is a multi-repository
+orchestration envelope. Project-owned compose, contracts, conformance,
+governance, environment policy, and database scripts stay at that level.
+Stack-native source and build configuration live under `repos/<repo>/`.
+
+The current runnable repository is materialized as `repos/app/`; additional
+API, web, worker, or service repositories may be added beside it or represented
+as git submodules. CI rejects stack-native source flattened into the project root.

@@ -24,14 +24,43 @@ for project in sorted(expected - actual):
 for project in sorted(actual - expected):
     errors.append(f"project exists outside shared/project-matrix.json: {project.relative_to(ROOT)}")
 
-for project in sorted(expected):
+for spec in specs:
+    project = spec.path
     rel = project.relative_to(ROOT)
     repos = project / "repos"
+    app = repos / "app"
     readme = repos / "readme.md"
     if not repos.is_dir():
         errors.append(f"{rel} missing project-owned repos/ directory")
+        continue
     if not readme.is_file():
         errors.append(f"{rel} missing repos/readme.md")
+    if not app.is_dir():
+        errors.append(f"{rel} missing materialized repos/app repository")
+
+    if spec.stack == "beamscale":
+        for forbidden in (".ores-lambda.toml", "bmscl-policy.toml", "lambdas"):
+            if (project / forbidden).exists():
+                errors.append(f"{rel} flattened BeamScale file escaped repos/app: {forbidden}")
+        for required in (".ores-lambda.toml", "bmscl-policy.toml"):
+            if not (app / required).is_file():
+                errors.append(f"{rel} repos/app missing {required}")
+        if not list((app / "lambdas").glob("**/gleam.toml")):
+            errors.append(f"{rel} repos/app has no BeamScale Gleam lambda")
+    elif spec.stack == "scintilla-run":
+        if (project / "endpoints").exists():
+            errors.append(f"{rel} flattened Scintilla endpoints/ escaped repos/app")
+        if not list((app / "endpoints").glob("**/.scintilla-endpoint.toml")):
+            errors.append(f"{rel} repos/app has no Scintilla endpoint")
+    elif spec.stack == "ores-stack":
+        for forbidden in (".ores-stack.toml", "Cargo.toml", "Cargo.lock", "build.rs", "src"):
+            if (project / forbidden).exists():
+                errors.append(f"{rel} flattened ORES Stack file escaped repos/app: {forbidden}")
+        for required in (".ores-stack.toml", "Cargo.toml", "contracts/service.route-map.json"):
+            if not (app / required).is_file():
+                errors.append(f"{rel} repos/app missing {required}")
+        if not (app / "src").is_dir():
+            errors.append(f"{rel} repos/app missing src/")
 
 for stack_root in sorted(ROOT.glob("stacks/*")):
     if (stack_root / "repos").exists():
@@ -39,7 +68,6 @@ for stack_root in sorted(ROOT.glob("stacks/*")):
             f"{stack_root.relative_to(ROOT)}/repos is forbidden; repos/ belongs under each project"
         )
 
-# Any committed git submodule must live below a matrix-governed project's repos/ boundary.
 index = subprocess.run(
     ["git", "ls-files", "--stage"],
     cwd=ROOT,
@@ -65,4 +93,4 @@ if errors:
         print(f" - {error}")
     raise SystemExit(1)
 
-print(f"project repo-layout verification OK: {len(expected)} matrix-governed projects own repos/ boundaries")
+print(f"project repo-layout verification OK: {len(expected)} matrix-governed projects enforce repos/app")
