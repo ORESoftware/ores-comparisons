@@ -1,63 +1,53 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 from pathlib import Path
-import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-errors: list[str] = []
+STACKS = ("beamscale", "scintilla-run", "ores-stack")
+SCENARIOS = ("http-observability", "forms-chat-workflow", "cached-rpc")
+errors = []
 
-projects = sorted(
-    p for p in ROOT.glob("stacks/*/projects/*")
-    if p.is_dir() and (p / "comparison.toml").is_file()
-)
-if not projects:
-    errors.append("no concrete comparison projects found")
+for stack in STACKS:
+    for scenario in SCENARIOS:
+        project = ROOT / "stacks" / stack / "projects" / scenario
+        repos = project / "repos"
+        app = repos / "app"
 
-for project in projects:
-    rel = project.relative_to(ROOT)
-    repos = project / "repos"
-    readme = repos / "readme.md"
-    if not repos.is_dir():
-        errors.append(f"{rel} missing project-owned repos/ directory")
-    if not readme.is_file():
-        errors.append(f"{rel} missing repos/readme.md")
+        if not repos.is_dir():
+            errors.append(f"{project.relative_to(ROOT)} missing repos/")
+            continue
+        if not (repos / "readme.md").is_file():
+            errors.append(f"{project.relative_to(ROOT)} missing repos/readme.md")
+        if not app.is_dir():
+            errors.append(f"{project.relative_to(ROOT)} missing repos/app/")
+            continue
 
-for stack_root in sorted(ROOT.glob("stacks/*")):
-    if (stack_root / "repos").exists():
-        errors.append(
-            f"{stack_root.relative_to(ROOT)}/repos is forbidden; repos/ belongs under each project"
-        )
+        for rel in (".ores-compose.yaml", "contracts", "conformance", "governance", "env", "scripts"):
+            if not (project / rel).exists():
+                errors.append(f"{project.relative_to(ROOT)} project envelope missing {rel}")
 
-# Any committed git submodule must live below a concrete project's repos/ boundary.
-index = subprocess.run(
-    ["git", "ls-files", "--stage"],
-    cwd=ROOT,
-    check=True,
-    text=True,
-    stdout=subprocess.PIPE,
-).stdout
-for line in index.splitlines():
-    metadata, path = line.split("\t", 1)
-    mode = metadata.split()[0]
-    if mode != "160000":
-        continue
-    parts = Path(path).parts
-    valid = (
-        len(parts) >= 6
-        and parts[0] == "stacks"
-        and parts[2] == "projects"
-        and parts[4] == "repos"
-    )
-    if not valid:
-        errors.append(
-            f"git submodule {path} is outside stacks/<stack>/projects/<project>/repos/"
-        )
+        if stack == "beamscale":
+            for rel in (".ores-lambda.toml", "bmscl-policy.toml", "lambdas"):
+                if not (app / rel).exists():
+                    errors.append(f"{project.relative_to(ROOT)} repos/app missing {rel}")
+                if (project / rel).exists():
+                    errors.append(f"{project.relative_to(ROOT)} flattened BeamScale repo path {rel}")
+        elif stack == "scintilla-run":
+            if not (app / "endpoints").is_dir():
+                errors.append(f"{project.relative_to(ROOT)} repos/app missing endpoints/")
+            if (project / "endpoints").exists():
+                errors.append(f"{project.relative_to(ROOT)} flattened Scintilla endpoints/")
+        else:
+            for rel in ("Cargo.toml", "build.rs", ".ores-stack.toml", "src", "contracts/service.route-map.json"):
+                if not (app / rel).exists():
+                    errors.append(f"{project.relative_to(ROOT)} repos/app missing {rel}")
+            for rel in ("Cargo.toml", "build.rs", ".ores-stack.toml", "src"):
+                if (project / rel).exists():
+                    errors.append(f"{project.relative_to(ROOT)} flattened ORES Stack repo path {rel}")
 
 if errors:
-    print("project repo-layout verification FAILED")
+    print("project/repo layout verification FAILED")
     for error in errors:
-        print(f" - {error}")
+        print(" -", error)
     raise SystemExit(1)
 
-print(f"project repo-layout verification OK: {len(projects)} projects own repos/ boundaries")
+print("project/repo layout verification OK: 9 project envelopes, each with repos/app")

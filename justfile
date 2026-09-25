@@ -1,5 +1,6 @@
 verify:
     python3 scripts/verify_examples.py
+    python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_toolchain_pins.py
     bash conformance/check-all.sh
 

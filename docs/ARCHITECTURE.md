@@ -108,3 +108,18 @@ Protobuf. This is the same semantic domain enforced by PostgreSQL
 The service Protobuf and domain Protobuf are separate on purpose: service
 request/response shape can evolve independently from reusable persisted domain
 models while both remain generated from admitted authorities.
+
+
+## Project vs repository boundary
+
+The project root is an orchestration and cross-repository authority boundary.
+It owns `.ores-compose.yaml`, environment policy, database lifecycle,
+contracts, conformance, governance, and project-level scripts.
+
+Stack-native application repositories live only below `repos/`. The current
+example is `repos/app/`; additional API, web, worker, or other repositories
+can be added as siblings or replaced by git submodules without flattening the
+project envelope.
+
+CI runs `scripts/verify_project_repo_layout.py` and rejects stack-native source
+that escapes back into the project root.
