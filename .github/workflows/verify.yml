@@ -24,3 +24,20 @@ jobs:
       - run: python3 scripts/verify_toolchain_pins.py
       - run: python3 scripts/generate_all_contracts.py --check
       - run: bash conformance/check-all.sh
+
+  compose-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install exact ores-compose pin
+        run: |
+          cargo install             --git https://github.com/ORESoftware/ores-compose             --rev fbfad966f9770a9a8d3895880523280324b4ddc6             --locked             --bin ores-compose
+      - name: Validate all local clusters
+        run: |
+          set -euo pipefail
+          for project in stacks/*/projects/*; do
+            echo "==> $project"
+            ores-compose check "$project/.ores-compose.yaml"
+            ores-compose plan "$project/.ores-compose.yaml"
+          done

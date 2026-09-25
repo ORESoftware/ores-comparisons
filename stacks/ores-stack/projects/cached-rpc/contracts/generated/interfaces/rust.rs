@@ -1,5 +1,5 @@
 // GENERATED. DO NOT EDIT.
-#![allow(dead_code, non_snake_case)]
+#![allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct RpcInvocation {
     pub id: String,

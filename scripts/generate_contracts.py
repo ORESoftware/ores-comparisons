@@ -114,7 +114,7 @@ for rpc in proto_cfg["rpcs"]:
 proto += ["}", ""]
 
 typescript = ["// GENERATED. DO NOT EDIT."]
-rust = ["// GENERATED. DO NOT EDIT.", "#![allow(dead_code, non_snake_case)]"]
+rust = ["// GENERATED. DO NOT EDIT.", "#![allow(dead_code)]"]
 gleam = ["// GENERATED. DO NOT EDIT."]
 
 for iface in projection["interfaces"]:
