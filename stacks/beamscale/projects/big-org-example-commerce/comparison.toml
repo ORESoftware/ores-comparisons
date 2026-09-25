@@ -10,8 +10,8 @@ verify = "bmscl verify ./dist"
 deploy = "bmscl deploy ./dist --project big-org-example-commerce --environment dev"
 
 [contracts]
-typespec = "../../../../contracts/big-org-example.tsp"
-json_schema = "../../../../contracts/big-org-example.schema.json"
+typespec = "contracts/typespec/main.tsp"
+json_schema = "contracts/json-schema/domain.schema.json"
 
 [secrets]
 encrypted_dir = "env/enc"
@@ -26,6 +26,6 @@ ores_convo = "trusted P2 same-cluster/platform adapter"
 ores_rate_limit = "ores-middleware P2 host stage"
 ores_middleware = "host-owned dependency injection middleware"
 ores_redis_lru_cache = "trusted P2 cache adapter"
-api_docs = "shared TypeSpec/JSON Schema + api-docs operation contract"
+api_docs = "local TypeSpec/JSON Schema + api-docs operation contract"
 ores_sops_legacy = "sops-age-dotenv"
 ores_sops_org = "sops-age-dotenv-org-target"

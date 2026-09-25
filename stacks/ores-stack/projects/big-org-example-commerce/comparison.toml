@@ -10,8 +10,8 @@ serve = "cargo run --release --locked"
 deploy = "ores-stack build # hand immutable server/lambda package to the selected deployment target"
 
 [contracts]
-typespec = "../../../../contracts/big-org-example.tsp"
-json_schema = "../../../../contracts/big-org-example.schema.json"
+typespec = "contracts/typespec/main.tsp"
+json_schema = "contracts/json-schema/domain.schema.json"
 route_map = "contracts/service.route-map.json"
 rpc_projection = "api-docs v1 unary + RIDL-compatible semantic operation identities"
 graphql_projection = "api-docs GraphQL resolver projection at /v1/graphql"

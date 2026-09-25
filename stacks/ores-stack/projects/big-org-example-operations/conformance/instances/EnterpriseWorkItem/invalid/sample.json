@@ -1,0 +1,8 @@
+{
+  "id": "work-bad-1",
+  "tenantId": "tenant-demo",
+  "actorId": "actor-demo",
+  "kind": "delete",
+  "payload": "bad=true",
+  "createdAt": "2026-01-01T00:00:00Z"
+}

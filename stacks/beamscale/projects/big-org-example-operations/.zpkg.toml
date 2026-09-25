@@ -1,0 +1,19 @@
+[package]
+org = "oresoftware"
+name = "comparison-beamscale-http-observability"
+version = "0.1.0"
+language = "mixed"
+
+[dependencies]
+"oresoftware/ores-compose" = "=0.1.0"
+"oresoftware/typespec-json-schema-validator" = "=0.1.1"
+
+[targets.contracts]
+dir = "contracts"
+name = "comparison-contracts"
+adapter = "none"
+
+[targets.conformance]
+dir = "conformance"
+name = "comparison-conformance"
+adapter = "none"

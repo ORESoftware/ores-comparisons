@@ -1,3 +1,10 @@
 # Encrypted environment files
 
-After `just env-init stacks/scintilla-run/projects/big-org-example-commerce`, this directory contains `dev.env.enc`, `stage.env.enc`, and `prod.env.enc` as SOPS dotenv ciphertext encrypted to the public age recipients in `.sops.yaml`. Never commit an `AGE-SECRET-KEY-...` identity here.
+After running the repository bootstrap command, this directory contains:
+
+- `dev.env.enc`
+- `stage.env.enc`
+- `prod.env.enc`
+
+They are SOPS dotenv ciphertext encrypted to the public age recipients in
+`.sops.yaml`. Never place an `AGE-SECRET-KEY-...` identity here.

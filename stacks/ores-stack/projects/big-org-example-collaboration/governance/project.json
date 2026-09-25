@@ -1,9 +1,0 @@
-{
-  "schema": "ores.comparisons.project-governance/v1",
-  "inherits": "../../../../../governance/toolchain.lock.json",
-  "ores_compose_manifest": "../.ores-compose.yaml",
-  "contract_manifest": "../contracts/project.contract.json",
-  "generated_edit_policy": "read-only",
-  "migration_policy": "generate-then-apply-on-dev-startup",
-  "seed_policy": "schema-validated-deterministic-seed"
-}
