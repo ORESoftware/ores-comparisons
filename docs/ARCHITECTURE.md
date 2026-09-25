@@ -95,3 +95,16 @@ the baseline and domain migration in order before seeding.
 CI applies the migration set twice and then attempts writes outside every
 projected enum domain. A migration is not considered conformant merely because
 the constraint text exists; PostgreSQL itself must reject the invalid value.
+
+
+## Domain type preservation
+
+A reference in the admitted JSON Schema remains a reference in downstream type
+systems whenever the target can express it. Enum references therefore do not
+collapse to arbitrary strings in generated TypeScript, Rust, Gleam, or
+Protobuf. This is the same semantic domain enforced by PostgreSQL
+`010_domain_constraints.sql`.
+
+The service Protobuf and domain Protobuf are separate on purpose: service
+request/response shape can evolve independently from reusable persisted domain
+models while both remain generated from admitted authorities.
