@@ -1,0 +1,19 @@
+{
+  "schema": "ores.comparisons.project-contract/v1",
+  "authorities": {
+    "typespec": "../../../../../contracts/comparison-domain.tsp",
+    "json_schema": "../../../../../contracts/comparison-domain.schema.json"
+  },
+  "storage": {
+    "mapping": "../../../../../contracts/storage.sql-map.json",
+    "seed_instances": "../../../../../contracts/seed.instances.json",
+    "migration": "../../../../../generated/sql/0001_init.sql",
+    "seed_sql": "../../../../../generated/sql/0002_seed.sql"
+  },
+  "generated": {
+    "validation_schema": "../../../../../generated/validation/comparison-domain.schema.json",
+    "typescript": "../../../../../generated/typescript/comparison_domain.ts",
+    "rust": "../../../../../generated/rust/comparison_domain.rs",
+    "protobuf": "../../../../../generated/proto/comparison_domain.proto"
+  }
+}

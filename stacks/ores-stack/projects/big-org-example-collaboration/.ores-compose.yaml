@@ -1,0 +1,30 @@
+schema_version: ores.compose.v1
+project: cmp-ores-stack-big-org-example-collaboration
+allow_lazy_start: false
+
+# ores.compose.v1 has no image field; Postgres is an admitted host-side Docker CLI process.
+services:
+  postgres:
+    runtime: host
+    command: ["bash", "../../../../scripts/local/postgres-service.sh"]
+    working_dir: "."
+    healthcheck:
+      command: ["bash", "../../../../scripts/local/postgres-health.sh"]
+      interval_ms: 1000
+      timeout_ms: 2000
+      retries: 20
+  db-bootstrap:
+    runtime: host
+    command: ["bash", "../../../../scripts/local/db-bootstrap-service.sh"]
+    working_dir: "."
+    depends_on: ["postgres"]
+    healthcheck:
+      command: ["bash", "-lc", "test -f .runtime/db-ready"]
+      interval_ms: 500
+      timeout_ms: 1000
+      retries: 20
+  app:
+    runtime: host
+    command: ["bash", "../../../../scripts/local/dev-stack.sh"]
+    working_dir: "."
+    depends_on: ["db-bootstrap"]
