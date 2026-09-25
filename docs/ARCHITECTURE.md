@@ -76,3 +76,22 @@ request
 BeamScale tenant code receives admitted capabilities instead of ambient network
 or filesystem authority. Scintilla endpoint configs declare env references, not
 secret values. ORES Stack retains api-docs as the route/RPC identity authority.
+
+
+## Additive domain migrations
+
+The generated SQL projection is split by responsibility:
+
+- `001_init.sql` creates the baseline tables and primary keys;
+- `010_domain_constraints.sql` adds semantic constraints projected from the
+  admitted JSON Schema authority;
+- `002_seed.sql` is fixture data and is not part of the migration sequence.
+
+Enum-backed JSON Schema fields are projected to PostgreSQL `CHECK` constraints.
+The domain migration checks `pg_constraint` before each `ALTER TABLE`, so it
+can be applied repeatedly to an existing local database. Developer startup runs
+the baseline and domain migration in order before seeding.
+
+CI applies the migration set twice and then attempts writes outside every
+projected enum domain. A migration is not considered conformant merely because
+the constraint text exists; PostgreSQL itself must reject the invalid value.
