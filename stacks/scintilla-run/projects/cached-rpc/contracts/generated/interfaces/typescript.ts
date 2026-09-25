@@ -1,9 +1,11 @@
 // GENERATED. DO NOT EDIT.
+export type CacheState = "hit" | "miss" | "bypass";
+
 export interface RpcInvocation {
   id: string;
   operation: string;
   cacheKey: string;
-  cacheState: string;
+  cacheState: CacheState;
   durationMs: number;
   createdAt: string;
 }
@@ -14,3 +16,4 @@ export interface CacheEntry {
   expiresAt: string;
   createdAt: string;
 }
+

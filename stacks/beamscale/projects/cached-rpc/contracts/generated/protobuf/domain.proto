@@ -1,0 +1,28 @@
+// GENERATED. DO NOT EDIT.
+syntax = "proto3";
+
+package ores.comparisons.rpc.v1.domain;
+
+enum CacheState {
+  CACHE_STATE_UNSPECIFIED = 0;
+  CACHE_STATE_HIT = 1;
+  CACHE_STATE_MISS = 2;
+  CACHE_STATE_BYPASS = 3;
+}
+
+message RpcInvocation {
+  string id = 1;
+  string operation = 2;
+  string cache_key = 3;
+  CacheState cache_state = 4;
+  int64 duration_ms = 5;
+  string created_at = 6;
+}
+
+message CacheEntry {
+  string cache_key = 1;
+  string payload_json = 2;
+  string expires_at = 3;
+  string created_at = 4;
+}
+
