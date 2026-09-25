@@ -1,3 +1,3 @@
 example repos that use beamscale go in here as git submodules
 
-This `repos/` directory belongs to this project. A project may contain multiple repositories/submodules here to model a whole GitHub organization or multi-repo application. Do not move this directory to the stack root.
+The current materialized example repo is `app/`. Project-level compose, contracts, conformance, governance, environment policy, and orchestration stay above `repos/`.
