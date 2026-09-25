@@ -53,6 +53,59 @@ def constraint_name(table: str, column: str) -> str:
         raise SystemExit(f"generated PostgreSQL constraint name exceeds 63 bytes: {value}")
     return safe(value)
 
+def referenced_name(spec: dict) -> str | None:
+    ref = spec.get("$ref")
+    if not ref:
+        return None
+    name = ref.rsplit("/", 1)[-1]
+    if name not in defs:
+        raise SystemExit(f"schema reference {ref!r} does not resolve to a local declaration")
+    return name
+
+def pascal_variant(value) -> str:
+    parts = re.findall(r"[A-Za-z0-9]+", str(value))
+    if not parts:
+        raise SystemExit(f"enum member {value!r} cannot be projected to a language identifier")
+    variant = "".join(part[:1].upper() + part[1:] for part in parts)
+    if variant[0].isdigit():
+        variant = "V" + variant
+    return variant
+
+def snake_identifier(value: str) -> str:
+    first = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", value)
+    second = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", first)
+    result = re.sub(r"[^A-Za-z0-9]+", "_", second).strip("_").lower()
+    if not result or result[0].isdigit():
+        result = "v_" + result
+    return result
+
+def proto_enum_token(type_name: str, value) -> str:
+    return f"{snake_identifier(type_name)}_{snake_identifier(str(value))}".upper()
+
+def language_types(field: dict) -> tuple[str, str, str]:
+    target = referenced_name(field)
+    if target is not None:
+        return target, target, target
+    if field.get("type") == "integer":
+        return "number", "i64", "Int"
+    if field.get("type") == "boolean":
+        return "boolean", "bool", "Bool"
+    if field.get("type") == "string":
+        return "string", "String", "String"
+    raise SystemExit(f"unsupported interface field schema: {field!r}")
+
+def proto_type(field: dict) -> str:
+    target = referenced_name(field)
+    if target is not None:
+        return target
+    if field.get("type") == "integer":
+        return "int64"
+    if field.get("type") == "boolean":
+        return "bool"
+    if field.get("type") == "string":
+        return "string"
+    raise SystemExit(f"unsupported protobuf field schema: {field!r}")
+
 def sql_literal(value):
     if value is None:
         return "NULL"
@@ -177,6 +230,50 @@ typescript = ["// GENERATED. DO NOT EDIT."]
 rust = ["// GENERATED. DO NOT EDIT.", "#![allow(dead_code)]"]
 gleam = ["// GENERATED. DO NOT EDIT."]
 
+for enum_name, enum_spec in defs.items():
+    values = enum_spec.get("enum")
+    if values is None:
+        continue
+    variants = [pascal_variant(value) for value in values]
+    if len(set(variants)) != len(variants):
+        raise SystemExit(f"enum {enum_name} has colliding generated variants")
+
+    typescript.append(
+        "export type "
+        + enum_name
+        + " = "
+        + " | ".join(json.dumps(value) for value in values)
+        + ";"
+    )
+    typescript.append("")
+
+    rust += [
+        "#[derive(Clone, Copy, Debug, Eq, PartialEq)]",
+        f"pub enum {enum_name} {{",
+    ]
+    rust += [f"    {variant}," for variant in variants]
+    rust += [
+        "}",
+        "",
+        f"impl {enum_name} {{",
+        "    pub const fn as_str(self) -> &'static str {",
+        "        match self {",
+    ]
+    rust += [
+        f"            Self::{variant} => {json.dumps(str(value))},"
+        for variant, value in zip(variants, values)
+    ]
+    rust += ["        }", "    }", "}", ""]
+
+    gleam += [f"pub type {enum_name} {{"]
+    gleam += [f"  {variant}" for variant in variants]
+    gleam += ["}", "", f"pub fn {snake_identifier(enum_name)}_to_string(value: {enum_name}) -> String {{", "  case value {"]
+    gleam += [
+        f"    {variant} -> {json.dumps(str(value))}"
+        for variant, value in zip(variants, values)
+    ]
+    gleam += ["  }", "}", ""]
+
 for iface in projection["interfaces"]:
     model = iface["model"]
     if model not in defs or defs[model].get("type") != "object":
@@ -188,12 +285,7 @@ for iface in projection["interfaces"]:
     gleam += [f"pub type {model} {{", f"  {model}("]
     gleam_fields = []
     for name, field in spec["properties"].items():
-        if field.get("type") == "integer":
-            ts_type, rs_type, gl_type = "number", "i64", "Int"
-        elif field.get("type") == "boolean":
-            ts_type, rs_type, gl_type = "boolean", "bool", "Bool"
-        else:
-            ts_type, rs_type, gl_type = "string", "String", "String"
+        ts_type, rs_type, gl_type = language_types(field)
         optional = name not in required
         typescript.append(f"  {name}{'?' if optional else ''}: {ts_type};")
         rust_type = f"Option<{rs_type}>" if optional else rs_type
@@ -204,11 +296,46 @@ for iface in projection["interfaces"]:
     rust += ["}", ""]
     gleam += [",\n".join(gleam_fields), "  )", "}", ""]
 
+domain_proto = [
+    "// GENERATED. DO NOT EDIT.",
+    'syntax = "proto3";',
+    "",
+    f"package {proto_cfg['package']}.domain;",
+    "",
+]
+for enum_name, enum_spec in defs.items():
+    values = enum_spec.get("enum")
+    if values is None:
+        continue
+    tokens = [proto_enum_token(enum_name, value) for value in values]
+    if len(set(tokens)) != len(tokens):
+        raise SystemExit(f"enum {enum_name} has colliding protobuf values")
+    domain_proto += [
+        f"enum {enum_name} {{",
+        f"  {snake_identifier(enum_name).upper()}_UNSPECIFIED = 0;",
+    ]
+    domain_proto += [
+        f"  {token} = {index};"
+        for index, token in enumerate(tokens, start=1)
+    ]
+    domain_proto += ["}", ""]
+
+for model_name, model_spec in defs.items():
+    if model_spec.get("type") != "object":
+        continue
+    domain_proto.append(f"message {model_name} {{")
+    for index, (name, field) in enumerate(model_spec.get("properties", {}).items(), start=1):
+        domain_proto.append(
+            f"  {proto_type(field)} {snake_identifier(name)} = {index};"
+        )
+    domain_proto += ["}", ""]
+
 outputs = {
     "contracts/generated/sql/001_init.sql": "\n".join(sql),
     "contracts/generated/sql/002_seed.sql": "\n".join(seed),
     "contracts/generated/sql/010_domain_constraints.sql": "\n".join(domain_sql),
     "contracts/generated/protobuf/comparison.proto": "\n".join(proto),
+    "contracts/generated/protobuf/domain.proto": "\n".join(domain_proto),
     "contracts/generated/interfaces/typescript.ts": "\n".join(typescript),
     "contracts/generated/interfaces/rust.rs": "\n".join(rust),
     "contracts/generated/interfaces/gleam.gleam": "\n".join(gleam),
