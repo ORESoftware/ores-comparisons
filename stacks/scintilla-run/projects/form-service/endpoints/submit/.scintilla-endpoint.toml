@@ -1,0 +1,13 @@
+version = 1
+slug = "comparison-form-submit"
+display_name = "Comparison form submit"
+description = "Accept a normalized ores-forms payload and hand it to host middleware/opto-sync"
+path = "/v1/forms/submit"
+method = "POST"
+response = "json"
+runtime = "rust"
+entrypoint = "main.rs"
+containerized = true
+max_run_ms = 30000
+labels = ["comparison", "forms"]
+env_from = ["ORES_OTEL_EXPORTER_OTLP_ENDPOINT", "ORES_OTEL_SERVICE_NAME", "ORES_FORMS_API_URL", "OPTO_SYNC_API_URL", "ORES_RATE_LIMIT_API_URL", "ORES_MIDDLEWARE_PROFILE", "ORES_REDIS_LRU_API_URL", "API_DOCS_ROUTE_MAP", "ORES_SOPS_MANIFEST"]

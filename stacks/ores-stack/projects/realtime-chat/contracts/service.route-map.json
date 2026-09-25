@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "service": "comparison-realtime-chat",
+  "title": "ORES comparison realtime chat",
+  "version": "0.1.0",
+  "map": {
+    "publish_message": {"path":"/v1/chat/messages","methods":["POST"],"request_schema":{"type":"object"}},
+    "chat_history": {"path":"/v1/chat/history","methods":["GET"],"response_schema":{"type":"object"}}
+  }
+}

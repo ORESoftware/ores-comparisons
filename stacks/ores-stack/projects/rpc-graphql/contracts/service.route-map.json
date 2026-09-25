@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "service": "comparison-rpc-graphql",
+  "title": "ORES comparison RPC + GraphQL",
+  "version": "0.1.0",
+  "map": {
+    "CompareRpc": {
+      "path": "/rpc",
+      "methods": ["POST"],
+      "binding": {"annotation":"rpc_unary","function_type":"UnaryFn<object, object>"},
+      "request_schema": {"type":"object"},
+      "response_schema": {"type":"object"}
+    },
+    "graphql": {
+      "path": "/graphql",
+      "methods": ["POST"],
+      "request_schema": {"type":"object"},
+      "response_schema": {"type":"object"}
+    }
+  }
+}
