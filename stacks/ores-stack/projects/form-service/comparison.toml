@@ -1,0 +1,5 @@
+version = 1
+workload = "form-service"
+stack = "ores-stack"
+execution_model = "rust_standalone_server"
+routes = ["POST /v1/forms/submit"]

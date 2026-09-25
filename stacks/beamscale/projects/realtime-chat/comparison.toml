@@ -1,0 +1,5 @@
+version = 1
+workload = "realtime-chat"
+stack = "beamscale"
+execution_model = "beam_actor_lambda"
+routes = ["POST /v1/chat/messages", "GET /v1/chat/history"]

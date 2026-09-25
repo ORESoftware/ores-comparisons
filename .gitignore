@@ -1,0 +1,10 @@
+**/env/dec/*
+!**/env/dec/README.md
+**/.scintilla/
+**/.ores-stack/
+**/dist/
+**/target/
+**/build/
+**/.gleam/
+.result
+result

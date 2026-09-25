@@ -1,0 +1,6 @@
+creation_rules:
+  - path_regex: '(^|/)env/enc/.*\.sops\.(yaml|yml|json)$'
+    encrypted_regex: '^(data|stringData|secrets)$'
+
+# Master keys are intentionally not committed. Pass --age or set
+# SOPS_AGE_RECIPIENTS when creating ciphertext.

@@ -1,0 +1,5 @@
+version = 1
+workload = "realtime-chat"
+stack = "ores-stack"
+execution_model = "rust_standalone_server"
+routes = ["POST /v1/chat/messages", "GET /v1/chat/history"]

@@ -1,9 +1,3 @@
-for scintilla-run -
+# Scintilla Run comparison projects
 
-let's deploy example/dummy projects in
-
-* elixir phoenix
-* ores-stack (rust based lambdas)
-* java 
-* golang
-* gleamlang
+Three matched workloads expressed as `.scintilla-endpoint.toml` projects. Build with `scintilla build --project . --out-dir .scintilla`, dry-run with `scintilla deploy --project . --out-dir .scintilla --dry-run`, and use loopback-only `scintilla dev --project .` for local synchronization.

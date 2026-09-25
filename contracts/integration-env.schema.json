@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oresoftware.dev/ores-comparisons/integration-env.schema.json",
+  "title": "ORES comparison integration environment",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ORES_OTEL_EXPORTER_OTLP_ENDPOINT": {"type": "string"},
+    "ORES_OTEL_SERVICE_NAME": {"type": "string"},
+    "ORES_FORMS_API_URL": {"type": "string"},
+    "OPTO_SYNC_API_URL": {"type": "string"},
+    "ORES_CHAT_API_URL": {"type": "string"},
+    "ORES_CONVO_API_URL": {"type": "string"},
+    "ORES_RATE_LIMIT_API_URL": {"type": "string"},
+    "ORES_MIDDLEWARE_PROFILE": {"type": "string"},
+    "ORES_REDIS_LRU_API_URL": {"type": "string"},
+    "API_DOCS_ROUTE_MAP": {"type": "string"},
+    "SOPS_AGE_KEY_FILE": {"type": "string"},
+    "SOPS_AGE_RECIPIENTS": {"type": "string"},
+    "ORES_SOPS_MANIFEST": {"type": "string"}
+  }
+}

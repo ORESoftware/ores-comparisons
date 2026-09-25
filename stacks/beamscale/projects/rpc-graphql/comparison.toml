@@ -1,0 +1,5 @@
+version = 1
+workload = "rpc-graphql"
+stack = "beamscale"
+execution_model = "beam_actor_lambda"
+routes = ["POST /rpc", "POST /graphql"]

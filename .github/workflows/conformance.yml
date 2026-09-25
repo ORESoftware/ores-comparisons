@@ -1,0 +1,18 @@
+name: conformance
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-layout.sh
+      - name: Assert decrypted env is not tracked
+        run: |
+          if git ls-files '*/env/dec/*' | grep -v '/README.md$' | grep -q .; then
+            echo 'decrypted env file is tracked' >&2
+            exit 1
+          fi

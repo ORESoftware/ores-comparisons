@@ -1,1 +1,0 @@
-example repos that use beamscale go in here as git submodules
