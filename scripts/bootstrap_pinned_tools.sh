@@ -40,6 +40,8 @@ checkout_runtime() {
   fi
   git -C "$dir" fetch --depth=1 origin "$rev"
   git -C "$dir" checkout --detach "$rev"
+  actual="$(git -C "$dir" rev-parse HEAD)"
+  [[ "$actual" == "$rev" ]] || { echo "$name revision mismatch" >&2; exit 1; }
 }
 
 install_cargo_git ores-compose ores-compose
@@ -51,10 +53,13 @@ install_cargo_git ores-stack ores-stack ores-stack-cli
 checkout_runtime bmscl-supervisor
 checkout_runtime scintilla-runner
 checkout_runtime scintilla-backend
+checkout_runtime typespec-json-schema-validator
 
-TJSV_VERSION="$(read_pin typespec-json-schema-validator version)"
-mkdir -p "$ROOT/.local/node-tools"
-npm install --prefix "$ROOT/.local/node-tools" --no-save "@oresoftware/typespec-json-schema-validator@$TJSV_VERSION"
-ln -sfn "$ROOT/.local/node-tools/node_modules/.bin/tjsv" "$BIN/tjsv"
+TJSV_DIR="$RUNTIMES/typespec-json-schema-validator"
+(
+  cd "$TJSV_DIR"
+  npm ci
+)
+ln -sfn "$TJSV_DIR/bin/typespec-json-schema-validator.mjs" "$BIN/tjsv"
 
 echo "pinned tools installed in $BIN"

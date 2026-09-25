@@ -21,6 +21,7 @@ required = {
 }
 if lock.get("schema") != "ores.comparisons.toolchain-lock/v1":
     errors.append("unexpected toolchain lock schema")
+
 tools = lock.get("tools", {})
 for name, (version, commit) in required.items():
     item = tools.get(name)
@@ -41,12 +42,16 @@ for needle in (
         errors.append(f"root .zpkg.toml missing {needle}")
 
 pkg = json.loads((ROOT / "package.json").read_text())
-if pkg.get("devDependencies", {}).get("@oresoftware/typespec-json-schema-validator") != "0.1.1":
-    errors.append("package.json tjsv version drift")
+private = pkg.get("oresPrivateTools", {}).get("typespec-json-schema-validator", {})
+if private.get("version") != "0.1.1":
+    errors.append("package.json private tjsv version drift")
+if private.get("commit") != required["typespec-json-schema-validator"][1]:
+    errors.append("package.json private tjsv commit drift")
 
 if errors:
     print("toolchain pin verification FAILED")
     for error in errors:
         print(" -", error)
     raise SystemExit(1)
+
 print("toolchain pin verification OK")

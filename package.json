@@ -5,7 +5,10 @@
   "engines": {
     "node": ">=22.9.0"
   },
-  "devDependencies": {
-    "@oresoftware/typespec-json-schema-validator": "0.1.1"
+  "oresPrivateTools": {
+    "typespec-json-schema-validator": {
+      "version": "0.1.1",
+      "commit": "e29a91d7ef74e3b0613ea79e988bec4c467535d2"
+    }
   }
 }

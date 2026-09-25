@@ -84,3 +84,19 @@ Use `just env-init <project-path>` after supplying public age recipients. No
 age private key and no decrypted environment file belongs in Git.
 
 See `docs/ARCHITECTURE.md` for the authority and startup model.
+
+
+## CI authority levels
+
+Default CI has no implicit permission to clone sibling private repositories.
+Therefore the always-on gate validates structure, generated drift, a restricted
+TypeSpec/JSON Schema parity model, and valid/invalid fixture behavior entirely
+from this checkout.
+
+The full authority remains
+`ORESoftware/typespec-json-schema-validator@e29a91d...`, and the full compose
+parser remains `ORESoftware/ores-compose@fbfad966...`. When repository secret
+`ORES_REPO_READ_TOKEN` is configured with read-only access to those repos, CI
+also checks every project through those exact pinned implementations. Local
+`just tools-bootstrap` does the same using the developer's existing Git
+credentials; it does not depend on an unpublished npm package.
