@@ -100,3 +100,19 @@ parser remains `ORESoftware/ores-compose@fbfad966...`. When repository secret
 also checks every project through those exact pinned implementations. Local
 `just tools-bootstrap` does the same using the developer's existing Git
 credentials; it does not depend on an unpublished npm package.
+
+
+## Smoke tests and performance matrix
+
+`benchmarks/matrix.json` covers all nine stack/scenario combinations with
+argv-only build/deploy smoke commands. BeamScale and Scintilla use their real
+dry-run deployment flags; ORES Stack app repos explicitly stop at artifact
+handoff until an infra target is supplied.
+
+Benchmark observations and smoke receipts have their own TypeSpec + JSON Schema
+peer authorities under `benchmarks/contracts/`. The runner records warm
+p50/p95/p99 latency plus optional cold-start time, RSS, artifact size, and
+estimated cost per million requests.
+
+Use `just smoke-check`, `just smoke-execute`, `just benchmark ...`, and
+`just benchmark-matrix`.
