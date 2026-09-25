@@ -11,6 +11,8 @@ client_mash = []
 client_leptos = []
 client_dioxus = []
 server = ["cargo", "build", "--release"]
+prerender = []
+package = []
 
 [dev]
 preflight = ["cargo", "check"]
@@ -18,5 +20,5 @@ server = ["cargo", "run"]
 watch = ["src", "contracts", "Cargo.toml", ".ores-stack.toml"]
 ignore = [".git", ".ores-stack", "target", "dist"]
 cargo_target_dir = "target"
-reload_bind = "127.0.0.1:35729"
+reload_bind = "127.0.0.1:36302"
 browser_reload = true

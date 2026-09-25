@@ -19,6 +19,8 @@ async fn main() {
     let app = Router::new()
         .route("/healthz", get(health))
         .route("/v1/workspace", post(work));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let bind = std::env::var("BIND_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:32203".to_owned());
+    let listener = tokio::net::TcpListener::bind(&bind).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
