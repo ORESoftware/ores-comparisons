@@ -1,11 +1,14 @@
 # ores-comparisons
 
 Deployable, side-by-side example projects for BeamScale, Scintilla, and ORES
-Stack. Each stack implements the same three workloads:
+Stack. Each stack implements three benchmark workloads plus three larger multi-repo organization examples:
 
 - `http-observability`
 - `forms-chat-workflow`
 - `cached-rpc`
+- `big-org-example-commerce`
+- `big-org-example-collaboration`
+- `big-org-example-operations`
 
 | Stack | Execution model |
 | --- | --- |
@@ -13,30 +16,42 @@ Stack. Each stack implements the same three workloads:
 | Scintilla | polyglot lambda/container/sub-process runtime |
 | ORES Stack | Rust native servers, WASM/page assets, RPC/API generation |
 
-All nine projects expose the same integration graph: ores-otel, ores-forms,
+All 18 matrix-governed projects expose the same integration graph: ores-otel, ores-forms,
 opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
 ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
 
 ## Contract structure
 
-Every project contains:
+Every project is a local GitHub-organization mirror. Shared authority is owned by
+the simulated `.github` repository:
 
 ```text
-contracts/
-  typespec/main.tsp
-  json-schema/domain.schema.json
-  projection.json
-  generated/
-    validation/domain.schema.json
-    sql/{001_init,002_seed}.sql
-    protobuf/comparison.proto
-    interfaces/{typescript.ts,rust.rs,gleam.gleam}
-conformance/
-  instances/
-  check.sh
-governance/
-  authority-contract.json
-  README.md
+repos/
+  readme.md
+  .github/
+    README.md
+    profile/README.md
+    comparison.toml
+    .ores-compose.yaml
+    contracts/
+      typespec/main.tsp
+      json-schema/domain.schema.json
+      projection.json
+      generated/
+        validation/domain.schema.json
+        sql/{001_init,002_seed,010_domain_constraints}.sql
+        protobuf/{comparison,domain}.proto
+        interfaces/{typescript.ts,rust.rs,gleam.gleam}
+    conformance/
+      instances/
+      check.sh
+    governance/
+      authority-contract.json
+      README.md
+    env/
+    scripts/
+  app/
+  <future-sibling-repo>/
 ```
 
 TypeSpec and JSON Schema Draft 2020-12 are **peer authorities**. Neither is
@@ -165,7 +180,7 @@ plain strings. `comparison.proto` remains the service/RPC projection, while
 
 The generator input `contracts/projection.json` is itself governed by peer
 TypeSpec and JSON Schema authorities under `shared/projection-contract/`.
-Every one of the nine live projection documents must be admitted before the
+Every one of the 18 live projection documents must be admitted before the
 generator can emit SQL, Protobuf, validation artifacts, or language interfaces.
 
 This separates two checks deliberately: the projection meta-contract validates

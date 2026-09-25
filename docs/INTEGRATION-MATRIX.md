@@ -1,9 +1,10 @@
 # Integration matrix
 
-Every one of the nine projects declares all integration IDs in
-`repos/.github/comparison.toml`. The scenario determines which ports are exercised on the
-hot path; the others remain wired and testable so comparison projects do not
-silently drift apart.
+All 18 matrix-governed projects declare the full integration set in
+`repos/.github/comparison.toml`. The table below describes the three benchmark scenarios; the three larger
+organization examples per stack carry the same integration authority while
+exercising broader multi-repo flows. Ports not used on the hot path remain wired
+and testable so projects do not silently drift apart.
 
 | Integration | HTTP/telemetry | Forms/chat workflow | Cached RPC |
 | --- | --- | --- | --- |
