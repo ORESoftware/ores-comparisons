@@ -159,3 +159,16 @@ enum such as `SubmissionState`, `Outcome`, or `CacheState` now becomes:
 Generated model fields reference those domain types rather than degrading to
 plain strings. `comparison.proto` remains the service/RPC projection, while
 `domain.proto` is the data-model projection.
+
+
+### Governed generator metadata
+
+The generator input `contracts/projection.json` is itself governed by peer
+TypeSpec and JSON Schema authorities under `shared/projection-contract/`.
+Every one of the nine live projection documents must be admitted before the
+generator can emit SQL, Protobuf, validation artifacts, or language interfaces.
+
+This separates two checks deliberately: the projection meta-contract validates
+the instruction shape, while the project-domain checks validate that referenced
+models/fields, primary keys, enum storage types, seeds, and RPC references
+actually exist and agree with the project's domain authorities.
