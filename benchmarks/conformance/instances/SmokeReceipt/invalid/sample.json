@@ -1,0 +1,9 @@
+{
+  "id": "smoke-bad",
+  "stack": "scintilla-run",
+  "scenario": "cached-rpc",
+  "revision": "x",
+  "buildStatus": "maybe",
+  "deployStatus": "passed",
+  "deployMode": "dry-run"
+}
