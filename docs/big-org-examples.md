@@ -30,6 +30,18 @@ env/dec/{dev,stage,prod}.env
 
 Only ciphertext belongs in Git. Run the repository's existing `just env-init <project>` flow with public dev/stage/prod/recovery age recipients. Private `AGE-SECRET-KEY-...` identities and decrypted environment material must remain outside Git.
 
-## Source snapshots
+## Multi-repository project layout
 
-Each stack also has a `repos/` directory reserved for pinned git submodules when a comparison run needs source-level snapshots of multiple repositories from the corresponding GitHub organization. Normal project builds should prefer immutable package/commit pins rather than following mutable default branches.
+`repos/` is a **project-owned** boundary, preserving the repository's original design:
+
+```text
+stacks/<stack>/projects/<project>/repos/
+  readme.md
+  <repo-a>/   # git submodule
+  <repo-b>/   # git submodule
+  <repo-c>/   # git submodule
+```
+
+A single comparison project may represent an entire multi-repository GitHub organization/application. Therefore multiple pinned git submodules belong inside that project's `repos/` directory. `stacks/<stack>/repos/` is intentionally invalid because it loses project ownership and makes unrelated projects share one source tree.
+
+Normal builds should prefer immutable package/commit pins when source checkouts are unnecessary; when source-level comparison is required, submodules remain pinned under the project that owns them.
