@@ -12,6 +12,38 @@
       "version": "0.1.1",
       "repository": "https://github.com/ORESoftware/typespec-json-schema-validator",
       "commit": "e29a91d7ef74e3b0613ea79e988bec4c467535d2"
+    },
+    "bmscl-cli": {
+      "repository": "https://github.com/beamscale/bmscl-cli",
+      "commit": "2a9dd1bf8835ec59c84362ac756839730fbbc7f4"
+    },
+    "bmscl-compiler": {
+      "repository": "https://github.com/beamscale/bmscl-compiler",
+      "commit": "2c9e0f9d47b3d15e8ffe571c86859132d90286be"
+    },
+    "bmscl-supervisor": {
+      "repository": "https://github.com/beamscale/bmscl-supervisor",
+      "commit": "3c1ed4d9ab4e2d75d1430c376f1a85facf9a0212"
+    },
+    "scintilla-cli": {
+      "package": "scintilla-run/scintilla-cli",
+      "version": "0.1.0",
+      "repository": "https://github.com/scintilla-run/scintilla-cli",
+      "commit": "293620b178585418aa3fb05e14edfb6ba18fbd01"
+    },
+    "scintilla-runner": {
+      "repository": "https://github.com/scintilla-run/gleam-lambda-runner",
+      "commit": "4724bbe89eeeef6f38cd112be4a5107d53874509"
+    },
+    "scintilla-backend": {
+      "repository": "https://github.com/scintilla-run/scintilla-backend.rs",
+      "commit": "ac28d4a6faf3eb991b596a6a7a4f12615589bcad"
+    },
+    "ores-stack": {
+      "package": "oresoftware/ores-stack",
+      "version": "0.1.0",
+      "repository": "https://github.com/ORESoftware/ores-stack",
+      "commit": "3915e7088cba0a77d3101c82ff14706c58870077"
     }
   }
 }

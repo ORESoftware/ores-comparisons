@@ -13,20 +13,14 @@
         in {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              age
-              sops
-              jq
-              python3
-              just
-              git
-              curl
-              gleam
-              erlang
-              rebar3
-              rustc
-              cargo
-              nodejs_22
+              age sops jq python3 just git curl
+              gleam erlang rebar3 rustc cargo nodejs_22 postgresql_16
             ];
+            shellHook = ''
+              export ORES_COMPARISONS_ROOT="$PWD"
+              export PATH="$PWD/.local/bin:$PATH"
+              export CARGO_NET_GIT_FETCH_WITH_CLI=true
+            '';
           };
         });
     };

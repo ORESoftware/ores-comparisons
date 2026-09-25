@@ -1,0 +1,11 @@
+{
+  "name": "ores-comparisons-contract-tools",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "devDependencies": {
+    "@oresoftware/typespec-json-schema-validator": "0.1.1"
+  }
+}
