@@ -13,6 +13,7 @@ enum ProjectionScenario {
   httpObservability: "http-observability",
   formsChatWorkflow: "forms-chat-workflow",
   cachedRpc: "cached-rpc",
+  bigOrgExample: "big-org-example",
 }
 
 @id("SqlType")
