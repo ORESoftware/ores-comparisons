@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oresoftware.com/ores-comparisons/big-org-example.schema.json",
+  "$defs": {
+    "actor_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenant_id", "request_id"],
+      "properties": {
+        "tenant_id": {"type": "string", "minLength": 1},
+        "request_id": {"type": "string", "minLength": 1},
+        "actor_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "work_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "operation", "payload"],
+      "properties": {
+        "context": {"$ref": "#/$defs/actor_context"},
+        "operation": {"enum": ["commerce", "collaboration", "operations"]},
+        "payload": {"type": "object"}
+      }
+    },
+    "work_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "result"],
+      "properties": {
+        "ok": {"type": "boolean"},
+        "request_id": {"type": "string", "minLength": 1},
+        "result": {"type": "object"}
+      }
+    }
+  }
+}
