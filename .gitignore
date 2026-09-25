@@ -1,0 +1,10 @@
+**/env/dec/**
+!**/env/dec/README.md
+!**/env/dec/.gitkeep
+**/.ores-stack/
+**/.scintilla/
+**/dist/
+**/target/
+**/.direnv/
+.result
+result
