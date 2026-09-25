@@ -2,6 +2,7 @@ verify:
     python3 scripts/verify_examples.py
     python3 scripts/verify_project_matrix.py
     python3 scripts/verify_project_repo_layout.py
+    python3 scripts/verify_org_manifests.py
     python3 scripts/verify_toolchain_pins.py
     bash conformance/check-all.sh
 
@@ -46,3 +47,6 @@ postgres-contract-check:
 
 projection-contract-check:
     python3 scripts/verify_projection_contract.py
+
+org-contract-check:
+    python3 scripts/verify_org_manifests.py

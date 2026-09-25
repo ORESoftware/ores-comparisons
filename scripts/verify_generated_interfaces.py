@@ -32,9 +32,14 @@ with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
         authored = project / "contracts/json-schema/domain.schema.json"
         projection = project / "contracts/projection.json"
         repos_readme = project.parent / "readme.md"
+        sdk_root = project.parent / "sdk-typescript"
+        sdk_generated = sdk_root / "src/generated/domain.ts"
 
         try:
-            for required in (projection, rust, typescript, gleam, validation, authored, repos_readme):
+            for required in (
+                projection, rust, typescript, gleam, validation, authored,
+                repos_readme, sdk_generated, sdk_root / "tsconfig.json",
+            ):
                 if not required.is_file():
                     raise FileNotFoundError(f"missing governed artifact: {required.relative_to(ROOT)}")
             if {path.name for path in protos} != {"comparison.proto", "domain.proto"}:
@@ -73,6 +78,12 @@ with tempfile.TemporaryDirectory(prefix="ores-comparison-generated-") as tmp:
                 ],
                 check=True,
             )
+            if sdk_generated.read_text() != typescript.read_text():
+                raise AssertionError("sibling sdk-typescript generated snapshot drift")
+            subprocess.run(
+                ["tsc", "--project", str(sdk_root / "tsconfig.json")],
+                check=True,
+            )
 
             gleam_bin = shutil.which("gleam")
             if gleam_bin:
@@ -98,4 +109,7 @@ if errors:
         print(" -", error)
     raise SystemExit(1)
 
-print(f"generated interface verification OK: {len(PROJECTS)} matrix-governed service/domain Protobuf and typed language projections compile")
+print(
+    f"generated interface verification OK: {len(PROJECTS)} shared projections "
+    "and sibling TypeScript SDK repositories compile"
+)
