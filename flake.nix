@@ -10,9 +10,14 @@
     in {
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = with pkgs; [ age sops jq yq git gnused coreutils ];
+          packages = with pkgs; [
+            age sops jq yq git gnused coreutils curl
+            nodejs_22 postgresql_16 protobuf
+            rustc cargo gleam docker
+          ];
           shellHook = ''
-            echo "ores-comparisons shell: sops + age + jq + yq"
+            echo "ores-comparisons shell: contracts + sops/age + postgres + rust/gleam"
+            echo "install pinned ores-compose with ./scripts/install-ores-compose.sh"
           '';
         };
       });

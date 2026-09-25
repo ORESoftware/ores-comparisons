@@ -2,7 +2,7 @@
 
 Runnable, contract-first examples for comparing the BeamScale, Scintilla Run, and ORES Stack execution models.
 
-The repository keeps the workloads intentionally matched so performance, cost, cold-start behavior, isolation, observability, deployment ergonomics, and failure semantics can be compared without changing the application goal.
+The repository keeps workloads intentionally matched so performance, cost, cold-start behavior, isolation, observability, deployment ergonomics, persistence, and failure semantics can be compared without changing the application goal.
 
 ## Workload matrix
 
@@ -18,38 +18,50 @@ Each workload exists under all three stacks:
 stacks/{beamscale,scintilla-run,ores-stack}/projects/{form-service,realtime-chat,rpc-graphql}
 ```
 
-## Cross-stack integration authorities
+The canonical data contracts live under `workloads/<workload>/`. Every concrete stack project has `contracts/`, `conformance/`, and `governance/` bindings to that same workload authority so a comparison cannot silently change its entity model.
 
-All examples consume the same registry in `integrations/registry.toml` and the same environment names. The integration set includes `ores-otel`, `ores-forms`, `opto-sync`, `ores-chat`, `ores-convo`, `ores-rate-limit`, `ORESoftware/ores-middleware`, `ores-redis-lru-cache`, `ORESoftware/api-docs`, `ORESoftware/ores-sops`, and the `ores-sops` org family.
+## Contract and generation model
 
-No example commits decrypted secrets. Every project has `env/enc/` for SOPS+age ciphertext and `env/dec/` for local ephemeral plaintext. `env/dec/**` is ignored globally. Use `nix develop` and `scripts/env.sh` to encrypt/decrypt.
+TypeSpec and JSON Schema Draft 2020-12 are independent peer authorities. `@oresoftware/typespec-json-schema-validator` fails closed when they disagree. After admission, `scripts/generate-workload-contracts.mjs` produces downstream SQL, Rust interfaces, TypeScript interfaces, a JSON Schema validation projection, Protobuf, and a deterministic digest manifest.
 
-## Stack intent
+`storage.manifest.json` supplies the reviewed relational mapping for Postgres. `projection.lock.json` fixes Protobuf field numbers and enum ordinals. Generated outputs are ignored by Git and must never be hand-edited.
 
-- **BeamScale**: compiler-admitted Gleam/Erlang actor lambdas. Tenant code stays capability-bound; secrets and external integration credentials stay in trusted host/control-plane layers.
-- **Scintilla Run**: container/subprocess endpoints discovered through `.scintilla-endpoint.toml` and deployed with the canonical `scintilla` CLI.
-- **ORES Stack**: Rust/WASM-first standalone servers with deterministic `api-docs` route/RPC contracts and room for generated RPC/GraphQL clients.
+## Local Ores Compose cluster
 
-## Local prerequisites
+Every project owns a `.ores-compose.yaml` at the project root. Ores Compose itself is pinned by immutable Git revision in `toolchain.lock.json` and repeated in each `.ores-compose.lock.json`.
 
 ```sh
 nix develop
-./scripts/check-layout.sh
+./scripts/install-ores-compose.sh
+
+# Example: Postgres -> migrate/seed -> BeamScale dev
+./scripts/up-project.sh stacks/beamscale/projects/form-service
+
+# Same shape for the other stacks/workloads
+./scripts/up-project.sh stacks/scintilla-run/projects/realtime-chat
+./scripts/up-project.sh stacks/ores-stack/projects/rpc-graphql
 ```
 
-Install the stack CLI being exercised (`bmscl`, `scintilla`, or `ores-stack`) from its owning repository or through the normal zed-pkg flow.
+All projects start a local `postgres:16-alpine` service on loopback port `55432` by default. The app startup wrapper regenerates SQL, applies the schema with `psql -v ON_ERROR_STOP=1`, applies an idempotent seed, then starts `bmscl dev`, `scintilla dev`, or `ores-stack dev`. Override the database port with `ORES_COMPARE_PG_PORT`.
 
-## Secret workflow
+Scintilla projects also launch a pinned local `scintilla-backend.rs` control plane on `127.0.0.1:8091` and wait for `/healthz` before `scintilla dev` synchronizes endpoints.
+
+## Cross-stack integration authorities
+
+All examples consume the registry in `integrations/registry.toml`. The integration set includes `ores-otel`, `ores-forms`, `opto-sync`, `ores-chat`, `ores-convo`, `ores-rate-limit`, `ORESoftware/ores-middleware`, `ores-redis-lru-cache`, `ORESoftware/api-docs`, `ORESoftware/ores-sops`, and the `ores-sops` org family.
+
+## Secrets
+
+No example commits decrypted secrets. Every project has `env/enc/` for SOPS+age ciphertext and `env/dec/` for local ephemeral plaintext. `env/dec/**` is ignored globally. Use `nix develop` and `scripts/env.sh` to encrypt/decrypt.
+
+BeamScale tenant actors intentionally do not receive ambient database/secret authority; database migration is a trusted local orchestration step outside the actor runtime.
+
+## Conformance
 
 ```sh
-export SOPS_AGE_RECIPIENTS='age1...'
-export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
-
-# Encrypt env/dec/dev.yaml -> env/enc/dev.sops.yaml
-./scripts/env.sh encrypt stacks/beamscale/projects/form-service dev
-
-# Decrypt env/enc/dev.sops.yaml -> env/dec/dev.yaml
-./scripts/env.sh decrypt stacks/beamscale/projects/form-service dev
+./scripts/check-layout.sh
+./scripts/check-project-bindings.sh
+./scripts/check-contracts.sh
 ```
 
-Never commit `env/dec/*` or raw credentials.
+The contract gate executes both TypeSpec and JSON Schema over recorded instances through `tjsv`, then generates the downstream projections and immediately re-checks deterministic output.

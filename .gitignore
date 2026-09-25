@@ -6,5 +6,8 @@
 **/target/
 **/build/
 **/.gleam/
+workloads/*/generated/*
+!workloads/*/generated/README.md
+.tools/
 .result
 result

@@ -4,12 +4,22 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  layout:
-    runs-on: ubuntu-latest
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: ./scripts/check-layout.sh
+      - run: ./scripts/check-project-bindings.sh
+      - name: TypeSpec / JSON Schema differential conformance and projection generation
+        run: ./scripts/check-contracts.sh
       - name: Assert decrypted env is not tracked
         run: |
           if git ls-files '*/env/dec/*' | grep -v '/README.md$' | grep -q .; then

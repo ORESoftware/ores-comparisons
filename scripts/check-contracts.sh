@@ -10,5 +10,11 @@ for workload in form-service realtime-chat rpc-graphql; do
     --schema="$w/contracts/entities.schema.json" \
     --instances="$w/conformance/instances" \
     --report="$report"
+  "$root/scripts/generate-workload-contracts.mjs" "$w"
   "$root/scripts/generate-workload-contracts.mjs" "$w" --check
+  test -s "$w/generated/sql/001_schema.sql"
+  test -s "$w/generated/rust/entities.rs"
+  test -s "$w/generated/typescript/entities.ts"
+  test -s "$w/generated/protobuf/entities.proto"
+  test -s "$w/generated/json-schema/entities.schema.json"
 done
