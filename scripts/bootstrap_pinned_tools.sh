@@ -62,6 +62,7 @@ install_scintilla_cli() {
   ln -sfn "$root/bin/scintilla" "$BIN/scintilla"
 }
 
+install_cargo_git zed-cli zed zed-cli
 install_cargo_git ores-compose ores-compose
 install_cargo_git bmscl-cli bmscl
 install_cargo_git bmscl-compiler bmscl-compiler
