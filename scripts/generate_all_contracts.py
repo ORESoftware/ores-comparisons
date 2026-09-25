@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 check = "--check" in sys.argv[1:]
 projects = sorted(p for p in (ROOT / "stacks").glob("*/projects/*")
                   if (p / "contracts/projection.json").is_file())
-if len(projects) != 9:
-    raise SystemExit(f"expected 9 contract projects, found {len(projects)}")
+if len(projects) != 18:
+    raise SystemExit(f"expected 18 contract projects, found {len(projects)}")
 for project in projects:
     cmd = [sys.executable, str(ROOT / "scripts/generate_contracts.py"), str(project)]
     if check:
