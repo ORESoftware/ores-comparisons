@@ -1,0 +1,22 @@
+version = 1
+stack = "scintilla-run"
+scenario = "http-observability"
+integrations = ["ores_otel", "ores_forms", "opto_sync", "ores_chat", "ores_convo", "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache", "api_docs", "ores_sops_legacy", "ores_sops_org"]
+
+[commands]
+dev = "SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once"
+build = "scintilla build --project . --out-dir .scintilla --check"
+deploy = "scintilla deploy --project . --out-dir .scintilla --dry-run"
+
+[integration_adapters]
+ores_otel = "env + ores-otel adapter"
+ores_forms = "HTTP JSON integration port"
+opto_sync = "HTTP JSON integration port"
+ores_chat = "HTTP JSON integration port"
+ores_convo = "HTTP JSON integration port"
+ores_rate_limit = "ores-rate-limit middleware/service"
+ores_middleware = "ORES middleware release stage"
+ores_redis_lru_cache = "redis/LRU integration port"
+api_docs = "api-docs route contract"
+ores_sops_legacy = "sops-age-dotenv"
+ores_sops_org = "sops-age-dotenv-org-target"
