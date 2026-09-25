@@ -1,0 +1,10 @@
+{
+  "id": "smoke-sample",
+  "stack": "scintilla-run",
+  "scenario": "cached-rpc",
+  "revision": "0123456789abcdef0123456789abcdef01234567",
+  "buildStatus": "passed",
+  "deployStatus": "passed",
+  "deployMode": "dry-run",
+  "note": "dry-run only"
+}

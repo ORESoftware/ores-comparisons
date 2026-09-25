@@ -1,0 +1,13 @@
+{
+  "id": "bad",
+  "stack": "unknown",
+  "scenario": "http-observability",
+  "revision": "x",
+  "source": "local",
+  "measuredAt": "x",
+  "samples": 10,
+  "httpStatus": 200,
+  "warmP50Micros": 1000,
+  "warmP95Micros": 2000,
+  "warmP99Micros": 2500
+}

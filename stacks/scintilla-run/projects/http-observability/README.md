@@ -1,18 +1,16 @@
 # Scintilla / http-observability
 
-A Scintilla v1 project with an authored `.scintilla-endpoint.toml`. Secret
-**names** are declared with `env_from`; their values remain in the runtime
-secret authority and never enter `.scintilla/scintilla-project.json`.
+This matched Scintilla workload keeps the authored endpoint-v1 contract and adds
+peer TypeSpec/JSON Schema authorities, generated PostgreSQL/Protobuf/language
+projections, conformance fixtures and governance.
 
-The source is deliberately runnable as a normal nodejs program as well
-as being the endpoint source body, which makes process/container overhead easy
-to benchmark outside the platform.
-
-## Run
+The local `ores-compose` graph starts PostgreSQL, the pinned Gleam runner, the
+pinned Rust backend, applies migration+seed, then runs `scintilla dev`.
 
 ```sh
-scintilla build --project . --out-dir .scintilla --check
-scintilla deploy --project . --out-dir .scintilla --dry-run
-
-SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once
+cd ../../../..
+nix develop
+just tools-bootstrap
+just compose-plan stacks/scintilla-run/projects/http-observability
+just compose-up stacks/scintilla-run/projects/http-observability
 ```

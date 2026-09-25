@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores-comparisons.benchmarks.schema.json",
+  "$defs": {
+    "StackKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "StackKind",
+      "type": "string",
+      "enum": [
+        "beamscale",
+        "scintilla-run",
+        "ores-stack"
+      ]
+    },
+    "ScenarioKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ScenarioKind",
+      "type": "string",
+      "enum": [
+        "http-observability",
+        "forms-chat-workflow",
+        "cached-rpc"
+      ]
+    },
+    "SourceKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SourceKind",
+      "type": "string",
+      "enum": [
+        "local",
+        "remote"
+      ]
+    },
+    "SmokeStatus": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SmokeStatus",
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "skipped"
+      ]
+    },
+    "DeploySmokeMode": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "DeploySmokeMode",
+      "type": "string",
+      "enum": [
+        "dry-run",
+        "artifact-handoff"
+      ]
+    },
+    "BenchmarkObservation": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "BenchmarkObservation",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "stack": {
+          "$ref": "StackKind"
+        },
+        "scenario": {
+          "$ref": "ScenarioKind"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "SourceKind"
+        },
+        "measuredAt": {
+          "type": "string"
+        },
+        "samples": {
+          "type": "integer"
+        },
+        "httpStatus": {
+          "type": "integer"
+        },
+        "warmP50Micros": {
+          "type": "integer"
+        },
+        "warmP95Micros": {
+          "type": "integer"
+        },
+        "warmP99Micros": {
+          "type": "integer"
+        },
+        "coldStartMicros": {
+          "type": "integer"
+        },
+        "memoryRssBytes": {
+          "type": "integer"
+        },
+        "artifactSizeBytes": {
+          "type": "integer"
+        },
+        "estimatedCostMicrousdPerMillion": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "stack",
+        "scenario",
+        "revision",
+        "source",
+        "measuredAt",
+        "samples",
+        "httpStatus",
+        "warmP50Micros",
+        "warmP95Micros",
+        "warmP99Micros"
+      ],
+      "unevaluatedProperties": false
+    },
+    "SmokeReceipt": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SmokeReceipt",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "stack": {
+          "$ref": "StackKind"
+        },
+        "scenario": {
+          "$ref": "ScenarioKind"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "buildStatus": {
+          "$ref": "SmokeStatus"
+        },
+        "deployStatus": {
+          "$ref": "SmokeStatus"
+        },
+        "deployMode": {
+          "$ref": "DeploySmokeMode"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "stack",
+        "scenario",
+        "revision",
+        "buildStatus",
+        "deployStatus",
+        "deployMode"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

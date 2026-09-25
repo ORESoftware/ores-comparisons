@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores-comparisons.http-observability.schema.json",
+  "$defs": {
+    "Outcome": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Outcome",
+      "type": "string",
+      "enum": [
+        "ok",
+        "error"
+      ]
+    },
+    "RequestObservation": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RequestObservation",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "route": {
+          "type": "string"
+        },
+        "statusCode": {
+          "type": "integer"
+        },
+        "durationMs": {
+          "type": "integer"
+        },
+        "outcome": {
+          "$ref": "Outcome"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "requestId",
+        "route",
+        "statusCode",
+        "durationMs",
+        "outcome",
+        "createdAt"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

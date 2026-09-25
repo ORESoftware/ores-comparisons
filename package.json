@@ -1,0 +1,14 @@
+{
+  "name": "ores-comparisons-contract-tools",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "oresPrivateTools": {
+    "typespec-json-schema-validator": {
+      "version": "0.1.1",
+      "commit": "e29a91d7ef74e3b0613ea79e988bec4c467535d2"
+    }
+  }
+}

@@ -1,18 +1,15 @@
 # Scintilla / forms-chat-workflow
 
-A Scintilla v1 project with an authored `.scintilla-endpoint.toml`. Secret
-**names** are declared with `env_from`; their values remain in the runtime
-secret authority and never enter `.scintilla/scintilla-project.json`.
+This matched workload adds peer TypeSpec/JSON Schema authorities, generated SQL,
+seed data, Protobuf and language interfaces, plus local PostgreSQL.
 
-The source is deliberately runnable as a normal python3 program as well
-as being the endpoint source body, which makes process/container overhead easy
-to benchmark outside the platform.
-
-## Run
+The pinned `ores-compose` graph starts PostgreSQL, the exact Scintilla runner
+and backend revisions, migrates/seeds the domain tables, then launches
+`scintilla dev --project .`.
 
 ```sh
-scintilla build --project . --out-dir .scintilla --check
-scintilla deploy --project . --out-dir .scintilla --dry-run
-
-SCINTILLA_BASE_URL=http://127.0.0.1:8080 scintilla dev --project . --once
+cd ../../../..
+nix develop
+just tools-bootstrap
+just compose-up stacks/scintilla-run/projects/forms-chat-workflow
 ```

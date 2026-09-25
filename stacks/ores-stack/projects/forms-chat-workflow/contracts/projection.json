@@ -1,0 +1,153 @@
+{
+  "schema": "ores.comparisons.projection/v1",
+  "scenario": "forms-chat-workflow",
+  "tables": [
+    {
+      "name": "form_submissions",
+      "model": "FormSubmission",
+      "primary_key": "id",
+      "columns": [
+        {
+          "name": "id",
+          "source": "id",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "form_key",
+          "source": "formKey",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "conversation_id",
+          "source": "conversationId",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "state",
+          "source": "state",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "audience",
+          "source": "audience",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "source": "createdAt",
+          "sql_type": "TIMESTAMPTZ"
+        }
+      ]
+    },
+    {
+      "name": "conversation_messages",
+      "model": "ConversationMessage",
+      "primary_key": "id",
+      "columns": [
+        {
+          "name": "id",
+          "source": "id",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "submission_id",
+          "source": "submissionId",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "direction",
+          "source": "direction",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "body",
+          "source": "body",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "source": "createdAt",
+          "sql_type": "TIMESTAMPTZ"
+        }
+      ]
+    }
+  ],
+  "seed": [
+    {
+      "table": "form_submissions",
+      "rows": [
+        {
+          "id": "sub-demo-1",
+          "form_key": "intake",
+          "conversation_id": "convo-demo-1",
+          "state": "received",
+          "audience": "entrepreneurs",
+          "created_at": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "table": "conversation_messages",
+      "rows": [
+        {
+          "id": "msg-demo-1",
+          "submission_id": "sub-demo-1",
+          "direction": "inbound",
+          "body": "hello from seeded form",
+          "created_at": "2026-01-01T00:00:01Z"
+        }
+      ]
+    }
+  ],
+  "proto": {
+    "package": "ores.comparisons.forms.v1",
+    "service": "FormsComparisonService",
+    "messages": [
+      {
+        "name": "SubmitFormRequest",
+        "fields": [
+          {
+            "type": "string",
+            "name": "form_key",
+            "number": 1
+          },
+          {
+            "type": "string",
+            "name": "audience",
+            "number": 2
+          }
+        ]
+      },
+      {
+        "name": "SubmitFormResponse",
+        "fields": [
+          {
+            "type": "string",
+            "name": "submission_id",
+            "number": 1
+          },
+          {
+            "type": "string",
+            "name": "conversation_id",
+            "number": 2
+          }
+        ]
+      }
+    ],
+    "rpcs": [
+      {
+        "name": "SubmitForm",
+        "request": "SubmitFormRequest",
+        "response": "SubmitFormResponse"
+      }
+    ]
+  },
+  "interfaces": [
+    {
+      "model": "FormSubmission"
+    },
+    {
+      "model": "ConversationMessage"
+    }
+  ]
+}

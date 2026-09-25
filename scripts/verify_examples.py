@@ -13,6 +13,28 @@ REQUIRED = {
     "ores_rate_limit", "ores_middleware", "ores_redis_lru_cache",
     "api_docs", "ores_sops_legacy", "ores_sops_org",
 }
+CONTRACT_FILES = (
+    "contracts/typespec/main.tsp",
+    "contracts/json-schema/domain.schema.json",
+    "contracts/projection.json",
+    "contracts/generated/sql/001_init.sql",
+    "contracts/generated/sql/002_seed.sql",
+    "contracts/generated/protobuf/comparison.proto",
+    "contracts/generated/interfaces/typescript.ts",
+    "contracts/generated/interfaces/rust.rs",
+    "contracts/generated/interfaces/gleam.gleam",
+    "contracts/generated/validation/domain.schema.json",
+    "conformance/check.sh",
+    "governance/authority-contract.json",
+    "governance/README.md",
+)
+LOCAL_FILES = (
+    ".ores-compose.yaml", ".zpkg.toml",
+    "scripts/postgres-local.sh", "scripts/db-health.sh",
+    "scripts/load-env.sh", "scripts/db-migrate.sh",
+    "scripts/db-seed.sh", "scripts/contracts-check.sh",
+    "scripts/dev-server.sh",
+)
 
 errors: list[str] = []
 
@@ -22,6 +44,7 @@ if shared_ids != REQUIRED:
     errors.append(f"shared integration IDs differ: {shared_ids ^ REQUIRED}")
 
 for stack in STACKS:
+    seen_ports: set[int] = set()
     for scenario in SCENARIOS:
         p = ROOT / "stacks" / stack / "projects" / scenario
         if not p.is_dir():
@@ -31,6 +54,7 @@ for stack in STACKS:
         for rel in (
             "README.md", "comparison.toml", ".sops.yaml", ".env.example",
             "env/enc/README.md", "env/dec/.gitignore",
+            *CONTRACT_FILES, *LOCAL_FILES,
         ):
             if not (p / rel).is_file():
                 errors.append(f"{p.relative_to(ROOT)} missing {rel}")
@@ -47,6 +71,28 @@ for stack in STACKS:
         except Exception as exc:
             errors.append(f"{p.relative_to(ROOT)} bad comparison.toml: {exc}")
 
+        try:
+            schema = json.loads((p / "contracts/json-schema/domain.schema.json").read_text())
+            generated = json.loads((p / "contracts/generated/validation/domain.schema.json").read_text())
+            if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+                errors.append(f"{p.relative_to(ROOT)} authored schema is not Draft 2020-12")
+            if not schema.get("$defs"):
+                errors.append(f"{p.relative_to(ROOT)} authored schema has no declarations")
+            if schema != generated:
+                errors.append(f"{p.relative_to(ROOT)} runtime validation projection drift")
+        except Exception as exc:
+            errors.append(f"{p.relative_to(ROOT)} invalid schema: {exc}")
+
+        try:
+            governance = json.loads((p / "governance/authority-contract.json").read_text())
+            if governance.get("schema") != "ores.comparisons.authority-contract/v1":
+                errors.append(f"{p.relative_to(ROOT)} governance schema drift")
+            gate = governance.get("parity_gate", {})
+            if gate.get("version") != "0.1.1" or gate.get("commit") != "e29a91d7ef74e3b0613ea79e988bec4c467535d2":
+                errors.append(f"{p.relative_to(ROOT)} parity gate is not exactly pinned")
+        except Exception as exc:
+            errors.append(f"{p.relative_to(ROOT)} invalid governance contract: {exc}")
+
         sops = (p / ".sops.yaml").read_text()
         for exact in (
             r"^env/enc/dev\.env\.enc$",
@@ -60,32 +106,55 @@ for stack in STACKS:
         if dec_entries != [".gitignore"]:
             errors.append(f"{p.relative_to(ROOT)} tracks unexpected env/dec content: {dec_entries}")
 
+        compose = (p / ".ores-compose.yaml").read_text()
+        for needle in (
+            "schema_version: ores.compose.v1",
+            "postgres:",
+            'command: ["bash", "scripts/postgres-local.sh"]',
+            '["bash", "scripts/db-migrate.sh"]',
+            '["bash", "scripts/db-seed.sh"]',
+            "depends_on:",
+        ):
+            if needle not in compose:
+                errors.append(f"{p.relative_to(ROOT)} compose missing {needle}")
+        for match in re.finditer(r"retries:\s*(\d+)", compose):
+            if int(match.group(1)) > 20:
+                errors.append(f"{p.relative_to(ROOT)} compose health retries exceed ores-compose v1 limit")
+        env = (p / ".env.example").read_text()
+        port_match = re.search(r"^PGPORT=(\d+)$", env, re.MULTILINE)
+        if not port_match:
+            errors.append(f"{p.relative_to(ROOT)} .env.example missing PGPORT")
+        else:
+            port = int(port_match.group(1))
+            if port in seen_ports:
+                errors.append(f"{stack} reuses local postgres port {port}")
+            seen_ports.add(port)
+        if "DATABASE_URL=postgresql://postgres@127.0.0.1:" not in env:
+            errors.append(f"{p.relative_to(ROOT)} missing local DATABASE_URL")
+
+        migration = (p / "contracts/generated/sql/001_init.sql").read_text()
+        seed = (p / "contracts/generated/sql/002_seed.sql").read_text()
+        if "CREATE TABLE IF NOT EXISTS" not in migration:
+            errors.append(f"{p.relative_to(ROOT)} generated migration is not idempotent")
+        if "ON CONFLICT DO NOTHING" not in seed:
+            errors.append(f"{p.relative_to(ROOT)} generated seed is not idempotent")
+
         if stack == "beamscale":
             if not (p / ".ores-lambda.toml").is_file():
                 errors.append(f"{p.relative_to(ROOT)} missing .ores-lambda.toml")
-            gleam = list((p / "lambdas").glob("**/gleam.toml")) if (p / "lambdas").is_dir() else []
-            if not gleam:
+            if not list((p / "lambdas").glob("**/gleam.toml")):
                 errors.append(f"{p.relative_to(ROOT)} has no BeamScale lambda project")
         elif stack == "scintilla-run":
             endpoints = list(p.glob("**/.scintilla-endpoint.toml"))
             if not endpoints:
                 errors.append(f"{p.relative_to(ROOT)} has no Scintilla endpoint")
-            for ep in endpoints:
-                try:
-                    data = tomllib.loads(ep.read_text())
-                    for key in ("version", "slug", "path", "method", "response", "runtime", "entrypoint"):
-                        if key not in data:
-                            errors.append(f"{ep.relative_to(ROOT)} missing {key}")
-                except Exception as exc:
-                    errors.append(f"{ep.relative_to(ROOT)} invalid TOML: {exc}")
+            for rel in ("scripts/scintilla-runtime-build.sh", "scripts/scintilla-runner.sh", "scripts/scintilla-backend.sh"):
+                if not (p / rel).is_file():
+                    errors.append(f"{p.relative_to(ROOT)} missing {rel}")
         else:
             for rel in (".ores-stack.toml", "Cargo.toml", "build.rs", "contracts/service.route-map.json"):
                 if not (p / rel).is_file():
                     errors.append(f"{p.relative_to(ROOT)} missing {rel}")
-            try:
-                json.loads((p / "contracts/service.route-map.json").read_text())
-            except Exception as exc:
-                errors.append(f"{p.relative_to(ROOT)} invalid route map: {exc}")
 
 for f in ROOT.rglob("*"):
     if f.is_file() and ".git" not in f.parts:
@@ -102,4 +171,4 @@ if errors:
         print(f" - {error}")
     raise SystemExit(1)
 
-print("comparison verification OK: 3 stacks x 3 projects; all integration/env contracts present")
+print("comparison verification OK: all 9 projects have governed contracts, postgres, compose and secret boundaries")

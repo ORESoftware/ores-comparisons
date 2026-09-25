@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  contracts:
+  static-contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,3 +17,77 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 scripts/verify_examples.py
+      - run: python3 scripts/verify_toolchain_pins.py
+      - run: python3 scripts/verify_contract_authorities_static.py
+      - run: python3 scripts/verify_benchmark_matrix.py
+      - run: python3 scripts/smoke_projects.py --check
+      - name: Exercise benchmark recorder
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 18765 --bind 127.0.0.1 >/tmp/ores-comparisons-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" >/dev/null 2>&1 || true' EXIT
+          for _ in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:18765/ >/dev/null; then break; fi
+            sleep 0.1
+          done
+          python3 scripts/run_benchmark.py \
+            --stack beamscale \
+            --scenario http-observability \
+            --url http://127.0.0.1:18765/ \
+            --requests 5 \
+            --warmup 1 \
+            --pid "$server_pid" \
+            --artifact README.md \
+            --cost-per-million-usd 0.125 \
+            --output benchmarks/results/benchmark-ci.json
+          python3 scripts/render_benchmark_matrix.py --output benchmarks/results/matrix-ci.md
+          grep -q "http-observability" benchmarks/results/matrix-ci.md
+          rm -f benchmarks/results/benchmark-ci.json benchmarks/results/matrix-ci.md
+      - run: python3 scripts/generate_all_contracts.py --check
+      - name: Run per-project conformance drift gates
+        run: |
+          set -euo pipefail
+          for project in stacks/*/projects/*/; do
+            bash "$project/conformance/check.sh"
+          done
+
+  private-authorities:
+    runs-on: ubuntu-latest
+    env:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run exact private authorities and stack smoke tests when authorized
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "::notice::COMPARISON_REPO_READ_TOKEN is not configured; mandatory static gates still ran, private cross-repo gates are skipped."
+            exit 0
+          fi
+
+          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          git config --global "$rewrite" "https://github.com/"
+          trap 'git config --global --unset-all "$rewrite" || true' EXIT
+
+          bash scripts/bootstrap_pinned_tools.sh
+          export PATH="$PWD/.local/bin:$PATH"
+
+          bash conformance/check-all.sh
+
+          for project in stacks/*/projects/*/; do
+            echo "==> $project"
+            ores-compose check "$project/.ores-compose.yaml"
+            ores-compose plan "$project/.ores-compose.yaml"
+          done
+
+          python3 scripts/smoke_projects.py --execute

@@ -1,0 +1,25 @@
+schema_version: ores.compose.v1
+project: compareorescachedrpc
+allow_lazy_start: false
+services:
+  postgres:
+    runtime: host
+    command: ["bash", "scripts/postgres-local.sh"]
+    healthcheck:
+      command: ["bash", "scripts/db-health.sh"]
+      interval_ms: 300
+      timeout_ms: 250
+      retries: 20
+  app:
+    runtime: host
+    command: ["bash", "scripts/dev-server.sh"]
+    build:
+      - ["bash", "scripts/contracts-check.sh"]
+      - ["bash", "scripts/db-migrate.sh"]
+      - ["bash", "scripts/db-seed.sh"]
+    depends_on: [postgres]
+    healthcheck:
+      command: ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:3112/"]
+      interval_ms: 500
+      timeout_ms: 400
+      retries: 20

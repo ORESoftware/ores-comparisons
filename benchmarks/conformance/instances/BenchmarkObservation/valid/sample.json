@@ -1,0 +1,17 @@
+{
+  "id": "sample-local-http",
+  "stack": "beamscale",
+  "scenario": "http-observability",
+  "revision": "0123456789abcdef0123456789abcdef01234567",
+  "source": "local",
+  "measuredAt": "2026-09-25T00:00:00Z",
+  "samples": 10,
+  "httpStatus": 200,
+  "warmP50Micros": 1000,
+  "warmP95Micros": 2000,
+  "warmP99Micros": 2500,
+  "coldStartMicros": 40000,
+  "memoryRssBytes": 67108864,
+  "artifactSizeBytes": 1048576,
+  "estimatedCostMicrousdPerMillion": 125000
+}

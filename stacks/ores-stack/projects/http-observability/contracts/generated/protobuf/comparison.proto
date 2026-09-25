@@ -1,0 +1,17 @@
+// GENERATED. DO NOT EDIT.
+syntax = "proto3";
+
+package ores.comparisons.http.v1;
+
+message ObservationRequest {
+  string request_id = 1;
+}
+
+message ObservationResponse {
+  string id = 1;
+  int64 status_code = 2;
+}
+
+service HttpComparisonService {
+  rpc GetObservation (ObservationRequest) returns (ObservationResponse);
+}

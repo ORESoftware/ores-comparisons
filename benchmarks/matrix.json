@@ -1,0 +1,278 @@
+{
+  "schema": "ores.comparisons.smoke-matrix/v1",
+  "projects": [
+    {
+      "stack": "beamscale",
+      "scenario": "http-observability",
+      "path": "stacks/beamscale/projects/http-observability",
+      "deploy_mode": "dry-run",
+      "build": [
+        [
+          "bmscl",
+          "check",
+          "."
+        ],
+        [
+          "bmscl",
+          "build",
+          ".",
+          "--out-dir",
+          "./dist",
+          "--policy",
+          "./bmscl-policy.toml",
+          "--worker-config",
+          "./.ores-lambda.toml"
+        ]
+      ],
+      "deploy": [
+        [
+          "bmscl",
+          "deploy",
+          "./dist",
+          "--project",
+          "comparison-http-observability",
+          "--environment",
+          "dev",
+          "--dry-run"
+        ]
+      ],
+      "artifact_candidates": [
+        "dist"
+      ]
+    },
+    {
+      "stack": "beamscale",
+      "scenario": "forms-chat-workflow",
+      "path": "stacks/beamscale/projects/forms-chat-workflow",
+      "deploy_mode": "dry-run",
+      "build": [
+        [
+          "bmscl",
+          "check",
+          "."
+        ],
+        [
+          "bmscl",
+          "build",
+          ".",
+          "--out-dir",
+          "./dist",
+          "--policy",
+          "./bmscl-policy.toml",
+          "--worker-config",
+          "./.ores-lambda.toml"
+        ]
+      ],
+      "deploy": [
+        [
+          "bmscl",
+          "deploy",
+          "./dist",
+          "--project",
+          "comparison-forms-chat-workflow",
+          "--environment",
+          "dev",
+          "--dry-run"
+        ]
+      ],
+      "artifact_candidates": [
+        "dist"
+      ]
+    },
+    {
+      "stack": "beamscale",
+      "scenario": "cached-rpc",
+      "path": "stacks/beamscale/projects/cached-rpc",
+      "deploy_mode": "dry-run",
+      "build": [
+        [
+          "bmscl",
+          "check",
+          "."
+        ],
+        [
+          "bmscl",
+          "build",
+          ".",
+          "--out-dir",
+          "./dist",
+          "--policy",
+          "./bmscl-policy.toml",
+          "--worker-config",
+          "./.ores-lambda.toml"
+        ]
+      ],
+      "deploy": [
+        [
+          "bmscl",
+          "deploy",
+          "./dist",
+          "--project",
+          "comparison-cached-rpc",
+          "--environment",
+          "dev",
+          "--dry-run"
+        ]
+      ],
+      "artifact_candidates": [
+        "dist"
+      ]
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "http-observability",
+      "path": "stacks/scintilla-run/projects/http-observability",
+      "deploy_mode": "dry-run",
+      "build": [
+        [
+          "scintilla",
+          "build",
+          "--project",
+          ".",
+          "--out-dir",
+          ".scintilla",
+          "--check"
+        ]
+      ],
+      "deploy": [
+        [
+          "scintilla",
+          "deploy",
+          "--project",
+          ".",
+          "--out-dir",
+          ".scintilla",
+          "--dry-run"
+        ]
+      ],
+      "artifact_candidates": [
+        ".scintilla"
+      ]
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "forms-chat-workflow",
+      "path": "stacks/scintilla-run/projects/forms-chat-workflow",
+      "deploy_mode": "dry-run",
+      "build": [
+        [
+          "scintilla",
+          "build",
+          "--project",
+          ".",
+          "--out-dir",
+          ".scintilla",
+          "--check"
+        ]
+      ],
+      "deploy": [
+        [
+          "scintilla",
+          "deploy",
+          "--project",
+          ".",
+          "--out-dir",
+          ".scintilla",
+          "--dry-run"
+        ]
+      ],
+      "artifact_candidates": [
+        ".scintilla"
+      ]
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "cached-rpc",
+      "path": "stacks/scintilla-run/projects/cached-rpc",
+      "deploy_mode": "dry-run",
+      "build": [
+        [
+          "scintilla",
+          "build",
+          "--project",
+          ".",
+          "--out-dir",
+          ".scintilla",
+          "--check"
+        ]
+      ],
+      "deploy": [
+        [
+          "scintilla",
+          "deploy",
+          "--project",
+          ".",
+          "--out-dir",
+          ".scintilla",
+          "--dry-run"
+        ]
+      ],
+      "artifact_candidates": [
+        ".scintilla"
+      ]
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "http-observability",
+      "path": "stacks/ores-stack/projects/http-observability",
+      "deploy_mode": "artifact-handoff",
+      "build": [
+        [
+          "ores-stack",
+          "check"
+        ],
+        [
+          "ores-stack",
+          "build"
+        ]
+      ],
+      "deploy": [],
+      "artifact_candidates": [
+        "target/release/ores-comparison-http-observability",
+        "dist"
+      ]
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "forms-chat-workflow",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow",
+      "deploy_mode": "artifact-handoff",
+      "build": [
+        [
+          "ores-stack",
+          "check"
+        ],
+        [
+          "ores-stack",
+          "build"
+        ]
+      ],
+      "deploy": [],
+      "artifact_candidates": [
+        "target/release/ores-comparison-forms-chat-workflow",
+        "dist"
+      ]
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "cached-rpc",
+      "path": "stacks/ores-stack/projects/cached-rpc",
+      "deploy_mode": "artifact-handoff",
+      "build": [
+        [
+          "ores-stack",
+          "check"
+        ],
+        [
+          "ores-stack",
+          "build"
+        ]
+      ],
+      "deploy": [],
+      "artifact_candidates": [
+        "target/release/ores-comparison-cached-rpc",
+        "dist"
+      ]
+    }
+  ]
+}

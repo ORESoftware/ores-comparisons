@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores-comparisons.forms-chat-workflow.schema.json",
+  "$defs": {
+    "SubmissionState": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SubmissionState",
+      "type": "string",
+      "enum": [
+        "received",
+        "synced",
+        "completed"
+      ]
+    },
+    "Direction": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Direction",
+      "type": "string",
+      "enum": [
+        "inbound",
+        "outbound"
+      ]
+    },
+    "FormSubmission": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "FormSubmission",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "formKey": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "SubmissionState"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "formKey",
+        "conversationId",
+        "state",
+        "audience",
+        "createdAt"
+      ],
+      "unevaluatedProperties": false
+    },
+    "ConversationMessage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ConversationMessage",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "submissionId": {
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "Direction"
+        },
+        "body": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "submissionId",
+        "direction",
+        "body",
+        "createdAt"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "schema": "ores.comparisons.projection/v1",
+  "scenario": "http-observability",
+  "tables": [
+    {
+      "name": "request_observations",
+      "model": "RequestObservation",
+      "primary_key": "id",
+      "columns": [
+        {
+          "name": "id",
+          "source": "id",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "request_id",
+          "source": "requestId",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "route",
+          "source": "route",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "status_code",
+          "source": "statusCode",
+          "sql_type": "INTEGER"
+        },
+        {
+          "name": "duration_ms",
+          "source": "durationMs",
+          "sql_type": "INTEGER"
+        },
+        {
+          "name": "outcome",
+          "source": "outcome",
+          "sql_type": "TEXT"
+        },
+        {
+          "name": "created_at",
+          "source": "createdAt",
+          "sql_type": "TIMESTAMPTZ"
+        }
+      ]
+    }
+  ],
+  "seed": [
+    {
+      "table": "request_observations",
+      "rows": [
+        {
+          "id": "obs-demo-1",
+          "request_id": "req-demo-1",
+          "route": "/comparison/http-observability",
+          "status_code": 200,
+          "duration_ms": 4,
+          "outcome": "ok",
+          "created_at": "2026-01-01T00:00:00Z"
+        }
+      ]
+    }
+  ],
+  "proto": {
+    "package": "ores.comparisons.http.v1",
+    "service": "HttpComparisonService",
+    "messages": [
+      {
+        "name": "ObservationRequest",
+        "fields": [
+          {
+            "type": "string",
+            "name": "request_id",
+            "number": 1
+          }
+        ]
+      },
+      {
+        "name": "ObservationResponse",
+        "fields": [
+          {
+            "type": "string",
+            "name": "id",
+            "number": 1
+          },
+          {
+            "type": "int64",
+            "name": "status_code",
+            "number": 2
+          }
+        ]
+      }
+    ],
+    "rpcs": [
+      {
+        "name": "GetObservation",
+        "request": "ObservationRequest",
+        "response": "ObservationResponse"
+      }
+    ]
+  },
+  "interfaces": [
+    {
+      "model": "RequestObservation"
+    }
+  ]
+}
