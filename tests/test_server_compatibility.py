@@ -37,5 +37,47 @@ class ServerCompatibilityTest(unittest.TestCase):
         broken["health"]["readinessPath"] = broken["health"]["livenessPath"]
         self.assertIn("liveness and readiness must be distinct", validate(broken))
 
+
+    def test_dependency_outage_removes_readiness_without_restart(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["runtimeSafety"]["availability"]["dependencyOutageTriggersRestart"] = True
+        self.assertIn("dependency outage must not trigger restart", validate(broken))
+
+    def test_drain_deadline_is_bounded(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["runtimeSafety"]["draining"]["shutdownDeadlineMs"] = 0
+        self.assertIn(
+            "draining shutdownDeadlineMs must be between 1 and 300000",
+            validate(broken),
+        )
+
+    def test_deadline_propagates_to_database_rpc_and_children(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["runtimeSafety"]["deadlines"]["downstreamRpcPropagates"] = False
+        self.assertIn(
+            "runtimeSafety.deadlines.downstreamRpcPropagates must be true",
+            validate(broken),
+        )
+        broken = copy.deepcopy(self.valid)
+        broken["runtimeSafety"]["deadlines"]["spawnedChildPropagates"] = False
+        self.assertIn(
+            "runtimeSafety.deadlines.spawnedChildPropagates must be true",
+            validate(broken),
+        )
+
+    def test_request_buffer_limits_are_positive_and_preallocation(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["runtimeSafety"]["bufferLimits"]["bodyBytes"] = 0
+        self.assertIn(
+            "runtimeSafety.bufferLimits.bodyBytes must be a positive integer",
+            validate(broken),
+        )
+        broken = copy.deepcopy(self.valid)
+        broken["runtimeSafety"]["bufferLimits"]["enforceBeforeExpensiveAllocation"] = False
+        self.assertIn(
+            "buffer limits must be enforced before expensive allocation",
+            validate(broken),
+        )
+
 if __name__ == "__main__":
     unittest.main()

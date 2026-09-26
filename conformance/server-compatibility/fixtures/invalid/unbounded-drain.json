@@ -62,7 +62,7 @@
     },
     "draining": {
       "stopAdmittingBeforeDrain": true,
-      "shutdownDeadlineMs": 30000,
+      "shutdownDeadlineMs": 0,
       "inFlightPolicy": "cancel-at-deadline",
       "proofCommand": "cargo test graceful_drain"
     },

@@ -12,7 +12,8 @@
     "lifecycle",
     "health",
     "capabilities",
-    "handlerAdmission"
+    "handlerAdmission",
+    "runtimeSafety"
   ],
   "properties": {
     "schema": {
@@ -283,6 +284,149 @@
         "proofCommand": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "runtimeSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "draining",
+        "deadlines",
+        "bufferLimits"
+      ],
+      "properties": {
+        "availability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dependencyOutageRemovesReadiness",
+            "dependencyOutageAffectsLiveness",
+            "dependencyOutageTriggersRestart",
+            "proofCommand"
+          ],
+          "properties": {
+            "dependencyOutageRemovesReadiness": {
+              "const": true
+            },
+            "dependencyOutageAffectsLiveness": {
+              "const": false
+            },
+            "dependencyOutageTriggersRestart": {
+              "const": false
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "draining": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stopAdmittingBeforeDrain",
+            "shutdownDeadlineMs",
+            "inFlightPolicy",
+            "proofCommand"
+          ],
+          "properties": {
+            "stopAdmittingBeforeDrain": {
+              "const": true
+            },
+            "shutdownDeadlineMs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "inFlightPolicy": {
+              "enum": [
+                "finish-within-deadline",
+                "cancel-at-deadline"
+              ]
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "deadlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxRequestDeadlineMs",
+            "handlerPropagates",
+            "databasePropagates",
+            "downstreamRpcPropagates",
+            "spawnedChildPropagates",
+            "cancellationPropagates",
+            "proofCommand"
+          ],
+          "properties": {
+            "maxRequestDeadlineMs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "handlerPropagates": {
+              "const": true
+            },
+            "databasePropagates": {
+              "const": true
+            },
+            "downstreamRpcPropagates": {
+              "const": true
+            },
+            "spawnedChildPropagates": {
+              "const": true
+            },
+            "cancellationPropagates": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "bufferLimits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bodyBytes",
+            "headerBytes",
+            "uploadBytes",
+            "decompressedBytes",
+            "enforceBeforeExpensiveAllocation",
+            "proofCommand"
+          ],
+          "properties": {
+            "bodyBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "headerBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "uploadBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "decompressedBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "enforceBeforeExpensiveAllocation": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       }
     }

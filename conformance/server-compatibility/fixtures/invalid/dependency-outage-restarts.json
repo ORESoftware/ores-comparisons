@@ -57,7 +57,7 @@
     "availability": {
       "dependencyOutageRemovesReadiness": true,
       "dependencyOutageAffectsLiveness": false,
-      "dependencyOutageTriggersRestart": false,
+      "dependencyOutageTriggersRestart": true,
       "proofCommand": "cargo test dependency_readiness"
     },
     "draining": {

@@ -79,7 +79,7 @@
       "bodyBytes": 1048576,
       "headerBytes": 65536,
       "uploadBytes": 10485760,
-      "decompressedBytes": 8388608,
+      "decompressedBytes": 0,
       "enforceBeforeExpensiveAllocation": true,
       "proofCommand": "cargo test request_limits"
     }

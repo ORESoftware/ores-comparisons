@@ -69,7 +69,7 @@
     "deadlines": {
       "maxRequestDeadlineMs": 30000,
       "handlerPropagates": true,
-      "databasePropagates": true,
+      "databasePropagates": false,
       "downstreamRpcPropagates": true,
       "spawnedChildPropagates": true,
       "cancellationPropagates": true,
