@@ -19,7 +19,7 @@ required = {
     "scintilla-cli": ("0.1.0", "293620b178585418aa3fb05e14edfb6ba18fbd01"),
     "scintilla-runner": (None, "4724bbe89eeeef6f38cd112be4a5107d53874509"),
     "scintilla-backend": (None, "ac28d4a6faf3eb991b596a6a7a4f12615589bcad"),
-    "ores-stack": ("0.1.0", "3915e7088cba0a77d3101c82ff14706c58870077"),
+    "ores-stack": ("0.1.0", "7d07a9cdb2e876d1cf1e3cf064287f48b9217d3c"),
     "ores-clis-core": ("0.1.1", "e42c7ae533562a796c945070e71a8ce0f45628bf"),
 }
 if lock.get("schema") != "ores.comparisons.toolchain-lock/v1":
