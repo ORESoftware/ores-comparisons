@@ -96,6 +96,8 @@ jobs:
             zed install --git-submodules
           fi
 
+          bash scripts/verify_fresh_clone_submodules.sh
+
           python3 scripts/verify_dummy_org_map.py
           python3 scripts/verify_dummy_org_gitlinks.py
           python3 scripts/verify_project_repo_layout.py
