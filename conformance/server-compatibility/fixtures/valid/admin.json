@@ -79,5 +79,40 @@
       "enforceBeforeExpensiveAllocation": true,
       "proofCommand": "cargo test request_limits"
     }
+  },
+  "edgeSafety": {
+    "publicErrors": {
+      "standaloneFunctionEquivalent": true,
+      "internalDiagnosticsExposed": false,
+      "proofCommand": "cargo test public_error_parity"
+    },
+    "proxyTrust": {
+      "configuredIngresses": [
+        "local-test-ingress"
+      ],
+      "trustedForwardedFields": [
+        "host",
+        "scheme",
+        "client-address"
+      ],
+      "untrustedForwardedHeadersIgnored": true,
+      "proofCommand": "cargo test trusted_proxy"
+    },
+    "browserSecurity": {
+      "corsPolicy": "explicit-origin-allowlist",
+      "csrfPolicy": "same-site-token-or-non-browser-deny",
+      "secureCookies": true,
+      "originValidation": true,
+      "proofCommand": "cargo test browser_security"
+    },
+    "connectionBudgets": {
+      "replicas": 3,
+      "providerConcurrency": 100,
+      "databasePoolPerReplica": 10,
+      "databaseTotalBudget": 30,
+      "outboundHttpPoolPerReplica": 25,
+      "outboundHttpTotalBudget": 75,
+      "proofCommand": "cargo test connection_budgets"
+    }
   }
 }
