@@ -8,34 +8,95 @@
   },
   "failureEnvelope": {
     "schema": "ores.stack.failure/v1",
-    "requiredFields": ["schema", "code", "command", "message", "retryable", "details"],
-    "commands": ["build", "dev", "generate", "verify", "deploy"]
+    "requiredFields": [
+      "schema",
+      "code",
+      "command",
+      "message",
+      "retryable",
+      "details"
+    ],
+    "commands": [
+      "build",
+      "dev",
+      "generate",
+      "verify",
+      "deploy"
+    ]
   },
   "errorCodes": [
-    {"code":"ORES.BUILD.EXECUTION_FAILED","command":"build","retryable":false},
-    {"code":"ORES.DEV.LAUNCH_FAILED","command":"dev","retryable":true},
-    {"code":"ORES.GENERATE.OWNERSHIP_CONFLICT","command":"generate","retryable":false},
-    {"code":"ORES.VERIFY.CONTRACT_FAILED","command":"verify","retryable":false},
-    {"code":"ORES.DEPLOY.CAPABILITY_UNSUPPORTED","command":"deploy","retryable":false},
-    {"code":"ORES.CONFIG.INVALID","command":"all","retryable":false},
-    {"code":"ORES.DEPENDENCY.MISSING","command":"all","retryable":true}
+    {
+      "code": "ORES.BUILD.EXECUTION_FAILED",
+      "command": "build",
+      "retryable": false
+    },
+    {
+      "code": "ORES.DEV.LAUNCH_FAILED",
+      "command": "dev",
+      "retryable": true
+    },
+    {
+      "code": "ORES.GENERATE.OWNERSHIP_CONFLICT",
+      "command": "generate",
+      "retryable": false
+    },
+    {
+      "code": "ORES.VERIFY.CONTRACT_FAILED",
+      "command": "verify",
+      "retryable": false
+    },
+    {
+      "code": "ORES.DEPLOY.CAPABILITY_UNSUPPORTED",
+      "command": "deploy",
+      "retryable": false
+    },
+    {
+      "code": "ORES.CONFIG.INVALID",
+      "command": "all",
+      "retryable": false
+    },
+    {
+      "code": "ORES.DEPENDENCY.MISSING",
+      "command": "all",
+      "retryable": true
+    }
   ],
   "cleanMachine": {
-    "requiredDeclaredTools": ["cargo", "rustc", "git"],
-    "forbiddenAssumptions": ["globally-installed-ores-stack", "globally-installed-ores-compose", "globally-installed-zed", "undeclared-node-package"],
-    "requiredChecks": ["install-immutable-cli", "version-smoke", "representative-project-check", "representative-project-build"],
-    "promotionRule": "A released CLI may be marked clean-machine-passed only from an immutable canonical-repository revision with complete workspace closure."
+    "requiredDeclaredTools": [
+      "cargo",
+      "rustc",
+      "git"
+    ],
+    "forbiddenAssumptions": [
+      "globally-installed-ores-stack",
+      "globally-installed-ores-compose",
+      "globally-installed-zed",
+      "undeclared-node-package"
+    ],
+    "requiredChecks": [
+      "install-immutable-cli",
+      "version-smoke",
+      "representative-project-check",
+      "representative-project-build",
+      "empty-home",
+      "allowlisted-path",
+      "undeclared-global-tool-rejected"
+    ],
+    "promotionRule": "A released CLI may be marked clean-machine-passed only from an immutable canonical-repository revision with complete workspace closure.",
+    "harness": "scripts/verify_ores_stack_clean_machine.py"
   },
   "recovery": {
     "requiredChecks": [
       "previous-toolchain-installed-separately",
       "candidate-toolchain-installed-separately",
+      "candidate-digest-verified-before-activation",
       "activation-switch-is-atomic",
       "post-switch-failure-can-be-injected",
       "previous-toolchain-restored",
       "restored-toolchain-executes",
       "project-config-byte-identical",
-      "project-cache-byte-identical"
+      "project-cache-byte-identical",
+      "cache-namespaces-retained"
     ],
     "migrationFixture": {
       "repository": "https://github.com/ORESoftware/ores-stack",
@@ -43,6 +104,7 @@
       "candidate": "2fd66cfaaf0d014f0e27cf29eae6a943928724c5",
       "evidenceClass": "migration-fixture",
       "countsAsReleaseProof": false
-    }
+    },
+    "harness": "scripts/ores_stack_toolchain_switch.py"
   }
 }
