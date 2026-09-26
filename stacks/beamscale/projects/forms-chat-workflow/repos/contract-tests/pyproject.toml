@@ -1,4 +1,0 @@
-[project]
-name = "beamscale-forms-chat-workflow-contract-tests"
-version = "0.1.0"
-requires-python = ">=3.12"
