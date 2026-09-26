@@ -13,6 +13,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX_PATH = ROOT / "conformance" / "ores-stack-cli" / "compatibility-matrix.v1.json"
 SCAFFOLD_PATH = ROOT / "conformance" / "ores-stack-cli" / "scaffold-transaction.v1.json"
+OWNERSHIP_PATH = ROOT / "conformance" / "ores-stack-cli" / "generator-ownership.v1.json"
+CACHE_PATH = ROOT / "conformance" / "ores-stack-cli" / "cache-integrity.v1.json"
+PLUGIN_PATH = ROOT / "conformance" / "ores-stack-cli" / "plugin-execution.v1.json"
 CANONICAL_REPOSITORY = "https://github.com/ores-stack/ores-stack-cli"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -25,6 +28,40 @@ REQUIRED_SCAFFOLD_CASES = {
     "publish-is-single-filesystem-atomic",
 }
 RESULT_STATES = {"passed", "failed", "blocked", "not-run"}
+REQUIRED_OWNERSHIP_RULES = {
+    "exact-first-line-marker",
+    "handwritten-targets-fail-closed",
+    "symlink-targets-rejected",
+    "stale-pruning-is-owner-aware",
+}
+REQUIRED_CACHE_KEY_DIMENSIONS = {
+    "schema",
+    "transport",
+    "abi_identity_sha256",
+    "toolchain_identity",
+    "target_identity",
+    "profile",
+    "inputs.path",
+    "inputs.sha256",
+}
+REQUIRED_CACHE_HIT_REQUIREMENTS = {
+    "receipt_is_regular_non_symlink_file",
+    "receipt_schema_and_digest_shapes_are_valid",
+    "receipt_identity_exactly_matches_recomputed_plan",
+    "binary_is_regular_non_symlink_file",
+    "binary_sha256_matches_receipt",
+}
+REQUIRED_PLUGIN_REQUIREMENTS = {
+    "plugin_executable_must_resolve_to_a_regular_non_symlink_file",
+    "plugin_executable_must_be_inside_an_explicit_approved_root",
+    "plugin_executable_sha256_must_match_an_immutable_pin",
+    "shell_mediation_is_forbidden",
+    "working_directory_must_be_confined_to_the_admitted_repository_or_private_staging_root",
+    "stdin_must_be_null_unless_the_contract_explicitly_requires_input",
+    "control_environment_must_be_cleared_or_allowlisted",
+    "plugin_arguments_must_be_structured_argv_not_shell_text",
+    "plugin_failure_must_not_publish_partial_generated_state",
+}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -182,6 +219,95 @@ def verify_scaffold_contract(document: dict[str, Any], *, release_ready: bool) -
     return errors
 
 
+def verify_generator_ownership(document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if document.get("schema") != "ores.stack.generator-ownership/v1":
+        errors.append("generator ownership: unsupported schema")
+    if document.get("status") != "required":
+        errors.append("generator ownership: status must be required")
+    rules = document.get("rules")
+    if not isinstance(rules, list):
+        return errors + ["generator ownership: rules must be an array"]
+    ids = {
+        rule.get("id")
+        for rule in rules
+        if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+    }
+    missing = sorted(REQUIRED_OWNERSHIP_RULES - ids)
+    if missing:
+        errors.append(f"generator ownership: missing rules {missing}")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            errors.append("generator ownership: rule must be an object")
+            continue
+        if not isinstance(rule.get("requirement"), str) or not rule.get("requirement"):
+            errors.append(f"generator ownership: rule {rule.get('id')!r} lacks requirement")
+    return errors
+
+
+def verify_cache_integrity(document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if document.get("schema") != "ores.stack.cache-integrity/v1":
+        errors.append("cache integrity: unsupported schema")
+    if document.get("status") != "required":
+        errors.append("cache integrity: status must be required")
+
+    dimensions = document.get("requiredKeyDimensions")
+    if not isinstance(dimensions, list):
+        errors.append("cache integrity: requiredKeyDimensions must be an array")
+        dimensions = []
+    missing_dimensions = sorted(REQUIRED_CACHE_KEY_DIMENSIONS - set(dimensions))
+    if missing_dimensions:
+        errors.append(f"cache integrity: incomplete key dimensions {missing_dimensions}")
+
+    hit_requirements = document.get("cacheHitRequirements")
+    if not isinstance(hit_requirements, list):
+        errors.append("cache integrity: cacheHitRequirements must be an array")
+        hit_requirements = []
+    missing_hit = sorted(REQUIRED_CACHE_HIT_REQUIREMENTS - set(hit_requirements))
+    if missing_hit:
+        errors.append(f"cache integrity: missing cache-hit requirements {missing_hit}")
+
+    poison = document.get("poisonHandling")
+    expected_poison = {
+        "identity_mismatch": "miss",
+        "binary_digest_mismatch": "miss",
+        "malformed_receipt": "reject",
+        "receipt_symlink": "reject",
+        "binary_symlink": "reject",
+        "missing_dependency_input": "rebuild",
+    }
+    if not isinstance(poison, dict):
+        errors.append("cache integrity: poisonHandling must be an object")
+    else:
+        for key, expected in expected_poison.items():
+            if poison.get(key) != expected:
+                errors.append(
+                    f"cache integrity: poison handling for {key} must be {expected!r}"
+                )
+    return errors
+
+
+def verify_plugin_execution(document: dict[str, Any], *, release_ready: bool) -> list[str]:
+    errors: list[str] = []
+    if document.get("schema") != "ores.stack.plugin-execution/v1":
+        errors.append("plugin execution: unsupported schema")
+    status = document.get("status")
+    if status not in {"contract-only", "verified"}:
+        errors.append("plugin execution: status must be contract-only or verified")
+    requirements = document.get("requirements")
+    if not isinstance(requirements, list):
+        return errors + ["plugin execution: requirements must be an array"]
+    missing = sorted(REQUIRED_PLUGIN_REQUIREMENTS - set(requirements))
+    if missing:
+        errors.append(f"plugin execution: missing requirements {missing}")
+    if release_ready and status != "verified":
+        errors.append(
+            "plugin execution: release authority cannot be ready before constrained plugin execution is verified"
+        )
+    return errors
+
+
 def diagnose(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     """Return deterministic read-only findings; never mutate the supplied snapshot."""
     findings: list[dict[str, Any]] = []
@@ -245,13 +371,20 @@ def main() -> int:
 
     matrix = load_json(MATRIX_PATH)
     scaffold = load_json(SCAFFOLD_PATH)
+    ownership = load_json(OWNERSHIP_PATH)
+    cache = load_json(CACHE_PATH)
+    plugin = load_json(PLUGIN_PATH)
+    release_ready = bool(matrix.get("releaseAuthorityReady"))
     errors = verify_matrix(matrix)
     errors.extend(
         verify_scaffold_contract(
             scaffold,
-            release_ready=bool(matrix.get("releaseAuthorityReady")),
+            release_ready=release_ready,
         )
     )
+    errors.extend(verify_generator_ownership(ownership))
+    errors.extend(verify_cache_integrity(cache))
+    errors.extend(verify_plugin_execution(plugin, release_ready=release_ready))
     if errors:
         for error in errors:
             print(f"ERROR {error}")
@@ -278,7 +411,8 @@ def main() -> int:
         "ORES Stack CLI hardening contracts OK: "
         f"{len(matrix.get('supportedReleases', []))} supported release(s), "
         f"{len(matrix.get('migrationCandidates', []))} migration candidate(s), "
-        f"scaffolding={scaffold.get('implementationStatus')}"
+        f"scaffolding={scaffold.get('implementationStatus')}, "
+        f"plugins={plugin.get('status')}"
     )
     return 0
 

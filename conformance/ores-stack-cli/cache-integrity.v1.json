@@ -1,0 +1,29 @@
+{
+  "schema": "ores.stack.cache-integrity/v1",
+  "status": "required",
+  "requiredKeyDimensions": [
+    "schema",
+    "transport",
+    "abi_identity_sha256",
+    "toolchain_identity",
+    "target_identity",
+    "profile",
+    "inputs.path",
+    "inputs.sha256"
+  ],
+  "cacheHitRequirements": [
+    "receipt_is_regular_non_symlink_file",
+    "receipt_schema_and_digest_shapes_are_valid",
+    "receipt_identity_exactly_matches_recomputed_plan",
+    "binary_is_regular_non_symlink_file",
+    "binary_sha256_matches_receipt"
+  ],
+  "poisonHandling": {
+    "identity_mismatch": "miss",
+    "binary_digest_mismatch": "miss",
+    "malformed_receipt": "reject",
+    "receipt_symlink": "reject",
+    "binary_symlink": "reject",
+    "missing_dependency_input": "rebuild"
+  }
+}
