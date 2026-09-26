@@ -751,6 +751,106 @@
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-4/sdk-typescript",
       "commit": "e89c6eaad985d7612782f11a12108c1204b05b66"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/.github",
+      "commit": "462779b29dda59ed8b1bcfe42c9422fd42796c37"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/app",
+      "commit": "9429fe1e078115b5a2c498e337fff473f981afd8"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/contract-tests",
+      "commit": "2498afc201963ab3df68613a0a260be20e106542"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/sdk-typescript",
+      "commit": "ad447a78edb3ded14347fdffeae9d4d9655a8f2e"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/.github",
+      "commit": "38a52c02e8a5746357f246a1354dc6d6dd8e3fee"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/app",
+      "commit": "129149301e0580ab5ef1e8a3b683c2888aa9dc9f"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/contract-tests",
+      "commit": "9f59c9afc0d406e4983596fd0738df9a8abf2449"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/sdk-typescript",
+      "commit": "8b6480406d3436d9d69b51320a58acf0e484f26f"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/forms-chat-workflow/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-5/.github",
+      "commit": "18654d998e237875af151c62827c21cd620bf55e"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/forms-chat-workflow/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-5/app",
+      "commit": "508d0fb38506c9b440d8f638d81f30a20bdf559c"
     }
   ]
 }
