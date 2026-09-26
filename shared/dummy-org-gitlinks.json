@@ -640,7 +640,7 @@
       "path": "stacks/beamscale/projects/cached-rpc/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-4/.github",
-      "commit": "7aff115d22323aa4b57424a10a6ed82e96d82967"
+      "commit": "c49d0d6c56b1563222954fd8d6341e7a49ac2604"
     },
     {
       "org": "ores-dummy-org-4",
@@ -680,7 +680,7 @@
       "path": "stacks/ores-stack/projects/cached-rpc/repos/.github",
       "branch": "stack/ores-stack",
       "repository": "ores-dummy-org-4/.github",
-      "commit": "a4585398101b7715d34b35b79cd74548bad46199"
+      "commit": "82f06b51effa374ace54f28e8be4b0ad90c2dd74"
     },
     {
       "org": "ores-dummy-org-4",
@@ -720,7 +720,7 @@
       "path": "stacks/scintilla-run/projects/cached-rpc/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-4/.github",
-      "commit": "989bf95074e7717b3507af6ae298c745bdc61cca"
+      "commit": "91701fb9f4975e3bac4c4536d349fbd8a5f7fa78"
     },
     {
       "org": "ores-dummy-org-4",
@@ -880,7 +880,7 @@
       "path": "stacks/beamscale/projects/http-observability/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-6/.github",
-      "commit": "f6a281a94520869fd9b98476f8788b4c7d358eee"
+      "commit": "659882683c80421e73b3fbc3acd1fb5578fe40fa"
     },
     {
       "org": "ores-dummy-org-6",
@@ -920,7 +920,7 @@
       "path": "stacks/ores-stack/projects/http-observability/repos/.github",
       "branch": "stack/ores-stack",
       "repository": "ores-dummy-org-6/.github",
-      "commit": "9b40300e345a22b55b0d141b5aec056440ac55fc"
+      "commit": "c5fae0009b40b52bcab32af5b2170b5bd7a3f644"
     },
     {
       "org": "ores-dummy-org-6",
@@ -960,7 +960,7 @@
       "path": "stacks/scintilla-run/projects/http-observability/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-6/.github",
-      "commit": "b4489d10552049ae0ad1ad20a970ebc72c4c0f7e"
+      "commit": "ed9a5ee4badb9acf2e8734adf7d76df63c3664be"
     },
     {
       "org": "ores-dummy-org-6",
