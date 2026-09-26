@@ -1,0 +1,156 @@
+{
+  "schema": "ores.comparisons.dummy-org-gitlinks/v1",
+  "source_commit": "705325b1664e5412e7c7b3a8836ce04a01bd0f7c",
+  "entries": [
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/.github",
+      "commit": "a80e183f27b47888df990a5bafe417a31dbc6abb"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/app",
+      "commit": "8e792c7502fd62eed3f2c79bb71befc9d5b793ba"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/contract-tests",
+      "commit": "c2ce89f55938090397fb0e1dc5a4d8fccf021279"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "message-worker",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/message-worker",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/message-worker",
+      "commit": "97a0e186983604356115ec07e657d3aac5325b57"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "presence-service",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/presence-service",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/presence-service",
+      "commit": "ca86c00b557177366c02960c90050193dfbd0d03"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/sdk-typescript",
+      "commit": "9caa3bf8ba906a4606c7985557389c73b931e70a"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "workspace-web",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/workspace-web",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/workspace-web",
+      "commit": "0ad625063cb7893fa77cd7cc9b9b79512c94c035"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/.github",
+      "commit": "cd54869bccc4cebe26e2f534098ce3bf877142ff"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/app",
+      "commit": "09ec581cdd95df06456b7f1d7a50a5b25373df80"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/contract-tests",
+      "commit": "436cf8b300cf9eec8082723210237ea66b8b176d"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "message-worker",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/message-worker",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/message-worker",
+      "commit": "3770a121637a64c86388974c99cff16e7a5ad1c2"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "presence-service",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/presence-service",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/presence-service",
+      "commit": "fb5c77102a0130d7ad46cd4d1839b63c07fc8db0"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/sdk-typescript",
+      "commit": "3679222d19ccdb78c8329c4a98b00a983e606ae8"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "workspace-web",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/workspace-web",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/workspace-web",
+      "commit": "a2a6e1818b5c6b0d12c19d20361b54d40e542463"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/.github",
+      "commit": "23fcc0adad946e2d7505ea6806d2b1630942016b"
+    }
+  ]
+}
