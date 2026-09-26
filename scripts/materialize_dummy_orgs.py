@@ -15,8 +15,27 @@ MAP_PATH = ROOT / "shared/dummy-org-map.json"
 GITLINK_LEDGER_PATH = ROOT / "shared/dummy-org-gitlinks.json"
 
 
-def cutover_complete() -> bool:
+def cutover_markers_present() -> bool:
     return (ROOT / ".gitmodules").is_file() and GITLINK_LEDGER_PATH.is_file()
+
+
+def verify_post_cutover_state() -> None:
+    """Fail closed unless the committed dummy-org cutover is internally exact."""
+    for verifier in (
+        "scripts/verify_dummy_org_map.py",
+        "scripts/verify_dummy_org_gitlinks.py",
+        "scripts/verify_project_repo_layout.py",
+    ):
+        result = run(
+            ["python3", verifier],
+            check=False,
+            capture=True,
+        )
+        if result.returncode != 0:
+            detail = (result.stdout + result.stderr).strip()
+            raise SystemExit(
+                f"post-cutover audit failed in {verifier}:\n{detail}"
+            )
 
 
 def run(
@@ -256,11 +275,13 @@ def main() -> int:
     if args.rewrite_submodules and not args.apply:
         parser.error("--rewrite-submodules requires --apply")
 
-    if cutover_complete():
+    if cutover_markers_present():
+        verify_post_cutover_state()
         message = (
-            "dummy-org cutover is already complete: component sources are governed "
-            "gitlinks, not embedded directories. Use `zed install --git-submodules` "
-            "to materialize the committed revisions. Do not re-run the one-time copier."
+            "dummy-org cutover is verified complete: component sources are governed "
+            "by the exact ledger-backed gitlinks recorded in the superproject. "
+            "Use `zed install --git-submodules` to materialize those committed "
+            "revisions. Do not re-run the one-time copier."
         )
         if args.apply or args.rewrite_submodules:
             raise SystemExit(message)
