@@ -1,0 +1,161 @@
+name: runtime-project
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: Comparison stack identifier
+        required: true
+        type: string
+      scenario:
+        description: Comparison scenario identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      STACK: ${{ inputs.stack }}
+      SCENARIO: ${{ inputs.scenario }}
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: "1.88.0"
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: "29.1.1"
+          gleam-version: "1.18.1"
+          version-type: strict
+
+      - name: Install PostgreSQL 16 runtime tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-16 postgresql-client-16 rebar3
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+
+      - name: Validate requested matrix member
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$STACK" in
+            beamscale|scintilla-run|ores-stack) ;;
+            *) echo "unsupported stack: $STACK" >&2; exit 2 ;;
+          esac
+          case "$SCENARIO" in
+            cached-rpc|http-observability|forms-chat-workflow|big-org-example-commerce|big-org-example-collaboration|big-org-example-operations) ;;
+            *) echo "unsupported scenario: $SCENARIO" >&2; exit 2 ;;
+          esac
+          project="stacks/$STACK/projects/$SCENARIO"
+          test -d "$project"
+          echo "PROJECT=$project" >> "$GITHUB_ENV"
+
+      - name: Bootstrap exact private toolchain and submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "COMPARISON_REPO_READ_TOKEN is required for executable runtime certification" >&2
+            exit 3
+          fi
+
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          export GIT_CONFIG_VALUE_0="https://github.com/"
+          export CARGO_NET_GIT_FETCH_WITH_CLI=true
+
+          bash scripts/bootstrap_pinned_tools.sh
+          export PATH="$PWD/.local/bin:$PATH"
+          zed install --git-submodules
+          python3 scripts/verify_dummy_org_gitlinks.py
+
+      - name: Check and plan exact compose graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/.local/bin:$PATH"
+          config="$PROJECT/repos/.github/.ores-compose.yaml"
+          test -f "$config"
+          ores-compose check "$config"
+          ores-compose plan "$config"
+
+      - name: Start infra and application and prove readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/.local/bin:/usr/lib/postgresql/16/bin:$PATH"
+          config="$PROJECT/repos/.github/.ores-compose.yaml"
+          log="$RUNNER_TEMP/runtime-${STACK}-${SCENARIO}.log"
+
+          ores-compose up "$config" >"$log" 2>&1 &
+          compose_pid=$!
+          ready=0
+
+          cleanup() {
+            if kill -0 "$compose_pid" >/dev/null 2>&1; then
+              kill -TERM "$compose_pid" >/dev/null 2>&1 || true
+              wait "$compose_pid" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 180); do
+            if grep -Fq '"event":"compose_ready"' "$log"; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$compose_pid" >/dev/null 2>&1; then
+              set +e
+              wait "$compose_pid"
+              status=$?
+              set -e
+              cat "$log"
+              echo "ores-compose exited before compose_ready with status $status" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [[ "$ready" -ne 1 ]]; then
+            cat "$log"
+            echo "runtime did not reach compose_ready within 180 seconds" >&2
+            exit 1
+          fi
+
+          echo "runtime reached compose_ready for $STACK / $SCENARIO"
+          kill -INT "$compose_pid"
+          set +e
+          wait "$compose_pid"
+          status=$?
+          set -e
+          trap - EXIT
+          cat "$log"
+
+          if [[ "$status" -ne 0 ]]; then
+            echo "ores-compose did not shut down cleanly after readiness; status=$status" >&2
+            exit "$status"
+          fi
+
+          grep -F '"event":"compose_ready"' "$log"
+          echo "runtime certification passed for $STACK / $SCENARIO"
