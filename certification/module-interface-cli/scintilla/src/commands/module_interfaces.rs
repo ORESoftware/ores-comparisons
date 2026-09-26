@@ -86,7 +86,7 @@ fn ensure_real_dir(path: &Path, label: &str) -> Result<(), CliError> {
                 path.display()
             )));
         }
-        Ok(())
+        return Ok(());
     }
 
     fs::create_dir(path).map_err(|error| {

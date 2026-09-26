@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git hash-object certification/module-interface-cli/scintilla/src/commands/module_interfaces.rs)" = "630147d1dfe2ec2552b3dca91e12ce1066a51bdf"
+          test "$(git hash-object certification/module-interface-cli/scintilla/src/commands/module_interfaces.rs)" = "a65928d857b819f021c35635941cd26009dc0896"
           test "$(git hash-object certification/module-interface-cli/scintilla/source/.cli-flags.toml)" = "8c84cb1f1ccfa209705ff4b04d1e14b1bdc31d3f"
           test "$(git hash-object certification/module-interface-cli/scintilla/source/src/commands/mod.rs)" = "40533073758c140fd0325549f6d8b8029fb1328b"
 
