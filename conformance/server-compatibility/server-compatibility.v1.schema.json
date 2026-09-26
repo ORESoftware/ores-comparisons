@@ -14,7 +14,9 @@
     "capabilities",
     "handlerAdmission",
     "runtimeSafety",
-    "edgeSafety"
+    "edgeSafety",
+    "storage",
+    "contractAdmission"
   ],
   "properties": {
     "schema": {
@@ -582,6 +584,77 @@
               "minLength": 1
             }
           }
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "durableStateUsesInstanceFilesystem",
+        "instanceFilesystemPurpose",
+        "proofCommand"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "ephemeral-only",
+            "durable-external"
+          ]
+        },
+        "durableStateUsesInstanceFilesystem": {
+          "const": false
+        },
+        "instanceFilesystemPurpose": {
+          "enum": [
+            "none",
+            "cache",
+            "scratch",
+            "temporary-upload"
+          ]
+        },
+        "proofCommand": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "contractAdmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedContractDigest",
+        "handlerContractDigest",
+        "generatedClientContractDigest",
+        "servedDocumentContractDigest",
+        "readinessBlockedOnMismatch",
+        "proofCommand"
+      ],
+      "properties": {
+        "expectedContractDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "handlerContractDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatedClientContractDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "servedDocumentContractDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "readinessBlockedOnMismatch": {
+          "const": true
+        },
+        "proofCommand": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }
