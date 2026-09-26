@@ -1,0 +1,122 @@
+{
+  "schema": "ores.stack.server-compatibility/v1",
+  "repositoryRole": "web-read",
+  "entrypoints": {
+    "standaloneBinary": "msgint-web-server",
+    "libraryRouter": "msgint_web_server::router",
+    "functionReusable": true
+  },
+  "configuration": {
+    "portEnvironment": "MSGINT_WEB_PORT",
+    "forbiddenAuthoritativeCredentials": [
+      "DATABASE_URL",
+      "DATABASE_WRITE_URL",
+      "DATABASE_ADMIN_URL",
+      "MIGRATION_DATABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ]
+  },
+  "lifecycle": {
+    "startup": "validate-read-boundary-before-bind",
+    "shutdown": "ctrl-c-graceful",
+    "detachedBackgroundWork": false
+  },
+  "health": {
+    "livenessPath": "/healthz",
+    "readinessPath": "/readyz",
+    "livenessRequiresDependencies": false,
+    "readinessMeaning": "process admitted and able to serve the read-tier router"
+  },
+  "capabilities": {
+    "http": true,
+    "websocket": false,
+    "directDatabase": false,
+    "authoritativeMutation": false,
+    "functionReusableRouter": true
+  },
+  "handlerAdmission": {
+    "module": "msgint_web_server::handler_admission",
+    "request": "DeserializeOwned + Send + 'static",
+    "response": "Serialize + Send + 'static",
+    "context": "Clone + Send + Sync + 'static",
+    "failure": "Serialize + Send + Sync + 'static",
+    "proofCommand": "cargo test --doc",
+    "compileFailDimensions": [
+      "request",
+      "response",
+      "context",
+      "failure"
+    ]
+  },
+  "readBoundary": {
+    "databaseCredentialScope": "none",
+    "credentialDenialProof": "startup rejects authoritative database and service-role environment variables",
+    "mutationDenialProof": "POST to a read-tier contact route returns 405"
+  },
+  "runtimeSafety": {
+    "availability": {
+      "dependencyOutageRemovesReadiness": true,
+      "dependencyOutageAffectsLiveness": false,
+      "dependencyOutageTriggersRestart": false,
+      "proofCommand": "cargo test dependency_readiness"
+    },
+    "draining": {
+      "stopAdmittingBeforeDrain": true,
+      "shutdownDeadlineMs": 30000,
+      "inFlightPolicy": "cancel-at-deadline",
+      "proofCommand": "cargo test graceful_drain"
+    },
+    "deadlines": {
+      "maxRequestDeadlineMs": 30000,
+      "handlerPropagates": true,
+      "databasePropagates": true,
+      "downstreamRpcPropagates": true,
+      "spawnedChildPropagates": true,
+      "cancellationPropagates": true,
+      "proofCommand": "cargo test request_deadlines"
+    },
+    "bufferLimits": {
+      "bodyBytes": 1048576,
+      "headerBytes": 65536,
+      "uploadBytes": 10485760,
+      "decompressedBytes": 8388608,
+      "enforceBeforeExpensiveAllocation": true,
+      "proofCommand": "cargo test request_limits"
+    }
+  },
+  "edgeSafety": {
+    "publicErrors": {
+      "standaloneFunctionEquivalent": true,
+      "internalDiagnosticsExposed": false,
+      "proofCommand": "cargo test public_error_parity"
+    },
+    "proxyTrust": {
+      "configuredIngresses": [
+        "local-test-ingress"
+      ],
+      "trustedForwardedFields": [
+        "host",
+        "scheme",
+        "client-address"
+      ],
+      "untrustedForwardedHeadersIgnored": true,
+      "proofCommand": "cargo test trusted_proxy"
+    },
+    "browserSecurity": {
+      "corsPolicy": "explicit-origin-allowlist",
+      "csrfPolicy": "same-site-token-or-non-browser-deny",
+      "secureCookies": true,
+      "originValidation": false,
+      "proofCommand": "cargo test browser_security"
+    },
+    "connectionBudgets": {
+      "replicas": 3,
+      "providerConcurrency": 100,
+      "databasePoolPerReplica": 10,
+      "databaseTotalBudget": 30,
+      "outboundHttpPoolPerReplica": 25,
+      "outboundHttpTotalBudget": 75,
+      "proofCommand": "cargo test connection_budgets"
+    }
+  }
+}
