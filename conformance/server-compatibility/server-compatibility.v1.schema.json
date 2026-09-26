@@ -13,7 +13,8 @@
     "health",
     "capabilities",
     "handlerAdmission",
-    "runtimeSafety"
+    "runtimeSafety",
+    "edgeSafety"
   ],
   "properties": {
     "schema": {
@@ -421,6 +422,160 @@
             },
             "enforceBeforeExpensiveAllocation": {
               "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "edgeSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publicErrors",
+        "proxyTrust",
+        "browserSecurity",
+        "connectionBudgets"
+      ],
+      "properties": {
+        "publicErrors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "standaloneFunctionEquivalent",
+            "internalDiagnosticsExposed",
+            "proofCommand"
+          ],
+          "properties": {
+            "standaloneFunctionEquivalent": {
+              "const": true
+            },
+            "internalDiagnosticsExposed": {
+              "const": false
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "proxyTrust": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "configuredIngresses",
+            "trustedForwardedFields",
+            "untrustedForwardedHeadersIgnored",
+            "proofCommand"
+          ],
+          "properties": {
+            "configuredIngresses": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "trustedForwardedFields": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "host",
+                  "scheme",
+                  "client-address"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "untrustedForwardedHeadersIgnored": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "browserSecurity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "corsPolicy",
+            "csrfPolicy",
+            "secureCookies",
+            "originValidation",
+            "proofCommand"
+          ],
+          "properties": {
+            "corsPolicy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "csrfPolicy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "secureCookies": {
+              "const": true
+            },
+            "originValidation": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "connectionBudgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "replicas",
+            "providerConcurrency",
+            "databasePoolPerReplica",
+            "databaseTotalBudget",
+            "outboundHttpPoolPerReplica",
+            "outboundHttpTotalBudget",
+            "proofCommand"
+          ],
+          "properties": {
+            "replicas": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "providerConcurrency": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "databasePoolPerReplica": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "databaseTotalBudget": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "outboundHttpPoolPerReplica": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "outboundHttpTotalBudget": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000000
             },
             "proofCommand": {
               "type": "string",
