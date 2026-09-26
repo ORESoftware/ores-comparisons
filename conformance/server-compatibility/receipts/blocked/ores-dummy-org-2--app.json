@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "ores.api-docs.server-compatibility.v1",
+  "server": {
+    "source": {
+      "repository": "ores-dummy-org-2/app",
+      "sha": "3de18bf54e06cb8417046008c92672d3fa9e3095"
+    },
+    "binary": "big-org-example-commerce-ores-stack",
+    "role": "api"
+  },
+  "infra": {
+    "source": {
+      "repository": "ores-dummy-org-2/.github",
+      "sha": "94779caa7493937f8211e3dc8b29e9bf9d95bab9"
+    },
+    "configSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "toolchain": {
+    "oresStack": {
+      "repository": "ores-stack/ores-stack-cli",
+      "sha": "5dc53c1e2e2f3f249e6da70c8931a7529d425fc4"
+    },
+    "oresCompose": {
+      "repository": "ORESoftware/ores-compose",
+      "sha": "149b14d07afdbf4611da77848d2a13d0525f8dd6"
+    }
+  },
+  "contractSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "target": {
+    "kind": "standalone",
+    "adapter": "native-http-v1",
+    "artifactSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "capabilities": [],
+  "evidenceState": "blocked",
+  "executedChecks": 1,
+  "checks": [
+    {
+      "id": "source-identity-bound",
+      "executed": true,
+      "outcome": "passed"
+    },
+    {
+      "id": "infra-config-digest",
+      "executed": false,
+      "outcome": "blocked"
+    },
+    {
+      "id": "contract-digest-admission",
+      "executed": false,
+      "outcome": "blocked"
+    },
+    {
+      "id": "adapter-artifact-certification",
+      "executed": false,
+      "outcome": "blocked"
+    }
+  ]
+}
