@@ -79,5 +79,53 @@ class ServerCompatibilityTest(unittest.TestCase):
             validate(broken),
         )
 
+
+    def test_public_errors_are_equivalent_and_do_not_leak_internals(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["publicErrors"]["standaloneFunctionEquivalent"] = False
+        self.assertIn(
+            "standalone and function public errors must be equivalent",
+            validate(broken),
+        )
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["publicErrors"]["internalDiagnosticsExposed"] = True
+        self.assertIn(
+            "public errors must not expose internal diagnostics",
+            validate(broken),
+        )
+
+    def test_forwarded_headers_are_trusted_only_at_configured_ingress(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["proxyTrust"]["configuredIngresses"] = []
+        self.assertIn(
+            "proxyTrust.configuredIngresses must be a non-empty string array",
+            validate(broken),
+        )
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["proxyTrust"]["untrustedForwardedHeadersIgnored"] = False
+        self.assertIn("untrusted forwarded headers must be ignored", validate(broken))
+
+    def test_browser_security_requires_secure_cookies_and_origin_validation(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["browserSecurity"]["secureCookies"] = False
+        self.assertIn("browser security requires secure cookies", validate(broken))
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["browserSecurity"]["originValidation"] = False
+        self.assertIn("browser security requires origin validation", validate(broken))
+
+    def test_connection_budgets_are_derived_from_replica_count(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["connectionBudgets"]["databaseTotalBudget"] += 1
+        self.assertIn(
+            "database total budget must equal replicas * pool per replica",
+            validate(broken),
+        )
+        broken = copy.deepcopy(self.valid)
+        broken["edgeSafety"]["connectionBudgets"]["outboundHttpPoolPerReplica"] = 101
+        self.assertIn(
+            "outbound HTTP pool per replica exceeds provider concurrency",
+            validate(broken),
+        )
+
 if __name__ == "__main__":
     unittest.main()
