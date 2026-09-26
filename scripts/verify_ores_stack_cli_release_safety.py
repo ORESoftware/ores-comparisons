@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -209,8 +210,24 @@ def exercise(repo: str, previous: str, candidate: str, receipt_path: Path) -> in
         fixture = source / "fixtures" / "axum-web-server"
         if not fixture.is_dir():
             raise RuntimeError("representative axum fixture missing")
-        require_ok(run([str(candidate_bin), "check"], env=env, cwd=fixture), "representative ores-stack check")
-        require_ok(run([str(candidate_bin), "build"], env=env, cwd=fixture), "representative ores-stack build")
+        clean_harness = ROOT / "scripts" / "verify_ores_stack_clean_machine.py"
+        declared_tools = ("cargo", "rustc", "git", "cc")
+        def clean_cli(command: str) -> None:
+            argv = [
+                sys.executable,
+                str(clean_harness),
+                "--cli",
+                str(candidate_bin),
+                "--project",
+                str(fixture),
+            ]
+            for tool in declared_tools:
+                argv.extend(["--allow-tool", tool])
+            argv.extend(["--", command])
+            require_ok(run(argv, env=env), f"clean-machine ores-stack {command}")
+
+        clean_cli("check")
+        clean_cli("build")
 
         active = temp / "ores-stack-current"
         atomic_activate(active, previous_bin)
@@ -242,13 +259,13 @@ def exercise(repo: str, previous: str, candidate: str, receipt_path: Path) -> in
             "cleanEnvironment": {
                 "home": "temporary-empty",
                 "cargoHome": "temporary-empty",
-                "declaredTools": ["cargo", "rustc", "git"],
+                "declaredTools": ["cargo", "rustc", "git", "cc"],
             },
             "checks": {
                 "previousInstall": "passed",
                 "candidateInstall": "passed",
-                "representativeCheck": "passed",
-                "representativeBuild": "passed",
+                "representativeCheck": "passed-clean-machine",
+                "representativeBuild": "passed-clean-machine",
                 "postSwitchFailureInjected": True,
                 "rollback": "passed",
                 "restoredCliExecutes": "passed",
