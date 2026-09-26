@@ -132,3 +132,20 @@ modify global Git configuration on the runner.
 ## Fresh-clone recovery proof
 
 The authorized CI lane runs `scripts/verify_fresh_clone_submodules.sh`. It clones the exact superproject commit into a temporary directory, materializes all 99 private gitlinks through the pinned Zed CLI, verifies every checkout against `shared/dummy-org-gitlinks.json`, deliberately deinitializes one `app` submodule, and proves a second `zed install --git-submodules` restores the exact committed revision. The proof uses the same invocation-local Git credential rewrite as the private CI lane and never changes global Git configuration.
+
+
+## Post-cutover materializer behavior
+
+The materializer is a one-time migration tool. Once the submodule metadata and
+immutable gitlink ledger exist, the script no longer treats their presence as
+proof of a healthy cutover.
+
+Before reporting success it runs the dummy-org map verifier, the exact gitlink
+ledger verifier, and the project repository-layout verifier. Together those
+checks prove that all 99 governed repository paths are direct gitlinks, the
+superproject index SHA matches the ledger SHA, submodule URL and stack branch
+metadata match the governed map, and each organization envelope README remains
+owned by the superproject.
+
+After cutover the script remains read-only. Component revision changes belong to
+the normal Zed/submodule synchronization flow rather than the one-time copier.

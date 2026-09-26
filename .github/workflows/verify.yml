@@ -23,6 +23,7 @@ jobs:
       - if: ${{ hashFiles('.gitmodules') == '' }}
         run: python3 scripts/verify_examples.py
       - run: python3 scripts/verify_project_repo_layout.py
+      - run: python3 scripts/materialize_dummy_orgs.py
       - if: ${{ hashFiles('.gitmodules') == '' }}
         run: python3 scripts/verify_org_manifests.py
       - if: ${{ hashFiles('.gitmodules') == '' }}
