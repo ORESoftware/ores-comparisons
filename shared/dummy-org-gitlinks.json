@@ -1,0 +1,996 @@
+{
+  "schema": "ores.comparisons.dummy-org-gitlinks/v1",
+  "source_commit": "705325b1664e5412e7c7b3a8836ce04a01bd0f7c",
+  "entries": [
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/.github",
+      "commit": "a80e183f27b47888df990a5bafe417a31dbc6abb"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/app",
+      "commit": "8e792c7502fd62eed3f2c79bb71befc9d5b793ba"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/contract-tests",
+      "commit": "c2ce89f55938090397fb0e1dc5a4d8fccf021279"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "message-worker",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/message-worker",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/message-worker",
+      "commit": "97a0e186983604356115ec07e657d3aac5325b57"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "presence-service",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/presence-service",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/presence-service",
+      "commit": "ca86c00b557177366c02960c90050193dfbd0d03"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/sdk-typescript",
+      "commit": "9caa3bf8ba906a4606c7985557389c73b931e70a"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "workspace-web",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/workspace-web",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-1/workspace-web",
+      "commit": "0ad625063cb7893fa77cd7cc9b9b79512c94c035"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/.github",
+      "commit": "cd54869bccc4cebe26e2f534098ce3bf877142ff"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/app",
+      "commit": "09ec581cdd95df06456b7f1d7a50a5b25373df80"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/contract-tests",
+      "commit": "436cf8b300cf9eec8082723210237ea66b8b176d"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "message-worker",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/message-worker",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/message-worker",
+      "commit": "3770a121637a64c86388974c99cff16e7a5ad1c2"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "presence-service",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/presence-service",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/presence-service",
+      "commit": "fb5c77102a0130d7ad46cd4d1839b63c07fc8db0"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/sdk-typescript",
+      "commit": "3679222d19ccdb78c8329c4a98b00a983e606ae8"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "workspace-web",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-collaboration/repos/workspace-web",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-1/workspace-web",
+      "commit": "a2a6e1818b5c6b0d12c19d20361b54d40e542463"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/.github",
+      "commit": "23fcc0adad946e2d7505ea6806d2b1630942016b"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/app",
+      "commit": "a6ae0866ad1b25f3fd09367628c38dc9d531e484"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/contract-tests",
+      "commit": "d44de160422069cfbba1416374aacd6283c2c50d"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "message-worker",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/message-worker",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/message-worker",
+      "commit": "cae006b91247d023064926d189795c3ea3676418"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "presence-service",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/presence-service",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/presence-service",
+      "commit": "cc2993cc354360ddd5628c819611cb3cb9b17550"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/sdk-typescript",
+      "commit": "7193eb021864129aaf0042809b0b2c841d16c815"
+    },
+    {
+      "org": "ores-dummy-org-1",
+      "scenario": "big-org-example-collaboration",
+      "repo": "workspace-web",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/workspace-web",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-1/workspace-web",
+      "commit": "34b42bbf6e4a033ad1666e70f493e42dfefb370d"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/.github",
+      "commit": "e300afa842b10f32b4a1cf016e66fa752f80c72d"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/app",
+      "commit": "373484b84fe6cf5c08db12ba9140ce8f62ae9a47"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "catalog-service",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/catalog-service",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/catalog-service",
+      "commit": "edbd3ef8623b4a8da68261bf4ecf736c7438a468"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/contract-tests",
+      "commit": "80ce65745ca7337d0d7bfb83b6274e5b316ce5a5"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "orders-worker",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/orders-worker",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/orders-worker",
+      "commit": "b973737524b89f309a7396c743e85958b1bb0ded"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/sdk-typescript",
+      "commit": "e2d12b7f292e15cfb45a191068e77710631598a0"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "storefront-web",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/storefront-web",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/storefront-web",
+      "commit": "5d0d1cb1171a575161722deaab2143a240756688"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/.github",
+      "commit": "94779caa7493937f8211e3dc8b29e9bf9d95bab9"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/app",
+      "commit": "3de18bf54e06cb8417046008c92672d3fa9e3095"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "catalog-service",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/catalog-service",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/catalog-service",
+      "commit": "fddaea5b2a10ebd84a553051980339c853fc0a2a"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/contract-tests",
+      "commit": "dac0a0af1fbddcea05e9e50abd77d59b11be9397"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "orders-worker",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/orders-worker",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/orders-worker",
+      "commit": "8c9f8ad01c42f78fba21b7eeab3a813e876d1c78"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/sdk-typescript",
+      "commit": "b1107c33778389c301c2d0f4f744014f18227dad"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "storefront-web",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/storefront-web",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/storefront-web",
+      "commit": "c7492fbd898292efab2b6fb58df797a7c3b9c391"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/.github",
+      "commit": "b8826684008de002ff82fdd130260b4d9ed99c69"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/app",
+      "commit": "354902412f28bb20480698583ba5f4b3e94eba2c"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "catalog-service",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/catalog-service",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/catalog-service",
+      "commit": "6fde25afa781b9ddc2e96d8794c4c805b77da18c"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/contract-tests",
+      "commit": "f33cf15c25c4ee1ff147372426319ea76f3198bf"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "orders-worker",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/orders-worker",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/orders-worker",
+      "commit": "a282cf8655e2f55b4db5a685ebf373cd9b3c3bf1"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/sdk-typescript",
+      "commit": "7d0cad77e0d9dff2afaa39633fbef37fb15f7e1f"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "storefront-web",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/storefront-web",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/storefront-web",
+      "commit": "01cdd6ad765bc0c94dbdbf8430c67d37cfa7e59d"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/.github",
+      "commit": "929e8462713a650c07a68b4aa214b8ec04f745cd"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/app",
+      "commit": "8554ef6519e992c403f52a2b3d079125b4c5b4c7"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "automation-worker",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/automation-worker",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/automation-worker",
+      "commit": "48ee9cfb1ea8db5a88c9002aba6871a4eec2795c"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/contract-tests",
+      "commit": "d727514b60adec348a78412a100ba216118c569f"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ingest-service",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/ingest-service",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/ingest-service",
+      "commit": "7b764bfe5e0a29b5f709526c149207bdf3264724"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ops-console",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/ops-console",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/ops-console",
+      "commit": "4a2e12766d4bc9f515338e6951aff96bc2287374"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/sdk-typescript",
+      "commit": "0ab1402c2c5cacb6bc80e39ee1ce1ec4848e33c8"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/.github",
+      "commit": "a0bf9189ec4093fec4c7a8a7c65ee5f16c56f6cc"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/app",
+      "commit": "e47371c8486c0300921588f8652e59a2850aefa6"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "automation-worker",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/automation-worker",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/automation-worker",
+      "commit": "b800315a0ee97f2797b5a844cdc17f5ead74f509"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/contract-tests",
+      "commit": "f77521e18e8b492c305f3d560b68dbb1238c69cd"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ingest-service",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/ingest-service",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/ingest-service",
+      "commit": "c4d4535ac5780be2c9b03b7f674dac99cb19dd39"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ops-console",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/ops-console",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/ops-console",
+      "commit": "556c1076f1f6d19d890ecf4c3563107542baaea5"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/sdk-typescript",
+      "commit": "90a861c698a245554a4ed86e842afa2b74c4694e"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/.github",
+      "commit": "bd3f7f71d1b8ad7bca5a4d77853488d056fca9ba"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/app",
+      "commit": "b1533f9b26da37e02ebb9b39cd4929108ad00ff6"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "automation-worker",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/automation-worker",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/automation-worker",
+      "commit": "a21e87343002f8505e5a9756df95e399d47dd357"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/contract-tests",
+      "commit": "54214eb22899564d08d7df3fa23a611997d96ae3"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ingest-service",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/ingest-service",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/ingest-service",
+      "commit": "d5d01fbc2a748ee2ddf918dfdfcd5631e63f59eb"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ops-console",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/ops-console",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/ops-console",
+      "commit": "aa5700c919d135d0dfab113dd6d13df0f16df5d7"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/sdk-typescript",
+      "commit": "5851e30f6b3117c9d463eeffd98e664647d51489"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/.github",
+      "commit": "7aff115d22323aa4b57424a10a6ed82e96d82967"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/app",
+      "commit": "4d05bf2f5e53462bc55e19e852aa4f9f953a0313"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/contract-tests",
+      "commit": "32324943e6766b41537a167f1fbb16522c833697"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/sdk-typescript",
+      "commit": "36ecd6f39bb2e2bcb3a5cf50e4d439bca9f7c733"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/.github",
+      "commit": "a4585398101b7715d34b35b79cd74548bad46199"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/app",
+      "commit": "5852b56ccd4694cfab94a28ba944627ead838cd9"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/contract-tests",
+      "commit": "5f474afe8225cb70d89db09e0e7b5f860c808e56"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/sdk-typescript",
+      "commit": "09c226d6d56fd838a6c5d9dcf68a90219fff64e4"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/.github",
+      "commit": "989bf95074e7717b3507af6ae298c745bdc61cca"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/app",
+      "commit": "65158e36e850a63fbf3195ba6c702270b7cbd40b"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/contract-tests",
+      "commit": "b81d20d0b046a2f5bbc4ef0e5c1ad944ec14d875"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/sdk-typescript",
+      "commit": "e89c6eaad985d7612782f11a12108c1204b05b66"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/.github",
+      "commit": "462779b29dda59ed8b1bcfe42c9422fd42796c37"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/app",
+      "commit": "9429fe1e078115b5a2c498e337fff473f981afd8"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/contract-tests",
+      "commit": "2498afc201963ab3df68613a0a260be20e106542"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/forms-chat-workflow/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-5/sdk-typescript",
+      "commit": "ad447a78edb3ded14347fdffeae9d4d9655a8f2e"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/.github",
+      "commit": "38a52c02e8a5746357f246a1354dc6d6dd8e3fee"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/app",
+      "commit": "129149301e0580ab5ef1e8a3b683c2888aa9dc9f"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/contract-tests",
+      "commit": "9f59c9afc0d406e4983596fd0738df9a8abf2449"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/forms-chat-workflow/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-5/sdk-typescript",
+      "commit": "8b6480406d3436d9d69b51320a58acf0e484f26f"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/forms-chat-workflow/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-5/.github",
+      "commit": "18654d998e237875af151c62827c21cd620bf55e"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/forms-chat-workflow/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-5/app",
+      "commit": "508d0fb38506c9b440d8f638d81f30a20bdf559c"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/forms-chat-workflow/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-5/contract-tests",
+      "commit": "dfc92ac8e0d4a8484f1d505b577c60ac0679f779"
+    },
+    {
+      "org": "ores-dummy-org-5",
+      "scenario": "forms-chat-workflow",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/forms-chat-workflow/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-5/sdk-typescript",
+      "commit": "48ce05f3139a4aa3ec21986218895664a01f7924"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/http-observability/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-6/.github",
+      "commit": "f6a281a94520869fd9b98476f8788b4c7d358eee"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/http-observability/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-6/app",
+      "commit": "bcd465f4cd24ed1063a480784d5adddc099d61df"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/http-observability/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-6/contract-tests",
+      "commit": "4db817fbcc893e7817175923eb7d186c6aa8c419"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/http-observability/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-6/sdk-typescript",
+      "commit": "de6e0429780d92c313f9f07ce53b4d370a40892a"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/http-observability/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-6/.github",
+      "commit": "9b40300e345a22b55b0d141b5aec056440ac55fc"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/http-observability/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-6/app",
+      "commit": "5b8b13cf573f390966f607c4b9e570e5e5a23271"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/http-observability/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-6/contract-tests",
+      "commit": "0aaa3843e3c88e995771f92a2def08244ceb15ca"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/http-observability/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-6/sdk-typescript",
+      "commit": "7423614de5fc8cecc099f7205080d821b7860fb3"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/.github",
+      "commit": "b4489d10552049ae0ad1ad20a970ebc72c4c0f7e"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/app",
+      "commit": "27af0fa3402583c20cfdf841bc70528aa2857531"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/contract-tests",
+      "commit": "aabfc16613e425561b704d85cae24ec60b7b5f44"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/sdk-typescript",
+      "commit": "c226a86a22a9ae99ed4c7fb6ae90f7a51ddfea84"
+    }
+  ]
+}

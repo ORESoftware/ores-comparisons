@@ -1,0 +1,396 @@
+[submodule "beamscale--big-org-example-collaboration--_github"]
+	path = stacks/beamscale/projects/big-org-example-collaboration/repos/.github
+	url = https://github.com/ores-dummy-org-1/.github.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-collaboration--app"]
+	path = stacks/beamscale/projects/big-org-example-collaboration/repos/app
+	url = https://github.com/ores-dummy-org-1/app.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-collaboration--contract-tests"]
+	path = stacks/beamscale/projects/big-org-example-collaboration/repos/contract-tests
+	url = https://github.com/ores-dummy-org-1/contract-tests.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-collaboration--message-worker"]
+	path = stacks/beamscale/projects/big-org-example-collaboration/repos/message-worker
+	url = https://github.com/ores-dummy-org-1/message-worker.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-collaboration--presence-service"]
+	path = stacks/beamscale/projects/big-org-example-collaboration/repos/presence-service
+	url = https://github.com/ores-dummy-org-1/presence-service.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-collaboration--sdk-typescript"]
+	path = stacks/beamscale/projects/big-org-example-collaboration/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-1/sdk-typescript.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-collaboration--workspace-web"]
+	path = stacks/beamscale/projects/big-org-example-collaboration/repos/workspace-web
+	url = https://github.com/ores-dummy-org-1/workspace-web.git
+	branch = stack/beamscale
+[submodule "ores-stack--big-org-example-collaboration--_github"]
+	path = stacks/ores-stack/projects/big-org-example-collaboration/repos/.github
+	url = https://github.com/ores-dummy-org-1/.github.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-collaboration--app"]
+	path = stacks/ores-stack/projects/big-org-example-collaboration/repos/app
+	url = https://github.com/ores-dummy-org-1/app.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-collaboration--contract-tests"]
+	path = stacks/ores-stack/projects/big-org-example-collaboration/repos/contract-tests
+	url = https://github.com/ores-dummy-org-1/contract-tests.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-collaboration--message-worker"]
+	path = stacks/ores-stack/projects/big-org-example-collaboration/repos/message-worker
+	url = https://github.com/ores-dummy-org-1/message-worker.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-collaboration--presence-service"]
+	path = stacks/ores-stack/projects/big-org-example-collaboration/repos/presence-service
+	url = https://github.com/ores-dummy-org-1/presence-service.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-collaboration--sdk-typescript"]
+	path = stacks/ores-stack/projects/big-org-example-collaboration/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-1/sdk-typescript.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-collaboration--workspace-web"]
+	path = stacks/ores-stack/projects/big-org-example-collaboration/repos/workspace-web
+	url = https://github.com/ores-dummy-org-1/workspace-web.git
+	branch = stack/ores-stack
+[submodule "scintilla-run--big-org-example-collaboration--_github"]
+	path = stacks/scintilla-run/projects/big-org-example-collaboration/repos/.github
+	url = https://github.com/ores-dummy-org-1/.github.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-collaboration--app"]
+	path = stacks/scintilla-run/projects/big-org-example-collaboration/repos/app
+	url = https://github.com/ores-dummy-org-1/app.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-collaboration--contract-tests"]
+	path = stacks/scintilla-run/projects/big-org-example-collaboration/repos/contract-tests
+	url = https://github.com/ores-dummy-org-1/contract-tests.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-collaboration--message-worker"]
+	path = stacks/scintilla-run/projects/big-org-example-collaboration/repos/message-worker
+	url = https://github.com/ores-dummy-org-1/message-worker.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-collaboration--presence-service"]
+	path = stacks/scintilla-run/projects/big-org-example-collaboration/repos/presence-service
+	url = https://github.com/ores-dummy-org-1/presence-service.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-collaboration--sdk-typescript"]
+	path = stacks/scintilla-run/projects/big-org-example-collaboration/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-1/sdk-typescript.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-collaboration--workspace-web"]
+	path = stacks/scintilla-run/projects/big-org-example-collaboration/repos/workspace-web
+	url = https://github.com/ores-dummy-org-1/workspace-web.git
+	branch = stack/scintilla-run
+[submodule "beamscale--big-org-example-commerce--_github"]
+	path = stacks/beamscale/projects/big-org-example-commerce/repos/.github
+	url = https://github.com/ores-dummy-org-2/.github.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-commerce--app"]
+	path = stacks/beamscale/projects/big-org-example-commerce/repos/app
+	url = https://github.com/ores-dummy-org-2/app.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-commerce--catalog-service"]
+	path = stacks/beamscale/projects/big-org-example-commerce/repos/catalog-service
+	url = https://github.com/ores-dummy-org-2/catalog-service.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-commerce--contract-tests"]
+	path = stacks/beamscale/projects/big-org-example-commerce/repos/contract-tests
+	url = https://github.com/ores-dummy-org-2/contract-tests.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-commerce--orders-worker"]
+	path = stacks/beamscale/projects/big-org-example-commerce/repos/orders-worker
+	url = https://github.com/ores-dummy-org-2/orders-worker.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-commerce--sdk-typescript"]
+	path = stacks/beamscale/projects/big-org-example-commerce/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-2/sdk-typescript.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-commerce--storefront-web"]
+	path = stacks/beamscale/projects/big-org-example-commerce/repos/storefront-web
+	url = https://github.com/ores-dummy-org-2/storefront-web.git
+	branch = stack/beamscale
+[submodule "ores-stack--big-org-example-commerce--_github"]
+	path = stacks/ores-stack/projects/big-org-example-commerce/repos/.github
+	url = https://github.com/ores-dummy-org-2/.github.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-commerce--app"]
+	path = stacks/ores-stack/projects/big-org-example-commerce/repos/app
+	url = https://github.com/ores-dummy-org-2/app.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-commerce--catalog-service"]
+	path = stacks/ores-stack/projects/big-org-example-commerce/repos/catalog-service
+	url = https://github.com/ores-dummy-org-2/catalog-service.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-commerce--contract-tests"]
+	path = stacks/ores-stack/projects/big-org-example-commerce/repos/contract-tests
+	url = https://github.com/ores-dummy-org-2/contract-tests.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-commerce--orders-worker"]
+	path = stacks/ores-stack/projects/big-org-example-commerce/repos/orders-worker
+	url = https://github.com/ores-dummy-org-2/orders-worker.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-commerce--sdk-typescript"]
+	path = stacks/ores-stack/projects/big-org-example-commerce/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-2/sdk-typescript.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-commerce--storefront-web"]
+	path = stacks/ores-stack/projects/big-org-example-commerce/repos/storefront-web
+	url = https://github.com/ores-dummy-org-2/storefront-web.git
+	branch = stack/ores-stack
+[submodule "scintilla-run--big-org-example-commerce--_github"]
+	path = stacks/scintilla-run/projects/big-org-example-commerce/repos/.github
+	url = https://github.com/ores-dummy-org-2/.github.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-commerce--app"]
+	path = stacks/scintilla-run/projects/big-org-example-commerce/repos/app
+	url = https://github.com/ores-dummy-org-2/app.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-commerce--catalog-service"]
+	path = stacks/scintilla-run/projects/big-org-example-commerce/repos/catalog-service
+	url = https://github.com/ores-dummy-org-2/catalog-service.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-commerce--contract-tests"]
+	path = stacks/scintilla-run/projects/big-org-example-commerce/repos/contract-tests
+	url = https://github.com/ores-dummy-org-2/contract-tests.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-commerce--orders-worker"]
+	path = stacks/scintilla-run/projects/big-org-example-commerce/repos/orders-worker
+	url = https://github.com/ores-dummy-org-2/orders-worker.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-commerce--sdk-typescript"]
+	path = stacks/scintilla-run/projects/big-org-example-commerce/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-2/sdk-typescript.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-commerce--storefront-web"]
+	path = stacks/scintilla-run/projects/big-org-example-commerce/repos/storefront-web
+	url = https://github.com/ores-dummy-org-2/storefront-web.git
+	branch = stack/scintilla-run
+[submodule "beamscale--big-org-example-operations--_github"]
+	path = stacks/beamscale/projects/big-org-example-operations/repos/.github
+	url = https://github.com/ores-dummy-org-3/.github.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-operations--app"]
+	path = stacks/beamscale/projects/big-org-example-operations/repos/app
+	url = https://github.com/ores-dummy-org-3/app.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-operations--automation-worker"]
+	path = stacks/beamscale/projects/big-org-example-operations/repos/automation-worker
+	url = https://github.com/ores-dummy-org-3/automation-worker.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-operations--contract-tests"]
+	path = stacks/beamscale/projects/big-org-example-operations/repos/contract-tests
+	url = https://github.com/ores-dummy-org-3/contract-tests.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-operations--ingest-service"]
+	path = stacks/beamscale/projects/big-org-example-operations/repos/ingest-service
+	url = https://github.com/ores-dummy-org-3/ingest-service.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-operations--ops-console"]
+	path = stacks/beamscale/projects/big-org-example-operations/repos/ops-console
+	url = https://github.com/ores-dummy-org-3/ops-console.git
+	branch = stack/beamscale
+[submodule "beamscale--big-org-example-operations--sdk-typescript"]
+	path = stacks/beamscale/projects/big-org-example-operations/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-3/sdk-typescript.git
+	branch = stack/beamscale
+[submodule "ores-stack--big-org-example-operations--_github"]
+	path = stacks/ores-stack/projects/big-org-example-operations/repos/.github
+	url = https://github.com/ores-dummy-org-3/.github.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-operations--app"]
+	path = stacks/ores-stack/projects/big-org-example-operations/repos/app
+	url = https://github.com/ores-dummy-org-3/app.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-operations--automation-worker"]
+	path = stacks/ores-stack/projects/big-org-example-operations/repos/automation-worker
+	url = https://github.com/ores-dummy-org-3/automation-worker.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-operations--contract-tests"]
+	path = stacks/ores-stack/projects/big-org-example-operations/repos/contract-tests
+	url = https://github.com/ores-dummy-org-3/contract-tests.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-operations--ingest-service"]
+	path = stacks/ores-stack/projects/big-org-example-operations/repos/ingest-service
+	url = https://github.com/ores-dummy-org-3/ingest-service.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-operations--ops-console"]
+	path = stacks/ores-stack/projects/big-org-example-operations/repos/ops-console
+	url = https://github.com/ores-dummy-org-3/ops-console.git
+	branch = stack/ores-stack
+[submodule "ores-stack--big-org-example-operations--sdk-typescript"]
+	path = stacks/ores-stack/projects/big-org-example-operations/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-3/sdk-typescript.git
+	branch = stack/ores-stack
+[submodule "scintilla-run--big-org-example-operations--_github"]
+	path = stacks/scintilla-run/projects/big-org-example-operations/repos/.github
+	url = https://github.com/ores-dummy-org-3/.github.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-operations--app"]
+	path = stacks/scintilla-run/projects/big-org-example-operations/repos/app
+	url = https://github.com/ores-dummy-org-3/app.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-operations--automation-worker"]
+	path = stacks/scintilla-run/projects/big-org-example-operations/repos/automation-worker
+	url = https://github.com/ores-dummy-org-3/automation-worker.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-operations--contract-tests"]
+	path = stacks/scintilla-run/projects/big-org-example-operations/repos/contract-tests
+	url = https://github.com/ores-dummy-org-3/contract-tests.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-operations--ingest-service"]
+	path = stacks/scintilla-run/projects/big-org-example-operations/repos/ingest-service
+	url = https://github.com/ores-dummy-org-3/ingest-service.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-operations--ops-console"]
+	path = stacks/scintilla-run/projects/big-org-example-operations/repos/ops-console
+	url = https://github.com/ores-dummy-org-3/ops-console.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--big-org-example-operations--sdk-typescript"]
+	path = stacks/scintilla-run/projects/big-org-example-operations/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-3/sdk-typescript.git
+	branch = stack/scintilla-run
+[submodule "beamscale--cached-rpc--_github"]
+	path = stacks/beamscale/projects/cached-rpc/repos/.github
+	url = https://github.com/ores-dummy-org-4/.github.git
+	branch = stack/beamscale
+[submodule "beamscale--cached-rpc--app"]
+	path = stacks/beamscale/projects/cached-rpc/repos/app
+	url = https://github.com/ores-dummy-org-4/app.git
+	branch = stack/beamscale
+[submodule "beamscale--cached-rpc--contract-tests"]
+	path = stacks/beamscale/projects/cached-rpc/repos/contract-tests
+	url = https://github.com/ores-dummy-org-4/contract-tests.git
+	branch = stack/beamscale
+[submodule "beamscale--cached-rpc--sdk-typescript"]
+	path = stacks/beamscale/projects/cached-rpc/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-4/sdk-typescript.git
+	branch = stack/beamscale
+[submodule "ores-stack--cached-rpc--_github"]
+	path = stacks/ores-stack/projects/cached-rpc/repos/.github
+	url = https://github.com/ores-dummy-org-4/.github.git
+	branch = stack/ores-stack
+[submodule "ores-stack--cached-rpc--app"]
+	path = stacks/ores-stack/projects/cached-rpc/repos/app
+	url = https://github.com/ores-dummy-org-4/app.git
+	branch = stack/ores-stack
+[submodule "ores-stack--cached-rpc--contract-tests"]
+	path = stacks/ores-stack/projects/cached-rpc/repos/contract-tests
+	url = https://github.com/ores-dummy-org-4/contract-tests.git
+	branch = stack/ores-stack
+[submodule "ores-stack--cached-rpc--sdk-typescript"]
+	path = stacks/ores-stack/projects/cached-rpc/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-4/sdk-typescript.git
+	branch = stack/ores-stack
+[submodule "scintilla-run--cached-rpc--_github"]
+	path = stacks/scintilla-run/projects/cached-rpc/repos/.github
+	url = https://github.com/ores-dummy-org-4/.github.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--cached-rpc--app"]
+	path = stacks/scintilla-run/projects/cached-rpc/repos/app
+	url = https://github.com/ores-dummy-org-4/app.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--cached-rpc--contract-tests"]
+	path = stacks/scintilla-run/projects/cached-rpc/repos/contract-tests
+	url = https://github.com/ores-dummy-org-4/contract-tests.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--cached-rpc--sdk-typescript"]
+	path = stacks/scintilla-run/projects/cached-rpc/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-4/sdk-typescript.git
+	branch = stack/scintilla-run
+[submodule "beamscale--forms-chat-workflow--_github"]
+	path = stacks/beamscale/projects/forms-chat-workflow/repos/.github
+	url = https://github.com/ores-dummy-org-5/.github.git
+	branch = stack/beamscale
+[submodule "beamscale--forms-chat-workflow--app"]
+	path = stacks/beamscale/projects/forms-chat-workflow/repos/app
+	url = https://github.com/ores-dummy-org-5/app.git
+	branch = stack/beamscale
+[submodule "beamscale--forms-chat-workflow--contract-tests"]
+	path = stacks/beamscale/projects/forms-chat-workflow/repos/contract-tests
+	url = https://github.com/ores-dummy-org-5/contract-tests.git
+	branch = stack/beamscale
+[submodule "beamscale--forms-chat-workflow--sdk-typescript"]
+	path = stacks/beamscale/projects/forms-chat-workflow/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-5/sdk-typescript.git
+	branch = stack/beamscale
+[submodule "ores-stack--forms-chat-workflow--_github"]
+	path = stacks/ores-stack/projects/forms-chat-workflow/repos/.github
+	url = https://github.com/ores-dummy-org-5/.github.git
+	branch = stack/ores-stack
+[submodule "ores-stack--forms-chat-workflow--app"]
+	path = stacks/ores-stack/projects/forms-chat-workflow/repos/app
+	url = https://github.com/ores-dummy-org-5/app.git
+	branch = stack/ores-stack
+[submodule "ores-stack--forms-chat-workflow--contract-tests"]
+	path = stacks/ores-stack/projects/forms-chat-workflow/repos/contract-tests
+	url = https://github.com/ores-dummy-org-5/contract-tests.git
+	branch = stack/ores-stack
+[submodule "ores-stack--forms-chat-workflow--sdk-typescript"]
+	path = stacks/ores-stack/projects/forms-chat-workflow/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-5/sdk-typescript.git
+	branch = stack/ores-stack
+[submodule "scintilla-run--forms-chat-workflow--_github"]
+	path = stacks/scintilla-run/projects/forms-chat-workflow/repos/.github
+	url = https://github.com/ores-dummy-org-5/.github.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--forms-chat-workflow--app"]
+	path = stacks/scintilla-run/projects/forms-chat-workflow/repos/app
+	url = https://github.com/ores-dummy-org-5/app.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--forms-chat-workflow--contract-tests"]
+	path = stacks/scintilla-run/projects/forms-chat-workflow/repos/contract-tests
+	url = https://github.com/ores-dummy-org-5/contract-tests.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--forms-chat-workflow--sdk-typescript"]
+	path = stacks/scintilla-run/projects/forms-chat-workflow/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-5/sdk-typescript.git
+	branch = stack/scintilla-run
+[submodule "beamscale--http-observability--_github"]
+	path = stacks/beamscale/projects/http-observability/repos/.github
+	url = https://github.com/ores-dummy-org-6/.github.git
+	branch = stack/beamscale
+[submodule "beamscale--http-observability--app"]
+	path = stacks/beamscale/projects/http-observability/repos/app
+	url = https://github.com/ores-dummy-org-6/app.git
+	branch = stack/beamscale
+[submodule "beamscale--http-observability--contract-tests"]
+	path = stacks/beamscale/projects/http-observability/repos/contract-tests
+	url = https://github.com/ores-dummy-org-6/contract-tests.git
+	branch = stack/beamscale
+[submodule "beamscale--http-observability--sdk-typescript"]
+	path = stacks/beamscale/projects/http-observability/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-6/sdk-typescript.git
+	branch = stack/beamscale
+[submodule "ores-stack--http-observability--_github"]
+	path = stacks/ores-stack/projects/http-observability/repos/.github
+	url = https://github.com/ores-dummy-org-6/.github.git
+	branch = stack/ores-stack
+[submodule "ores-stack--http-observability--app"]
+	path = stacks/ores-stack/projects/http-observability/repos/app
+	url = https://github.com/ores-dummy-org-6/app.git
+	branch = stack/ores-stack
+[submodule "ores-stack--http-observability--contract-tests"]
+	path = stacks/ores-stack/projects/http-observability/repos/contract-tests
+	url = https://github.com/ores-dummy-org-6/contract-tests.git
+	branch = stack/ores-stack
+[submodule "ores-stack--http-observability--sdk-typescript"]
+	path = stacks/ores-stack/projects/http-observability/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-6/sdk-typescript.git
+	branch = stack/ores-stack
+[submodule "scintilla-run--http-observability--_github"]
+	path = stacks/scintilla-run/projects/http-observability/repos/.github
+	url = https://github.com/ores-dummy-org-6/.github.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--http-observability--app"]
+	path = stacks/scintilla-run/projects/http-observability/repos/app
+	url = https://github.com/ores-dummy-org-6/app.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--http-observability--contract-tests"]
+	path = stacks/scintilla-run/projects/http-observability/repos/contract-tests
+	url = https://github.com/ores-dummy-org-6/contract-tests.git
+	branch = stack/scintilla-run
+[submodule "scintilla-run--http-observability--sdk-typescript"]
+	path = stacks/scintilla-run/projects/http-observability/repos/sdk-typescript
+	url = https://github.com/ores-dummy-org-6/sdk-typescript.git
+	branch = stack/scintilla-run

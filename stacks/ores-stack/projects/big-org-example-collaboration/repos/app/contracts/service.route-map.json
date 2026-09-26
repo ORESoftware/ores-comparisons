@@ -1,8 +1,0 @@
-{
-  "schema_version": "1.0.0",
-  "service": "big-org-example",
-  "map": {
-    "RunWork": "/v1/work",
-    "Healthz": "/healthz"
-  }
-}

@@ -9,6 +9,8 @@ permissions:
 jobs:
   backward-compatibility:
     runs-on: ubuntu-latest
+    env:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -18,7 +20,25 @@ jobs:
           python-version: "3.12"
       - name: Unit-test compatibility rules
         run: python3 -m unittest -v tests.test_contract_compatibility
+      - name: Initialize private comparison submodules when authorized
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .gitmodules ]]; then
+            exit 0
+          fi
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "SKIP_PRIVATE_CONTENT=true" >> "$GITHUB_ENV"
+            echo "::notice::private comparison submodules are not authorized; cross-repo contract comparison is skipped."
+            exit 0
+          fi
+          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          git config --global "$rewrite" "https://github.com/"
+          git submodule sync --recursive
+          git submodule update --init --recursive --checkout
+          git config --global --unset-all "$rewrite" || true
       - name: Compare contracts with PR base
+        if: env.SKIP_PRIVATE_CONTENT != 'true'
         shell: bash
         run: |
           set -euo pipefail

@@ -1,9 +1,0 @@
-{
-  "name": "@ores-comparisons/ores-stack-cached-rpc-sdk",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "check": "tsc --noEmit"
-  }
-}
