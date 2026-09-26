@@ -80,11 +80,9 @@ jobs:
 
       - name: Configure read-only private repository access
         shell: bash
-        env:
-          COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
         run: |
           set -euo pipefail
-          git config --global             "url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"             "https://github.com/"
+          git config --global             "url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf"             "https://github.com/"
 
       - name: Initialize target project's exact gitlinks
         shell: bash
@@ -148,10 +146,17 @@ jobs:
             echo "::notice::runtime receipt was not created; failure happened before ores-compose execution"
           fi
 
+      - name: Upload runtime receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-proof-${{ inputs.stack }}-${{ inputs.scenario }}
+          path: artifacts/runtime-18/${{ inputs.stack }}-${{ inputs.scenario }}.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Remove private repository credential
         if: always()
         shell: bash
-        env:
-          COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
         run: |
-          git config --global --unset-all             "url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"             >/dev/null 2>&1 || true
+          git config --global --unset-all             "url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf"             >/dev/null 2>&1 || true
