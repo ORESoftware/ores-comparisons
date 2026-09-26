@@ -1,0 +1,33 @@
+name: dummy-org remote reachability
+
+on:
+  pull_request:
+    paths:
+      - '.gitmodules'
+      - 'shared/dummy-org-map.json'
+      - 'shared/dummy-org-gitlinks.json'
+      - 'scripts/verify_dummy_org_remote_reachability.py'
+      - '.github/workflows/dummy-org-remote-reachability.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.gitmodules'
+      - 'shared/dummy-org-map.json'
+      - 'shared/dummy-org-gitlinks.json'
+      - 'scripts/verify_dummy_org_remote_reachability.py'
+      - '.github/workflows/dummy-org-remote-reachability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reachability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify pinned dummy-org commits remain branch-reachable
+        run: python3 scripts/verify_dummy_org_remote_reachability.py
