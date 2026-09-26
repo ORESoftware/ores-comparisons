@@ -72,6 +72,69 @@ def validate(document: dict[str, Any]) -> list[str]:
             if not isinstance(caps.get(key), bool):
                 errors.append(f"capabilities.{key} must be boolean")
 
+    runtime = document.get("runtimeSafety")
+    if not isinstance(runtime, dict):
+        errors.append("runtimeSafety must be an object")
+    else:
+        availability = runtime.get("availability")
+        if not isinstance(availability, dict):
+            errors.append("runtimeSafety.availability must be an object")
+        else:
+            if availability.get("dependencyOutageRemovesReadiness") is not True:
+                errors.append("dependency outage must remove readiness")
+            if availability.get("dependencyOutageAffectsLiveness") is not False:
+                errors.append("dependency outage must not affect liveness")
+            if availability.get("dependencyOutageTriggersRestart") is not False:
+                errors.append("dependency outage must not trigger restart")
+            if not isinstance(availability.get("proofCommand"), str) or not availability["proofCommand"]:
+                errors.append("runtimeSafety.availability.proofCommand is required")
+
+        draining = runtime.get("draining")
+        if not isinstance(draining, dict):
+            errors.append("runtimeSafety.draining must be an object")
+        else:
+            if draining.get("stopAdmittingBeforeDrain") is not True:
+                errors.append("draining must stop admission before waiting")
+            deadline = draining.get("shutdownDeadlineMs")
+            if not isinstance(deadline, int) or isinstance(deadline, bool) or not (1 <= deadline <= 300000):
+                errors.append("draining shutdownDeadlineMs must be between 1 and 300000")
+            if draining.get("inFlightPolicy") not in {"finish-within-deadline", "cancel-at-deadline"}:
+                errors.append("draining inFlightPolicy is invalid")
+            if not isinstance(draining.get("proofCommand"), str) or not draining["proofCommand"]:
+                errors.append("runtimeSafety.draining.proofCommand is required")
+
+        deadlines = runtime.get("deadlines")
+        if not isinstance(deadlines, dict):
+            errors.append("runtimeSafety.deadlines must be an object")
+        else:
+            maximum = deadlines.get("maxRequestDeadlineMs")
+            if not isinstance(maximum, int) or isinstance(maximum, bool) or not (1 <= maximum <= 300000):
+                errors.append("maxRequestDeadlineMs must be between 1 and 300000")
+            for key in (
+                "handlerPropagates",
+                "databasePropagates",
+                "downstreamRpcPropagates",
+                "spawnedChildPropagates",
+                "cancellationPropagates",
+            ):
+                if deadlines.get(key) is not True:
+                    errors.append(f"runtimeSafety.deadlines.{key} must be true")
+            if not isinstance(deadlines.get("proofCommand"), str) or not deadlines["proofCommand"]:
+                errors.append("runtimeSafety.deadlines.proofCommand is required")
+
+        limits = runtime.get("bufferLimits")
+        if not isinstance(limits, dict):
+            errors.append("runtimeSafety.bufferLimits must be an object")
+        else:
+            for key in ("bodyBytes", "headerBytes", "uploadBytes", "decompressedBytes"):
+                value = limits.get(key)
+                if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                    errors.append(f"runtimeSafety.bufferLimits.{key} must be a positive integer")
+            if limits.get("enforceBeforeExpensiveAllocation") is not True:
+                errors.append("buffer limits must be enforced before expensive allocation")
+            if not isinstance(limits.get("proofCommand"), str) or not limits["proofCommand"]:
+                errors.append("runtimeSafety.bufferLimits.proofCommand is required")
+
     admission = document.get("handlerAdmission")
     if not isinstance(admission, dict):
         errors.append("handlerAdmission must be an object")
