@@ -127,5 +127,19 @@ class ServerCompatibilityTest(unittest.TestCase):
             validate(broken),
         )
 
+
+    def test_durable_state_cannot_use_instance_filesystem(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["storage"]["durableStateUsesInstanceFilesystem"] = True
+        self.assertIn("durable state must not use instance filesystem", validate(broken))
+
+    def test_contract_digest_mismatch_blocks_readiness(self) -> None:
+        broken = copy.deepcopy(self.valid)
+        broken["contractAdmission"]["generatedClientContractDigest"] = "b" * 64
+        self.assertIn("contract digests must agree before readiness", validate(broken))
+        broken = copy.deepcopy(self.valid)
+        broken["contractAdmission"]["readinessBlockedOnMismatch"] = False
+        self.assertIn("contract digest mismatch must block readiness", validate(broken))
+
 if __name__ == "__main__":
     unittest.main()
