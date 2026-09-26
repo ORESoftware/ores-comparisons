@@ -1,0 +1,135 @@
+name: runtime-wave
+
+on:
+  workflow_call:
+    inputs:
+      scenario:
+        description: Comparison scenario to execute across all three stacks.
+        required: true
+        type: string
+    secrets:
+      COMPARISON_REPO_READ_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    name: ${{ inputs.scenario }} / ${{ matrix.stack }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    env:
+      STACK: ${{ matrix.stack }}
+      SCENARIO: ${{ inputs.scenario }}
+
+    steps:
+      - name: Require private cross-repository execution credential
+        shell: bash
+        env:
+          COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "::error title=Infrastructure blocked::COMPARISON_REPO_READ_TOKEN is not configured; runtime execution cannot read the private dummy-org and stack-tool repositories."
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          otp-version: "29.1.1"
+          gleam-version: "1.18.1"
+
+      - name: Configure read-only private repository access
+        shell: bash
+        env:
+          COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config --global             "url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"             "https://github.com/"
+
+      - name: Initialize only this project's governed repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="stacks/${STACK}/projects/${SCENARIO}/repos/"
+          mapfile -t paths < <(
+            git config -f .gitmodules --get-regexp '^submodule\..*\.path$' |
+              awk '{print $2}' |
+              grep -F "$prefix"
+          )
+          if (( ${#paths[@]} == 0 )); then
+            echo "::error::no governed submodules found below $prefix"
+            exit 1
+          fi
+          printf 'initializing %s\n' "${paths[@]}"
+          git submodule sync -- "${paths[@]}"
+          git submodule update --init --recursive --checkout -- "${paths[@]}"
+
+      - name: Install host runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-client-16 protobuf-compiler
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+
+      - name: Bootstrap exact-pinned comparison toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/postgresql/16/bin:$PATH"
+          bash scripts/bootstrap_pinned_tools.sh
+          echo "$PWD/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Check and plan target compose graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="stacks/${STACK}/projects/${SCENARIO}/repos/.github/.ores-compose.yaml"
+          ./.local/bin/ores-compose check "$manifest"
+          ./.local/bin/ores-compose plan "$manifest"
+
+      - name: Execute target until compose_ready and drain cleanly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/prove_runtime_project.py             --stack "$STACK"             --scenario "$SCENARIO"             --ready-timeout 600             --shutdown-timeout 45
+
+      - name: Print runtime receipt
+        if: always()
+        shell: bash
+        run: |
+          receipt="artifacts/runtime-18/${STACK}-${SCENARIO}.json"
+          if [[ -f "$receipt" ]]; then
+            cat "$receipt"
+          else
+            echo "::notice::runtime receipt was not created; failure happened before ores-compose execution"
+          fi
+
+      - name: Remove private repository credential
+        if: always()
+        shell: bash
+        env:
+          COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+        run: |
+          git config --global --unset-all             "url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"             >/dev/null 2>&1 || true
