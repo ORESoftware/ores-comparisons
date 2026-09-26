@@ -1,0 +1,13 @@
+{
+  "schema": "ores.stack.rollback-recovery/v1",
+  "status": "required",
+  "requirements": [
+    "current_and_candidate_binaries_are_immutable_digest_verified_files",
+    "candidate_is_activated_only_after_verification",
+    "failed_post_activation_smoke_test_restores_previous_binary_atomically",
+    "project_configuration_is_never_rewritten_by_toolchain_switching",
+    "cache_roots_are_namespaced_by_toolchain_identity",
+    "downgrade_does_not_delete_previous_or_newer_cache_namespaces",
+    "active_toolchain_state_records_current_and_previous_identity"
+  ]
+}
