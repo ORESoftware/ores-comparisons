@@ -63,6 +63,8 @@ jobs:
           set -euo pipefail
           test "$(git hash-object certification/module-context/scintilla/src/lib.rs)" = "4dbff7fabc7473f04cec0d7b265a19c588178900"
           test "$(git hash-object certification/module-context/scintilla/src/module_contract.rs)" = "24cf89086bc1b8e884704143a2be67c6baa2d06c"
+          test "$(git hash-object certification/module-context/scintilla/contracts/module-descriptor.schema.json)" = "4605a9a5dc81a5311c7a696b6af0a45b69b7e598"
+          test "$(git hash-object certification/module-context/scintilla/contracts/module-descriptor.tsp)" = "f36c662bb949f46cb3b8593c04aacde6f9c1a980"
 
       - name: Install source MSRV
         run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy --no-self-update
@@ -81,3 +83,14 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: 1.88.0
         run: cargo test --manifest-path certification/module-context/scintilla/Cargo.toml --all-targets --no-default-features
+
+      - name: Compare exact Scintilla TypeSpec and JSON Schema peers
+        uses: ORESoftware/typespec-json-schema-validator@b5bd51946b53c00b1daeb2723c0b5d54eaeafab7
+        with:
+          typespec: certification/module-context/scintilla/contracts/module-descriptor.tsp
+          schema: certification/module-context/scintilla/contracts/module-descriptor.schema.json
+          report: certification/module-context/scintilla/.tjsv/report.json
+          contract_ir: certification/module-context/scintilla/.tjsv/contract-ir.json
+          output_dir: certification/module-context/scintilla/.tjsv/generated
+          max_probes: "128"
+          int64_strategy: number
