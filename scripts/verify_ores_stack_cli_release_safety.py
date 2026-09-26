@@ -67,9 +67,17 @@ def verify_contract(doc: dict[str, Any]) -> list[str]:
 
     clean = doc.get("cleanMachine", {})
     clean_checks = set(clean.get("requiredChecks", []))
-    for required_check in {"empty-home", "allowlisted-path", "undeclared-global-tool-rejected"}:
+    for required_check in {"empty-home", "allowlisted-path", "undeclared-global-tool-rejected", "real-representative-project-isolated-path"}:
         if required_check not in clean_checks:
             errors.append(f"clean-machine contract missing {required_check}")
+    if clean.get("requiredDeclaredTools") != ["cargo", "rustc", "git", "cc"]:
+        errors.append("clean-machine declared tool set drift")
+    allowed_bootstrap_env = set(clean.get("bootstrapEnvironmentAllowlist", []))
+    if allowed_bootstrap_env != {
+        "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "SSL_CERT_FILE", "SSL_CERT_DIR",
+        "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"
+    }:
+        errors.append("clean-machine bootstrap environment allowlist drift")
     if clean.get("harness") != "scripts/verify_ores_stack_clean_machine.py":
         errors.append("clean-machine harness path drift")
     elif not (ROOT / clean["harness"]).is_file():
