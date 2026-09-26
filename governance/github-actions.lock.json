@@ -17,6 +17,10 @@
     "dtolnay/rust-toolchain": {
       "upstream_ref": "stable",
       "sha": "6bed0761d98439e5a578e2877258200ad565ba87"
+    },
+    "erlef/setup-beam": {
+      "upstream_ref": "v1",
+      "sha": "54075bcc5e249e4758d363f27d099f55d843f124"
     }
   }
 }
