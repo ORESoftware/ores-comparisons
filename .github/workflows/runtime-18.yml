@@ -1,0 +1,61 @@
+name: runtime-18-projects
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - work/GH-55-runtime-18-projects
+    paths:
+      - ".github/workflows/runtime-18.yml"
+      - ".github/workflows/runtime-wave.yml"
+      - "scripts/prove_runtime_project.py"
+      - "scripts/bootstrap_pinned_tools.sh"
+      - "shared/project-matrix.json"
+      - "tools/toolchain.lock.json"
+      - ".gitmodules"
+      - "stacks/**"
+
+permissions:
+  contents: read
+
+jobs:
+  cached-rpc:
+    uses: ./.github/workflows/runtime-wave.yml
+    with:
+      scenario: cached-rpc
+    secrets: inherit
+
+  http-observability:
+    needs: cached-rpc
+    uses: ./.github/workflows/runtime-wave.yml
+    with:
+      scenario: http-observability
+    secrets: inherit
+
+  forms-chat-workflow:
+    needs: http-observability
+    uses: ./.github/workflows/runtime-wave.yml
+    with:
+      scenario: forms-chat-workflow
+    secrets: inherit
+
+  big-org-example-commerce:
+    needs: forms-chat-workflow
+    uses: ./.github/workflows/runtime-wave.yml
+    with:
+      scenario: big-org-example-commerce
+    secrets: inherit
+
+  big-org-example-collaboration:
+    needs: big-org-example-commerce
+    uses: ./.github/workflows/runtime-wave.yml
+    with:
+      scenario: big-org-example-collaboration
+    secrets: inherit
+
+  big-org-example-operations:
+    needs: big-org-example-collaboration
+    uses: ./.github/workflows/runtime-wave.yml
+    with:
+      scenario: big-org-example-operations
+    secrets: inherit
