@@ -28,6 +28,8 @@ jobs:
       - if: ${{ hashFiles('.gitmodules') == '' }}
         run: python3 scripts/verify_big_org_repos.py
       - run: python3 scripts/verify_toolchain_pins.py
+      - run: python3 scripts/verify_adversarial_fixtures.py
+      - run: python3 -m unittest tests.test_adversarial_fixtures
       - if: ${{ hashFiles('.gitmodules') == '' }}
         run: python3 scripts/verify_contract_authorities_static.py
       - if: ${{ hashFiles('.gitmodules') == '' }}

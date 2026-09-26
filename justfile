@@ -6,6 +6,8 @@ verify:
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_org_manifests.py
     python3 scripts/verify_toolchain_pins.py
+    python3 scripts/verify_adversarial_fixtures.py
+    python3 -m unittest tests.test_adversarial_fixtures
     bash conformance/check-all.sh
 
 verify-static:
@@ -14,6 +16,8 @@ verify-static:
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_toolchain_pins.py
+    python3 scripts/verify_adversarial_fixtures.py
+    python3 -m unittest tests.test_adversarial_fixtures
     python3 scripts/verify_benchmark_matrix.py
 
 generate:
