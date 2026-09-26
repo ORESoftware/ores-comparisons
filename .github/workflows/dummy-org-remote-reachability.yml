@@ -25,9 +25,21 @@ jobs:
   reachability:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Verify pinned dummy-org commits remain branch-reachable
-        run: python3 scripts/verify_dummy_org_remote_reachability.py
+      - name: Verify pinned dummy-org commits remain branch-reachable when authorized
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "::notice::COMPARISON_REPO_READ_TOKEN is not configured; offline ledger/index verification remains mandatory and private remote reachability is skipped."
+            exit 0
+          fi
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          export GIT_CONFIG_VALUE_0="https://github.com/"
+          python3 scripts/verify_dummy_org_remote_reachability.py
