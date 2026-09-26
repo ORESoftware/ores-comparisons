@@ -3,7 +3,7 @@
 use std::{
     fs,
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use ores_api_docs::{
@@ -76,7 +76,7 @@ pub fn run(_args: &CliArgs) -> Result<i32, CliError> {
         println!("created {}", destination.display());
     }
 
-    return Ok(0);
+    Ok(0)
 }
 
 fn ensure_real_dir(path: &Path, label: &str) -> Result<(), CliError> {
@@ -96,7 +96,7 @@ fn ensure_real_dir(path: &Path, label: &str) -> Result<(), CliError> {
     fs::create_dir(path).map_err(|error| {
         CliError::runtime(format!("create {label} {}: {error}", path.display()))
     })?;
-    return Ok(());
+    Ok(())
 }
 
 fn atomic_create(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
@@ -132,12 +132,12 @@ fn atomic_create(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
                 path.display()
             ))
         })?;
-        return Ok(());
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
-    return result;
+    result
 }
 
 #[cfg(test)]
