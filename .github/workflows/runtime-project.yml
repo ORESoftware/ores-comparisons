@@ -22,7 +22,7 @@ jobs:
     env:
       STACK: ${{ inputs.stack }}
       SCENARIO: ${{ inputs.scenario }}
-      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes postgresql-16 postgresql-client-16 protobuf-compiler rebar3
+          sudo apt-get install --yes postgresql-16 postgresql-client-16 protobuf-compiler
           echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
 
       - name: Validate requested matrix member
@@ -71,13 +71,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
-            echo "COMPARISON_REPO_READ_TOKEN is required for executable runtime certification" >&2
-            exit 3
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            echo "CREDENTIAL_BLOCKED: no approved cross-org read credential is configured" >&2
+            exit 78
           fi
 
           export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          export GIT_CONFIG_KEY_0="url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf"
           export GIT_CONFIG_VALUE_0="https://github.com/"
           export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
