@@ -118,5 +118,19 @@
       "outboundHttpTotalBudget": 75,
       "proofCommand": "cargo test connection_budgets"
     }
+  },
+  "storage": {
+    "mode": "durable-external",
+    "durableStateUsesInstanceFilesystem": false,
+    "instanceFilesystemPurpose": "cache",
+    "proofCommand": "cargo test storage_policy"
+  },
+  "contractAdmission": {
+    "expectedContractDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "handlerContractDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generatedClientContractDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "servedDocumentContractDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "readinessBlockedOnMismatch": true,
+    "proofCommand": "cargo test contract_digest_admission"
   }
 }
