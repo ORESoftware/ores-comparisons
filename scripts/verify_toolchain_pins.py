@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,15 +36,34 @@ for name, (version, commit) in required.items():
     if version is not None and item.get("version") != version:
         errors.append(f"{name} version pin drift")
 
-zpkg = (ROOT / ".zpkg.toml").read_text()
+zpkg_text = (ROOT / ".zpkg.toml").read_text()
 for needle in (
     '"oresoftware/ores-compose" = "=0.1.0"',
     '"oresoftware/typespec-json-schema-validator" = "=0.1.1"',
     "[interop.git]",
     "consume_gitmodules = true",
 ):
-    if needle not in zpkg:
+    if needle not in zpkg_text:
         errors.append(f"root .zpkg.toml missing {needle}")
+
+zpkg = tomllib.loads(zpkg_text)
+repository = zpkg.get("package", {}).get("repository", {})
+if repository.get("vcs") != "git":
+    errors.append("root .zpkg.toml package.repository.vcs must be git")
+if repository.get("url") != "https://github.com/ORESoftware/ores-comparisons":
+    errors.append("root .zpkg.toml package.repository.url drift")
+
+zed_env_path = ROOT / "zed-env.toml"
+if not zed_env_path.is_file():
+    errors.append("missing schema-v2 zed-env.toml")
+else:
+    zed_env = tomllib.loads(zed_env_path.read_text())
+    if zed_env.get("schema") != 2:
+        errors.append("zed-env.toml must use schema = 2")
+    tasks = zed_env.get("tasks", {})
+    for task in ("check", "submodules-sync", "submodules-status", "submodules-verify"):
+        if task not in tasks:
+            errors.append(f"zed-env.toml missing task {task}")
 
 pkg = json.loads((ROOT / "package.json").read_text())
 private = pkg.get("oresPrivateTools", {}).get("typespec-json-schema-validator", {})
