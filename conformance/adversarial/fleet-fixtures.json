@@ -1,0 +1,105 @@
+{
+  "schema_version": "ores.fleet-adversarial.v1",
+  "description": "Synthetic non-production fixtures. Every case intentionally plants one or more defects.",
+  "cases": [
+    {
+      "id": "legacy-cli-repository",
+      "kind": "cli-pin",
+      "input": {
+        "repository": "ORESoftware/ores-stack",
+        "version": "main"
+      },
+      "expected_findings": [
+        "fleet.cli.legacy-repository",
+        "fleet.cli.mutable-version"
+      ]
+    },
+    {
+      "id": "shadowed-cli-path",
+      "kind": "cli-path",
+      "input": {
+        "resolved": "/usr/local/bin/ores-stack",
+        "pinned": "/opt/ores-stack/bin/ores-stack"
+      },
+      "expected_findings": [
+        "fleet.cli.path-shadowed"
+      ]
+    },
+    {
+      "id": "server-contract-digest-mismatch",
+      "kind": "server-contract",
+      "input": {
+        "handler_digest": "sha256:1111",
+        "deployment_digest": "sha256:2222"
+      },
+      "expected_findings": [
+        "fleet.server.contract-digest-mismatch"
+      ]
+    },
+    {
+      "id": "ambiguous-compose-discovery",
+      "kind": "compose-discovery",
+      "input": {
+        "candidates": [
+          "/workspace/.ores-compose.yaml",
+          "/workspace/service/.ores-compose.yaml"
+        ],
+        "explicit_selection": null
+      },
+      "expected_findings": [
+        "fleet.compose.ambiguous-discovery"
+      ]
+    },
+    {
+      "id": "unsupported-provider-capability",
+      "kind": "provider-capabilities",
+      "input": {
+        "target": "aws-lambda-http",
+        "required": [
+          "websocket"
+        ],
+        "supported": [
+          "http",
+          "cloudevents"
+        ]
+      },
+      "expected_findings": [
+        "fleet.deploy.unsupported-capability"
+      ]
+    },
+    {
+      "id": "mutable-artifact-reference",
+      "kind": "artifact",
+      "input": {
+        "reference": "ghcr.io/example/service:latest",
+        "digest": null
+      },
+      "expected_findings": [
+        "fleet.deploy.mutable-artifact"
+      ]
+    },
+    {
+      "id": "zero-step-pass-receipt",
+      "kind": "evidence",
+      "input": {
+        "state": "passed",
+        "executed_steps": 0,
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected_findings": [
+        "fleet.evidence.zero-step-pass"
+      ]
+    },
+    {
+      "id": "receipt-source-digest-mismatch",
+      "kind": "receipt",
+      "input": {
+        "expected_source_digest": "sha256:abcd",
+        "observed_source_digest": "sha256:dcba"
+      },
+      "expected_findings": [
+        "fleet.evidence.source-digest-mismatch"
+      ]
+    }
+  ]
+}
