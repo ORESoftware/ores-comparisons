@@ -1,0 +1,51 @@
+name: ores-compose current exact-head certification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ores-compose-current-cert.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    env:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pr: 187
+            sha: 2d5fbe9c7ef42d7112afc46f75cc184f521332f1
+          - pr: 191
+            sha: 17a5e9cf654447e6299872c383d056bcf9f1cdeb
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: rustfmt, clippy
+      - name: Fetch exact private source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${COMPARISON_REPO_READ_TOKEN:-}"
+          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          git config --global "$rewrite" "https://github.com/"
+          trap 'git config --global --unset-all "$rewrite" || true' EXIT
+          git clone --no-checkout https://github.com/ORESoftware/ores-compose.git /tmp/ores-compose
+          git -C /tmp/ores-compose fetch origin "${{ matrix.sha }}"
+          git -C /tmp/ores-compose checkout --detach "${{ matrix.sha }}"
+          test "$(git -C /tmp/ores-compose rev-parse HEAD)" = "${{ matrix.sha }}"
+      - name: Format exact head
+        working-directory: /tmp/ores-compose
+        run: cargo fmt --all --check
+      - name: Clippy exact head
+        working-directory: /tmp/ores-compose
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test exact head
+        working-directory: /tmp/ores-compose
+        run: cargo test --workspace --all-targets --all-features --locked
