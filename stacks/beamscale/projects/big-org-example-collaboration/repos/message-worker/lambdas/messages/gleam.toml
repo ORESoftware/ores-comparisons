@@ -1,3 +1,0 @@
-name = "big_org_example_collaboration_message_worker"
-version = "0.1.0"
-target = "erlang"

@@ -1,9 +1,0 @@
-{
-  "id": "obs-1",
-  "requestId": "req-1",
-  "route": "/",
-  "statusCode": 200,
-  "durationMs": 2,
-  "outcome": "ok",
-  "createdAt": "2026-01-01T00:00:00Z"
-}
