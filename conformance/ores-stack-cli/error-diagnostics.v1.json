@@ -1,0 +1,42 @@
+{
+  "schema": "ores.stack.error-diagnostics/v1",
+  "status": "contract-only",
+  "requiredCommandFamilies": [
+    "build",
+    "dev",
+    "generate",
+    "verify",
+    "deploy"
+  ],
+  "diagnosticShape": {
+    "required": [
+      "code",
+      "command",
+      "message",
+      "retryable"
+    ],
+    "optional": [
+      "details",
+      "source"
+    ]
+  },
+  "codeFormat": "^ORES_STACK_[A-Z0-9_]+$",
+  "stabilityRules": [
+    "a published code never changes meaning within the same major CLI version",
+    "human wording may change without changing the stable code",
+    "structured diagnostics must not contain ANSI escapes",
+    "machine-readable failure output must be deterministic for the same failure input"
+  ],
+  "codes": [
+    {"code": "ORES_STACK_USAGE", "commands": ["build", "dev", "generate", "verify", "deploy"]},
+    {"code": "ORES_STACK_ANALYSIS_FAILED", "commands": ["build", "verify", "deploy"]},
+    {"code": "ORES_STACK_DEV_FAILED", "commands": ["dev"]},
+    {"code": "ORES_STACK_GENERATION_FAILED", "commands": ["generate", "build", "verify"]},
+    {"code": "ORES_STACK_UNSAFE_PATH", "commands": ["build", "dev", "generate", "verify", "deploy"]},
+    {"code": "ORES_STACK_DEPENDENCY_UNRESOLVED", "commands": ["build", "dev", "generate", "verify", "deploy"]},
+    {"code": "ORES_STACK_PROCESS_LAUNCH_FAILED", "commands": ["build", "dev", "generate", "verify", "deploy"]},
+    {"code": "ORES_STACK_BUILD_FAILED", "commands": ["build", "verify"]},
+    {"code": "ORES_STACK_VERIFY_FAILED", "commands": ["verify"]},
+    {"code": "ORES_STACK_DEPLOY_FAILED", "commands": ["deploy"]}
+  ]
+}
