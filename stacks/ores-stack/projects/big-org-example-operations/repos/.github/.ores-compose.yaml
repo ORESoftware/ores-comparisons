@@ -10,14 +10,56 @@ services:
       interval_ms: 300
       timeout_ms: 250
       retries: 20
-  app:
+  db-bootstrap:
     runtime: host
-    command: ["bash", "scripts/dev-server.sh"]
+    command: ["bash", "scripts/db-bootstrap.sh"]
     build:
       - ["bash", "scripts/contracts-check.sh"]
       - ["bash", "scripts/db-migrate.sh"]
       - ["bash", "scripts/db-seed.sh"]
     depends_on: [postgres]
+    healthcheck:
+      command: ["bash", "scripts/db-bootstrap-health.sh"]
+      interval_ms: 200
+      timeout_ms: 200
+      retries: 20
+  ingest-service:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "ingest-service"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "ingest-service"]
+    depends_on: ["db-bootstrap"]
+    healthcheck:
+      command: ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:32301/healthz"]
+      interval_ms: 400
+      timeout_ms: 300
+      retries: 20
+  automation-worker:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "automation-worker"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "automation-worker"]
+    depends_on: ["db-bootstrap", "ingest-service"]
+    healthcheck:
+      command: ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:32302/healthz"]
+      interval_ms: 400
+      timeout_ms: 300
+      retries: 20
+  ops-console:
+    runtime: host
+    command: ["python3", "scripts/run-sibling.py", "run", "ops-console"]
+    build:
+      - ["python3", "scripts/run-sibling.py", "build", "ops-console"]
+    depends_on: ["db-bootstrap", "ingest-service", "automation-worker"]
+    healthcheck:
+      command: ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:32303/healthz"]
+      interval_ms: 400
+      timeout_ms: 300
+      retries: 20
+  app:
+    runtime: host
+    command: ["bash", "scripts/dev-server.sh"]
+    depends_on: ["db-bootstrap", "ingest-service", "automation-worker", "ops-console"]
     healthcheck:
       command: ["curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:3110/"]
       interval_ms: 500

@@ -1,0 +1,62 @@
+name: big-org-runtime
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  topology-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Verify runtime topology authorities
+        run: python3 scripts/verify_contract_authorities_static.py
+      - name: Verify topology, org graph, and compose projection
+        run: |
+          python3 scripts/verify_big_org_runtime.py
+          python3 scripts/generate_big_org_compose.py --check
+
+  exact-compose:
+    runs-on: ubuntu-latest
+    env:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Check and plan with exact pinned ores-compose when authorized
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "::notice::COMPARISON_REPO_READ_TOKEN is not configured; mandatory topology/projection gates ran, exact private ores-compose planning is skipped."
+            exit 0
+          fi
+
+          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          git config --global "$rewrite" "https://github.com/"
+          trap 'git config --global --unset-all "$rewrite" || true' EXIT
+
+          rev="$(python3 - <<'PY'
+          import json
+          print(json.load(open("tools/toolchain.lock.json"))["tools"]["ores-compose"]["commit"])
+          PY
+          )"
+
+          CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install             --git https://github.com/ORESoftware/ores-compose             --rev "$rev"             --locked             --bin ores-compose
+
+          for project in stacks/*/projects/big-org-example-*; do
+            manifest="$project/repos/.github/.ores-compose.yaml"
+            echo "==> $manifest"
+            ores-compose check "$manifest"
+            ores-compose plan "$manifest"
+          done

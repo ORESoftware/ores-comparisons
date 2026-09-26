@@ -1,0 +1,14 @@
+{
+  "schema": "ores.comparisons.runtime-topology/v1",
+  "projectId": "bad",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-commerce",
+  "services": [
+    {
+      "name": "catalog-service",
+      "repository": "catalog-service",
+      "role": "bogus",
+      "dependsOn": []
+    }
+  ]
+}
