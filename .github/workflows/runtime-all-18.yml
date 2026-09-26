@@ -1,0 +1,108 @@
+name: runtime-all-18
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/runtime-all-18.yml"
+      - "scripts/bootstrap_pinned_tools.sh"
+      - "tools/toolchain.lock.json"
+      - "tools/README.md"
+      - "shared/project-matrix.json"
+      - ".gitmodules"
+      - "stacks/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/runtime-all-18.yml"
+      - "scripts/bootstrap_pinned_tools.sh"
+      - "tools/toolchain.lock.json"
+      - "tools/README.md"
+      - "shared/project-matrix.json"
+      - ".gitmodules"
+      - "stacks/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-all-18-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cached-rpc:
+    name: wave 1 cached-rpc / ${{ matrix.stack }}
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: cached-rpc
+    secrets: inherit
+
+  http-observability:
+    name: wave 2 http-observability / ${{ matrix.stack }}
+    needs: cached-rpc
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: http-observability
+    secrets: inherit
+
+  forms-chat-workflow:
+    name: wave 3 forms-chat-workflow / ${{ matrix.stack }}
+    needs: http-observability
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: forms-chat-workflow
+    secrets: inherit
+
+  big-org-example-commerce:
+    name: wave 4 big-org-example-commerce / ${{ matrix.stack }}
+    needs: forms-chat-workflow
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: big-org-example-commerce
+    secrets: inherit
+
+  big-org-example-collaboration:
+    name: wave 5 big-org-example-collaboration / ${{ matrix.stack }}
+    needs: big-org-example-commerce
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: big-org-example-collaboration
+    secrets: inherit
+
+  big-org-example-operations:
+    name: wave 6 big-org-example-operations / ${{ matrix.stack }}
+    needs: big-org-example-collaboration
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: big-org-example-operations
+    secrets: inherit
