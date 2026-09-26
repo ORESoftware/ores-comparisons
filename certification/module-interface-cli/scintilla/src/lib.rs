@@ -3,8 +3,12 @@ pub mod error {
     pub struct CliError(pub String);
 
     impl CliError {
-        pub fn runtime(message: String) -> Self { Self(message) }
-        pub fn usage(message: String) -> Self { Self(message) }
+        pub fn runtime(message: String) -> Self {
+            Self(message)
+        }
+        pub fn usage(message: String) -> Self {
+            Self(message)
+        }
     }
 
     impl core::fmt::Display for CliError {
