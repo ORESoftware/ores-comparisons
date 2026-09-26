@@ -79,7 +79,7 @@ for spec in specs:
     # Content checks run whenever the repository is materialized or the submodule
     # has been initialized. An uninitialized gitlink is validated structurally by
     # verify_dummy_org_map.py and is intentionally not dereferenced here.
-    if shared.is_dir():
+    if shared.is_dir() and not shared_is_gitlink:
         for required in (
             "README.md",
             "profile/README.md",
@@ -97,7 +97,7 @@ for spec in specs:
             if not (shared / required).exists():
                 errors.append(f"{rel} repos/.github missing {required}")
 
-    if app.is_dir():
+    if app.is_dir() and not app_is_gitlink:
         if spec.stack == "beamscale":
             for required in (".ores-lambda.toml", "bmscl-policy.toml"):
                 if not (app / required).is_file():
