@@ -1,0 +1,26 @@
+{
+  "schema": "ores.stack.scaffold-transaction/v1",
+  "implementationStatus": "contract-only",
+  "requiredCases": [
+    {
+      "id": "authored-files-never-overwritten",
+      "invariant": "an existing authored destination causes a refusal before publication"
+    },
+    {
+      "id": "validation-failure-rolls-back",
+      "invariant": "failed generated output validation leaves the original project byte-for-byte unchanged"
+    },
+    {
+      "id": "interrupt-before-publish-preserves-project",
+      "invariant": "termination before the publish boundary leaves the original project byte-for-byte unchanged"
+    },
+    {
+      "id": "private-staging-cleaned",
+      "invariant": "failed or interrupted staging does not leave executable or generated content at the final destination"
+    },
+    {
+      "id": "publish-is-single-filesystem-atomic",
+      "invariant": "validated output is published with an atomic same-filesystem rename or an equivalently strong operation"
+    }
+  ]
+}
