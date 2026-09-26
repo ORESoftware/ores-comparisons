@@ -50,6 +50,44 @@ def audit_case(case: dict[str, Any]) -> list[str]:
     elif kind == "receipt":
         if data.get("expected_source_digest") != data.get("observed_source_digest"):
             findings.append("fleet.evidence.source-digest-mismatch")
+    elif kind == "generated-ownership":
+        destructive = data.get("operation") in {"overwrite", "delete", "prune"}
+        exact_marker = data.get("observed_marker") == data.get("expected_marker")
+        regular_target = data.get("target_kind") == "regular-file"
+        if destructive and (not exact_marker or not regular_target):
+            findings.append("fleet.generation.unowned-target")
+    elif kind == "cache-key":
+        required = set(data.get("required", []))
+        present = set(data.get("present", []))
+        if not required.issubset(present):
+            findings.append("fleet.cache.incomplete-key")
+    elif kind == "cache-entry":
+        if not data.get("receipt_regular", False):
+            findings.append("fleet.cache.invalid-receipt")
+        if not data.get("binary_regular", False):
+            findings.append("fleet.cache.invalid-binary")
+        if data.get("expected_build_sha256") != data.get("receipt_build_sha256"):
+            findings.append("fleet.cache.poisoned-receipt")
+        if data.get("receipt_binary_sha256") != data.get("observed_binary_sha256"):
+            findings.append("fleet.cache.poisoned-binary")
+    elif kind == "plugin-exec":
+        resolved = Path(str(data.get("resolved", ""))).resolve(strict=False)
+        approved_roots = [
+            Path(str(value)).resolve(strict=False)
+            for value in data.get("approved_roots", [])
+        ]
+        if not any(resolved == root or resolved.is_relative_to(root) for root in approved_roots):
+            findings.append("fleet.plugin.unapproved-executable")
+        if data.get("expected_sha256") != data.get("observed_sha256"):
+            findings.append("fleet.plugin.digest-mismatch")
+        if data.get("shell") is True:
+            findings.append("fleet.plugin.shell-mediated")
+        cwd = Path(str(data.get("cwd", ""))).resolve(strict=False)
+        admitted_root = Path(str(data.get("admitted_root", ""))).resolve(strict=False)
+        if cwd != admitted_root and not cwd.is_relative_to(admitted_root):
+            findings.append("fleet.plugin.cwd-escape")
+        if data.get("inherited_control_env"):
+            findings.append("fleet.plugin.unsanitized-environment")
     else:
         findings.append("fleet.fixture.unknown-kind")
 
