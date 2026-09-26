@@ -64,7 +64,32 @@ def verify_contract(doc: dict[str, Any]) -> list[str]:
     if missing:
         errors.append(f"error catalog lacks command-specific coverage: {missing}")
 
-    fixture = doc.get("recovery", {}).get("migrationFixture", {})
+    clean = doc.get("cleanMachine", {})
+    clean_checks = set(clean.get("requiredChecks", []))
+    for required_check in {"empty-home", "allowlisted-path", "undeclared-global-tool-rejected"}:
+        if required_check not in clean_checks:
+            errors.append(f"clean-machine contract missing {required_check}")
+    if clean.get("harness") != "scripts/verify_ores_stack_clean_machine.py":
+        errors.append("clean-machine harness path drift")
+    elif not (ROOT / clean["harness"]).is_file():
+        errors.append("clean-machine harness file missing")
+
+    recovery = doc.get("recovery", {})
+    recovery_checks = set(recovery.get("requiredChecks", []))
+    for required_check in {
+        "candidate-digest-verified-before-activation",
+        "activation-switch-is-atomic",
+        "previous-toolchain-restored",
+        "cache-namespaces-retained",
+    }:
+        if required_check not in recovery_checks:
+            errors.append(f"rollback contract missing {required_check}")
+    if recovery.get("harness") != "scripts/ores_stack_toolchain_switch.py":
+        errors.append("rollback harness path drift")
+    elif not (ROOT / recovery["harness"]).is_file():
+        errors.append("rollback harness file missing")
+
+    fixture = recovery.get("migrationFixture", {})
     for key in ("previous", "candidate"):
         value = fixture.get(key)
         if not isinstance(value, str) or not SHA40.fullmatch(value):

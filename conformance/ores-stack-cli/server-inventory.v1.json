@@ -1,0 +1,150 @@
+{
+  "schema": "ores.stack.server-inventory/v1",
+  "servers": [
+    {
+      "binaryTarget": "big-org-example-collaboration-ores-stack",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-1/.github",
+        "sourceSha": "cd54869bccc4cebe26e2f534098ce3bf877142ff"
+      },
+      "repository": "ores-dummy-org-1/app",
+      "role": "application",
+      "scenario": "big-org-example-collaboration",
+      "sourceSha": "09ec581cdd95df06456b7f1d7a50a5b25373df80"
+    },
+    {
+      "binaryTarget": "big-org-example-collaboration-presence-service",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-1/.github",
+        "sourceSha": "cd54869bccc4cebe26e2f534098ce3bf877142ff"
+      },
+      "repository": "ores-dummy-org-1/presence-service",
+      "role": "service",
+      "scenario": "big-org-example-collaboration",
+      "sourceSha": "fb5c77102a0130d7ad46cd4d1839b63c07fc8db0"
+    },
+    {
+      "binaryTarget": "big-org-example-collaboration-workspace-web",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-1/.github",
+        "sourceSha": "cd54869bccc4cebe26e2f534098ce3bf877142ff"
+      },
+      "repository": "ores-dummy-org-1/workspace-web",
+      "role": "web",
+      "scenario": "big-org-example-collaboration",
+      "sourceSha": "a2a6e1818b5c6b0d12c19d20361b54d40e542463"
+    },
+    {
+      "binaryTarget": "big-org-example-commerce-ores-stack",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-2/.github",
+        "sourceSha": "94779caa7493937f8211e3dc8b29e9bf9d95bab9"
+      },
+      "repository": "ores-dummy-org-2/app",
+      "role": "application",
+      "scenario": "big-org-example-commerce",
+      "sourceSha": "3de18bf54e06cb8417046008c92672d3fa9e3095"
+    },
+    {
+      "binaryTarget": "big-org-example-commerce-catalog-service",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-2/.github",
+        "sourceSha": "94779caa7493937f8211e3dc8b29e9bf9d95bab9"
+      },
+      "repository": "ores-dummy-org-2/catalog-service",
+      "role": "service",
+      "scenario": "big-org-example-commerce",
+      "sourceSha": "fddaea5b2a10ebd84a553051980339c853fc0a2a"
+    },
+    {
+      "binaryTarget": "big-org-example-commerce-storefront-web",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-2/.github",
+        "sourceSha": "94779caa7493937f8211e3dc8b29e9bf9d95bab9"
+      },
+      "repository": "ores-dummy-org-2/storefront-web",
+      "role": "web",
+      "scenario": "big-org-example-commerce",
+      "sourceSha": "c7492fbd898292efab2b6fb58df797a7c3b9c391"
+    },
+    {
+      "binaryTarget": "big-org-example-operations-ores-stack",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-3/.github",
+        "sourceSha": "a0bf9189ec4093fec4c7a8a7c65ee5f16c56f6cc"
+      },
+      "repository": "ores-dummy-org-3/app",
+      "role": "application",
+      "scenario": "big-org-example-operations",
+      "sourceSha": "e47371c8486c0300921588f8652e59a2850aefa6"
+    },
+    {
+      "binaryTarget": "big-org-example-operations-ingest-service",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-3/.github",
+        "sourceSha": "a0bf9189ec4093fec4c7a8a7c65ee5f16c56f6cc"
+      },
+      "repository": "ores-dummy-org-3/ingest-service",
+      "role": "service",
+      "scenario": "big-org-example-operations",
+      "sourceSha": "c4d4535ac5780be2c9b03b7f674dac99cb19dd39"
+    },
+    {
+      "binaryTarget": "big-org-example-operations-ops-console",
+      "deploymentMode": "ores-compose-local",
+      "infraOwner": {
+        "repository": "ores-dummy-org-3/.github",
+        "sourceSha": "a0bf9189ec4093fec4c7a8a7c65ee5f16c56f6cc"
+      },
+      "repository": "ores-dummy-org-3/ops-console",
+      "role": "web",
+      "scenario": "big-org-example-operations",
+      "sourceSha": "556c1076f1f6d19d890ecf4c3563107542baaea5"
+    },
+    {
+      "binaryTarget": "ores-comparison-cached-rpc",
+      "deploymentMode": "artifact-handoff",
+      "infraOwner": {
+        "repository": "ores-dummy-org-4/.github",
+        "sourceSha": "a4585398101b7715d34b35b79cd74548bad46199"
+      },
+      "repository": "ores-dummy-org-4/app",
+      "role": "application",
+      "scenario": "cached-rpc",
+      "sourceSha": "5852b56ccd4694cfab94a28ba944627ead838cd9"
+    },
+    {
+      "binaryTarget": "ores-comparison-forms-chat-workflow",
+      "deploymentMode": "artifact-handoff",
+      "infraOwner": {
+        "repository": "ores-dummy-org-5/.github",
+        "sourceSha": "38a52c02e8a5746357f246a1354dc6d6dd8e3fee"
+      },
+      "repository": "ores-dummy-org-5/app",
+      "role": "application",
+      "scenario": "forms-chat-workflow",
+      "sourceSha": "129149301e0580ab5ef1e8a3b683c2888aa9dc9f"
+    },
+    {
+      "binaryTarget": "ores-comparison-http-observability",
+      "deploymentMode": "artifact-handoff",
+      "infraOwner": {
+        "repository": "ores-dummy-org-6/.github",
+        "sourceSha": "9b40300e345a22b55b0d141b5aec056440ac55fc"
+      },
+      "repository": "ores-dummy-org-6/app",
+      "role": "application",
+      "scenario": "http-observability",
+      "sourceSha": "5b8b13cf573f390966f607c4b9e570e5e5a23271"
+    }
+  ],
+  "source": "shared/dummy-org-gitlinks.json + benchmarks/matrix.json"
+}
