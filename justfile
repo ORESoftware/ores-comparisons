@@ -7,7 +7,8 @@ verify:
     python3 scripts/verify_org_manifests.py
     python3 scripts/verify_toolchain_pins.py
     python3 scripts/verify_adversarial_fixtures.py
-    python3 -m unittest tests.test_adversarial_fixtures
+    python3 scripts/verify_ores_stack_cli_hardening.py
+    python3 -m unittest tests.test_adversarial_fixtures tests.test_ores_stack_cli_hardening
     bash conformance/check-all.sh
 
 verify-static:
