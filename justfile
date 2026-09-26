@@ -8,7 +8,8 @@ verify:
     python3 scripts/verify_toolchain_pins.py
     python3 scripts/verify_adversarial_fixtures.py
     python3 scripts/verify_ores_stack_cli_hardening.py
-    python3 -m unittest tests.test_adversarial_fixtures tests.test_ores_stack_cli_hardening
+    python3 scripts/verify_ores_stack_cli_integrity.py
+    python3 -m unittest tests.test_adversarial_fixtures tests.test_ores_stack_cli_hardening tests.test_ores_stack_cli_integrity
     bash conformance/check-all.sh
 
 verify-static:
