@@ -12,6 +12,11 @@ from pathlib import Path
 from project_matrix import ROOT, load_project_specs
 
 MAP_PATH = ROOT / "shared/dummy-org-map.json"
+GITLINK_LEDGER_PATH = ROOT / "shared/dummy-org-gitlinks.json"
+
+
+def cutover_complete() -> bool:
+    return (ROOT / ".gitmodules").is_file() and GITLINK_LEDGER_PATH.is_file()
 
 
 def run(
@@ -250,6 +255,17 @@ def main() -> int:
 
     if args.rewrite_submodules and not args.apply:
         parser.error("--rewrite-submodules requires --apply")
+
+    if cutover_complete():
+        message = (
+            "dummy-org cutover is already complete: component sources are governed "
+            "gitlinks, not embedded directories. Use `zed install --git-submodules` "
+            "to materialize the committed revisions. Do not re-run the one-time copier."
+        )
+        if args.apply or args.rewrite_submodules:
+            raise SystemExit(message)
+        print(message)
+        return 0
 
     targets = target_specs()
     remotes = unique_remote_repos(targets)

@@ -5,6 +5,10 @@ version = "0.1.0"
 description = "Cross-stack conformance and deployment comparison harness"
 language = "mixed"
 
+[package.repository]
+vcs = "git"
+url = "https://github.com/ORESoftware/ores-comparisons"
+
 [dependencies]
 "oresoftware/ores-compose" = "=0.1.0"
 "oresoftware/typespec-json-schema-validator" = "=0.1.1"

@@ -2,10 +2,19 @@ verify:
     python3 scripts/verify_examples.py
     python3 scripts/verify_project_matrix.py
     python3 scripts/verify_dummy_org_map.py
+    python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_org_manifests.py
     python3 scripts/verify_toolchain_pins.py
     bash conformance/check-all.sh
+
+verify-static:
+    python3 scripts/verify_project_matrix.py
+    python3 scripts/verify_dummy_org_map.py
+    python3 scripts/verify_dummy_org_gitlinks.py
+    python3 scripts/verify_project_repo_layout.py
+    python3 scripts/verify_toolchain_pins.py
+    python3 scripts/verify_benchmark_matrix.py
 
 generate:
     python3 scripts/generate_all_contracts.py
@@ -19,8 +28,12 @@ tools-bootstrap:
 dummy-org-plan:
     python3 scripts/materialize_dummy_orgs.py
 
-dummy-org-materialize: tools-bootstrap
+dummy-org-materialize:
     python3 scripts/materialize_dummy_orgs.py --apply --rewrite-submodules
+
+zed-check: tools-bootstrap
+    ./.local/bin/zed task list
+    ./.local/bin/zed task run check
 
 submodules-sync: tools-bootstrap
     ./.local/bin/zed install --git-submodules
@@ -30,6 +43,7 @@ submodules-status:
 
 submodules-verify:
     python3 scripts/verify_dummy_org_map.py
+    python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
 
 env-init project:
