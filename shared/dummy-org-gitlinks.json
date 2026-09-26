@@ -651,6 +651,106 @@
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-4/app",
       "commit": "4d05bf2f5e53462bc55e19e852aa4f9f953a0313"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/contract-tests",
+      "commit": "32324943e6766b41537a167f1fbb16522c833697"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/sdk-typescript",
+      "commit": "36ecd6f39bb2e2bcb3a5cf50e4d439bca9f7c733"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/.github",
+      "commit": "a4585398101b7715d34b35b79cd74548bad46199"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/app",
+      "commit": "5852b56ccd4694cfab94a28ba944627ead838cd9"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/contract-tests",
+      "commit": "5f474afe8225cb70d89db09e0e7b5f860c808e56"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/cached-rpc/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-4/sdk-typescript",
+      "commit": "09c226d6d56fd838a6c5d9dcf68a90219fff64e4"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/.github",
+      "commit": "989bf95074e7717b3507af6ae298c745bdc61cca"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/app",
+      "commit": "65158e36e850a63fbf3195ba6c702270b7cbd40b"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/contract-tests",
+      "commit": "b81d20d0b046a2f5bbc4ef0e5c1ad944ec14d875"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/cached-rpc/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-4/sdk-typescript",
+      "commit": "e89c6eaad985d7612782f11a12108c1204b05b66"
     }
   ]
 }
