@@ -21,6 +21,10 @@
     "erlef/setup-beam": {
       "upstream_ref": "v1",
       "sha": "54075bcc5e249e4758d363f27d099f55d843f124"
+    },
+    "ORESoftware/typespec-json-schema-validator": {
+      "upstream_ref": "b5bd51946b53c00b1daeb2723c0b5d54eaeafab7",
+      "sha": "b5bd51946b53c00b1daeb2723c0b5d54eaeafab7"
     }
   }
 }
