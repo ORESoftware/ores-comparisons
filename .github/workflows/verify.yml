@@ -85,16 +85,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
-            echo "::notice::COMPARISON_REPO_READ_TOKEN is not configured; mandatory static gates still ran, private cross-repo gates are skipped."
-            exit 0
-          fi
-
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
-          export GIT_CONFIG_VALUE_0="https://github.com/"
-
           # Migration-era proof for clean-environment installation and rollback.
+          # Run this before the optional private-authorities token gate so a
+          # missing cross-repo secret cannot turn the exercise into a silent skip.
           # These immutable historical commits are evidence fixtures only and
           # explicitly do not count as canonical release proof.
           python3 scripts/verify_ores_stack_cli_release_safety.py \
@@ -103,6 +96,15 @@ jobs:
             --previous d46c07e0f91c2dbda9b2fee64bdd82f6d52fc1ef \
             --candidate 2fd66cfaaf0d014f0e27cf29eae6a943928724c5 \
             --receipt artifacts/ores-stack-cli-release-safety.json
+
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "::notice::COMPARISON_REPO_READ_TOKEN is not configured; release-safety exercise ran, remaining private cross-repo gates are skipped."
+            exit 0
+          fi
+
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          export GIT_CONFIG_VALUE_0="https://github.com/"
 
           bash scripts/bootstrap_pinned_tools.sh
           export PATH="$PWD/.local/bin:$PATH"
