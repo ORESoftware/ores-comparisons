@@ -11,7 +11,7 @@ errors = []
 
 required = {
     "zed-cli": ("0.3.0", "17412050a0f4c4f963008f0de9abf3651d42af08"),
-    "ores-compose": ("0.1.0", "fbfad966f9770a9a8d3895880523280324b4ddc6"),
+    "ores-compose": ("0.1.0", "26e331f458c9802727802514b380ff49ebc7270a"),
     "typespec-json-schema-validator": ("0.1.1", "e29a91d7ef74e3b0613ea79e988bec4c467535d2"),
     "bmscl-cli": (None, "2a9dd1bf8835ec59c84362ac756839730fbbc7f4"),
     "bmscl-compiler": (None, "2c9e0f9d47b3d15e8ffe571c86859132d90286be"),
