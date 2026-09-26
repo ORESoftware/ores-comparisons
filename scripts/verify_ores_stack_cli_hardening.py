@@ -16,6 +16,9 @@ SCAFFOLD_PATH = ROOT / "conformance" / "ores-stack-cli" / "scaffold-transaction.
 OWNERSHIP_PATH = ROOT / "conformance" / "ores-stack-cli" / "generator-ownership.v1.json"
 CACHE_PATH = ROOT / "conformance" / "ores-stack-cli" / "cache-integrity.v1.json"
 PLUGIN_PATH = ROOT / "conformance" / "ores-stack-cli" / "plugin-execution.v1.json"
+ERROR_DIAGNOSTICS_PATH = ROOT / "conformance" / "ores-stack-cli" / "error-diagnostics.v1.json"
+CLEAN_MACHINE_PATH = ROOT / "conformance" / "ores-stack-cli" / "clean-machine.v1.json"
+ROLLBACK_PATH = ROOT / "conformance" / "ores-stack-cli" / "rollback-recovery.v1.json"
 CANONICAL_REPOSITORY = "https://github.com/ores-stack/ores-stack-cli"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -50,6 +53,18 @@ REQUIRED_CACHE_HIT_REQUIREMENTS = {
     "receipt_identity_exactly_matches_recomputed_plan",
     "binary_is_regular_non_symlink_file",
     "binary_sha256_matches_receipt",
+}
+REQUIRED_ERROR_COMMANDS = {"build", "dev", "generate", "verify", "deploy"}
+REQUIRED_DIAGNOSTIC_FIELDS = {"code", "command", "message", "retryable"}
+REQUIRED_CLEAN_MACHINE_KINDS = {"server", "lambda", "infra"}
+REQUIRED_ROLLBACK_REQUIREMENTS = {
+    "current_and_candidate_binaries_are_immutable_digest_verified_files",
+    "candidate_is_activated_only_after_verification",
+    "failed_post_activation_smoke_test_restores_previous_binary_atomically",
+    "project_configuration_is_never_rewritten_by_toolchain_switching",
+    "cache_roots_are_namespaced_by_toolchain_identity",
+    "downgrade_does_not_delete_previous_or_newer_cache_namespaces",
+    "active_toolchain_state_records_current_and_previous_identity",
 }
 REQUIRED_PLUGIN_REQUIREMENTS = {
     "plugin_executable_must_resolve_to_a_regular_non_symlink_file",
@@ -308,6 +323,124 @@ def verify_plugin_execution(document: dict[str, Any], *, release_ready: bool) ->
     return errors
 
 
+def verify_error_diagnostics(document: dict[str, Any], *, release_ready: bool) -> list[str]:
+    errors: list[str] = []
+    if document.get("schema") != "ores.stack.error-diagnostics/v1":
+        errors.append("error diagnostics: unsupported schema")
+    status = document.get("status")
+    if status not in {"contract-only", "verified"}:
+        errors.append("error diagnostics: status must be contract-only or verified")
+    commands = document.get("requiredCommandFamilies")
+    if not isinstance(commands, list):
+        errors.append("error diagnostics: requiredCommandFamilies must be an array")
+        commands = []
+    missing_commands = sorted(REQUIRED_ERROR_COMMANDS - set(commands))
+    if missing_commands:
+        errors.append(f"error diagnostics: missing command families {missing_commands}")
+
+    shape = document.get("diagnosticShape")
+    required_fields: set[str] = set()
+    if isinstance(shape, dict) and isinstance(shape.get("required"), list):
+        required_fields = set(shape["required"])
+    missing_fields = sorted(REQUIRED_DIAGNOSTIC_FIELDS - required_fields)
+    if missing_fields:
+        errors.append(f"error diagnostics: missing required fields {missing_fields}")
+
+    pattern = document.get("codeFormat")
+    try:
+        code_re = re.compile(pattern) if isinstance(pattern, str) else None
+    except re.error:
+        code_re = None
+    if code_re is None:
+        errors.append("error diagnostics: invalid code format regex")
+
+    seen: set[str] = set()
+    covered: set[str] = set()
+    codes = document.get("codes")
+    if not isinstance(codes, list):
+        errors.append("error diagnostics: codes must be an array")
+        codes = []
+    for item in codes:
+        if not isinstance(item, dict):
+            errors.append("error diagnostics: code entry must be an object")
+            continue
+        code = item.get("code")
+        code_commands = item.get("commands")
+        if not isinstance(code, str) or code_re is None or code_re.fullmatch(code) is None:
+            errors.append(f"error diagnostics: invalid stable code {code!r}")
+            continue
+        if code in seen:
+            errors.append(f"error diagnostics: duplicate stable code {code}")
+        seen.add(code)
+        if not isinstance(code_commands, list) or not code_commands:
+            errors.append(f"error diagnostics: code {code} must name command families")
+            continue
+        unknown = set(code_commands) - REQUIRED_ERROR_COMMANDS
+        if unknown:
+            errors.append(f"error diagnostics: code {code} has unknown commands {sorted(unknown)}")
+        covered.update(set(code_commands) & REQUIRED_ERROR_COMMANDS)
+    missing_coverage = sorted(REQUIRED_ERROR_COMMANDS - covered)
+    if missing_coverage:
+        errors.append(f"error diagnostics: command families lack stable codes {missing_coverage}")
+    if release_ready and status != "verified":
+        errors.append(
+            "error diagnostics: release authority cannot be ready before stable structured failures are verified"
+        )
+    return errors
+
+
+def verify_clean_machine(document: dict[str, Any], *, release_ready: bool) -> list[str]:
+    errors: list[str] = []
+    if document.get("schema") != "ores.stack.clean-machine/v1":
+        errors.append("clean machine: unsupported schema")
+    status = document.get("status")
+    if status not in {"blocked", "verified"}:
+        errors.append("clean machine: status must be blocked or verified")
+    if status == "blocked" and not document.get("blockedReason"):
+        errors.append("clean machine: blocked status requires blockedReason")
+    environment = document.get("environment")
+    if not isinstance(environment, dict):
+        errors.append("clean machine: environment must be an object")
+    else:
+        if environment.get("home") != "empty-temporary-directory":
+            errors.append("clean machine: HOME must be an empty temporary directory")
+        if environment.get("preinstalledOresStack") is not False:
+            errors.append("clean machine: preinstalledOresStack must be false")
+        tools = environment.get("allowedBootstrapTools")
+        if not isinstance(tools, list) or not tools:
+            errors.append("clean machine: allowedBootstrapTools must be non-empty")
+    kinds = document.get("representativeKinds")
+    if not isinstance(kinds, list):
+        errors.append("clean machine: representativeKinds must be an array")
+        kinds = []
+    missing_kinds = sorted(REQUIRED_CLEAN_MACHINE_KINDS - set(kinds))
+    if missing_kinds:
+        errors.append(f"clean machine: missing representative kinds {missing_kinds}")
+    checks = document.get("requiredChecks")
+    if not isinstance(checks, list) or "fail_if_an_undeclared_global_tool_is_required" not in checks:
+        errors.append("clean machine: undeclared global-tool failure check is required")
+    if release_ready and status != "verified":
+        errors.append(
+            "clean machine: release authority cannot be ready before clean-machine installation is verified"
+        )
+    return errors
+
+
+def verify_rollback_recovery(document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if document.get("schema") != "ores.stack.rollback-recovery/v1":
+        errors.append("rollback recovery: unsupported schema")
+    if document.get("status") != "required":
+        errors.append("rollback recovery: status must be required")
+    requirements = document.get("requirements")
+    if not isinstance(requirements, list):
+        return errors + ["rollback recovery: requirements must be an array"]
+    missing = sorted(REQUIRED_ROLLBACK_REQUIREMENTS - set(requirements))
+    if missing:
+        errors.append(f"rollback recovery: missing requirements {missing}")
+    return errors
+
+
 def diagnose(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     """Return deterministic read-only findings; never mutate the supplied snapshot."""
     findings: list[dict[str, Any]] = []
@@ -374,6 +507,9 @@ def main() -> int:
     ownership = load_json(OWNERSHIP_PATH)
     cache = load_json(CACHE_PATH)
     plugin = load_json(PLUGIN_PATH)
+    error_diagnostics = load_json(ERROR_DIAGNOSTICS_PATH)
+    clean_machine = load_json(CLEAN_MACHINE_PATH)
+    rollback = load_json(ROLLBACK_PATH)
     release_ready = bool(matrix.get("releaseAuthorityReady"))
     errors = verify_matrix(matrix)
     errors.extend(
@@ -385,6 +521,9 @@ def main() -> int:
     errors.extend(verify_generator_ownership(ownership))
     errors.extend(verify_cache_integrity(cache))
     errors.extend(verify_plugin_execution(plugin, release_ready=release_ready))
+    errors.extend(verify_error_diagnostics(error_diagnostics, release_ready=release_ready))
+    errors.extend(verify_clean_machine(clean_machine, release_ready=release_ready))
+    errors.extend(verify_rollback_recovery(rollback))
     if errors:
         for error in errors:
             print(f"ERROR {error}")
@@ -412,7 +551,9 @@ def main() -> int:
         f"{len(matrix.get('supportedReleases', []))} supported release(s), "
         f"{len(matrix.get('migrationCandidates', []))} migration candidate(s), "
         f"scaffolding={scaffold.get('implementationStatus')}, "
-        f"plugins={plugin.get('status')}"
+        f"plugins={plugin.get('status')}, "
+        f"diagnostics={error_diagnostics.get('status')}, "
+        f"clean_machine={clean_machine.get('status')}"
     )
     return 0
 
