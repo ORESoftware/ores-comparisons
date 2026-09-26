@@ -1,0 +1,29 @@
+schema = 2
+
+[tasks.check]
+run = [
+  "python3 scripts/verify_project_matrix.py",
+  "python3 scripts/verify_dummy_org_map.py",
+  "python3 scripts/verify_dummy_org_gitlinks.py",
+  "python3 scripts/verify_project_repo_layout.py",
+  "python3 scripts/verify_toolchain_pins.py",
+  "python3 scripts/verify_benchmark_matrix.py",
+]
+
+[tasks.submodules-sync]
+run = [
+  "./.local/bin/zed install --git-submodules",
+]
+
+[tasks.submodules-status]
+run = [
+  "git submodule status --recursive",
+]
+
+[tasks.submodules-verify]
+depends = ["check"]
+run = [
+  "python3 scripts/verify_dummy_org_map.py",
+  "python3 scripts/verify_dummy_org_gitlinks.py",
+  "python3 scripts/verify_project_repo_layout.py",
+]
