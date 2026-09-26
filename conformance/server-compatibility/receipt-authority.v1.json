@@ -1,0 +1,18 @@
+{
+  "schema": "ores.comparisons.server-receipt-authority/v1",
+  "repository": "ORESoftware/api-docs",
+  "revision": "c02712957850046e339b1e94d8d41b219feb304c",
+  "schemaPath": "contracts/server-compatibility-receipt/json-schema/server-compatibility-receipt.schema.json",
+  "policyPath": "scripts/check-server-compatibility-receipt.py",
+  "receiptSchemaVersion": "ores.api-docs.server-compatibility.v1",
+  "canonicalCli": {
+    "repository": "ores-stack/ores-stack-cli",
+    "sha": "5dc53c1e2e2f3f249e6da70c8931a7529d425fc4"
+  },
+  "compose": {
+    "repository": "ORESoftware/ores-compose",
+    "sha": "149b14d07afdbf4611da77848d2a13d0525f8dd6"
+  },
+  "blockedDigestSentinel": "0000000000000000000000000000000000000000000000000000000000000000",
+  "blockedAdapter": "native-http-v1"
+}
