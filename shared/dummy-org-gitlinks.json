@@ -351,6 +351,106 @@
       "branch": "stack/ores-stack",
       "repository": "ores-dummy-org-2/storefront-web",
       "commit": "c7492fbd898292efab2b6fb58df797a7c3b9c391"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/.github",
+      "commit": "b8826684008de002ff82fdd130260b4d9ed99c69"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/app",
+      "commit": "354902412f28bb20480698583ba5f4b3e94eba2c"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "catalog-service",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/catalog-service",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/catalog-service",
+      "commit": "6fde25afa781b9ddc2e96d8794c4c805b77da18c"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/contract-tests",
+      "commit": "f33cf15c25c4ee1ff147372426319ea76f3198bf"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "orders-worker",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/orders-worker",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/orders-worker",
+      "commit": "a282cf8655e2f55b4db5a685ebf373cd9b3c3bf1"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/sdk-typescript",
+      "commit": "7d0cad77e0d9dff2afaa39633fbef37fb15f7e1f"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "storefront-web",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/storefront-web",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-2/storefront-web",
+      "commit": "01cdd6ad765bc0c94dbdbf8430c67d37cfa7e59d"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/.github",
+      "commit": "929e8462713a650c07a68b4aa214b8ec04f745cd"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/app",
+      "commit": "8554ef6519e992c403f52a2b3d079125b4c5b4c7"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "automation-worker",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/automation-worker",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/automation-worker",
+      "commit": "48ee9cfb1ea8db5a88c9002aba6871a4eec2795c"
     }
   ]
 }
