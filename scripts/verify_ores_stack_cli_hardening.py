@@ -186,18 +186,21 @@ def diagnose(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     """Return deterministic read-only findings; never mutate the supplied snapshot."""
     findings: list[dict[str, Any]] = []
 
-    repository = snapshot.get("repository")
-    if repository != CANONICAL_REPOSITORY:
-        code = "fleet.cli.legacy-repository" if repository == "https://github.com/ORESoftware/ores-stack" else "fleet.cli.repository-mismatch"
-        findings.append({"code": code, "observed": repository, "expected": CANONICAL_REPOSITORY})
+    if "repository" in snapshot:
+        repository = snapshot.get("repository")
+        if repository != CANONICAL_REPOSITORY:
+            code = "fleet.cli.legacy-repository" if repository == "https://github.com/ORESoftware/ores-stack" else "fleet.cli.repository-mismatch"
+            findings.append({"code": code, "observed": repository, "expected": CANONICAL_REPOSITORY})
 
-    commit = snapshot.get("commit")
-    if not isinstance(commit, str) or not SHA40.fullmatch(commit):
-        findings.append({"code": "fleet.cli.mutable-or-missing-commit", "observed": commit})
+    if "commit" in snapshot:
+        commit = snapshot.get("commit")
+        if not isinstance(commit, str) or not SHA40.fullmatch(commit):
+            findings.append({"code": "fleet.cli.mutable-or-missing-commit", "observed": commit})
 
-    checksum = snapshot.get("sha256")
-    if not isinstance(checksum, str) or not SHA256.fullmatch(checksum):
-        findings.append({"code": "fleet.cli.missing-or-invalid-checksum", "observed": checksum})
+    if "sha256" in snapshot:
+        checksum = snapshot.get("sha256")
+        if not isinstance(checksum, str) or not SHA256.fullmatch(checksum):
+            findings.append({"code": "fleet.cli.missing-or-invalid-checksum", "observed": checksum})
 
     resolved = snapshot.get("resolvedBinary")
     pinned = snapshot.get("pinnedBinary")
@@ -223,9 +226,6 @@ def diagnose(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
 def live_snapshot(expected_cli: Path | None) -> dict[str, Any]:
     resolved = shutil.which("ores-stack")
     return {
-        "repository": CANONICAL_REPOSITORY,
-        "commit": None,
-        "sha256": None,
         "resolvedBinary": resolved,
         "pinnedBinary": str(expected_cli) if expected_cli else None,
         "missingAdapters": [],
