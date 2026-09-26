@@ -1,10 +1,14 @@
 //! Deterministic module-interface projection through the shared api-docs engine.
 
-use std::{fs, io::Write, path::{Path, PathBuf}};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use ores_api_docs::{
-    ModuleInterfaceLanguage, ModuleInterfaceRuntimeProfile, ModuleInterfaceSpec,
-    render_module_interface_matrix,
+    render_module_interface_matrix, ModuleInterfaceLanguage, ModuleInterfaceRuntimeProfile,
+    ModuleInterfaceSpec,
 };
 use serde::Deserialize;
 
@@ -33,7 +37,10 @@ pub fn run(_args: &CliArgs) -> Result<i32, CliError> {
         ))
     })?;
     let request: ProjectionRequest = serde_json::from_str(&request_text).map_err(|error| {
-        CliError::usage(format!("{} is not a valid module-interface request: {error}", request_path.display()))
+        CliError::usage(format!(
+            "{} is not a valid module-interface request: {error}",
+            request_path.display()
+        ))
     })?;
     let languages = if request.languages.is_empty() {
         ModuleInterfaceLanguage::ALL.to_vec()
@@ -74,8 +81,9 @@ pub fn run(_args: &CliArgs) -> Result<i32, CliError> {
 
 fn ensure_real_dir(path: &Path, label: &str) -> Result<(), CliError> {
     if path.exists() {
-        let metadata = fs::symlink_metadata(path)
-            .map_err(|error| CliError::runtime(format!("inspect {label} {}: {error}", path.display())))?;
+        let metadata = fs::symlink_metadata(path).map_err(|error| {
+            CliError::runtime(format!("inspect {label} {}: {error}", path.display()))
+        })?;
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
             return Err(CliError::runtime(format!(
                 "{label} must be a real non-symlink directory: {}",
@@ -85,8 +93,9 @@ fn ensure_real_dir(path: &Path, label: &str) -> Result<(), CliError> {
         return Ok(());
     }
 
-    fs::create_dir(path)
-        .map_err(|error| CliError::runtime(format!("create {label} {}: {error}", path.display())))?;
+    fs::create_dir(path).map_err(|error| {
+        CliError::runtime(format!("create {label} {}: {error}", path.display()))
+    })?;
     return Ok(());
 }
 
@@ -108,9 +117,12 @@ fn atomic_create(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
             .create_new(true)
             .write(true)
             .open(&temporary)
-            .map_err(|error| CliError::runtime(format!("create {}: {error}", temporary.display())))?;
-        file.write_all(bytes)
-            .map_err(|error| CliError::runtime(format!("write {}: {error}", temporary.display())))?;
+            .map_err(|error| {
+                CliError::runtime(format!("create {}: {error}", temporary.display()))
+            })?;
+        file.write_all(bytes).map_err(|error| {
+            CliError::runtime(format!("write {}: {error}", temporary.display()))
+        })?;
         file.sync_all()
             .map_err(|error| CliError::runtime(format!("sync {}: {error}", temporary.display())))?;
         fs::rename(&temporary, path).map_err(|error| {
@@ -146,7 +158,11 @@ mod tests {
         )
         .expect("matrix");
         assert_eq!(rendered.len(), 13);
-        assert!(rendered.iter().any(|item| item.language == ModuleInterfaceLanguage::StandardMl));
-        assert!(rendered.iter().any(|item| item.language == ModuleInterfaceLanguage::Racket));
+        assert!(rendered
+            .iter()
+            .any(|item| item.language == ModuleInterfaceLanguage::StandardMl));
+        assert!(rendered
+            .iter()
+            .any(|item| item.language == ModuleInterfaceLanguage::Racket));
     }
 }
