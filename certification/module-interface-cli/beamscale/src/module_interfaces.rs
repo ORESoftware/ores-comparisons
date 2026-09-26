@@ -14,9 +14,5 @@ pub fn render_direct_guest_interfaces(
     spec: &ModuleInterfaceSpec,
     languages: &[ModuleInterfaceLanguage],
 ) -> Result<Vec<GeneratedModuleInterface>, ModuleInterfaceCodegenError> {
-    render_module_interface_matrix(
-        ModuleInterfaceRuntimeProfile::BeamScale,
-        languages,
-        spec,
-    )
+    render_module_interface_matrix(ModuleInterfaceRuntimeProfile::BeamScale, languages, spec)
 }

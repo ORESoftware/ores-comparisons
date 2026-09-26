@@ -1,10 +1,6 @@
 //! Deterministic module-interface projection through the shared api-docs engine.
 
-use std::{
-    fs,
-    io::Write,
-    path::Path,
-};
+use std::{fs, io::Write, path::Path};
 
 use ores_api_docs::{
     render_module_interface_matrix, ModuleInterfaceLanguage, ModuleInterfaceRuntimeProfile,
@@ -90,7 +86,7 @@ fn ensure_real_dir(path: &Path, label: &str) -> Result<(), CliError> {
                 path.display()
             )));
         }
-        return Ok(());
+        Ok(())
     }
 
     fs::create_dir(path).map_err(|error| {
