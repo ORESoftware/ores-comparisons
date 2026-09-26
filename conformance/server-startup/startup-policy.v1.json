@@ -1,0 +1,34 @@
+{
+  "schema": "ores.stack.startup-policy/v1",
+  "resolver": "flags-2-env",
+  "precedence": [
+    "cli-flags",
+    "environment",
+    "encrypted-config",
+    "defaults"
+  ],
+  "requiredSettings": [
+    "bind-address",
+    "deployment-mode",
+    "auth-policy"
+  ],
+  "securitySensitiveSettings": [
+    "auth-policy",
+    "tenant-mode",
+    "database-scope",
+    "admin-enabled"
+  ],
+  "allowedDeploymentModes": [
+    "standalone",
+    "scintilla",
+    "aws-lambda-http",
+    "gcp-cloud-run-http",
+    "gcp-cloudevents"
+  ],
+  "refusalRules": [
+    "missing-required-setting",
+    "unknown-security-sensitive-field",
+    "contradictory-deployment-mode",
+    "admin-enabled-on-public-deployment"
+  ]
+}

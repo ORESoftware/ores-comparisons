@@ -1,0 +1,52 @@
+{
+  "schema": "ores.stack.server-compatibility/v1",
+  "entrypoints": {
+    "standaloneBinary": "example",
+    "libraryRouter": "example::router",
+    "functionReusable": true
+  },
+  "configuration": {
+    "portEnvironment": "PORT",
+    "forbiddenAuthoritativeCredentials": []
+  },
+  "lifecycle": {
+    "startup": "validate-before-bind",
+    "shutdown": "graceful",
+    "detachedBackgroundWork": false
+  },
+  "health": {
+    "livenessPath": "/healthz",
+    "readinessPath": "/readyz",
+    "livenessRequiresDependencies": false,
+    "readinessMeaning": "admitted"
+  },
+  "capabilities": {
+    "http": true,
+    "websocket": false,
+    "directDatabase": true,
+    "authoritativeMutation": true,
+    "functionReusableRouter": true
+  },
+  "handlerAdmission": {
+    "module": "example::handler_admission",
+    "request": "Req",
+    "response": "Resp",
+    "context": "Ctx",
+    "failure": "Err",
+    "proofCommand": "cargo test --doc",
+    "compileFailDimensions": [
+      "request",
+      "response",
+      "context",
+      "failure"
+    ]
+  },
+  "repositoryRole": "api-write",
+  "writeBoundary": {
+    "authentication": "verified principal required",
+    "tenantAuthorization": "resource tenant must equal principal tenant",
+    "validation": "typed request validation before mutation",
+    "idempotency": "",
+    "proofCommand": "cargo test write_boundary"
+  }
+}

@@ -83,6 +83,33 @@ def validate(document: dict[str, Any]) -> list[str]:
         if not isinstance(dimensions, list) or set(dimensions) != REQUIRED_DIMENSIONS:
             errors.append("handlerAdmission.compileFailDimensions must cover request,response,context,failure")
 
+    if role == "api-write":
+        if not isinstance(caps, dict) or caps.get("authoritativeMutation") is not True:
+            errors.append("api-write authoritative mutations must be enabled")
+        boundary = document.get("writeBoundary")
+        if not isinstance(boundary, dict):
+            errors.append("api-write requires writeBoundary")
+        else:
+            for key in ("authentication", "tenantAuthorization", "validation", "idempotency", "proofCommand"):
+                if not isinstance(boundary.get(key), str) or not boundary[key]:
+                    errors.append(f"writeBoundary.{key} is required")
+
+    if role == "admin":
+        isolation = document.get("adminIsolation")
+        if not isinstance(isolation, dict):
+            errors.append("admin requires adminIsolation")
+        else:
+            for key in (
+                "publicManifestCannotSelectAdmin",
+                "adminCredentialsIsolated",
+                "adminRoutesIsolated",
+                "adminDatabaseIsolated",
+            ):
+                if isolation.get(key) is not True:
+                    errors.append(f"adminIsolation.{key} must be true")
+            if not isinstance(isolation.get("proofCommand"), str) or not isolation["proofCommand"]:
+                errors.append("adminIsolation.proofCommand is required")
+
     if role == "web-read":
         if not isinstance(entry, dict) or entry.get("functionReusable") is not True:
             errors.append("web-read router must be function reusable")
