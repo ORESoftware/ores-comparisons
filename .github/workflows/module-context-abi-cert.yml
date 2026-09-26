@@ -31,9 +31,15 @@ jobs:
           gleam-version: "1.18.1"
           version-type: strict
 
-      - name: Format BeamScale carrier
-        working-directory: certification/module-context/beamscale
-        run: gleam format --check src
+      - name: Format-check BeamScale carrier with diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          gleam format certification/module-context/beamscale/src
+          if ! git diff --exit-code -- certification/module-context/beamscale/src; then
+            echo "BeamScale PR14 source is not gleam-format clean" >&2
+            exit 1
+          fi
 
       - name: Check BeamScale carrier
         working-directory: certification/module-context/beamscale
