@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/runtime-all-18.yml"
+      - ".github/workflows/runtime-project.yml"
       - "scripts/bootstrap_pinned_tools.sh"
       - "tools/toolchain.lock.json"
       - "tools/README.md"
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/runtime-all-18.yml"
+      - ".github/workflows/runtime-project.yml"
       - "scripts/bootstrap_pinned_tools.sh"
       - "tools/toolchain.lock.json"
       - "tools/README.md"
@@ -30,8 +32,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  credential-preflight:
+    name: cross-org credential preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+    steps:
+      - name: Require an approved read-only cross-org credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            {
+              echo '## CREDENTIAL_BLOCKED'
+              echo
+              echo 'The 18-project runtime suite requires a read-only credential that can fetch the governed private dummy-org repositories.'
+              echo
+              echo 'Accepted configured secret names: COMPARISON_REPO_READ_TOKEN, ORES_CROSS_REPO_READ_TOKEN, TEST_FLEET_READ_TOKEN.'
+              echo 'No runtime project was started and no source result should be inferred.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo '::error title=CREDENTIAL_BLOCKED::No approved cross-org read credential is configured; 18-project runtime execution was not started.'
+            exit 78
+          fi
+          echo 'cross-org read credential is configured; runtime waves may start'
+
   cached-rpc:
     name: wave 1 cached-rpc / ${{ matrix.stack }}
+    needs: credential-preflight
     strategy:
       fail-fast: false
       matrix:
