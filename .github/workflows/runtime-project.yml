@@ -26,16 +26,15 @@ jobs:
     env:
       STACK: ${{ inputs.stack }}
       SCENARIO: ${{ inputs.scenario }}
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
 
     steps:
       - name: Require private cross-repository execution credential
         shell: bash
-        env:
-          COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
-            echo "::error title=Infrastructure blocked::COMPARISON_REPO_READ_TOKEN is not configured; executable runtime proof requires read-only access to the private dummy-org and stack-tool repositories."
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            echo "::error title=Infrastructure blocked::No established cross-repository read secret is available (checked COMPARISON_REPO_READ_TOKEN, cross-repo-token, ORES_CROSS_REPO_READ_TOKEN, TEST_FLEET_READ_TOKEN)."
             exit 1
           fi
 
