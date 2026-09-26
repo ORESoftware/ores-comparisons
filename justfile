@@ -14,6 +14,7 @@ verify:
     python3 scripts/verify_ores_stack_cli_integrity.py
     python3 scripts/verify_ores_stack_cli_release_safety.py
     python3 scripts/generate_ores_stack_server_inventory.py --check
+    python3 scripts/verify_real_server_inventory.py
     python3 -m unittest tests.test_adversarial_fixtures tests.test_ores_stack_cli_hardening tests.test_ores_stack_cli_integrity tests.test_ores_stack_cli_release_safety tests.test_ores_stack_clean_machine tests.test_ores_stack_toolchain_switch
     bash conformance/check-all.sh
 

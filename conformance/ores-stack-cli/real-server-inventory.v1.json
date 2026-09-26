@@ -1,0 +1,544 @@
+{
+  "schema": "ores.stack.real-server-inventory/v1",
+  "observedAt": "2026-09-26",
+  "discoveryScope": "GitHub App installed repositories matching web-server.rs or api-server.rs",
+  "completeness": {
+    "repositoryIdentityAndSha": "complete-for-discovered-mounted-repositories",
+    "binaryTargets": "pending",
+    "infraOwnership": "partial",
+    "deploymentModes": "pending"
+  },
+  "servers": [
+    {
+      "repository": "3FA-app/3fa-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "18229439d4dfeac2dfb63429ef176c0c49ea3895",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "resolved",
+        "repository": "3FA-app/3fa-infra"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "3FA-app/3fa-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "eea448f49e1e8f7867f63e81b322322142a33507",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "resolved",
+        "repository": "3FA-app/3fa-infra"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "3FA-app/3fa-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "beb4ca8bb20e3c5661e060b1cab456769bc6ae67",
+      "role": "api-write",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "resolved",
+        "repository": "3FA-app/3fa-infra"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "3FA-app/3fa-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "de3055ce988b0ea013e6f8fe981712410984f183",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "resolved",
+        "repository": "3FA-app/3fa-infra"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "messaging-intel/msgint-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "3288192920c7f47c8013ad77a03a4c1de6cacbc6",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "messaging-intel/msgint-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "278a34589df6af2aade71a0e249723a128c4a5f0",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "messaging-intel/msgint-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "67aa8da61c155631a6ba0ea90f116acc784db6ca",
+      "role": "api-write",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "messaging-intel/msgint-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "e0e6a260e3709b6e85cf3eae97736cc03619674d",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "akrion-sim/akrion-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "30a30f0796ae666fed03634daa314f9791437453",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "akrion-sim/akrion-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "0968d4cfe7ac1b8f5f4334b281e65cb22a411ae0",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "akrion-sim/akrion-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "5dd0710fe4df602bf2fb4a68f79ebc9752474de6",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "athlet-o/athleto-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "2e7621bae395fabd92d4231c4c5bd618482c0375",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "athlet-o/athleto-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "b3ad6914cca41d36a4f71a879bafa2d8a4fece12",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "athlet-o/athleto-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "cf8f469b4c480cd8a75454a4b014576822f8b930",
+      "role": "api-write",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "athlet-o/athleto-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "7b03d6ca6acc1953825f96423f7ac36166da85af",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "benefactor-cc/benefactor-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "57a5f8398fd68c3ab60bf3da94955ab2ced20f71",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "benefactor-cc/benefactor-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "ec63bf946a248c87393caaf584c4b1df75004115",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "benefactor-cc/benefactor-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "1480e1254427410ebdf7317e32a0d124ca2a2f2d",
+      "role": "api-write",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "benefactor-cc/benefactor-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "1c7f32f5a6749661a7f4ded1c04e5c60f694457a",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "canonical-cloud/canonical-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "f5d6c3f23f9eb2605fe2d4f164ea838fa93b6cc7",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "canonical-cloud/canonical-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "9de4bce36e42a98fa9cfdc5a889f65ec18b5b39d",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "canonical-cloud/canonical-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "e4ec6221c276eaabe8536f99f1f0c8424c28c500",
+      "role": "api-write",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "canonical-cloud/canonical-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "0e0283dfab56de0593decbb2b90fa90cf4de5482",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "claritas-viz/claritas-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "e821204d3c3291ffd0a00a1d06cba43cbdda4645",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "claritas-viz/claritas-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "04b67b5e9f589d1a4115227e9f8594d323d4d18d",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "claritas-viz/claritas-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "c266ec266efbdb4483610608af8d714845c49c1c",
+      "role": "api-write",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "claritas-viz/claritas-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "c686b72ebde49d44ebba67ad2e64a20ec2e24cef",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "cliptown/cliptown-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "edfffcc66eb6c02720fd64cad57ffb2bff21b912",
+      "role": "web-read",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "cliptown/cliptown-admin-web-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "d6149f5629814c1cc87be1fbaf2dc744d5f9cdad",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "cliptown/cliptown-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "c462ca829cf9bdb3ff2b2b4d77b274816ea59178",
+      "role": "api-write",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    },
+    {
+      "repository": "cliptown/cliptown-admin-api-server.rs",
+      "defaultBranch": "main",
+      "defaultBranchSha": "758d358a31b5f6f3fe1e5ef4f798c7e77df81c22",
+      "role": "admin",
+      "binaryTargets": {
+        "state": "pending-cargo-manifest-audit",
+        "values": []
+      },
+      "infraOwner": {
+        "state": "unresolved-not-mounted"
+      },
+      "deploymentModes": {
+        "state": "pending-infra-audit",
+        "values": []
+      }
+    }
+  ]
+}
