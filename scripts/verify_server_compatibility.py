@@ -135,6 +135,83 @@ def validate(document: dict[str, Any]) -> list[str]:
             if not isinstance(limits.get("proofCommand"), str) or not limits["proofCommand"]:
                 errors.append("runtimeSafety.bufferLimits.proofCommand is required")
 
+    edge = document.get("edgeSafety")
+    if not isinstance(edge, dict):
+        errors.append("edgeSafety must be an object")
+    else:
+        public_errors = edge.get("publicErrors")
+        if not isinstance(public_errors, dict):
+            errors.append("edgeSafety.publicErrors must be an object")
+        else:
+            if public_errors.get("standaloneFunctionEquivalent") is not True:
+                errors.append("standalone and function public errors must be equivalent")
+            if public_errors.get("internalDiagnosticsExposed") is not False:
+                errors.append("public errors must not expose internal diagnostics")
+            if not isinstance(public_errors.get("proofCommand"), str) or not public_errors["proofCommand"]:
+                errors.append("edgeSafety.publicErrors.proofCommand is required")
+
+        proxy = edge.get("proxyTrust")
+        if not isinstance(proxy, dict):
+            errors.append("edgeSafety.proxyTrust must be an object")
+        else:
+            ingresses = proxy.get("configuredIngresses")
+            if not isinstance(ingresses, list) or not ingresses or any(not isinstance(x, str) or not x for x in ingresses):
+                errors.append("proxyTrust.configuredIngresses must be a non-empty string array")
+            fields = proxy.get("trustedForwardedFields")
+            if not isinstance(fields, list) or set(fields) != {"host", "scheme", "client-address"}:
+                errors.append("proxyTrust.trustedForwardedFields must cover host,scheme,client-address")
+            if proxy.get("untrustedForwardedHeadersIgnored") is not True:
+                errors.append("untrusted forwarded headers must be ignored")
+            if not isinstance(proxy.get("proofCommand"), str) or not proxy["proofCommand"]:
+                errors.append("edgeSafety.proxyTrust.proofCommand is required")
+
+        browser = edge.get("browserSecurity")
+        if not isinstance(browser, dict):
+            errors.append("edgeSafety.browserSecurity must be an object")
+        else:
+            for key in ("corsPolicy", "csrfPolicy"):
+                if not isinstance(browser.get(key), str) or not browser[key]:
+                    errors.append(f"browserSecurity.{key} is required")
+            if browser.get("secureCookies") is not True:
+                errors.append("browser security requires secure cookies")
+            if browser.get("originValidation") is not True:
+                errors.append("browser security requires origin validation")
+            if not isinstance(browser.get("proofCommand"), str) or not browser["proofCommand"]:
+                errors.append("edgeSafety.browserSecurity.proofCommand is required")
+
+        budgets = edge.get("connectionBudgets")
+        if not isinstance(budgets, dict):
+            errors.append("edgeSafety.connectionBudgets must be an object")
+        else:
+            integer_fields = (
+                "replicas", "providerConcurrency", "databasePoolPerReplica",
+                "databaseTotalBudget", "outboundHttpPoolPerReplica", "outboundHttpTotalBudget",
+            )
+            for key in integer_fields:
+                value = budgets.get(key)
+                minimum = 1 if key in {"replicas", "providerConcurrency"} else 0
+                if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+                    errors.append(f"connectionBudgets.{key} is invalid")
+            replicas = budgets.get("replicas")
+            concurrency = budgets.get("providerConcurrency")
+            db_per = budgets.get("databasePoolPerReplica")
+            db_total = budgets.get("databaseTotalBudget")
+            http_per = budgets.get("outboundHttpPoolPerReplica")
+            http_total = budgets.get("outboundHttpTotalBudget")
+            if all(isinstance(x, int) and not isinstance(x, bool) for x in (replicas, db_per, db_total)):
+                if db_total != replicas * db_per:
+                    errors.append("database total budget must equal replicas * pool per replica")
+            if all(isinstance(x, int) and not isinstance(x, bool) for x in (replicas, http_per, http_total)):
+                if http_total != replicas * http_per:
+                    errors.append("outbound HTTP total budget must equal replicas * pool per replica")
+            if isinstance(concurrency, int) and not isinstance(concurrency, bool):
+                if isinstance(db_per, int) and not isinstance(db_per, bool) and db_per > concurrency:
+                    errors.append("database pool per replica exceeds provider concurrency")
+                if isinstance(http_per, int) and not isinstance(http_per, bool) and http_per > concurrency:
+                    errors.append("outbound HTTP pool per replica exceeds provider concurrency")
+            if not isinstance(budgets.get("proofCommand"), str) or not budgets["proofCommand"]:
+                errors.append("edgeSafety.connectionBudgets.proofCommand is required")
+
     admission = document.get("handlerAdmission")
     if not isinstance(admission, dict):
         errors.append("handlerAdmission must be an object")
