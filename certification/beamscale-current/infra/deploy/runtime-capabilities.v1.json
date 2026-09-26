@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "beamscale.runtime-capabilities.v1",
+  "admission": {
+    "unsupportedRequirement": "reject_before_mutation",
+    "unknownTarget": "reject_before_mutation",
+    "capabilityClaimsAreProviderNeutral": true
+  },
+  "targets": {
+    "beamscale_native": {
+      "beamVm": true,
+      "residentSupervision": true,
+      "hotReload": true,
+      "durableActorLocal": true,
+      "wasm": true,
+      "v8Isolate": false,
+      "wireguardMesh": true,
+      "providerPrivateNetwork": true
+    },
+    "kubernetes": {
+      "beamVm": true,
+      "residentSupervision": true,
+      "hotReload": true,
+      "durableActorLocal": true,
+      "wasm": true,
+      "v8Isolate": false,
+      "wireguardMesh": true,
+      "providerPrivateNetwork": true
+    },
+    "firecracker": {
+      "beamVm": true,
+      "residentSupervision": true,
+      "hotReload": true,
+      "durableActorLocal": true,
+      "wasm": true,
+      "v8Isolate": false,
+      "wireguardMesh": true,
+      "providerPrivateNetwork": true
+    },
+    "v8_isolate": {
+      "beamVm": false,
+      "residentSupervision": false,
+      "hotReload": false,
+      "durableActorLocal": false,
+      "wasm": true,
+      "v8Isolate": true,
+      "wireguardMesh": false,
+      "providerPrivateNetwork": false
+    },
+    "aws_lambda": {
+      "beamVm": false,
+      "residentSupervision": false,
+      "hotReload": false,
+      "durableActorLocal": false,
+      "wasm": true,
+      "v8Isolate": false,
+      "wireguardMesh": false,
+      "providerPrivateNetwork": true
+    },
+    "gcp_cloud_run": {
+      "beamVm": true,
+      "residentSupervision": true,
+      "hotReload": true,
+      "durableActorLocal": false,
+      "wasm": true,
+      "v8Isolate": false,
+      "wireguardMesh": false,
+      "providerPrivateNetwork": true
+    }
+  },
+  "requiredTruths": [
+    {
+      "require": ["beamVm", "residentSupervision", "hotReload"],
+      "allowTargets": ["beamscale_native", "kubernetes", "firecracker", "gcp_cloud_run"]
+    },
+    {
+      "require": ["durableActorLocal"],
+      "allowTargets": ["beamscale_native", "kubernetes", "firecracker"]
+    },
+    {
+      "require": ["v8Isolate"],
+      "allowTargets": ["v8_isolate"]
+    },
+    {
+      "require": ["wireguardMesh"],
+      "allowTargets": ["beamscale_native", "kubernetes", "firecracker"]
+    }
+  ]
+}
