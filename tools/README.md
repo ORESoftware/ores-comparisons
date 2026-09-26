@@ -10,3 +10,7 @@ Key pins:
 
 The local bootstrap also pins BeamScale, Scintilla and ORES Stack CLI/runtime
 revisions. Generated projects must not silently use floating `main` branches.
+
+## ORES Stack CLI cutover
+
+The canonical repository is `https://github.com/ores-stack/ores-stack-cli`. This branch pins an exact commit there; merge is gated on that repository becoming a complete, locked, installable workspace and passing its migration parity checks.
