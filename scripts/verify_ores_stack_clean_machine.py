@@ -29,8 +29,14 @@ def isolated_path(bin_dir: Path, cli: Path, allowed_tools: Sequence[str]) -> Non
         resolved = shutil.which(tool)
         if resolved is None:
             raise ValueError(f"declared bootstrap tool {tool!r} is unavailable on the host")
-        target = require_regular_binary(Path(resolved), f"bootstrap tool {tool}")
-        os.symlink(target, bin_dir / tool)
+        # System tool entries are commonly symlinks (for example cc -> gcc or
+        # cargo/rustc -> rustup). The declaration names the tool explicitly, so
+        # resolve that host indirection once and admit only the final regular file.
+        resolved_path = Path(resolved).resolve(strict=True)
+        info = resolved_path.lstat()
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"declared bootstrap tool {tool!r} does not resolve to a regular file")
+        os.symlink(resolved_path, bin_dir / tool)
 
 
 def run_clean_machine(
@@ -45,16 +51,34 @@ def run_clean_machine(
     with tempfile.TemporaryDirectory(prefix="ores-stack-clean-machine-") as temp:
         temp_root = Path(temp)
         home = temp_root / "home"
+        cargo_home = temp_root / "cargo-home"
         bin_dir = temp_root / "bin"
         home.mkdir()
+        cargo_home.mkdir()
         isolated_path(bin_dir, cli, allowed_tools)
         env = {
             "HOME": str(home),
+            "CARGO_HOME": str(cargo_home),
             "PATH": str(bin_dir),
             "LANG": "C",
             "LC_ALL": "C",
             "NO_COLOR": "1",
+            "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
         }
+        # These are bootstrap transport/toolchain locations, not application
+        # configuration. Preserve only this explicit set so rustup/cargo and
+        # TLS/proxy access work without leaking arbitrary parent variables.
+        for key in (
+            "RUSTUP_HOME",
+            "RUSTUP_TOOLCHAIN",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "HTTPS_PROXY",
+            "HTTP_PROXY",
+            "NO_PROXY",
+        ):
+            if key in os.environ:
+                env[key] = os.environ[key]
         return subprocess.run(
             [str(bin_dir / "ores-stack"), *argv],
             cwd=project,

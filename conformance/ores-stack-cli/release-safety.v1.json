@@ -65,7 +65,8 @@
     "requiredDeclaredTools": [
       "cargo",
       "rustc",
-      "git"
+      "git",
+      "cc"
     ],
     "forbiddenAssumptions": [
       "globally-installed-ores-stack",
@@ -80,10 +81,20 @@
       "representative-project-build",
       "empty-home",
       "allowlisted-path",
-      "undeclared-global-tool-rejected"
+      "undeclared-global-tool-rejected",
+      "real-representative-project-isolated-path"
     ],
     "promotionRule": "A released CLI may be marked clean-machine-passed only from an immutable canonical-repository revision with complete workspace closure.",
-    "harness": "scripts/verify_ores_stack_clean_machine.py"
+    "harness": "scripts/verify_ores_stack_clean_machine.py",
+    "bootstrapEnvironmentAllowlist": [
+      "RUSTUP_HOME",
+      "RUSTUP_TOOLCHAIN",
+      "SSL_CERT_FILE",
+      "SSL_CERT_DIR",
+      "HTTPS_PROXY",
+      "HTTP_PROXY",
+      "NO_PROXY"
+    ]
   },
   "recovery": {
     "requiredChecks": [
