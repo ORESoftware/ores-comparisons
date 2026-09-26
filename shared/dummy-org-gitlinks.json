@@ -551,6 +551,106 @@
       "branch": "stack/ores-stack",
       "repository": "ores-dummy-org-3/ops-console",
       "commit": "556c1076f1f6d19d890ecf4c3563107542baaea5"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/sdk-typescript",
+      "commit": "90a861c698a245554a4ed86e842afa2b74c4694e"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/.github",
+      "commit": "bd3f7f71d1b8ad7bca5a4d77853488d056fca9ba"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/app",
+      "commit": "b1533f9b26da37e02ebb9b39cd4929108ad00ff6"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "automation-worker",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/automation-worker",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/automation-worker",
+      "commit": "a21e87343002f8505e5a9756df95e399d47dd357"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/contract-tests",
+      "commit": "54214eb22899564d08d7df3fa23a611997d96ae3"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ingest-service",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/ingest-service",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/ingest-service",
+      "commit": "d5d01fbc2a748ee2ddf918dfdfcd5631e63f59eb"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ops-console",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/ops-console",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/ops-console",
+      "commit": "aa5700c919d135d0dfab113dd6d13df0f16df5d7"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-3/sdk-typescript",
+      "commit": "5851e30f6b3117c9d463eeffd98e664647d51489"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": ".github",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/.github",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/.github",
+      "commit": "7aff115d22323aa4b57424a10a6ed82e96d82967"
+    },
+    {
+      "org": "ores-dummy-org-4",
+      "scenario": "cached-rpc",
+      "repo": "app",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/cached-rpc/repos/app",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-4/app",
+      "commit": "4d05bf2f5e53462bc55e19e852aa4f9f953a0313"
     }
   ]
 }
