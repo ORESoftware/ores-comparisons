@@ -1,0 +1,22 @@
+{
+  "schema": "ores.stack.generator-ownership/v1",
+  "status": "required",
+  "rules": [
+    {
+      "id": "exact-first-line-marker",
+      "requirement": "overwrite, delete, or prune is authorized only by an exact reviewed first-line generator marker; CRLF normalization may strip only the line-ending carriage return"
+    },
+    {
+      "id": "handwritten-targets-fail-closed",
+      "requirement": "an absent, altered, suffixed, spaced, or otherwise non-exact marker is consumer-owned and must never authorize destructive regeneration"
+    },
+    {
+      "id": "symlink-targets-rejected",
+      "requirement": "generated-file ownership never authorizes overwriting or deleting symlinks or special files"
+    },
+    {
+      "id": "stale-pruning-is-owner-aware",
+      "requirement": "stale generated files may be removed only after the same exact ownership check used for overwrite"
+    }
+  ]
+}
