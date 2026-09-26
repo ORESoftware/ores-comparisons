@@ -251,6 +251,106 @@
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-2/contract-tests",
       "commit": "80ce65745ca7337d0d7bfb83b6274e5b316ce5a5"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "orders-worker",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/orders-worker",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/orders-worker",
+      "commit": "b973737524b89f309a7396c743e85958b1bb0ded"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/sdk-typescript",
+      "commit": "e2d12b7f292e15cfb45a191068e77710631598a0"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "storefront-web",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-commerce/repos/storefront-web",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-2/storefront-web",
+      "commit": "5d0d1cb1171a575161722deaab2143a240756688"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/.github",
+      "commit": "94779caa7493937f8211e3dc8b29e9bf9d95bab9"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/app",
+      "commit": "3de18bf54e06cb8417046008c92672d3fa9e3095"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "catalog-service",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/catalog-service",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/catalog-service",
+      "commit": "fddaea5b2a10ebd84a553051980339c853fc0a2a"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/contract-tests",
+      "commit": "dac0a0af1fbddcea05e9e50abd77d59b11be9397"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "orders-worker",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/orders-worker",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/orders-worker",
+      "commit": "8c9f8ad01c42f78fba21b7eeab3a813e876d1c78"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "sdk-typescript",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/sdk-typescript",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/sdk-typescript",
+      "commit": "b1107c33778389c301c2d0f4f744014f18227dad"
+    },
+    {
+      "org": "ores-dummy-org-2",
+      "scenario": "big-org-example-commerce",
+      "repo": "storefront-web",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-commerce/repos/storefront-web",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-2/storefront-web",
+      "commit": "c7492fbd898292efab2b6fb58df797a7c3b9c391"
     }
   ]
 }
