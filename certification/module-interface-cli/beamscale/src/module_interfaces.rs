@@ -6,8 +6,8 @@
 //! policy is centralized in `ORESoftware/api-docs`.
 
 use ores_api_docs::{
-    GeneratedModuleInterface, ModuleInterfaceCodegenError, ModuleInterfaceLanguage,
-    ModuleInterfaceRuntimeProfile, ModuleInterfaceSpec, render_module_interface_matrix,
+    render_module_interface_matrix, GeneratedModuleInterface, ModuleInterfaceCodegenError,
+    ModuleInterfaceLanguage, ModuleInterfaceRuntimeProfile, ModuleInterfaceSpec,
 };
 
 pub fn render_direct_guest_interfaces(
