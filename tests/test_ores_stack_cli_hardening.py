@@ -7,16 +7,22 @@ from scripts.verify_ores_stack_cli_hardening import (
     CANONICAL_REPOSITORY,
     REQUIRED_TARGET_KINDS,
     CACHE_PATH,
+    CLEAN_MACHINE_PATH,
+    ERROR_DIAGNOSTICS_PATH,
     OWNERSHIP_PATH,
     PLUGIN_PATH,
+    ROLLBACK_PATH,
     diagnose,
     load_json,
     MATRIX_PATH,
     SCAFFOLD_PATH,
     verify_cache_integrity,
+    verify_clean_machine,
+    verify_error_diagnostics,
     verify_generator_ownership,
     verify_matrix,
     verify_plugin_execution,
+    verify_rollback_recovery,
     verify_scaffold_contract,
 )
 
@@ -28,6 +34,9 @@ class OresStackCliHardeningTest(unittest.TestCase):
         self.ownership = load_json(OWNERSHIP_PATH)
         self.cache = load_json(CACHE_PATH)
         self.plugin = load_json(PLUGIN_PATH)
+        self.error_diagnostics = load_json(ERROR_DIAGNOSTICS_PATH)
+        self.clean_machine = load_json(CLEAN_MACHINE_PATH)
+        self.rollback = load_json(ROLLBACK_PATH)
 
     def test_checked_in_contracts_are_coherent(self) -> None:
         self.assertEqual(verify_matrix(self.matrix), [])
@@ -51,6 +60,21 @@ class OresStackCliHardeningTest(unittest.TestCase):
             ),
             [],
         )
+        self.assertEqual(
+            verify_error_diagnostics(
+                self.error_diagnostics,
+                release_ready=bool(self.matrix["releaseAuthorityReady"]),
+            ),
+            [],
+        )
+        self.assertEqual(
+            verify_clean_machine(
+                self.clean_machine,
+                release_ready=bool(self.matrix["releaseAuthorityReady"]),
+            ),
+            [],
+        )
+        self.assertEqual(verify_rollback_recovery(self.rollback), [])
 
     def test_ready_release_authority_requires_supported_release(self) -> None:
         broken = copy.deepcopy(self.matrix)
@@ -90,6 +114,36 @@ class OresStackCliHardeningTest(unittest.TestCase):
         errors = verify_plugin_execution(self.plugin, release_ready=True)
         self.assertTrue(
             any("constrained plugin execution is verified" in item for item in errors)
+        )
+
+    def test_error_contract_requires_all_command_families(self) -> None:
+        broken = copy.deepcopy(self.error_diagnostics)
+        broken["requiredCommandFamilies"] = ["build", "dev", "generate", "verify"]
+        self.assertTrue(
+            any("missing command families" in item for item in verify_error_diagnostics(broken, release_ready=False))
+        )
+
+    def test_release_ready_requires_verified_structured_errors(self) -> None:
+        errors = verify_error_diagnostics(self.error_diagnostics, release_ready=True)
+        self.assertTrue(
+            any("stable structured failures are verified" in item for item in errors)
+        )
+
+    def test_release_ready_requires_verified_clean_machine_install(self) -> None:
+        errors = verify_clean_machine(self.clean_machine, release_ready=True)
+        self.assertTrue(
+            any("clean-machine installation is verified" in item for item in errors)
+        )
+
+    def test_rollback_contract_requires_cache_namespace_preservation(self) -> None:
+        broken = copy.deepcopy(self.rollback)
+        broken["requirements"] = [
+            value
+            for value in broken["requirements"]
+            if value != "downgrade_does_not_delete_previous_or_newer_cache_namespaces"
+        ]
+        self.assertTrue(
+            any("missing requirements" in item for item in verify_rollback_recovery(broken))
         )
 
     def test_diagnostics_detect_all_requested_fleet_failures_without_mutation(self) -> None:
