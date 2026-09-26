@@ -41,33 +41,31 @@ and
 are separate gitlinks to the same GitHub repository, checked out at different
 stack branches and commits.
 
-## Materialize and cut over
+## Cutover state
 
-Prerequisites:
+The one-time materialization is complete. The 33 component repositories now
+exist in the six dummy organizations, all 99 stack/repository combinations are
+committed as gitlinks, and their immutable SHAs are recorded in
+`shared/dummy-org-gitlinks.json`.
 
-1. `gh auth status --active --hostname github.com` succeeds.
-2. The authenticated account has push permission to all 33 governed component
-   repositories.
-3. Git `user.name` and `user.email` are configured.
-4. The superproject worktree is clean before the gitlink rewrite.
+`scripts/materialize_dummy_orgs.py` is retained only as migration history and
+now fails closed when invoked with `--apply` after cutover. It must not be
+used to copy a submodule checkout back over its remote repository.
 
-Preview the complete 99-path plan without writes:
-
-```sh
-just dummy-org-plan
-```
-
-Install the exact pinned toolchain, push all stack branches, replace all
-in-tree component repositories with submodules, and synchronize them through
-Zed:
+The normal fresh-clone/bootstrap flow is:
 
 ```sh
-just dummy-org-materialize
+just tools-bootstrap
+./.local/bin/zed task list
+./.local/bin/zed task run check
+./.local/bin/zed install --git-submodules
+just submodules-verify
+just verify
 ```
 
-The materializer preflights write permission to all 33 remote repositories
-before the first push. It never force-pushes and never overwrites `main`.
-Existing `stack/*` branches are updated only by ordinary fast-forward pushes.
+The schema-v2 `zed-env.toml` task plan provides `check`,
+`submodules-sync`, `submodules-status`, and `submodules-verify` as the
+portable Zed execution surface. The `just` recipes remain convenience aliases.
 
 ## Zed is the submodule coordinator
 
@@ -114,14 +112,19 @@ repository child, including `repos/.github`, becomes a gitlink.
 
 `.gitmodules` is the transport projection. The committed gitlink SHA is the
 immutable source pin. `shared/dummy-org-map.json` governs the allowed
-organization, repository, and stack-branch mapping, and
-`scripts/verify_dummy_org_map.py` fails closed on URL, branch, repo-set, or
-mixed materialized/submodule drift.
+organization, repository, and stack-branch mapping, while
+`shared/dummy-org-gitlinks.json` records the exact immutable SHA for every
+stack/repository path. `scripts/verify_dummy_org_map.py` validates topology and
+`scripts/verify_dummy_org_gitlinks.py` cross-checks all 99 ledger entries against
+`.gitmodules` and the Git index without requiring private submodules to be
+checked out.
 
 ## Private repository CI
 
 The dummy repositories are private. CI that dereferences their gitlinks needs
 `COMPARISON_REPO_READ_TOKEN` with read access to all six dummy organizations.
-Always-on CI can still verify the superproject matrix, gitlinks,
-`.gitmodules`, mapping, workflow pins, and toolchain pins without checking out
-private submodules.
+Always-on CI verifies the superproject matrix, all 99 gitlinks, `.gitmodules`,
+the immutable ledger, mapping, workflow pins, and toolchain pins without
+checking out private submodules. The authorized private lane uses invocation-local
+Git configuration via `GIT_CONFIG_COUNT` for token URL rewriting; it does not
+modify global Git configuration on the runner.
