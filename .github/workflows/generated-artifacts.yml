@@ -26,6 +26,7 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
       PGHOST: 127.0.0.1
       PGPORT: "5432"
       PGUSER: postgres
@@ -41,16 +42,38 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - name: Verify immutable action pins
         run: python3 scripts/verify_workflow_pins.py
+      - name: Initialize private comparison submodules when authorized
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .gitmodules ]]; then
+            exit 0
+          fi
+          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+            echo "SKIP_PRIVATE_CONTENT=true" >> "$GITHUB_ENV"
+            echo "::notice::private comparison submodules are not authorized; content-dependent generated-artifact checks are skipped."
+            exit 0
+          fi
+          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          git config --global "$rewrite" "https://github.com/"
+          git submodule sync --recursive
+          git submodule update --init --recursive --checkout
+          git config --global --unset-all "$rewrite" || true
       - name: Install generated-artifact validators
+        if: env.SKIP_PRIVATE_CONTENT != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client protobuf-compiler
           npm install --global typescript@5.9.3
       - name: Apply migrations and seeds twice
+        if: env.SKIP_PRIVATE_CONTENT != 'true'
         run: python3 scripts/verify_postgres_contracts.py
       - name: Compile generated interfaces
+        if: env.SKIP_PRIVATE_CONTENT != 'true'
         run: python3 scripts/verify_generated_interfaces.py
       - name: Check big-org repository contracts
+        if: env.SKIP_PRIVATE_CONTENT != 'true'
         run: python3 scripts/verify_big_org_repos.py
       - name: Cargo-check ORES Stack big-org sibling repos
+        if: env.SKIP_PRIVATE_CONTENT != 'true'
         run: python3 scripts/cargo_check_big_org_repos.py
