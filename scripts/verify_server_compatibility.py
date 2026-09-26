@@ -212,6 +212,43 @@ def validate(document: dict[str, Any]) -> list[str]:
             if not isinstance(budgets.get("proofCommand"), str) or not budgets["proofCommand"]:
                 errors.append("edgeSafety.connectionBudgets.proofCommand is required")
 
+    storage = document.get("storage")
+    if not isinstance(storage, dict):
+        errors.append("storage must be an object")
+    else:
+        if storage.get("mode") not in {"none", "ephemeral-only", "durable-external"}:
+            errors.append("storage.mode is invalid")
+        if storage.get("durableStateUsesInstanceFilesystem") is not False:
+            errors.append("durable state must not use instance filesystem")
+        if storage.get("instanceFilesystemPurpose") not in {"none", "cache", "scratch", "temporary-upload"}:
+            errors.append("storage.instanceFilesystemPurpose is invalid")
+        if not isinstance(storage.get("proofCommand"), str) or not storage["proofCommand"]:
+            errors.append("storage.proofCommand is required")
+
+    contract_admission = document.get("contractAdmission")
+    if not isinstance(contract_admission, dict):
+        errors.append("contractAdmission must be an object")
+    else:
+        digest_keys = (
+            "expectedContractDigest",
+            "handlerContractDigest",
+            "generatedClientContractDigest",
+            "servedDocumentContractDigest",
+        )
+        digests = []
+        for key in digest_keys:
+            value = contract_admission.get(key)
+            if not isinstance(value, str) or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+                errors.append(f"contractAdmission.{key} must be lowercase SHA-256")
+            else:
+                digests.append(value)
+        if len(digests) == len(digest_keys) and len(set(digests)) != 1:
+            errors.append("contract digests must agree before readiness")
+        if contract_admission.get("readinessBlockedOnMismatch") is not True:
+            errors.append("contract digest mismatch must block readiness")
+        if not isinstance(contract_admission.get("proofCommand"), str) or not contract_admission["proofCommand"]:
+            errors.append("contractAdmission.proofCommand is required")
+
     admission = document.get("handlerAdmission")
     if not isinstance(admission, dict):
         errors.append("handlerAdmission must be an object")
