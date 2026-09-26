@@ -951,6 +951,46 @@
       "branch": "stack/ores-stack",
       "repository": "ores-dummy-org-6/sdk-typescript",
       "commit": "7423614de5fc8cecc099f7205080d821b7860fb3"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": ".github",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/.github",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/.github",
+      "commit": "b4489d10552049ae0ad1ad20a970ebc72c4c0f7e"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "app",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/app",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/app",
+      "commit": "27af0fa3402583c20cfdf841bc70528aa2857531"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "contract-tests",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/contract-tests",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/contract-tests",
+      "commit": "aabfc16613e425561b704d85cae24ec60b7b5f44"
+    },
+    {
+      "org": "ores-dummy-org-6",
+      "scenario": "http-observability",
+      "repo": "sdk-typescript",
+      "stack": "scintilla-run",
+      "path": "stacks/scintilla-run/projects/http-observability/repos/sdk-typescript",
+      "branch": "stack/scintilla-run",
+      "repository": "ores-dummy-org-6/sdk-typescript",
+      "commit": "c226a86a22a9ae99ed4c7fb6ae90f7a51ddfea84"
     }
   ]
 }
