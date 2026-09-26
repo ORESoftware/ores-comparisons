@@ -46,6 +46,9 @@ submodules-verify:
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
 
+submodules-fresh-clone: tools-bootstrap
+    bash scripts/verify_fresh_clone_submodules.sh
+
 env-init project:
     bash scripts/bootstrap-env.sh "{{project}}"
 

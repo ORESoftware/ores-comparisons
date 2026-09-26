@@ -128,3 +128,7 @@ the immutable ledger, mapping, workflow pins, and toolchain pins without
 checking out private submodules. The authorized private lane uses invocation-local
 Git configuration via `GIT_CONFIG_COUNT` for token URL rewriting; it does not
 modify global Git configuration on the runner.
+
+## Fresh-clone recovery proof
+
+The authorized CI lane runs `scripts/verify_fresh_clone_submodules.sh`. It clones the exact superproject commit into a temporary directory, materializes all 99 private gitlinks through the pinned Zed CLI, verifies every checkout against `shared/dummy-org-gitlinks.json`, deliberately deinitializes one `app` submodule, and proves a second `zed install --git-submodules` restores the exact committed revision. The proof uses the same invocation-local Git credential rewrite as the private CI lane and never changes global Git configuration.
