@@ -46,6 +46,23 @@ class OresStackCleanMachineTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
 
+    def test_declared_tool_symlink_is_resolved_but_candidate_symlink_still_is_not(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            cli = root / "ores-stack"
+            executable(cli, 'cc --version >/dev/null 2>&1 || exit 9')
+            # The harness is expected to admit an explicitly declared system tool
+            # even when its PATH entry is a symlink (common for cc/cargo/rustc).
+            result = run_clean_machine(
+                cli,
+                project,
+                ["build"],
+                allowed_tools=["cc"],
+            )
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+
     def test_candidate_cli_symlink_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
