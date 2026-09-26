@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git hash-object certification/module-context/beamscale/src/bmscl.gleam)" = "93c88e5bb64ae445fe4b2ae21dabd07083877c5f"
+          test "$(git hash-object certification/module-context/beamscale/src/bmscl.gleam)" = "07c1566425e9087112f03b394571eb771c3a8e34"
 
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         with:
