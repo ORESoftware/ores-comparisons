@@ -1,0 +1,29 @@
+{
+  "schema": "ores.stack.clean-machine/v1",
+  "status": "blocked",
+  "blockedReason": "canonical ores-stack CLI workspace/release closure is not yet installable from the new repository",
+  "environment": {
+    "home": "empty-temporary-directory",
+    "preinstalledOresStack": false,
+    "network": "only immutable source/artifact fetches declared by the test",
+    "allowedBootstrapTools": [
+      "cargo",
+      "git",
+      "rustc",
+      "sh"
+    ]
+  },
+  "requiredChecks": [
+    "install_exact_cli_release_from_canonical_repository",
+    "verify_cli_provenance_and_sha256_before_project_execution",
+    "build_representative_server_project",
+    "exercise_representative_lambda_generation_or_adapter_path",
+    "validate_representative_infra_handoff",
+    "fail_if_an_undeclared_global_tool_is_required"
+  ],
+  "representativeKinds": [
+    "server",
+    "lambda",
+    "infra"
+  ]
+}
