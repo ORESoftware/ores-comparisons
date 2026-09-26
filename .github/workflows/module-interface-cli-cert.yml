@@ -23,8 +23,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git hash-object certification/module-interface-cli/beamscale/src/module_interfaces.rs)" = "7a2bb1506f8c1a1457067577f562812d9da6da7c"
-          test "$(git hash-object certification/module-interface-cli/beamscale/tests/module_interface_codegen.rs)" = "d418f941f581adbe8b4200f59df1efad4d917ed7"
+          test "$(git hash-object certification/module-interface-cli/beamscale/src/module_interfaces.rs)" = "ade48e2763cbd904cd0653a8fb962f0eda0fba3a"
+          test "$(git hash-object certification/module-interface-cli/beamscale/tests/module_interface_codegen.rs)" = "4db22ebc36387cfc4fb21c9fed4a6c0c5acb8288"
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git hash-object certification/module-interface-cli/scintilla/src/commands/module_interfaces.rs)" = "3ac985f5b364e88320ca0aaedca9cf528bf5f914"
+          test "$(git hash-object certification/module-interface-cli/scintilla/src/commands/module_interfaces.rs)" = "536988e5919d3693b6080f0fa7dcfb658d8e2fd5"
           test "$(git hash-object certification/module-interface-cli/scintilla/source/.cli-flags.toml)" = "8c84cb1f1ccfa209705ff4b04d1e14b1bdc31d3f"
           test "$(git hash-object certification/module-interface-cli/scintilla/source/src/commands/mod.rs)" = "40533073758c140fd0325549f6d8b8029fb1328b"
 
