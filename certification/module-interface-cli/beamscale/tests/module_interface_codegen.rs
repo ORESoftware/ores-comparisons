@@ -9,7 +9,10 @@ fn beam_direct_guest_matrix_admits_erlang_and_gleam() {
     let spec = ModuleInterfaceSpec::new("catalog_worker", "handle", "bmscl.worker.v1");
     let rendered = render_direct_guest_interfaces(
         &spec,
-        &[ModuleInterfaceLanguage::Erlang, ModuleInterfaceLanguage::Gleam],
+        &[
+            ModuleInterfaceLanguage::Erlang,
+            ModuleInterfaceLanguage::Gleam,
+        ],
     )
     .expect("BEAM guest projections");
 
