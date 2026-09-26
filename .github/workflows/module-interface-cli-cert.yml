@@ -1,0 +1,84 @@
+name: module-interface CLI exact-head certification
+
+on:
+  pull_request:
+    paths:
+      - "certification/module-interface-cli/**"
+      - ".github/workflows/module-interface-cli-cert.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  beamscale-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Verify exact BeamScale CLI PR43 blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object certification/module-interface-cli/beamscale/src/module_interfaces.rs)" = "5e394cd39083247f9008696b4b72220a6886ff66"
+          test "$(git hash-object certification/module-interface-cli/beamscale/tests/module_interface_codegen.rs)" = "4db22ebc36387cfc4fb21c9fed4a6c0c5acb8288"
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          components: rustfmt, clippy
+
+      - name: Format exact BeamScale CLI source
+        run: cargo fmt --manifest-path certification/module-interface-cli/beamscale/Cargo.toml -- --check
+
+      - name: Clippy exact BeamScale CLI source
+        run: cargo clippy --manifest-path certification/module-interface-cli/beamscale/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test exact BeamScale CLI consumer
+        run: cargo test --manifest-path certification/module-interface-cli/beamscale/Cargo.toml --all-targets
+
+  scintilla-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Verify exact Scintilla CLI PR27 blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object certification/module-interface-cli/scintilla/src/commands/module_interfaces.rs)" = "a65928d857b819f021c35635941cd26009dc0896"
+          test "$(git hash-object certification/module-interface-cli/scintilla/source/.cli-flags.toml)" = "8c84cb1f1ccfa209705ff4b04d1e14b1bdc31d3f"
+          test "$(git hash-object certification/module-interface-cli/scintilla/source/src/commands/mod.rs)" = "40533073758c140fd0325549f6d8b8029fb1328b"
+
+      - name: Validate Scintilla command integration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          flags = Path("certification/module-interface-cli/scintilla/source/.cli-flags.toml").read_text()
+          mod = Path("certification/module-interface-cli/scintilla/source/src/commands/mod.rs").read_text()
+          assert "[commands.module-interfaces]" in flags
+          assert "pub mod module_interfaces;" in mod
+          assert 'Self::ModuleInterfaces => "module-interfaces"' in mod
+          assert 'Command::ModuleInterfaces => module_interfaces::run(args)' in mod
+          network = mod.split("pub const fn needs_network", 1)[1].split("}", 1)[0]
+          assert "Self::ModuleInterfaces" not in network
+          PY
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          components: rustfmt, clippy
+
+      - name: Format exact Scintilla module source
+        run: cargo fmt --manifest-path certification/module-interface-cli/scintilla/Cargo.toml -- --check
+
+      - name: Clippy exact Scintilla module source
+        run: cargo clippy --manifest-path certification/module-interface-cli/scintilla/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test exact Scintilla module source
+        run: cargo test --manifest-path certification/module-interface-cli/scintilla/Cargo.toml --all-targets
