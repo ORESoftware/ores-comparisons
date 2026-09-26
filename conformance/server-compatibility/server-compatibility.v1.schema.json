@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ores.dev/contracts/server-compatibility.v1.schema.json",
+  "title": "ORES Stack server compatibility receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "repositoryRole",
+    "entrypoints",
+    "configuration",
+    "lifecycle",
+    "health",
+    "capabilities",
+    "handlerAdmission"
+  ],
+  "properties": {
+    "schema": {"const": "ores.stack.server-compatibility/v1"},
+    "repositoryRole": {"enum": ["web-read", "api-write", "admin"]},
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["standaloneBinary", "libraryRouter", "functionReusable"],
+      "properties": {
+        "standaloneBinary": {"type": "string", "minLength": 1},
+        "libraryRouter": {"type": "string", "minLength": 1},
+        "functionReusable": {"type": "boolean"}
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portEnvironment", "forbiddenAuthoritativeCredentials"],
+      "properties": {
+        "portEnvironment": {"type": "string", "minLength": 1},
+        "forbiddenAuthoritativeCredentials": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startup", "shutdown", "detachedBackgroundWork"],
+      "properties": {
+        "startup": {"type": "string", "minLength": 1},
+        "shutdown": {"type": "string", "minLength": 1},
+        "detachedBackgroundWork": {"type": "boolean"}
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "livenessPath",
+        "readinessPath",
+        "livenessRequiresDependencies",
+        "readinessMeaning"
+      ],
+      "properties": {
+        "livenessPath": {"type": "string", "pattern": "^/"},
+        "readinessPath": {"type": "string", "pattern": "^/"},
+        "livenessRequiresDependencies": {"type": "boolean"},
+        "readinessMeaning": {"type": "string", "minLength": 1}
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "http",
+        "websocket",
+        "directDatabase",
+        "authoritativeMutation",
+        "functionReusableRouter"
+      ],
+      "properties": {
+        "http": {"type": "boolean"},
+        "websocket": {"type": "boolean"},
+        "directDatabase": {"type": "boolean"},
+        "authoritativeMutation": {"type": "boolean"},
+        "functionReusableRouter": {"type": "boolean"}
+      }
+    },
+    "handlerAdmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "request",
+        "response",
+        "context",
+        "failure",
+        "proofCommand",
+        "compileFailDimensions"
+      ],
+      "properties": {
+        "module": {"type": "string", "minLength": 1},
+        "request": {"type": "string", "minLength": 1},
+        "response": {"type": "string", "minLength": 1},
+        "context": {"type": "string", "minLength": 1},
+        "failure": {"type": "string", "minLength": 1},
+        "proofCommand": {"type": "string", "minLength": 1},
+        "compileFailDimensions": {
+          "type": "array",
+          "items": {"enum": ["request", "response", "context", "failure"]},
+          "uniqueItems": true,
+          "minItems": 4,
+          "maxItems": 4
+        }
+      }
+    },
+    "readBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "databaseCredentialScope",
+        "credentialDenialProof",
+        "mutationDenialProof"
+      ],
+      "properties": {
+        "databaseCredentialScope": {"enum": ["none", "read-only"]},
+        "credentialDenialProof": {"type": "string", "minLength": 1},
+        "mutationDenialProof": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"repositoryRole": {"const": "web-read"}},
+        "required": ["repositoryRole"]
+      },
+      "then": {
+        "required": ["readBoundary"],
+        "properties": {
+          "entrypoints": {
+            "properties": {"functionReusable": {"const": true}}
+          },
+          "configuration": {
+            "properties": {
+              "forbiddenAuthoritativeCredentials": {"minItems": 1}
+            }
+          },
+          "capabilities": {
+            "properties": {
+              "authoritativeMutation": {"const": false},
+              "functionReusableRouter": {"const": true}
+            }
+          }
+        }
+      }
+    }
+  ]
+}
