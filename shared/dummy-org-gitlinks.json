@@ -451,6 +451,106 @@
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-3/automation-worker",
       "commit": "48ee9cfb1ea8db5a88c9002aba6871a4eec2795c"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "contract-tests",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/contract-tests",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/contract-tests",
+      "commit": "d727514b60adec348a78412a100ba216118c569f"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ingest-service",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/ingest-service",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/ingest-service",
+      "commit": "7b764bfe5e0a29b5f709526c149207bdf3264724"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ops-console",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/ops-console",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/ops-console",
+      "commit": "4a2e12766d4bc9f515338e6951aff96bc2287374"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "sdk-typescript",
+      "stack": "beamscale",
+      "path": "stacks/beamscale/projects/big-org-example-operations/repos/sdk-typescript",
+      "branch": "stack/beamscale",
+      "repository": "ores-dummy-org-3/sdk-typescript",
+      "commit": "0ab1402c2c5cacb6bc80e39ee1ce1ec4848e33c8"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": ".github",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/.github",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/.github",
+      "commit": "a0bf9189ec4093fec4c7a8a7c65ee5f16c56f6cc"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "app",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/app",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/app",
+      "commit": "e47371c8486c0300921588f8652e59a2850aefa6"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "automation-worker",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/automation-worker",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/automation-worker",
+      "commit": "b800315a0ee97f2797b5a844cdc17f5ead74f509"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "contract-tests",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/contract-tests",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/contract-tests",
+      "commit": "f77521e18e8b492c305f3d560b68dbb1238c69cd"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ingest-service",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/ingest-service",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/ingest-service",
+      "commit": "c4d4535ac5780be2c9b03b7f674dac99cb19dd39"
+    },
+    {
+      "org": "ores-dummy-org-3",
+      "scenario": "big-org-example-operations",
+      "repo": "ops-console",
+      "stack": "ores-stack",
+      "path": "stacks/ores-stack/projects/big-org-example-operations/repos/ops-console",
+      "branch": "stack/ores-stack",
+      "repository": "ores-dummy-org-3/ops-console",
+      "commit": "556c1076f1f6d19d890ecf4c3563107542baaea5"
     }
   ]
 }
