@@ -160,7 +160,9 @@ struct SourceIdentity {
 }
 
 fn nonempty(value: &Option<String>) -> bool {
-    value.as_deref().is_some_and(|value| !value.trim().is_empty())
+    value
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
 }
 
 fn is_sha40(value: &str) -> bool {
@@ -252,7 +254,10 @@ fn audit_evidence(proof: &EvidenceProof) -> Vec<String> {
         }
     }
 
-    if matches!(evidence.scope, EvidenceScope::External | EvidenceScope::TestOrg) {
+    if matches!(
+        evidence.scope,
+        EvidenceScope::External | EvidenceScope::TestOrg
+    ) {
         let Some(binding) = &evidence.external_binding else {
             findings.insert("fleet.evidence.external-binding-missing".to_owned());
             return findings.into_iter().collect();
@@ -463,9 +468,18 @@ fn audit_refinement(proof: &RefinementProof) -> Vec<String> {
         findings.insert("fleet.recovery.mutable-artifact-reference".to_owned());
     }
     for (digest, finding) in [
-        (&recovery.artifact_sha256, "fleet.recovery.invalid-artifact-digest"),
-        (&recovery.backup_sha256, "fleet.recovery.invalid-backup-digest"),
-        (&recovery.restored_sha256, "fleet.recovery.invalid-restored-digest"),
+        (
+            &recovery.artifact_sha256,
+            "fleet.recovery.invalid-artifact-digest",
+        ),
+        (
+            &recovery.backup_sha256,
+            "fleet.recovery.invalid-backup-digest",
+        ),
+        (
+            &recovery.restored_sha256,
+            "fleet.recovery.invalid-restored-digest",
+        ),
     ] {
         if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             findings.insert(finding.to_owned());
@@ -495,10 +509,7 @@ fn audit_refinement(proof: &RefinementProof) -> Vec<String> {
     findings.into_iter().collect()
 }
 
-fn audit_recovery_exercise(
-    proof: &RefinementProof,
-    exercise: &RecoveryExercise,
-) -> Vec<String> {
+fn audit_recovery_exercise(proof: &RefinementProof, exercise: &RecoveryExercise) -> Vec<String> {
     let mut findings = BTreeSet::new();
     let expected = &proof.recovery.artifact_sha256;
     if &exercise.artifact_sha256 != expected {
@@ -606,8 +617,7 @@ fn canonical_evidence(source: &SourceIdentity) -> EvidenceProof {
 }
 
 fn canonical_refinement(source: &SourceIdentity) -> RefinementProof {
-    let payload =
-        "ores-fleet-recovery-drill-v1\nsource=synthetic-comparison-fixture\n".to_owned();
+    let payload = "ores-fleet-recovery-drill-v1\nsource=synthetic-comparison-fixture\n".to_owned();
     let digest = sha256_hex(payload.as_bytes());
     RefinementProof {
         initial_state: "queued".to_owned(),
@@ -705,8 +715,7 @@ fn exercise_recovery(root: &Path, proof: &RefinementProof) -> Result<RecoveryExe
             .map_err(|error| format!("write recovery artifact: {error}"))?;
         let artifact_sha256 = sha256_file(&artifact)?;
 
-        fs::copy(&artifact, &backup)
-            .map_err(|error| format!("copy recovery backup: {error}"))?;
+        fs::copy(&artifact, &backup).map_err(|error| format!("copy recovery backup: {error}"))?;
         let mut permissions = fs::metadata(&backup)
             .map_err(|error| format!("inspect recovery backup: {error}"))?
             .permissions();
@@ -893,17 +902,16 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn sha256(input: &[u8]) -> [u8; 32] {
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
-        0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
-        0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
     ];
 
     let bit_len = (input.len() as u64) * 8;
@@ -1043,12 +1051,16 @@ mod tests {
         let mut blocked = canonical_evidence(&source());
         blocked.evidence.state = EvidenceState::Blocked;
         blocked.evidence.executed_steps = 0;
-        assert!(audit_evidence(&blocked).contains(&"fleet.evidence.blocked-without-code".to_owned()));
+        assert!(
+            audit_evidence(&blocked).contains(&"fleet.evidence.blocked-without-code".to_owned())
+        );
 
         let mut skipped = canonical_evidence(&source());
         skipped.evidence.state = EvidenceState::Skipped;
         skipped.evidence.executed_steps = 0;
-        assert!(audit_evidence(&skipped).contains(&"fleet.evidence.skipped-without-reason".to_owned()));
+        assert!(
+            audit_evidence(&skipped).contains(&"fleet.evidence.skipped-without-reason".to_owned())
+        );
 
         let mut not_run = canonical_evidence(&source());
         not_run.evidence.state = EvidenceState::NotRun;
@@ -1095,7 +1107,10 @@ mod tests {
     #[test]
     fn canary_leaks_are_rejected() {
         let mut proof = canonical_evidence(&source());
-        proof.outputs.logs.push(format!("leak={}", proof.canary_secret));
+        proof
+            .outputs
+            .logs
+            .push(format!("leak={}", proof.canary_secret));
         assert!(audit_evidence(&proof).contains(&"fleet.telemetry.canary-leak-logs".to_owned()));
     }
 
