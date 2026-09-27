@@ -50,6 +50,27 @@ def audit_case(case: dict[str, Any]) -> list[str]:
     elif kind == "receipt":
         if data.get("expected_source_digest") != data.get("observed_source_digest"):
             findings.append("fleet.evidence.source-digest-mismatch")
+    elif kind == "compose-config":
+        source_commit = data.get("source_commit")
+        if (
+            not isinstance(source_commit, str)
+            or len(source_commit) != 40
+            or any(ch not in "0123456789abcdefABCDEF" for ch in source_commit)
+        ):
+            findings.append("fleet.compose.mutable-source")
+        working_dir = Path(str(data.get("working_dir", "")))
+        if working_dir.is_absolute() or ".." in working_dir.parts:
+            findings.append("fleet.compose.path-escape")
+    elif kind == "compatibility-receipt":
+        if data.get("expected_source_sha") != data.get("observed_source_sha"):
+            findings.append("fleet.evidence.compatibility-receipt-stale")
+        if data.get("expected_toolchain_digest") != data.get("observed_toolchain_digest"):
+            findings.append("fleet.evidence.compatibility-receipt-tampered")
+    elif kind == "cross-repo-receipt":
+        if data.get("expected_source_digest") != data.get("observed_source_digest"):
+            findings.append("fleet.evidence.cross-repo-source-digest-mismatch")
+        if data.get("expected_config_digest") != data.get("observed_config_digest"):
+            findings.append("fleet.evidence.cross-repo-config-digest-mismatch")
     elif kind == "generated-ownership":
         destructive = data.get("operation") in {"overwrite", "delete", "prune"}
         exact_marker = data.get("observed_marker") == data.get("expected_marker")
