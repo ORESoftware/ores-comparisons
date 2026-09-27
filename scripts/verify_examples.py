@@ -103,6 +103,18 @@ for spec in specs:
         if "ON CONFLICT DO NOTHING" not in seed:
             errors.append(f"{rel} generated seed is not idempotent")
 
+    try:
+        zpkg = tomllib.loads((shared / ".zpkg.toml").read_text())
+        language = zpkg.get("package", {}).get("language")
+        if language in {"multi", "mixed"}:
+            errors.append(
+                f"{rel} repos/.github uses obsolete zed package language {language!r}"
+            )
+        if not isinstance(language, str) or not language.strip():
+            errors.append(f"{rel} repos/.github missing canonical zed package language")
+    except Exception as exc:
+        errors.append(f"{rel} bad repos/.github/.zpkg.toml: {exc}")
+
     sops = (shared / ".sops.yaml").read_text()
     for exact in (
         r"^env/enc/dev\.env\.enc$",
