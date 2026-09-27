@@ -6,7 +6,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-1/.github",
-        "sourceSha": "bfa3254aec8e4a1d6317e4c6654a78f4596d616f"
+        "sourceSha": "0adcb08fdbddbd2979f033b11604010e3b6b499e"
       },
       "repository": "ores-dummy-org-1/app",
       "role": "application",
@@ -18,7 +18,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-1/.github",
-        "sourceSha": "bfa3254aec8e4a1d6317e4c6654a78f4596d616f"
+        "sourceSha": "0adcb08fdbddbd2979f033b11604010e3b6b499e"
       },
       "repository": "ores-dummy-org-1/presence-service",
       "role": "service",
@@ -30,7 +30,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-1/.github",
-        "sourceSha": "bfa3254aec8e4a1d6317e4c6654a78f4596d616f"
+        "sourceSha": "0adcb08fdbddbd2979f033b11604010e3b6b499e"
       },
       "repository": "ores-dummy-org-1/workspace-web",
       "role": "web",
@@ -42,7 +42,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-2/.github",
-        "sourceSha": "feb0751a9ae9459c2d67f5828198bc6b7836b526"
+        "sourceSha": "a0adbc7fa270af3543b36ccaa32a5ca007a14443"
       },
       "repository": "ores-dummy-org-2/app",
       "role": "application",
@@ -54,7 +54,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-2/.github",
-        "sourceSha": "feb0751a9ae9459c2d67f5828198bc6b7836b526"
+        "sourceSha": "a0adbc7fa270af3543b36ccaa32a5ca007a14443"
       },
       "repository": "ores-dummy-org-2/catalog-service",
       "role": "service",
@@ -66,7 +66,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-2/.github",
-        "sourceSha": "feb0751a9ae9459c2d67f5828198bc6b7836b526"
+        "sourceSha": "a0adbc7fa270af3543b36ccaa32a5ca007a14443"
       },
       "repository": "ores-dummy-org-2/storefront-web",
       "role": "web",
@@ -78,7 +78,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-3/.github",
-        "sourceSha": "6c19b09c5b9693cde22587db5753d8679d6bfa9c"
+        "sourceSha": "c95fe304097927ff45b440da29908b8eeab3919f"
       },
       "repository": "ores-dummy-org-3/app",
       "role": "application",
@@ -90,7 +90,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-3/.github",
-        "sourceSha": "6c19b09c5b9693cde22587db5753d8679d6bfa9c"
+        "sourceSha": "c95fe304097927ff45b440da29908b8eeab3919f"
       },
       "repository": "ores-dummy-org-3/ingest-service",
       "role": "service",
@@ -102,7 +102,7 @@
       "deploymentMode": "ores-compose-local",
       "infraOwner": {
         "repository": "ores-dummy-org-3/.github",
-        "sourceSha": "6c19b09c5b9693cde22587db5753d8679d6bfa9c"
+        "sourceSha": "c95fe304097927ff45b440da29908b8eeab3919f"
       },
       "repository": "ores-dummy-org-3/ops-console",
       "role": "web",
@@ -114,7 +114,7 @@
       "deploymentMode": "artifact-handoff",
       "infraOwner": {
         "repository": "ores-dummy-org-4/.github",
-        "sourceSha": "ef91d053d86ef70e25b3dd65b5486c8256a4e8c1"
+        "sourceSha": "bbcbd70097687a8a5e7995f1980a144769ab89a2"
       },
       "repository": "ores-dummy-org-4/app",
       "role": "application",
@@ -126,7 +126,7 @@
       "deploymentMode": "artifact-handoff",
       "infraOwner": {
         "repository": "ores-dummy-org-5/.github",
-        "sourceSha": "2669ef7e742b300ef258ff5da6b15291cbae8bb3"
+        "sourceSha": "cf93b0ca7719f283deb26738f280f4531536f2a4"
       },
       "repository": "ores-dummy-org-5/app",
       "role": "application",
@@ -138,7 +138,7 @@
       "deploymentMode": "artifact-handoff",
       "infraOwner": {
         "repository": "ores-dummy-org-6/.github",
-        "sourceSha": "4ce48b4523ada5f56b5a3ef44e17fd70b63adfc6"
+        "sourceSha": "5f3c00ed1a6949feac67d4518f8ad0b97e2a20a6"
       },
       "repository": "ores-dummy-org-6/app",
       "role": "application",
