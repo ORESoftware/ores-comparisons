@@ -60,7 +60,15 @@ jobs:
             echo "::error title=Infrastructure blocked::No established cross-repository read secret is available (checked COMPARISON_REPO_READ_TOKEN, cross-repo-token, ORES_CROSS_REPO_READ_TOKEN, TEST_FLEET_READ_TOKEN)."
             exit 1
           fi
-          echo "private runtime credential preflight passed"
+          echo "private runtime credential is present"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify credential can Git-read every governed repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_private_repo_read_access.py
 
   cached-rpc:
     name: wave 1 cached-rpc / ${{ matrix.stack }}
