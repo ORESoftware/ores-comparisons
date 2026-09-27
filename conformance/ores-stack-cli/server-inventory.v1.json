@@ -114,7 +114,7 @@
       "deploymentMode": "artifact-handoff",
       "infraOwner": {
         "repository": "ores-dummy-org-4/.github",
-        "sourceSha": "5410bed10d1de515e8fa387642f183e2b50678e2"
+        "sourceSha": "ef91d053d86ef70e25b3dd65b5486c8256a4e8c1"
       },
       "repository": "ores-dummy-org-4/app",
       "role": "application",
@@ -126,7 +126,7 @@
       "deploymentMode": "artifact-handoff",
       "infraOwner": {
         "repository": "ores-dummy-org-5/.github",
-        "sourceSha": "3a8d01ae76eea5f86e8e8727e58ab239e1063580"
+        "sourceSha": "2669ef7e742b300ef258ff5da6b15291cbae8bb3"
       },
       "repository": "ores-dummy-org-5/app",
       "role": "application",
@@ -138,7 +138,7 @@
       "deploymentMode": "artifact-handoff",
       "infraOwner": {
         "repository": "ores-dummy-org-6/.github",
-        "sourceSha": "b83c7e8d15a0aefd946b5f2c81cfe3c8b092d2eb"
+        "sourceSha": "4ce48b4523ada5f56b5a3ef44e17fd70b63adfc6"
       },
       "repository": "ores-dummy-org-6/app",
       "role": "application",
