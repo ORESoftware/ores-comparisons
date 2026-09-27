@@ -112,14 +112,14 @@ fn parse_toolchain_repositories(source: &str) -> Result<Vec<String>, String> {
         }
     }
 
-    if repositories.is_empty() {
-        return Err("toolchain lock has no repository entries".to_owned());
-    }
     if repositories.len() != commit_count {
         return Err(format!(
             "toolchain repository/commit cardinality mismatch: {} repositories, {commit_count} commits",
             repositories.len()
         ));
+    }
+    if repositories.is_empty() {
+        return Err("toolchain lock has no repository entries".to_owned());
     }
     Ok(repositories)
 }
