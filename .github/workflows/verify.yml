@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
+          components: rustfmt
       - run: python3 scripts/verify_workflow_pins.py
       - run: python3 scripts/verify_private_authority_credentials.py
       - run: python3 scripts/verify_project_matrix.py
@@ -31,14 +35,21 @@ jobs:
         run: python3 scripts/verify_big_org_repos.py
       - run: python3 scripts/verify_toolchain_pins.py
       - run: python3 scripts/verify_adversarial_fixtures.py
-      - name: Verify fleet proof evidence and telemetry boundary
-        run: python3 scripts/verify_fleet_proof_evidence.py --receipt artifacts/fleet-proof-evidence.json
-      - run: python3 -m unittest tests.test_fleet_proof_evidence
-      - name: Upload fleet proof evidence receipt
+      - name: Compile, mutation-test, and execute Rust fleet proof gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp artifacts
+          rustfmt --edition 2024 --check tools/fleet_proof.rs
+          rustc --edition 2024 --test tools/fleet_proof.rs -o tmp/fleet-proof-tests
+          ./tmp/fleet-proof-tests
+          rustc --edition 2024 tools/fleet_proof.rs -o tmp/fleet-proof
+          ./tmp/fleet-proof > artifacts/fleet-proof.json
+      - name: Upload fleet proof receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fleet-proof-evidence
-          path: artifacts/fleet-proof-evidence.json
+          name: fleet-proof
+          path: artifacts/fleet-proof.json
           if-no-files-found: error
           retention-days: 30
       - run: python3 scripts/verify_ores_stack_cli_hardening.py
