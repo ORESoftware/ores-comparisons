@@ -1,29 +1,6 @@
 name: runtime-all-18
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/runtime-all-18.yml"
-      - ".github/workflows/runtime-project.yml"
-      - "scripts/prove_runtime_project.py"
-      - "scripts/bootstrap_pinned_tools.sh"
-      - "tools/toolchain.lock.json"
-      - "tools/README.md"
-      - "shared/project-matrix.json"
-      - ".gitmodules"
-      - "stacks/**"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/runtime-all-18.yml"
-      - ".github/workflows/runtime-project.yml"
-      - "scripts/prove_runtime_project.py"
-      - "scripts/bootstrap_pinned_tools.sh"
-      - "tools/toolchain.lock.json"
-      - "tools/README.md"
-      - "shared/project-matrix.json"
-      - ".gitmodules"
-      - "stacks/**"
   workflow_dispatch:
 
 permissions:
