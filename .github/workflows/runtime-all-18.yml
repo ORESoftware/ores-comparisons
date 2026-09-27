@@ -46,9 +46,25 @@ jobs:
           print("runtime matrix authority OK: 6 waves x 3 stacks = 18 projects")
           PY
 
+
+  credential-preflight:
+    runs-on: ubuntu-24.04
+    env:
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+    steps:
+      - name: Require private cross-repository execution credential once
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            echo "::error title=Infrastructure blocked::No established cross-repository read secret is available (checked COMPARISON_REPO_READ_TOKEN, cross-repo-token, ORES_CROSS_REPO_READ_TOKEN, TEST_FLEET_READ_TOKEN)."
+            exit 1
+          fi
+          echo "private runtime credential preflight passed"
+
   cached-rpc:
     name: wave 1 cached-rpc / ${{ matrix.stack }}
-    needs: harness-preflight
+    needs: [harness-preflight, credential-preflight]
     strategy:
       fail-fast: false
       matrix:
