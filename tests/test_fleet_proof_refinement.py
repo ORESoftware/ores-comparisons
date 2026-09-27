@@ -5,7 +5,12 @@ import json
 import unittest
 from pathlib import Path
 
-from scripts.verify_fleet_proof_refinement import DEFAULT_PROOF, audit_refinement
+from scripts.verify_fleet_proof_refinement import (
+    DEFAULT_PROOF,
+    audit_recovery_exercise,
+    audit_refinement,
+    exercise_recovery_drill,
+)
 
 
 class FleetProofRefinementTests(unittest.TestCase):
@@ -71,6 +76,24 @@ class FleetProofRefinementTests(unittest.TestCase):
         document["recovery"]["recovery_time_ms"] = 1001
         document["recovery"]["max_recovery_time_ms"] = 1000
         self.assertIn("fleet.recovery.rto-exceeded", audit_refinement(document))
+
+    def test_executable_recovery_drill_restores_identical_bytes(self) -> None:
+        exercise = exercise_recovery_drill(self.valid)
+        expected = self.valid["recovery"]["artifact_sha256"]
+        self.assertEqual(exercise["artifactSha256"], expected)
+        self.assertEqual(exercise["backupSha256"], expected)
+        self.assertEqual(exercise["restoredSha256"], expected)
+        self.assertTrue(exercise["backupReadOnly"])
+        self.assertEqual(audit_recovery_exercise(self.valid, exercise), [])
+
+    def test_executable_recovery_drill_detects_declared_digest_tampering(self) -> None:
+        exercise = exercise_recovery_drill(self.valid)
+        tampered = copy.deepcopy(self.valid)
+        tampered["recovery"]["artifact_sha256"] = "f" * 64
+        findings = audit_recovery_exercise(tampered, exercise)
+        self.assertIn("fleet.recovery.exercise-artifact-digest-mismatch", findings)
+        self.assertIn("fleet.recovery.exercise-backup-digest-mismatch", findings)
+        self.assertIn("fleet.recovery.exercise-restore-digest-mismatch", findings)
 
     def test_auditor_is_read_only(self) -> None:
         document = copy.deepcopy(self.valid)
