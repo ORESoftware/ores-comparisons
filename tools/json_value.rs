@@ -419,7 +419,10 @@ mod tests {
     #[test]
     fn enforces_exact_json_number_grammar_without_float_round_trips() {
         for valid in ["0", "-0", "10", "-2.5", "1e3", "1E-3", "0.001"] {
-            assert!(JsonValue::parse(valid).is_ok(), "{valid} should be valid JSON");
+            assert!(
+                JsonValue::parse(valid).is_ok(),
+                "{valid} should be valid JSON"
+            );
         }
         for invalid in ["01", "-01", "1.", "1e", "1e+", "-", "+1"] {
             assert!(
