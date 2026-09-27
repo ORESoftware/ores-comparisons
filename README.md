@@ -66,8 +66,9 @@ interfaces. Generated outputs are committed so drift is visible in review.
 ## Reproducible local clusters
 
 `tools/toolchain.lock.json` pins `ores-compose`, contract tooling, stack CLIs
-and local runtimes to exact Git revisions. The Nix shell supplies PostgreSQL 16
-and the language toolchains.
+and local runtimes to exact Git revisions. The Nix shell supplies the PostgreSQL
+client and language toolchains; the admitted local OCI runtime supplies the
+project PostgreSQL service.
 
 ```sh
 nix develop
@@ -78,11 +79,20 @@ just compose-plan stacks/beamscale/projects/http-observability
 just compose-up stacks/beamscale/projects/http-observability
 ```
 
-Every `repos/.github/.ores-compose.yaml` includes PostgreSQL as a supervised host process.
-The current pinned `ores-compose` executor intentionally runs host processes
-only, so the examples do not pretend OCI execution is available. Startup waits
-for `pg_isready`, checks contracts, runs the generated idempotent migration and
-seed scripts, then launches the stack-native dev runtime.
+The pinned `ores-compose` source is the exact certified `ORESoftware/ores-compose#212`
+head. That runtime can supervise host processes and digest-pinned OCI services in
+one dependency graph, wait for readiness, enforce `lifecycle: one-shot` barriers,
+emit `compose_ready`, and tear owned OCI resources down on clean shutdown.
+
+`ORESoftware/ores-comparisons#70` governs the authority migration for the 18
+scenario/stack manifests: required project infrastructure must be represented in
+the canonical `.ores-compose.yaml`, not launched by workflow-side shell glue.
+The migration replaces host PostgreSQL shims and fake bootstrap daemons with a
+digest-pinned PostgreSQL OCI service plus explicit contract, migration, and seed
+one-shot barriers. Until a migrated dummy-org authority is merged and its exact
+gitlink is repinned here, the superproject must continue to treat the older
+manifest as the governed source. Plan-only or stale-gitlink evidence is never a
+runtime pass.
 
 Scintilla additionally launches its exact-pinned Gleam runner and Rust backend.
 BeamScale points its CLI at the exact-pinned supervisor/compiler. ORES Stack
@@ -112,10 +122,16 @@ from this checkout.
 
 The full authority remains
 `ORESoftware/typespec-json-schema-validator@e29a91d...`, and the full compose
-parser remains `ORESoftware/ores-compose@26e331f458c9802727802514b380ff49ebc7270a`. When an established read-only cross-repository credential is configured for those repos, CI
-also checks every project through those exact pinned implementations. Local
-`just tools-bootstrap` does the same using the developer's existing Git
-credentials; it does not depend on an unpublished npm package.
+parser/executor is pinned to
+`ORESoftware/ores-compose@4e790084f09bc5e69a91859e86810070897ec6f9`.
+That exact compose head has funded executable evidence for mixed host + OCI
+startup, PostgreSQL readiness, a one-shot bootstrap barrier, `compose_ready`,
+clean SIGINT shutdown, and no leaked matching OCI containers. When an
+established read-only cross-repository credential is configured for the private
+comparison authorities, CI also checks every project through those exact pinned
+implementations. Local `just tools-bootstrap` does the same using the
+developer's existing Git credentials; it does not depend on an unpublished npm
+package.
 
 
 ## Smoke tests and performance matrix
@@ -160,6 +176,13 @@ that authority present, CI bootstraps exact revisions, runs full tjsv parity,
 validates every ores-compose plan, and the dedicated runtime proof can execute
 the full 18-project matrix. Credential absence is reported explicitly and must
 not be interpreted as private-source execution evidence.
+
+A project runtime receipt binds the exact superproject revision, governed
+project/gitlink identities, toolchain lock, compose binary, compose manifest,
+`compose_ready` and clean-exit evidence. The final `runtime-proof-set-18`
+aggregate is the only completion artifact for the 18-project execution task;
+skipped, credential-blocked, controller-only, or plan-only jobs remain
+incomplete.
 
 
 ## Generated artifact integration tests
