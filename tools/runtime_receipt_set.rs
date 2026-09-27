@@ -751,7 +751,7 @@ mod tests {
             summary
                 .get("receipts")
                 .and_then(JsonValue::as_array)
-                .map(<[JsonValue]>::len),
+                .map(|values| values.len()),
             Some(2)
         );
         let _ = fs::remove_dir_all(root);
