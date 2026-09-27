@@ -135,10 +135,15 @@ Use `just smoke-check`, `just smoke-execute`, `just benchmark ...`, and
 `just benchmark-matrix`.
 
 
-The optional full CI lane expects `COMPARISON_REPO_READ_TOKEN` to be a
-read-only token covering the pinned private repositories used by the three
-stacks. With that secret present, CI bootstraps the exact revisions, runs full
-tjsv parity, validates every ores-compose plan, and executes the smoke matrix.
+The private-authority CI lanes resolve one read-only cross-repository credential
+through a single governed compatibility order: `COMPARISON_REPO_READ_TOKEN`,
+`cross-repo-token`, `ORES_CROSS_REPO_READ_TOKEN`, then
+`TEST_FLEET_READ_TOKEN`. The resolved credential must cover the pinned private
+repositories used by the three stacks and the six dummy organizations. With
+that authority present, CI bootstraps exact revisions, runs full tjsv parity,
+validates every ores-compose plan, and the dedicated runtime proof can execute
+the full 18-project matrix. Credential absence is reported explicitly and must
+not be interpreted as private-source execution evidence.
 
 
 ## Generated artifact integration tests

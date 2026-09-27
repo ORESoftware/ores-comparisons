@@ -11,7 +11,7 @@
       "package": "oresoftware/ores-compose",
       "version": "0.1.0",
       "repository": "https://github.com/ORESoftware/ores-compose",
-      "commit": "fbfad966f9770a9a8d3895880523280324b4ddc6"
+      "commit": "26e331f458c9802727802514b380ff49ebc7270a"
     },
     "typespec-json-schema-validator": {
       "package": "oresoftware/typespec-json-schema-validator",

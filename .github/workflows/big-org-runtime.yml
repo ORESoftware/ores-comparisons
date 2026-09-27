@@ -32,7 +32,7 @@ jobs:
   exact-compose:
     runs-on: ubuntu-latest
     env:
-      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -43,12 +43,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
-            echo "::notice::COMPARISON_REPO_READ_TOKEN is not configured; mandatory topology/projection gates ran, exact private ores-compose planning is skipped."
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            echo "::notice::no established cross-repository read credential is configured; mandatory topology/projection gates ran, exact private ores-compose planning is skipped."
             exit 0
           fi
 
-          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          rewrite="url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf"
           git config --global "$rewrite" "https://github.com/"
           trap 'git config --global --unset-all "$rewrite" || true' EXIT
 
