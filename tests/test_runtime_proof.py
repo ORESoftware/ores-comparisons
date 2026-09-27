@@ -6,6 +6,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -22,6 +23,7 @@ class RuntimeProofTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
         (root / "shared").mkdir(parents=True)
+        (root / "tools").mkdir(parents=True)
         (root / "shared" / "project-matrix.json").write_text(
             json.dumps(
                 {
@@ -37,6 +39,39 @@ class RuntimeProofTests(unittest.TestCase):
                 }
             )
             + "\n"
+        )
+        gitlink_path = "stacks/beamscale/projects/cached-rpc/repos/.github"
+        (root / "shared" / "dummy-org-gitlinks.json").write_text(
+            json.dumps(
+                {
+                    "schema": "ores.comparisons.dummy-org-gitlinks/v1",
+                    "entries": [
+                        {
+                            "stack": "beamscale",
+                            "scenario": "cached-rpc",
+                            "path": gitlink_path,
+                            "commit": "1" * 40,
+                        }
+                    ],
+                }
+            )
+            + "\n"
+        )
+        (root / "tools" / "toolchain.lock.json").write_text(
+            json.dumps(
+                {
+                    "schema": "ores.comparisons.toolchain-lock/v1",
+                    "tools": {"ores-compose": {"commit": "2" * 40}},
+                }
+            )
+            + "\n"
+        )
+        self.enterContext(
+            mock.patch.object(
+                runtime,
+                "project_gitlinks",
+                return_value={gitlink_path: "1" * 40},
+            )
         )
         manifest = (
             root
@@ -88,6 +123,10 @@ class RuntimeProofTests(unittest.TestCase):
             output_dir=root / "artifacts",
         )
         data = json.loads(receipt.read_text())
+        self.assertEqual(data["schema"], "ores.comparisons.runtime-proof/v2")
+        self.assertEqual(data["oresComposeCommit"], "2" * 40)
+        self.assertEqual(len(data["manifestSha256"]), 64)
+        self.assertEqual(len(data["composeBinarySha256"]), 64)
         self.assertEqual(data["status"], "passed")
         self.assertTrue(data["composeReady"])
         self.assertEqual(data["returnCode"], 0)
