@@ -48,8 +48,7 @@ fn revision(root: &Path) -> Result<String, String> {
 fn expected_projects(root: &Path) -> Result<Vec<(String, String)>, String> {
     let path = root.join("shared/project-matrix.json");
     let parsed = JsonValue::parse(
-        &fs::read_to_string(&path)
-            .map_err(|error| format!("read {}: {error}", path.display()))?,
+        &fs::read_to_string(&path).map_err(|error| format!("read {}: {error}", path.display()))?,
     )
     .map_err(|error| format!("parse {}: {error}", path.display()))?;
     let projects = parsed
@@ -86,8 +85,7 @@ fn expected_gitlinks(
 ) -> Result<BTreeMap<String, String>, String> {
     let path = root.join("shared/dummy-org-gitlinks.json");
     let parsed = JsonValue::parse(
-        &fs::read_to_string(&path)
-            .map_err(|error| format!("read {}: {error}", path.display()))?,
+        &fs::read_to_string(&path).map_err(|error| format!("read {}: {error}", path.display()))?,
     )
     .map_err(|error| format!("parse {}: {error}", path.display()))?;
     let entries = parsed
@@ -135,8 +133,7 @@ fn expected_gitlinks(
 fn expected_ores_compose_commit(root: &Path) -> Result<String, String> {
     let path = root.join("tools/toolchain.lock.json");
     let parsed = JsonValue::parse(
-        &fs::read_to_string(&path)
-            .map_err(|error| format!("read {}: {error}", path.display()))?,
+        &fs::read_to_string(&path).map_err(|error| format!("read {}: {error}", path.display()))?,
     )
     .map_err(|error| format!("parse {}: {error}", path.display()))?;
     let commit = parsed
@@ -368,17 +365,16 @@ fn verify_receipts(
             toolchain_lock_sha256: &toolchain_lock_sha256,
             compose_commit: &compose_commit,
         };
-        let (manifest_sha256, compose_binary_sha256) =
-            validate_receipt(&receipt, &context)?;
+        let (manifest_sha256, compose_binary_sha256) = validate_receipt(&receipt, &context)?;
 
         validated.push(object([
-            ("composeBinarySha256", JsonValue::String(compose_binary_sha256)),
+            (
+                "composeBinarySha256",
+                JsonValue::String(compose_binary_sha256),
+            ),
             ("manifestSha256", JsonValue::String(manifest_sha256)),
             ("receipt", JsonValue::String(filename)),
-            (
-                "receiptSha256",
-                JsonValue::String(sha256_file(&path)?),
-            ),
+            ("receiptSha256", JsonValue::String(sha256_file(&path)?)),
             ("scenario", JsonValue::String(scenario.clone())),
             ("stack", JsonValue::String(stack.clone())),
         ]));
@@ -490,17 +486,16 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn sha256(input: &[u8]) -> [u8; 32] {
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
-        0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
-        0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
     ];
 
     let bit_len = (input.len() as u64) * 8;
@@ -658,10 +653,7 @@ mod tests {
                     JsonValue::String(manifest.clone()),
                 ]),
             ),
-            (
-                "composeBinarySha256",
-                JsonValue::String("4".repeat(64)),
-            ),
+            ("composeBinarySha256", JsonValue::String("4".repeat(64))),
             ("composeReady", JsonValue::Bool(true)),
             (
                 "gitlinkLedgerSha256",
@@ -672,10 +664,7 @@ mod tests {
             ("gitlinks", JsonValue::Object(gitlinks)),
             ("manifest", JsonValue::String(manifest)),
             ("manifestSha256", JsonValue::String("5".repeat(64))),
-            (
-                "oresComposeCommit",
-                JsonValue::String("3".repeat(40)),
-            ),
+            ("oresComposeCommit", JsonValue::String("3".repeat(40))),
             (
                 "projectMatrixSha256",
                 JsonValue::String(
@@ -741,7 +730,10 @@ mod tests {
         let directory = root.join("artifacts/runtime-18");
         write_receipts(&root, &directory);
         let summary = verify_receipts(&root, &directory, Some(REVISION)).expect("summary");
-        assert_eq!(summary.get("status").and_then(JsonValue::as_str), Some("passed"));
+        assert_eq!(
+            summary.get("status").and_then(JsonValue::as_str),
+            Some("passed")
+        );
         assert_eq!(summary.get("count").and_then(JsonValue::as_i64), Some(2));
         assert_eq!(
             summary.get("revision").and_then(JsonValue::as_str),
