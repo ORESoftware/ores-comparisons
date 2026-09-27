@@ -116,7 +116,10 @@ for spec in specs:
     for needle in (
         "schema_version: ores.compose.v1",
         "postgres:",
-        'command: ["bash", "scripts/postgres-local.sh"]',
+        "runtime: docker",
+        "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+        'POSTGRES_HOST_AUTH_METHOD: "trust"',
+        "target: 5432",
         '["bash", "scripts/db-migrate.sh"]',
         '["bash", "scripts/db-seed.sh"]',
         "depends_on:",
