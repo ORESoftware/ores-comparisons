@@ -129,9 +129,22 @@ for spec in specs:
     for match in re.finditer(r"retries:\s*(\d+)", compose):
         if int(match.group(1)) > 20:
             errors.append(f"{rel} compose health retries exceed ores-compose v1 limit")
-    postgres_block = compose.split("  postgres:", 1)[1].split("\n  ", 1)[0]
-    if "inherit_env: [PATH]" in postgres_block:
-        errors.append(f"{rel} postgres container must not inherit host PATH")
+    postgres_match = re.search(
+        r"(?ms)^  postgres:\\n.*?(?=^  [A-Za-z0-9][A-Za-z0-9_-]*:\\n|\\Z)",
+        compose,
+    )
+    if not postgres_match:
+        errors.append(f"{rel} compose has no complete postgres service block")
+    else:
+        postgres_block = postgres_match.group(0)
+        if "scripts/postgres-local.sh" in postgres_block:
+            errors.append(f"{rel} postgres service still launches host postgres")
+        if postgres_block.count("runtime:") != 1:
+            errors.append(f"{rel} postgres service must declare exactly one runtime")
+        if "runtime: docker" not in postgres_block:
+            errors.append(f"{rel} postgres service is not OCI-backed")
+        if "inherit_env: [PATH]" in postgres_block:
+            errors.append(f"{rel} postgres container must not inherit host PATH")
 
     env = (shared / ".env.example").read_text()
     port_match = re.search(r"^PGPORT=(\d+)$", env, re.MULTILINE)
