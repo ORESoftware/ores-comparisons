@@ -72,6 +72,40 @@ class AdversarialFleetFixturesTest(unittest.TestCase):
         }
         self.assertEqual(audit_case(clean), [])
 
+    def test_safe_compose_source_and_path_are_clean(self) -> None:
+        clean = {
+            "kind": "compose-config",
+            "input": {
+                "source_commit": "a" * 40,
+                "working_dir": "services/api",
+            },
+        }
+        self.assertEqual(audit_case(clean), [])
+
+    def test_fresh_untampered_compatibility_receipt_is_clean(self) -> None:
+        clean = {
+            "kind": "compatibility-receipt",
+            "input": {
+                "expected_source_sha": "a" * 40,
+                "observed_source_sha": "a" * 40,
+                "expected_toolchain_digest": "sha256:aaaa",
+                "observed_toolchain_digest": "sha256:aaaa",
+            },
+        }
+        self.assertEqual(audit_case(clean), [])
+
+    def test_matching_cross_repo_source_and_config_are_clean(self) -> None:
+        clean = {
+            "kind": "cross-repo-receipt",
+            "input": {
+                "expected_source_digest": "sha256:aaaa",
+                "observed_source_digest": "sha256:aaaa",
+                "expected_config_digest": "sha256:bbbb",
+                "observed_config_digest": "sha256:bbbb",
+            },
+        }
+        self.assertEqual(audit_case(clean), [])
+
     def test_zero_step_pass_is_rejected_but_real_pass_is_not(self) -> None:
         planted = {"kind": "evidence", "input": {"state": "passed", "executed_steps": 0}}
         clean = {"kind": "evidence", "input": {"state": "passed", "executed_steps": 7}}
