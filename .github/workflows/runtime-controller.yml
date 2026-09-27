@@ -12,6 +12,7 @@ on:
       - "tests/test_runtime_proof.py"
       - "tests/test_runtime_receipt_set.py"
       - "tests/test_private_repo_read_access.py"
+      - "tests/test_runtime_workflow_source_binding.py"
       - "scripts/bootstrap_pinned_tools.sh"
       - "tools/toolchain.lock.json"
       - "tools/README.md"
@@ -31,6 +32,7 @@ on:
       - "tests/test_runtime_proof.py"
       - "tests/test_runtime_receipt_set.py"
       - "tests/test_private_repo_read_access.py"
+      - "tests/test_runtime_workflow_source_binding.py"
       - "scripts/bootstrap_pinned_tools.sh"
       - "tools/toolchain.lock.json"
       - "tools/README.md"
@@ -58,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/prove_runtime_project.py scripts/verify_runtime_receipts.py scripts/verify_private_repo_read_access.py
-          python3 -m unittest tests.test_runtime_proof tests.test_runtime_receipt_set tests.test_private_repo_read_access
+          python3 -m unittest tests.test_runtime_proof tests.test_runtime_receipt_set tests.test_private_repo_read_access tests.test_runtime_workflow_source_binding
           python3 scripts/verify_project_matrix.py
           python3 - <<'PY'
           import json
