@@ -143,7 +143,7 @@ for spec in load_project_specs():
         continue
     topology = json.loads(topology_path.read_text())
     env_text = (spec.shared_repo_path / ".env.example").read_text()
-    port_match = re.search(r"^PGPORT=(\\d+)$", env_text, re.MULTILINE)
+    port_match = re.search(r"^PGPORT=(\d+)$", env_text, re.MULTILINE)
     if not port_match:
         errors.append(f"missing PGPORT: {(spec.shared_repo_path / '.env.example').relative_to(ROOT)}")
         continue
