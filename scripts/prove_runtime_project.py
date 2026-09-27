@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -49,6 +50,62 @@ def admitted_project(root: Path, stack: str, scenario: str) -> dict[str, object]
             f"expected exactly one matrix entry for {stack}/{scenario}, found {len(matches)}"
         )
     return matches[0]
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def ledger_gitlinks(root: Path, stack: str, scenario: str) -> dict[str, str]:
+    ledger = json.loads((root / "shared" / "dummy-org-gitlinks.json").read_text())
+    links = {
+        item["path"]: item["commit"]
+        for item in ledger.get("entries", [])
+        if item.get("stack") == stack and item.get("scenario") == scenario
+    }
+    if not links:
+        raise RuntimeError(f"no governed gitlinks found for {stack}/{scenario}")
+    return dict(sorted(links.items()))
+
+
+def indexed_gitlink(root: Path, path: str) -> str:
+    output = subprocess.check_output(
+        ["git", "-C", str(root), "ls-files", "-s", "--", path],
+        text=True,
+        stderr=subprocess.DEVNULL,
+    ).strip()
+    rows = [line for line in output.splitlines() if line.strip()]
+    if len(rows) != 1:
+        raise RuntimeError(f"expected one git index entry for {path}, found {len(rows)}")
+    fields = rows[0].split(maxsplit=3)
+    if len(fields) != 4 or fields[0] != "160000":
+        raise RuntimeError(f"{path} is not an exact gitlink in the superproject index")
+    commit = fields[1]
+    if len(commit) != 40 or any(ch not in "0123456789abcdef" for ch in commit):
+        raise RuntimeError(f"{path} has invalid gitlink commit {commit!r}")
+    return commit
+
+
+def project_gitlinks(root: Path, stack: str, scenario: str) -> dict[str, str]:
+    governed = ledger_gitlinks(root, stack, scenario)
+    indexed = {path: indexed_gitlink(root, path) for path in governed}
+    if indexed != governed:
+        raise RuntimeError(
+            f"superproject gitlinks disagree with governed ledger for {stack}/{scenario}"
+        )
+    return indexed
+
+
+def ores_compose_commit(root: Path) -> str:
+    lock = json.loads((root / "tools" / "toolchain.lock.json").read_text())
+    value = lock.get("tools", {}).get("ores-compose", {}).get("commit")
+    if not isinstance(value, str) or len(value) != 40:
+        raise RuntimeError("toolchain lock has no exact ores-compose commit")
+    return value
 
 
 def reader_thread(stream: TextIO, output: queue.Queue[str | None]) -> None:
@@ -109,6 +166,14 @@ def prove_runtime(
         )
     if not compose.is_file():
         raise RuntimeError(f"ores-compose binary is unavailable at {compose}")
+
+    gitlinks = project_gitlinks(root, stack, scenario)
+    project_matrix_sha256 = sha256_file(root / "shared" / "project-matrix.json")
+    gitlink_ledger_sha256 = sha256_file(root / "shared" / "dummy-org-gitlinks.json")
+    toolchain_lock_sha256 = sha256_file(root / "tools" / "toolchain.lock.json")
+    manifest_sha256 = sha256_file(manifest)
+    compose_binary_sha256 = sha256_file(compose)
+    compose_commit = ores_compose_commit(root)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     log_path = output_dir / f"{stack}-{scenario}.log"
@@ -219,11 +284,18 @@ def prove_runtime(
         if reader is not None:
             reader.join(timeout=1)
         receipt: dict[str, object] = {
-            "schema": "ores.comparisons.runtime-proof/v1",
+            "schema": "ores.comparisons.runtime-proof/v2",
             "stack": stack,
             "scenario": scenario,
             "revision": revision(root),
+            "projectMatrixSha256": project_matrix_sha256,
+            "gitlinkLedgerSha256": gitlink_ledger_sha256,
+            "toolchainLockSha256": toolchain_lock_sha256,
+            "oresComposeCommit": compose_commit,
+            "composeBinarySha256": compose_binary_sha256,
+            "gitlinks": gitlinks,
             "manifest": str(manifest.relative_to(root)),
+            "manifestSha256": manifest_sha256,
             "command": ["ores-compose", "up", str(manifest.relative_to(root))],
             "status": status,
             "composeReady": ready_event is not None,
