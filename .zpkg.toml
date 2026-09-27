@@ -3,7 +3,7 @@ org = "oresoftware"
 name = "ores-comparisons"
 version = "0.1.0"
 description = "Cross-stack conformance and deployment comparison harness"
-language = "multi"
+language = "rust"
 
 [package.repository]
 vcs = "git"
