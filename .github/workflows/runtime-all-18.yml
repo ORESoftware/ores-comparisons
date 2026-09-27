@@ -2,6 +2,11 @@ name: runtime-all-18
 
 on:
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      COMPARISON_REPO_READ_TOKEN:
+        description: Read-only credential covering every governed private runtime repository.
+        required: false
 
 permissions:
   contents: read
@@ -15,6 +20,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -63,6 +72,8 @@ jobs:
           echo "private runtime credential is present"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
       - name: Verify credential can Git-read every governed repository
         shell: bash
@@ -155,6 +166,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
