@@ -129,6 +129,9 @@ for spec in specs:
     for match in re.finditer(r"retries:\s*(\d+)", compose):
         if int(match.group(1)) > 20:
             errors.append(f"{rel} compose health retries exceed ores-compose v1 limit")
+    postgres_block = compose.split("  postgres:", 1)[1].split("\n  ", 1)[0]
+    if "inherit_env: [PATH]" in postgres_block:
+        errors.append(f"{rel} postgres container must not inherit host PATH")
 
     env = (shared / ".env.example").read_text()
     port_match = re.search(r"^PGPORT=(\d+)$", env, re.MULTILINE)
