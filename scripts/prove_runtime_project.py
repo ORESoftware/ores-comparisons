@@ -117,6 +117,7 @@ def prove_runtime(
     started_at = time.time()
     ready_event: dict[str, object] | None = None
     process: subprocess.Popen[str] | None = None
+    reader: threading.Thread | None = None
     status = "failed"
     error: str | None = None
     return_code: int | None = None
@@ -153,15 +154,17 @@ def prove_runtime(
                     line = lines.get(timeout=min(0.25, remaining))
                 except queue.Empty:
                     if process.poll() is not None:
+                        return_code = process.returncode
                         raise RuntimeError(
-                            f"ores-compose exited with {process.returncode} before compose_ready"
+                            f"ores-compose exited with {return_code} before compose_ready"
                         )
                     continue
 
                 if line is None:
                     if process.poll() is not None and ready_event is None:
+                        return_code = process.returncode
                         raise RuntimeError(
-                            f"ores-compose exited with {process.returncode} before compose_ready"
+                            f"ores-compose exited with {return_code} before compose_ready"
                         )
                     continue
 
@@ -197,6 +200,8 @@ def prove_runtime(
             status = "passed"
     except Exception as exc:
         error = str(exc)
+        if process is not None and process.poll() is not None and return_code is None:
+            return_code = process.returncode
         if process is not None and process.poll() is None:
             stop_process(process)
             try:
@@ -209,6 +214,10 @@ def prove_runtime(
                     return_code = None
         raise
     finally:
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+        if reader is not None:
+            reader.join(timeout=1)
         receipt: dict[str, object] = {
             "schema": "ores.comparisons.runtime-proof/v1",
             "stack": stack,
