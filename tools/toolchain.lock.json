@@ -49,7 +49,7 @@
       "package": "ores-stack/ores-stack-cli",
       "version": "0.1.0",
       "repository": "https://github.com/ores-stack/ores-stack-cli",
-      "commit": "7d07a9cdb2e876d1cf1e3cf064287f48b9217d3c"
+      "commit": "5dc53c1e2e2f3f249e6da70c8931a7529d425fc4"
     },
     "ores-clis-core": {
       "package": "oresoftware/ores-clis-core",
