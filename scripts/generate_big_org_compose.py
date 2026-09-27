@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -12,7 +13,10 @@ def yaml_array(values: list[str]) -> str:
     return "[" + ", ".join(json.dumps(value) for value in values) + "]"
 
 
-def render(topology: dict) -> str:
+POSTGRES_IMAGE = "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+
+
+def render(topology: dict, pgport: int) -> str:
     stack = topology["stack"]
     lines = [
         "schema_version: ores.compose.v1",
@@ -20,10 +24,17 @@ def render(topology: dict) -> str:
         "allow_lazy_start: false",
         "services:",
         "  postgres:",
-        "    runtime: host",
-        '    command: ["bash", "scripts/postgres-local.sh"]',
+        "    runtime: docker",
+        f"    image: {POSTGRES_IMAGE}",
+        '    command: ["postgres"]',
+        "    environment:",
+        '      POSTGRES_USER: "postgres"',
+        '      POSTGRES_DB: "postgres"',
+        '      POSTGRES_HOST_AUTH_METHOD: "trust"',
+        "    ports:",
+        f"      - {{ host: 127.0.0.1, published: {pgport}, target: 5432, protocol: tcp }}",
         "    healthcheck:",
-        '      command: ["bash", "scripts/db-health.sh"]',
+        '      command: ["/bin/bash", "scripts/db-health.sh"]',
         "      interval_ms: 300",
         "      timeout_ms: 250",
         "      retries: 20",
@@ -33,6 +44,7 @@ def render(topology: dict) -> str:
             "  runner:",
             "    runtime: host",
             '    command: ["bash", "scripts/scintilla-runner.sh"]',
+            "    inherit_env: [PATH]",
             "    build:",
             '      - ["bash", "scripts/scintilla-runtime-build.sh", "runner"]',
             "    healthcheck:",
@@ -43,6 +55,7 @@ def render(topology: dict) -> str:
             "  backend:",
             "    runtime: host",
             '    command: ["bash", "scripts/scintilla-backend.sh"]',
+            "    inherit_env: [PATH]",
             "    build:",
             '      - ["bash", "scripts/scintilla-runtime-build.sh", "backend"]',
             "    depends_on: [runner]",
@@ -56,6 +69,7 @@ def render(topology: dict) -> str:
         "  db-bootstrap:",
         "    runtime: host",
         '    command: ["bash", "scripts/db-bootstrap.sh"]',
+        "    inherit_env: [PATH]",
         "    build:",
         '      - ["bash", "scripts/contracts-check.sh"]',
         '      - ["bash", "scripts/db-migrate.sh"]',
@@ -79,6 +93,7 @@ def render(topology: dict) -> str:
             f"  {name}:",
             "    runtime: host",
             f'    command: ["python3", "scripts/run-sibling.py", "run", "{name}"]',
+            "    inherit_env: [PATH]",
             "    build:",
             f'      - ["python3", "scripts/run-sibling.py", "build", "{name}"]',
             f"    depends_on: {yaml_array(deps)}",
@@ -101,6 +116,7 @@ def render(topology: dict) -> str:
         "  app:",
         "    runtime: host",
         '    command: ["bash", "scripts/dev-server.sh"]',
+        "    inherit_env: [PATH]",
         f"    depends_on: {yaml_array(app_deps)}",
     ]
     if stack == "ores-stack":
@@ -126,7 +142,12 @@ for spec in load_project_specs():
         errors.append(f"missing topology: {topology_path.relative_to(ROOT)}")
         continue
     topology = json.loads(topology_path.read_text())
-    content = render(topology)
+    env_text = (spec.shared_repo_path / ".env.example").read_text()
+    port_match = re.search(r"^PGPORT=(\\d+)$", env_text, re.MULTILINE)
+    if not port_match:
+        errors.append(f"missing PGPORT: {(spec.shared_repo_path / '.env.example').relative_to(ROOT)}")
+        continue
+    content = render(topology, int(port_match.group(1)))
     output = spec.shared_repo_path / ".ores-compose.yaml"
     count += 1
     if check:
