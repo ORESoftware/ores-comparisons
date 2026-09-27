@@ -134,6 +134,23 @@ Use `just smoke-check`, `just smoke-execute`, `just benchmark ...`, and
 `just benchmark-matrix`.
 
 
+An authorized carrier workflow can also invoke the exact runtime controller as a
+reusable workflow. The carrier should pin an immutable ores-comparisons commit
+and map its own read credential into the called workflow:
+
+```yaml
+jobs:
+  runtime-18:
+    uses: ORESoftware/ores-comparisons/.github/workflows/runtime-all-18.yml@<exact-commit-sha>
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.RUNTIME_COMPARISON_READ_TOKEN }}
+```
+
+The called jobs explicitly check out `job.workflow_repository` at
+`job.workflow_sha`, so cross-repository reuse executes the comparison source
+that defined the called workflow rather than accidentally checking out the
+carrier repository.
+
 The private-authority CI lanes resolve one read-only cross-repository credential
 through a single governed compatibility order: `COMPARISON_REPO_READ_TOKEN`,
 `cross-repo-token`, `ORES_CROSS_REPO_READ_TOKEN`, then
