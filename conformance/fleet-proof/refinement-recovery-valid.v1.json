@@ -64,14 +64,15 @@
     }
   ],
   "recovery": {
-    "artifact_reference": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "backup_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "restored_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifact_reference": "sha256:e26324eaae10b2adcc48563913c6b5158b2d73d162ea1efea40bce318e483a4b",
+    "artifact_sha256": "e26324eaae10b2adcc48563913c6b5158b2d73d162ea1efea40bce318e483a4b",
+    "backup_sha256": "e26324eaae10b2adcc48563913c6b5158b2d73d162ea1efea40bce318e483a4b",
+    "restored_sha256": "e26324eaae10b2adcc48563913c6b5158b2d73d162ea1efea40bce318e483a4b",
     "source_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "backup_source_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "backup_immutable": true,
     "recovery_time_ms": 420,
-    "max_recovery_time_ms": 1000
+    "max_recovery_time_ms": 1000,
+    "drill_payload": "ores-fleet-recovery-drill-v1\nsource=synthetic-comparison-fixture\n"
   }
 }
