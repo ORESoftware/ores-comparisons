@@ -16,4 +16,4 @@ The v1 evidence envelope requires:
 
 `scripts/verify_fleet_proof_evidence.py` emits a small proof-gate receipt. The unit tests deliberately mutate the clean fixture and require deterministic finding IDs for every planted violation. The verifier is read-only and must never mutate the evidence document it audits.
 
-This is one layer of GitHub issue #30. Formal-model refinement and immutable-artifact recovery drills are kept as separate follow-up proof surfaces so they can be reviewed and failed independently.
+GitHub issue #30 is split into independent proof surfaces. `evidence-valid.v1.json` covers source-bound evidence and telemetry safety. `refinement-recovery-valid.v1.json` connects a declared lifecycle model to executable implementation events and proves an immutable backup restores byte-identical artifact content within an explicit recovery-time objective. Both verifiers are read-only and emit separate receipts so one proof cannot mask failure in the other.
