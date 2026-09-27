@@ -756,7 +756,9 @@ fn repository_root() -> Result<PathBuf, String> {
 
 fn git_revision(root: &Path) -> Result<String, String> {
     let output = Command::new("git")
-        .args(["-C", root.to_string_lossy().as_ref(), "rev-parse", "HEAD"])
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "HEAD"])
         .output()
         .map_err(|error| format!("run git rev-parse HEAD: {error}"))?;
     if !output.status.success() {
@@ -879,8 +881,14 @@ fn main() {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let digest = sha256(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut output = String::with_capacity(64);
+    for byte in digest {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn sha256(input: &[u8]) -> [u8; 32] {
