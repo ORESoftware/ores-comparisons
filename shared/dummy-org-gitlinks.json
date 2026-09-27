@@ -10,7 +10,7 @@
       "path": "stacks/beamscale/projects/big-org-example-collaboration/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-1/.github",
-      "commit": "32d6afaba15885c6f69e699bf4fadce5f3a95e46"
+      "commit": "251f00dfb81ab9fd2f0aae334a287f843eb11ce8"
     },
     {
       "org": "ores-dummy-org-1",
@@ -150,7 +150,7 @@
       "path": "stacks/scintilla-run/projects/big-org-example-collaboration/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-1/.github",
-      "commit": "fe4a596da651241d8cd05fdc6ae3d273aa6383d8"
+      "commit": "6ab44030d8b1ee42a6410ebf339fc63734b3a066"
     },
     {
       "org": "ores-dummy-org-1",
@@ -220,7 +220,7 @@
       "path": "stacks/beamscale/projects/big-org-example-commerce/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-2/.github",
-      "commit": "970cd78bb7f318782963250f26f90abfbe0d1572"
+      "commit": "0fa42180aaa0bab053620cb05a145333265da5b3"
     },
     {
       "org": "ores-dummy-org-2",
@@ -360,7 +360,7 @@
       "path": "stacks/scintilla-run/projects/big-org-example-commerce/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-2/.github",
-      "commit": "2718656b04e450e172e33678232757c973d35837"
+      "commit": "bfd058f118fa8958c28edc89eeab815867eaa677"
     },
     {
       "org": "ores-dummy-org-2",
@@ -430,7 +430,7 @@
       "path": "stacks/beamscale/projects/big-org-example-operations/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-3/.github",
-      "commit": "7256292102c8fcdf473cb1e4b3bfa59c03c445c7"
+      "commit": "64866526bedc1db355d8a5b821cd072a92b0b17d"
     },
     {
       "org": "ores-dummy-org-3",
@@ -570,7 +570,7 @@
       "path": "stacks/scintilla-run/projects/big-org-example-operations/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-3/.github",
-      "commit": "2bca0933227611d62de62c59861ac848b70ed4b4"
+      "commit": "5048eb9db28b530b74e3377bb6545c78c8a5a3f8"
     },
     {
       "org": "ores-dummy-org-3",
@@ -640,7 +640,7 @@
       "path": "stacks/beamscale/projects/cached-rpc/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-4/.github",
-      "commit": "d090d9b0484382eb5df9740366561bc05fb03150"
+      "commit": "5066130ccddaed5831e044e2afb0d127053b68a0"
     },
     {
       "org": "ores-dummy-org-4",
@@ -720,7 +720,7 @@
       "path": "stacks/scintilla-run/projects/cached-rpc/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-4/.github",
-      "commit": "c60bef16d9e24414369a669f9de01081e0eb3276"
+      "commit": "b8b281ab3d9a5fc3b6040d72d183a39fc15f10b4"
     },
     {
       "org": "ores-dummy-org-4",
@@ -760,7 +760,7 @@
       "path": "stacks/beamscale/projects/forms-chat-workflow/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-5/.github",
-      "commit": "64debec6ab11ec99600715888deafecbc93221d3"
+      "commit": "e8702238d341a6c2cce123381a4215d007f5e71a"
     },
     {
       "org": "ores-dummy-org-5",
@@ -840,7 +840,7 @@
       "path": "stacks/scintilla-run/projects/forms-chat-workflow/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-5/.github",
-      "commit": "bf85d8c5e2841cb88b2850e5225bbe9a5ab363df"
+      "commit": "2e84611a15c24e52c7ee87e200e44628bd3fc987"
     },
     {
       "org": "ores-dummy-org-5",
@@ -880,7 +880,7 @@
       "path": "stacks/beamscale/projects/http-observability/repos/.github",
       "branch": "stack/beamscale",
       "repository": "ores-dummy-org-6/.github",
-      "commit": "33bdee5e46eaa13ebf94500ad465ce9ee0e35552"
+      "commit": "2bdd756c2765fe822795d42931d9f3ae3867feb1"
     },
     {
       "org": "ores-dummy-org-6",
@@ -960,7 +960,7 @@
       "path": "stacks/scintilla-run/projects/http-observability/repos/.github",
       "branch": "stack/scintilla-run",
       "repository": "ores-dummy-org-6/.github",
-      "commit": "90e92852f0bdfff3eb34379fe579496f98edd61f"
+      "commit": "02407b53c6b89f8c116d6f2c7e36fc13d6f94f0e"
     },
     {
       "org": "ores-dummy-org-6",
