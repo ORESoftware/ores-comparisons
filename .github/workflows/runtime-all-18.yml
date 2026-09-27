@@ -27,11 +27,19 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
+          components: rustfmt
       - name: Validate proof harness and exact 18-project authority
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/prove_runtime_project.py scripts/verify_runtime_receipts.py
           python3 -m unittest tests.test_runtime_proof tests.test_runtime_receipt_set tests.test_runtime_workflow_source_binding
+          mkdir -p tmp
+          rustfmt --edition 2024 --check tools/private_repo_read_access.rs
+          rustc --edition 2024 --test tools/private_repo_read_access.rs -o tmp/private-repo-read-access-tests
+          ./tmp/private-repo-read-access-tests
           python3 scripts/verify_project_matrix.py
           python3 - <<'PY'
           import json
@@ -75,11 +83,16 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
       - name: Verify credential can Git-read every governed repository
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/verify_private_repo_read_access.py
+          mkdir -p tmp
+          rustc --edition 2024 tools/private_repo_read_access.rs -o tmp/private-repo-read-access
+          ./tmp/private-repo-read-access
 
   cached-rpc:
     name: wave 1 cached-rpc / ${{ matrix.stack }}
