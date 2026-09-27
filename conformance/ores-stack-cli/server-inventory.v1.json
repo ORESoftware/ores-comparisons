@@ -114,7 +114,7 @@
       "deploymentMode": "artifact-handoff",
       "infraOwner": {
         "repository": "ores-dummy-org-4/.github",
-        "sourceSha": "bbcbd70097687a8a5e7995f1980a144769ab89a2"
+        "sourceSha": "6dfbb6ab719dd99a546dfcd802994d515207bd18"
       },
       "repository": "ores-dummy-org-4/app",
       "role": "application",

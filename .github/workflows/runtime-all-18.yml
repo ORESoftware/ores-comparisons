@@ -65,7 +65,6 @@ jobs:
           print("runtime matrix authority OK: 6 waves x 3 stacks = 18 projects")
           PY
 
-
   credential-preflight:
     runs-on: ubuntu-24.04
     env:
@@ -107,7 +106,8 @@ jobs:
     with:
       stack: ${{ matrix.stack }}
       scenario: cached-rpc
-    secrets: inherit
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
 
   http-observability:
     name: wave 2 http-observability / ${{ matrix.stack }}
@@ -120,7 +120,8 @@ jobs:
     with:
       stack: ${{ matrix.stack }}
       scenario: http-observability
-    secrets: inherit
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
 
   forms-chat-workflow:
     name: wave 3 forms-chat-workflow / ${{ matrix.stack }}
@@ -133,7 +134,8 @@ jobs:
     with:
       stack: ${{ matrix.stack }}
       scenario: forms-chat-workflow
-    secrets: inherit
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
 
   big-org-example-commerce:
     name: wave 4 big-org-example-commerce / ${{ matrix.stack }}
@@ -146,7 +148,8 @@ jobs:
     with:
       stack: ${{ matrix.stack }}
       scenario: big-org-example-commerce
-    secrets: inherit
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
 
   big-org-example-collaboration:
     name: wave 5 big-org-example-collaboration / ${{ matrix.stack }}
@@ -159,7 +162,8 @@ jobs:
     with:
       stack: ${{ matrix.stack }}
       scenario: big-org-example-collaboration
-    secrets: inherit
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
 
   big-org-example-operations:
     name: wave 6 big-org-example-operations / ${{ matrix.stack }}
@@ -172,7 +176,8 @@ jobs:
     with:
       stack: ${{ matrix.stack }}
       scenario: big-org-example-operations
-    secrets: inherit
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
 
   aggregate-runtime-proof:
     name: aggregate exact 18/18 runtime proof
