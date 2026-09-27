@@ -5,6 +5,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKOUT = "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+RUNTIME_PROJECT = "uses: ./.github/workflows/runtime-project.yml"
+EXPLICIT_RUNTIME_SECRET = (
+    "COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || "
+    "secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || "
+    "secrets.TEST_FLEET_READ_TOKEN }}"
+)
 
 
 class RuntimeWorkflowSourceBindingTests(unittest.TestCase):
@@ -45,6 +51,24 @@ class RuntimeWorkflowSourceBindingTests(unittest.TestCase):
             "description: Read-only credential covering every governed private runtime repository.",
             source,
         )
+
+    def test_runtime_all_forwards_read_secret_to_every_nested_runtime_job(self) -> None:
+        source = (ROOT / ".github/workflows/runtime-all-18.yml").read_text()
+        lines = source.splitlines()
+        indexes = [index for index, line in enumerate(lines) if RUNTIME_PROJECT in line]
+        self.assertEqual(len(indexes), 6)
+        for index in indexes:
+            window = "\n".join(lines[index : index + 10])
+            self.assertIn(
+                EXPLICIT_RUNTIME_SECRET,
+                window,
+                f"nested runtime call at line {index + 1} does not explicitly forward the read secret",
+            )
+            self.assertNotIn(
+                "secrets: inherit",
+                window,
+                f"nested runtime call at line {index + 1} relies on non-transitive secret inheritance",
+            )
 
 
 if __name__ == "__main__":
