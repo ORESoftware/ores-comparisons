@@ -285,20 +285,58 @@ impl Parser<'_> {
 
     fn parse_number(&mut self) -> Result<String, String> {
         let start = self.offset;
-        while matches!(
-            self.peek_char(),
-            Some('-' | '+' | '.' | 'e' | 'E' | '0'..='9')
-        ) {
+
+        if self.peek_char() == Some('-') {
             self.next_char();
         }
-        let token = &self.source[start..self.offset];
-        if token.parse::<f64>().is_err() {
-            return Err(format!("invalid JSON number {token:?}"));
+
+        match self.peek_char() {
+            Some('0') => {
+                self.next_char();
+                if matches!(self.peek_char(), Some('0'..='9')) {
+                    return Err(format!(
+                        "invalid JSON number with leading zero at byte {start}"
+                    ));
+                }
+            }
+            Some('1'..='9') => {
+                while matches!(self.peek_char(), Some('0'..='9')) {
+                    self.next_char();
+                }
+            }
+            _ => {
+                return Err(format!("invalid JSON number at byte {start}"));
+            }
         }
-        if token.starts_with('+') || token.starts_with('.') || token.ends_with('.') {
-            return Err(format!("non-canonical JSON number {token:?}"));
+
+        if self.peek_char() == Some('.') {
+            self.next_char();
+            if !matches!(self.peek_char(), Some('0'..='9')) {
+                return Err(format!(
+                    "JSON fraction must contain at least one digit at byte {start}"
+                ));
+            }
+            while matches!(self.peek_char(), Some('0'..='9')) {
+                self.next_char();
+            }
         }
-        Ok(token.to_owned())
+
+        if matches!(self.peek_char(), Some('e' | 'E')) {
+            self.next_char();
+            if matches!(self.peek_char(), Some('+' | '-')) {
+                self.next_char();
+            }
+            if !matches!(self.peek_char(), Some('0'..='9')) {
+                return Err(format!(
+                    "JSON exponent must contain at least one digit at byte {start}"
+                ));
+            }
+            while matches!(self.peek_char(), Some('0'..='9')) {
+                self.next_char();
+            }
+        }
+
+        Ok(self.source[start..self.offset].to_owned())
     }
 
     fn consume_literal(&mut self, literal: &str) -> Result<(), String> {
@@ -376,6 +414,25 @@ mod tests {
     #[test]
     fn rejects_trailing_material() {
         assert!(JsonValue::parse("{} trailing").is_err());
+    }
+
+    #[test]
+    fn enforces_exact_json_number_grammar_without_float_round_trips() {
+        for valid in ["0", "-0", "10", "-2.5", "1e3", "1E-3", "0.001"] {
+            assert!(JsonValue::parse(valid).is_ok(), "{valid} should be valid JSON");
+        }
+        for invalid in ["01", "-01", "1.", "1e", "1e+", "-", "+1"] {
+            assert!(
+                JsonValue::parse(invalid).is_err(),
+                "{invalid} must be rejected"
+            );
+        }
+        assert_eq!(
+            JsonValue::parse("123456789012345678901234567890")
+                .expect("large JSON number")
+                .compact(),
+            "123456789012345678901234567890"
+        );
     }
 
     #[test]
