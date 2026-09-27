@@ -10,7 +10,7 @@ jobs:
   backward-compatibility:
     runs-on: ubuntu-latest
     env:
-      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN }}
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -27,12 +27,12 @@ jobs:
           if [[ ! -f .gitmodules ]]; then
             exit 0
           fi
-          if [[ -z "${COMPARISON_REPO_READ_TOKEN:-}" ]]; then
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
             echo "SKIP_PRIVATE_CONTENT=true" >> "$GITHUB_ENV"
             echo "::notice::private comparison submodules are not authorized; cross-repo contract comparison is skipped."
             exit 0
           fi
-          rewrite="url.https://x-access-token:${COMPARISON_REPO_READ_TOKEN}@github.com/.insteadOf"
+          rewrite="url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf"
           git config --global "$rewrite" "https://github.com/"
           git submodule sync --recursive
           git submodule update --init --recursive --checkout
