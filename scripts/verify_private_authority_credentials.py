@@ -11,6 +11,7 @@ WORKFLOWS = (
     ".github/workflows/contract-compatibility.yml",
     ".github/workflows/dummy-org-remote-reachability.yml",
     ".github/workflows/runtime-project.yml",
+    ".github/workflows/runtime-all-18.yml",
 )
 EXPECTED = (
     "CROSS_REPO_READ_TOKEN: "
