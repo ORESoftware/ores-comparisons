@@ -36,6 +36,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/prove_runtime_project.py scripts/verify_runtime_receipts.py
           python3 -m unittest tests.test_runtime_proof tests.test_runtime_receipt_set tests.test_runtime_workflow_source_binding
+          mkdir -p tmp
           rustfmt --edition 2024 --check tools/private_repo_read_access.rs
           rustc --edition 2024 --test tools/private_repo_read_access.rs -o tmp/private-repo-read-access-tests
           ./tmp/private-repo-read-access-tests
