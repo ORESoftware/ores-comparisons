@@ -24,7 +24,11 @@ install_cargo_git() {
   mkdir -p "$root"
   if [[ ! -x "$root/bin/$bin" ]]; then
     args=(cargo install --git "$repo" --rev "$rev" --locked --root "$root" --bin "$bin")
-    if [[ -n "$package" ]]; then args+=(--package "$package"); fi
+    # `cargo install --git` selects a package with a positional crate argument.
+    # `--package` is not part of cargo-install's CLI and fails on current Cargo.
+    if [[ -n "$package" ]]; then
+      args+=("$package")
+    fi
     CARGO_NET_GIT_FETCH_WITH_CLI=true "${args[@]}"
   fi
   ln -sfn "$root/bin/$bin" "$BIN/$bin"
@@ -57,7 +61,11 @@ install_scintilla_cli() {
   root="$ROOT/.local/tools/scintilla-cli"
   mkdir -p "$root"
   if [[ ! -x "$root/bin/scintilla" ]]; then
-    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install       --path "$cli_dir"       --locked       --root "$root"       --bin scintilla
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install \
+      --path "$cli_dir" \
+      --locked \
+      --root "$root" \
+      --bin scintilla
   fi
   ln -sfn "$root/bin/scintilla" "$BIN/scintilla"
 }
