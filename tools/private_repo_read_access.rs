@@ -35,9 +35,7 @@ fn canonical_repository(value: &str) -> Result<Repository, String> {
     } else if let Some(rest) = value.strip_prefix("ssh://git@github.com/") {
         rest
     } else {
-        return Err(format!(
-            "unsupported non-GitHub repository URL: {value:?}"
-        ));
+        return Err(format!("unsupported non-GitHub repository URL: {value:?}"));
     };
 
     let rest = rest.strip_suffix('/').unwrap_or(rest);
@@ -140,7 +138,8 @@ fn required_repositories(root: &Path) -> Result<Vec<Repository>, String> {
     let mut repositories = BTreeMap::new();
     for value in urls {
         let repository = canonical_repository(&value)?;
-        if let Some(previous) = repositories.insert(repository.identity.clone(), repository.url.clone())
+        if let Some(previous) =
+            repositories.insert(repository.identity.clone(), repository.url.clone())
         {
             if previous != repository.url {
                 return Err(format!(
@@ -161,8 +160,7 @@ fn required_repositories(root: &Path) -> Result<Vec<Repository>, String> {
 }
 
 fn base64_encode(input: &[u8]) -> String {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut output = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let a = chunk[0] as u32;
@@ -232,11 +230,7 @@ fn failure_message(identity: &str, status: Option<i32>) -> String {
     }
 }
 
-fn probe_repository(
-    repository: &Repository,
-    token: &str,
-    timeout: Duration,
-) -> Result<(), String> {
+fn probe_repository(repository: &Repository, token: &str, timeout: Duration) -> Result<(), String> {
     let plan = probe_plan(repository, token)?;
     let mut command = Command::new(&plan.program);
     command
