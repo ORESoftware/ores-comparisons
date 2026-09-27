@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import shutil
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +99,14 @@ def audit_refinement(document: dict[str, Any]) -> list[str]:
         findings.add("fleet.recovery.missing")
         return sorted(findings)
 
+    payload = recovery.get("drill_payload")
+    if not isinstance(payload, str) or not payload:
+        findings.add("fleet.recovery.drill-payload-missing")
+    else:
+        payload_sha = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        if recovery.get("artifact_sha256") != payload_sha:
+            findings.add("fleet.recovery.declared-artifact-payload-mismatch")
+
     reference = recovery.get("artifact_reference")
     if not isinstance(reference, str) or IMMUTABLE_ARTIFACT.fullmatch(reference) is None:
         findings.add("fleet.recovery.mutable-artifact-reference")
@@ -152,23 +164,123 @@ def audit_refinement(document: dict[str, Any]) -> list[str]:
     return sorted(findings)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def exercise_recovery_drill(document: dict[str, Any]) -> dict[str, Any]:
+    recovery = document.get("recovery")
+    if not isinstance(recovery, dict):
+        raise RuntimeError("recovery configuration is missing")
+    payload = recovery.get("drill_payload")
+    if not isinstance(payload, str) or not payload:
+        raise RuntimeError("recovery drill payload is missing")
+
+    started_ns = time.perf_counter_ns()
+    with tempfile.TemporaryDirectory(prefix="ores-fleet-recovery-") as raw:
+        root = Path(raw)
+        artifact = root / "artifact.bin"
+        backup = root / "backup" / "artifact.bin"
+        restored = root / "restored.bin"
+        backup.parent.mkdir(parents=True)
+
+        artifact.write_bytes(payload.encode("utf-8"))
+        artifact_sha = _sha256_file(artifact)
+
+        shutil.copyfile(artifact, backup)
+        backup.chmod(0o444)
+        backup_sha = _sha256_file(backup)
+        backup_read_only = (backup.stat().st_mode & 0o222) == 0
+
+        artifact.unlink()
+        shutil.copyfile(backup, restored)
+        restored_sha = _sha256_file(restored)
+
+    recovery_time_ms = max(0, (time.perf_counter_ns() - started_ns) // 1_000_000)
+    return {
+        "artifactSha256": artifact_sha,
+        "backupSha256": backup_sha,
+        "restoredSha256": restored_sha,
+        "backupReadOnly": backup_read_only,
+        "recoveryTimeMs": recovery_time_ms,
+    }
+
+
+def audit_recovery_exercise(
+    document: dict[str, Any],
+    exercise: dict[str, Any],
+) -> list[str]:
+    findings: set[str] = set()
+    recovery = document.get("recovery")
+    if not isinstance(recovery, dict):
+        return ["fleet.recovery.exercise-missing-config"]
+
+    expected_artifact = recovery.get("artifact_sha256")
+    if exercise.get("artifactSha256") != expected_artifact:
+        findings.add("fleet.recovery.exercise-artifact-digest-mismatch")
+    if exercise.get("backupSha256") != expected_artifact:
+        findings.add("fleet.recovery.exercise-backup-digest-mismatch")
+    if exercise.get("restoredSha256") != expected_artifact:
+        findings.add("fleet.recovery.exercise-restore-digest-mismatch")
+    if exercise.get("backupReadOnly") is not True:
+        findings.add("fleet.recovery.exercise-backup-mutable")
+
+    measured = exercise.get("recoveryTimeMs")
+    maximum = recovery.get("max_recovery_time_ms")
+    if (
+        not isinstance(measured, int)
+        or isinstance(measured, bool)
+        or measured < 0
+        or not isinstance(maximum, int)
+        or isinstance(maximum, bool)
+        or maximum <= 0
+    ):
+        findings.add("fleet.recovery.exercise-rto-invalid")
+    elif measured > maximum:
+        findings.add("fleet.recovery.exercise-rto-exceeded")
+
+    return sorted(findings)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify model-to-implementation refinement and immutable recovery evidence."
     )
     parser.add_argument("--proof", type=Path, default=DEFAULT_PROOF)
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument(
+        "--exercise",
+        action="store_true",
+        help="materialize, back up, restore, hash, and time the synthetic recovery artifact",
+    )
     args = parser.parse_args()
 
     document = json.loads(args.proof.read_text(encoding="utf-8"))
     findings = audit_refinement(document)
+    recovery_exercise: dict[str, Any] | None = None
+    if args.exercise:
+        try:
+            recovery_exercise = exercise_recovery_drill(document)
+            findings = sorted(
+                set(findings) | set(audit_recovery_exercise(document, recovery_exercise))
+            )
+        except Exception as error:
+            findings = sorted(set(findings) | {"fleet.recovery.exercise-failed"})
+            recovery_exercise = {"error": str(error)}
+
     receipt = {
         "schema": "ores.fleet-refinement-recovery-proof/v1",
         "state": "passed" if not findings else "failed",
-        "executed_steps": 2,
+        "executed_steps": 3 if args.exercise else 2,
         "proof": str(args.proof),
         "findings": findings,
     }
+    if recovery_exercise is not None:
+        receipt["recoveryExercise"] = recovery_exercise
     encoded = json.dumps(receipt, indent=2, sort_keys=True) + "\n"
     if args.receipt:
         args.receipt.parent.mkdir(parents=True, exist_ok=True)
