@@ -1,0 +1,77 @@
+{
+  "schema_version": "ores.fleet-proof-refinement.v1",
+  "model": {
+    "initial_state": "queued",
+    "terminal_state": "stopped",
+    "allowed_transitions": [
+      {
+        "from": "queued",
+        "to": "admitted",
+        "event": "admit"
+      },
+      {
+        "from": "admitted",
+        "to": "running",
+        "event": "start"
+      },
+      {
+        "from": "running",
+        "to": "ready",
+        "event": "ready"
+      },
+      {
+        "from": "ready",
+        "to": "draining",
+        "event": "drain"
+      },
+      {
+        "from": "draining",
+        "to": "stopped",
+        "event": "stop"
+      }
+    ]
+  },
+  "implementation_trace": [
+    {
+      "from": "queued",
+      "to": "admitted",
+      "event": "admit",
+      "implementation_event": "runtime.admission.accepted"
+    },
+    {
+      "from": "admitted",
+      "to": "running",
+      "event": "start",
+      "implementation_event": "runtime.process.started"
+    },
+    {
+      "from": "running",
+      "to": "ready",
+      "event": "ready",
+      "implementation_event": "compose_ready"
+    },
+    {
+      "from": "ready",
+      "to": "draining",
+      "event": "drain",
+      "implementation_event": "runtime.signal.sigint"
+    },
+    {
+      "from": "draining",
+      "to": "stopped",
+      "event": "stop",
+      "implementation_event": "runtime.shutdown.clean"
+    }
+  ],
+  "recovery": {
+    "artifact_reference": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "backup_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "restored_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "backup_source_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "backup_immutable": true,
+    "recovery_time_ms": 420,
+    "max_recovery_time_ms": 1000
+  }
+}
