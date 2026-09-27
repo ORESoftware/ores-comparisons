@@ -112,8 +112,7 @@ from this checkout.
 
 The full authority remains
 `ORESoftware/typespec-json-schema-validator@e29a91d...`, and the full compose
-parser remains `ORESoftware/ores-compose@fbfad966...`. When repository secret
-`COMPARISON_REPO_READ_TOKEN` is configured with read-only access to those repos, CI
+parser remains `ORESoftware/ores-compose@26e331f458c9802727802514b380ff49ebc7270a`. When an established read-only cross-repository credential is configured for those repos, CI
 also checks every project through those exact pinned implementations. Local
 `just tools-bootstrap` does the same using the developer's existing Git
 credentials; it does not depend on an unpublished npm package.
