@@ -1,0 +1,114 @@
+{
+  "schema": "ores.comparisons.evidence-examples/v1",
+  "receipts": [
+    {
+      "id": "passed",
+      "certifies": true,
+      "receipt": {
+        "schema": "ores.comparisons.evidence-receipt/v1",
+        "state": "passed",
+        "identity": {
+          "repository": "ORESoftware/example",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "dependencies_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "config_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "toolchain_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "producer": {
+          "kind": "source",
+          "repository": "ORESoftware/example",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "executed_checks": 7
+      }
+    },
+    {
+      "id": "failed",
+      "certifies": false,
+      "receipt": {
+        "schema": "ores.comparisons.evidence-receipt/v1",
+        "state": "failed",
+        "identity": {
+          "repository": "ORESoftware/example",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "dependencies_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "config_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "toolchain_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "producer": {
+          "kind": "source",
+          "repository": "ORESoftware/example",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "executed_checks": 3,
+        "reason": "contract check failed"
+      }
+    },
+    {
+      "id": "blocked",
+      "certifies": false,
+      "receipt": {
+        "schema": "ores.comparisons.evidence-receipt/v1",
+        "state": "blocked",
+        "identity": {
+          "repository": "ORESoftware/example",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "dependencies_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "config_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "toolchain_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "producer": {
+          "kind": "external",
+          "repository": "ores-test-org/evidence-carrier",
+          "commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "executed_checks": 2,
+        "reason": "runner allocation failed before remaining checks"
+      }
+    },
+    {
+      "id": "skipped",
+      "certifies": false,
+      "receipt": {
+        "schema": "ores.comparisons.evidence-receipt/v1",
+        "state": "skipped",
+        "identity": {
+          "repository": "ORESoftware/example",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "dependencies_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "config_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "toolchain_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "producer": {
+          "kind": "test-org",
+          "repository": "ores-test-org/evidence-carrier",
+          "commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "executed_checks": 0,
+        "reason": "capability is not applicable to this target"
+      }
+    },
+    {
+      "id": "not-run",
+      "certifies": false,
+      "receipt": {
+        "schema": "ores.comparisons.evidence-receipt/v1",
+        "state": "not-run",
+        "identity": {
+          "repository": "ORESoftware/example",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "dependencies_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "config_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "toolchain_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "producer": {
+          "kind": "external",
+          "repository": "ores-test-org/evidence-carrier",
+          "commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "executed_checks": 0,
+        "reason": "execution has not been scheduled"
+      }
+    }
+  ]
+}
