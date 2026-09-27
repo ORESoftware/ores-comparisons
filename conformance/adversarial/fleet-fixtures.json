@@ -183,6 +183,46 @@
         "fleet.plugin.unapproved-executable",
         "fleet.plugin.unsanitized-environment"
       ]
+    },
+    {
+      "id": "unsafe-compose-source-and-path",
+      "kind": "compose-config",
+      "input": {
+        "source_commit": "main",
+        "working_dir": "../outside-project"
+      },
+      "expected_findings": [
+        "fleet.compose.mutable-source",
+        "fleet.compose.path-escape"
+      ]
+    },
+    {
+      "id": "stale-tampered-compatibility-receipt",
+      "kind": "compatibility-receipt",
+      "input": {
+        "expected_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "observed_source_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expected_toolchain_digest": "sha256:1111",
+        "observed_toolchain_digest": "sha256:2222"
+      },
+      "expected_findings": [
+        "fleet.evidence.compatibility-receipt-stale",
+        "fleet.evidence.compatibility-receipt-tampered"
+      ]
+    },
+    {
+      "id": "cross-repo-source-config-digest-mismatch",
+      "kind": "cross-repo-receipt",
+      "input": {
+        "expected_source_digest": "sha256:aaaa",
+        "observed_source_digest": "sha256:bbbb",
+        "expected_config_digest": "sha256:cccc",
+        "observed_config_digest": "sha256:dddd"
+      },
+      "expected_findings": [
+        "fleet.evidence.cross-repo-config-digest-mismatch",
+        "fleet.evidence.cross-repo-source-digest-mismatch"
+      ]
     }
   ]
 }
