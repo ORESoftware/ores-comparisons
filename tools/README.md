@@ -5,7 +5,7 @@ double-bound by package version where available and by exact Git commit.
 
 Key pins:
 
-- `ores-compose`: 0.1.0 / `4e790084f09bc5e69a91859e86810070897ec6f9`
+- `ores-compose`: 0.1.0 / `ac081862e9019f219628c970941c95782cee3635`
   - exact source head from `ORESoftware/ores-compose#212`;
   - funded exact-head evidence proves mixed host + OCI execution, one-shot bootstrap barriers,
     `compose_ready`, clean SIGINT teardown, and no leaked matching OCI containers.

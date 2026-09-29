@@ -103,6 +103,18 @@ for spec in specs:
         if "ON CONFLICT DO NOTHING" not in seed:
             errors.append(f"{rel} generated seed is not idempotent")
 
+    try:
+        zpkg = tomllib.loads((shared / ".zpkg.toml").read_text())
+        language = zpkg.get("package", {}).get("language")
+        if language in {"multi", "mixed"}:
+            errors.append(
+                f"{rel} repos/.github uses obsolete zed package language {language!r}"
+            )
+        if not isinstance(language, str) or not language.strip():
+            errors.append(f"{rel} repos/.github missing canonical zed package language")
+    except Exception as exc:
+        errors.append(f"{rel} bad repos/.github/.zpkg.toml: {exc}")
+
     sops = (shared / ".sops.yaml").read_text()
     for exact in (
         r"^env/enc/dev\.env\.enc$",
@@ -116,7 +128,10 @@ for spec in specs:
     for needle in (
         "schema_version: ores.compose.v1",
         "postgres:",
-        'command: ["bash", "scripts/postgres-local.sh"]',
+        "runtime: docker",
+        "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+        'POSTGRES_HOST_AUTH_METHOD: "trust"',
+        "target: 5432",
         '["bash", "scripts/db-migrate.sh"]',
         '["bash", "scripts/db-seed.sh"]',
         "depends_on:",
@@ -126,6 +141,22 @@ for spec in specs:
     for match in re.finditer(r"retries:\s*(\d+)", compose):
         if int(match.group(1)) > 20:
             errors.append(f"{rel} compose health retries exceed ores-compose v1 limit")
+    postgres_match = re.search(
+        r"(?ms)^  postgres:\\n.*?(?=^  [A-Za-z0-9][A-Za-z0-9_-]*:\\n|\\Z)",
+        compose,
+    )
+    if not postgres_match:
+        errors.append(f"{rel} compose has no complete postgres service block")
+    else:
+        postgres_block = postgres_match.group(0)
+        if "scripts/postgres-local.sh" in postgres_block:
+            errors.append(f"{rel} postgres service still launches host postgres")
+        if postgres_block.count("runtime:") != 1:
+            errors.append(f"{rel} postgres service must declare exactly one runtime")
+        if "runtime: docker" not in postgres_block:
+            errors.append(f"{rel} postgres service is not OCI-backed")
+        if "inherit_env: [PATH]" in postgres_block:
+            errors.append(f"{rel} postgres container must not inherit host PATH")
 
     env = (shared / ".env.example").read_text()
     port_match = re.search(r"^PGPORT=(\d+)$", env, re.MULTILINE)

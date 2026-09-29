@@ -123,7 +123,7 @@ from this checkout.
 The full authority remains
 `ORESoftware/typespec-json-schema-validator@e29a91d...`, and the full compose
 parser/executor is pinned to
-`ORESoftware/ores-compose@4e790084f09bc5e69a91859e86810070897ec6f9`.
+`ORESoftware/ores-compose@ac081862e9019f219628c970941c95782cee3635`.
 That exact compose head has funded executable evidence for mixed host + OCI
 startup, PostgreSQL readiness, a one-shot bootstrap barrier, `compose_ready`,
 clean SIGINT shutdown, and no leaked matching OCI containers. When an

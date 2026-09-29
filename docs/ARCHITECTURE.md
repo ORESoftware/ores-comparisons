@@ -42,9 +42,12 @@ Scintilla inserts its real local runner/backend before the endpoint watcher.
 BeamScale resolves its pinned supervisor/compiler through the local toolchain
 lock. ORES Stack launches its native Rust dev server.
 
-The pinned ores-compose `up` executor executes host processes today. PostgreSQL
-therefore comes from Nix `postgresql_16`; these manifests deliberately do not
-claim unsupported container execution.
+The pinned ores-compose `up` executor launches mixed host and OCI dependency
+graphs. PostgreSQL is an image-backed infrastructure service owned by the same
+`.ores-compose.yaml` graph as migrations, seeds and stack-native application
+processes. Each project publishes PostgreSQL only on its existing loopback
+`PGPORT`; host-side `pg_isready` and `psql` remain the readiness and
+migration clients.
 
 ## Database lifecycle
 
