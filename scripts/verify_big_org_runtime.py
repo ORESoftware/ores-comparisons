@@ -124,6 +124,21 @@ for spec in load_project_specs():
         )
 
     manifest_by_name = {item["name"]: item for item in manifest.get("repositories", [])}
+    runtime_manifest_kinds = {"service", "worker", "frontend", "application"}
+    manifest_runtime_names = {
+        name
+        for name, item in manifest_by_name.items()
+        if item.get("kind") in runtime_manifest_kinds
+    }
+    topology_runtime_names = set(by_name)
+    if manifest_runtime_names != topology_runtime_names:
+        omitted = sorted(manifest_runtime_names - topology_runtime_names)
+        undeclared = sorted(topology_runtime_names - manifest_runtime_names)
+        errors.append(
+            f"{rel}: runtime topology/org manifest parity failed "
+            f"omitted={omitted} undeclared={undeclared}"
+        )
+
     expected_manifest_kind = {
         "service": "service",
         "worker": "worker",
