@@ -46,10 +46,10 @@
       "commit": "ac28d4a6faf3eb991b596a6a7a4f12615589bcad"
     },
     "ores-stack": {
-      "package": "oresoftware/ores-stack",
+      "package": "ores-stack/ores-stack-cli",
       "version": "0.1.0",
-      "repository": "https://github.com/ORESoftware/ores-stack",
-      "commit": "3915e7088cba0a77d3101c82ff14706c58870077"
+      "repository": "https://github.com/ores-stack/ores-stack-cli",
+      "commit": "5dc53c1e2e2f3f249e6da70c8931a7529d425fc4"
     },
     "ores-clis-core": {
       "package": "oresoftware/ores-clis-core",
