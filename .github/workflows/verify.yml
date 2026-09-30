@@ -23,7 +23,16 @@ jobs:
       - run: python3 scripts/verify_workflow_pins.py
       - run: python3 scripts/verify_private_authority_credentials.py
       - run: python3 scripts/verify_project_matrix.py
-      - run: python3 scripts/verify_stack_catalog.py
+      - name: Compile, test, and execute Rust stack catalog gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          rustfmt --edition 2024 --check tools/verify_stack_catalog.rs tools/json_value.rs
+          rustc --edition 2024 --test tools/verify_stack_catalog.rs -o tmp/verify-stack-catalog-tests
+          ./tmp/verify-stack-catalog-tests
+          rustc --edition 2024 tools/verify_stack_catalog.rs -o tmp/verify-stack-catalog
+          ./tmp/verify-stack-catalog
       - run: python3 scripts/verify_dummy_org_map.py
       - run: python3 scripts/verify_dummy_org_gitlinks.py
       - if: ${{ hashFiles('.gitmodules') == '' }}
@@ -142,7 +151,9 @@ jobs:
 
           bash scripts/verify_fresh_clone_submodules.sh
 
-          python3 scripts/verify_stack_catalog.py
+          mkdir -p tmp
+          rustc --edition 2024 tools/verify_stack_catalog.rs -o tmp/verify-stack-catalog
+          ./tmp/verify-stack-catalog
           python3 scripts/verify_dummy_org_map.py
           python3 scripts/verify_dummy_org_gitlinks.py
           python3 scripts/verify_project_repo_layout.py
