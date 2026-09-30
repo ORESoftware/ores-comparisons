@@ -1,0 +1,27 @@
+{
+  "schema": "ores.comparisons.topology-regression/v1",
+  "scenario": "big-org-example-operations",
+  "stack": "scintilla",
+  "org_manifest": {
+    "runtime_repositories": [
+      {"name": "operations-api", "kind": "service"},
+      {"name": "ingest-service", "kind": "service"},
+      {"name": "automation-worker", "kind": "worker"},
+      {"name": "ops-console", "kind": "frontend"}
+    ]
+  },
+  "under_scoped_compose": {
+    "services": ["operations-api"]
+  },
+  "expected": {
+    "admitted": false,
+    "reason": "runtime_topology_under_scoped",
+    "missing_repositories": ["automation-worker", "ingest-service", "ops-console"]
+  },
+  "repaired_compose": {
+    "services": ["operations-api", "ingest-service", "automation-worker", "ops-console"]
+  },
+  "repaired_expected": {
+    "admitted": true
+  }
+}
