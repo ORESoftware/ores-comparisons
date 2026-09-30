@@ -84,7 +84,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config --global             "url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf"             "https://github.com/"
+          git config --global \
+            "url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf" \
+            "https://github.com/"
 
       - name: Initialize target project's exact gitlinks
         shell: bash
@@ -109,7 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y postgresql-16 postgresql-client-16 protobuf-compiler rebar3
+          # Erlang/OTP and rebar3 are owned by the immutable setup-beam step above.
+          # Installing distro rebar3 here can shadow that governed toolchain and
+          # make runtime receipts depend on the runner image's apt repository.
+          sudo apt-get install -y postgresql-16 postgresql-client-16 protobuf-compiler
           echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
 
       - name: Bootstrap exact-pinned comparison toolchain
@@ -135,7 +140,11 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="/usr/lib/postgresql/16/bin:$PWD/.local/bin:$PATH"
-          python3 scripts/prove_runtime_project.py             --stack "$STACK"             --scenario "$SCENARIO"             --ready-timeout 600             --shutdown-timeout 45
+          python3 scripts/prove_runtime_project.py \
+            --stack "$STACK" \
+            --scenario "$SCENARIO" \
+            --ready-timeout 600 \
+            --shutdown-timeout 45
 
       - name: Print runtime receipt
         if: always()
@@ -161,4 +170,6 @@ jobs:
         if: always()
         shell: bash
         run: |
-          git config --global --unset-all             "url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf"             >/dev/null 2>&1 || true
+          git config --global --unset-all \
+            "url.https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/.insteadOf" \
+            >/dev/null 2>&1 || true
