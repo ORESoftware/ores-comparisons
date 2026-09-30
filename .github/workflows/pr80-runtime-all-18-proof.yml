@@ -1,0 +1,14 @@
+name: pr80-runtime-all-18-proof
+
+on:
+  push:
+    branches:
+      - test/pr80-runtime-all-18-20260930
+
+permissions:
+  contents: read
+
+jobs:
+  exact-runtime-proof:
+    uses: ORESoftware/ores-comparisons/.github/workflows/runtime-all-18.yml@60303ccd44c2639b892b920ec2dfd40f07f59639
+    secrets: inherit
