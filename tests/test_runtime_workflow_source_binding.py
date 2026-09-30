@@ -70,6 +70,18 @@ class RuntimeWorkflowSourceBindingTests(unittest.TestCase):
                 f"nested runtime call at line {index + 1} relies on non-transitive secret inheritance",
             )
 
+    def test_runtime_project_does_not_shadow_setup_beam_rebar3(self) -> None:
+        source = (ROOT / ".github/workflows/runtime-project.yml").read_text()
+        self.assertIn("uses: erlef/setup-beam@", source)
+        apt_lines = [
+            line.strip()
+            for line in source.splitlines()
+            if "apt-get install" in line
+        ]
+        self.assertEqual(len(apt_lines), 1, apt_lines)
+        self.assertNotIn("rebar3", apt_lines[0])
+        self.assertNotIn("erlang", apt_lines[0])
+
 
 if __name__ == "__main__":
     unittest.main()
