@@ -1,5 +1,18 @@
 {
   "schema": "ores.comparisons.stack-catalog/v1",
+  "faas_coverage": {
+    "minimum_platforms": 7,
+    "platforms": [
+      {"id": "scintilla-run", "stack_id": "scintilla-run"},
+      {"id": "iso-lattes", "stack_id": "iso-lattes"},
+      {"id": "lunatic-lorry", "stack_id": "lunatic-lorry"},
+      {"id": "wasm-xprs", "stack_id": "wasm-xprs"},
+      {"id": "litegraph", "stack_id": "litegraph"},
+      {"id": "beamscale", "stack_id": "beamscale"},
+      {"id": "graal-vm", "stack_id": "graal-show"},
+      {"id": "pony-expres", "stack_id": "pony-expres"}
+    ]
+  },
   "stacks": [
     {
       "id": "beamscale",
