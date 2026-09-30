@@ -8,6 +8,12 @@ enum StackKind {
   beamscale: "beamscale",
   scintillaRun: "scintilla-run",
   oresStack: "ores-stack",
+  ponyExpres: "pony-expres",
+  wasmXprs: "wasm-xprs",
+  isoLattes: "iso-lattes",
+  graalShow: "graal-show",
+  lunaticLorry: "lunatic-lorry",
+  litegraph: "litegraph",
 }
 
 @id("ScenarioKind")
