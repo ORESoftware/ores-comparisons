@@ -23,6 +23,7 @@ jobs:
       - run: python3 scripts/verify_workflow_pins.py
       - run: python3 scripts/verify_private_authority_credentials.py
       - run: python3 scripts/verify_project_matrix.py
+      - run: python3 scripts/verify_stack_catalog.py
       - run: python3 scripts/verify_dummy_org_map.py
       - run: python3 scripts/verify_dummy_org_gitlinks.py
       - if: ${{ hashFiles('.gitmodules') == '' }}
@@ -141,6 +142,7 @@ jobs:
 
           bash scripts/verify_fresh_clone_submodules.sh
 
+          python3 scripts/verify_stack_catalog.py
           python3 scripts/verify_dummy_org_map.py
           python3 scripts/verify_dummy_org_gitlinks.py
           python3 scripts/verify_project_repo_layout.py
