@@ -14,6 +14,25 @@ Key pins:
 The local bootstrap also pins BeamScale, Scintilla and ORES Stack CLI/runtime
 revisions. Generated projects must not silently use floating `main` branches.
 
+## Rust governance gates
+
+`tools/verify_stack_catalog.rs` is the canonical, network-free stack-registry and
+FaaS-cohort admission gate. CI formats it, compiles and runs its unit tests, then
+compiles and executes the verifier directly with the pinned Rust toolchain.
+
+The gate protects all of these invariants together:
+
+- at least seven distinct FaaS platform identities are governed;
+- the current eight-platform cohort remains present and uniquely backed by catalog stacks;
+- `graal-vm` remains an explicit platform alias backed by the canonical `graal-show` fleet identity;
+- only `materialized` stacks can claim benchmark executables;
+- the materialized set matches the project matrix and dummy-org map exactly;
+- catalog stack identities stay in lockstep with the benchmark TypeSpec and JSON Schema authorities;
+- every registered stack keeps a comparison scaffold.
+
+The former Python stack-catalog validator has been retired so there is one
+canonical implementation of these fleet-level invariants.
+
 ## ORES Stack CLI cutover
 
 The canonical repository is `https://github.com/ores-stack/ores-stack-cli`. This branch pins an exact commit there; merge is gated on that repository becoming a complete, locked, installable workspace and passing its migration parity checks.
