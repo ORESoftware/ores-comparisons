@@ -71,12 +71,11 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
         Ok(value) => value,
         Err(error) => return Err(vec![error]),
     };
-    let benchmark_schema = match read_json(
-        &root.join("benchmarks/contracts/json-schema/benchmark.schema.json"),
-    ) {
-        Ok(value) => value,
-        Err(error) => return Err(vec![error]),
-    };
+    let benchmark_schema =
+        match read_json(&root.join("benchmarks/contracts/json-schema/benchmark.schema.json")) {
+            Ok(value) => value,
+            Err(error) => return Err(vec![error]),
+        };
     let typespec_path = root.join("benchmarks/contracts/typespec/main.tsp");
     let typespec = match fs::read_to_string(&typespec_path) {
         Ok(value) => value,
@@ -129,9 +128,7 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
         for field in ["display_name", "github_owner", "execution_model"] {
             match string_field(object, field) {
                 Some(value) if !value.trim().is_empty() => {}
-                _ => errors.push(format!(
-                    "{stack_id}: {field} must be a non-empty string"
-                )),
+                _ => errors.push(format!("{stack_id}: {field} must be a non-empty string")),
             }
         }
 
@@ -411,7 +408,8 @@ fn extract_typespec_stack_values(source: &str) -> Result<BTreeSet<String>, Strin
 fn read_json(path: &Path) -> Result<JsonValue, String> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    JsonValue::parse(&source).map_err(|error| format!("invalid JSON in {}: {error}", path.display()))
+    JsonValue::parse(&source)
+        .map_err(|error| format!("invalid JSON in {}: {error}", path.display()))
 }
 
 fn find_repo_root() -> Result<PathBuf, String> {
@@ -428,10 +426,7 @@ fn find_repo_root() -> Result<PathBuf, String> {
     Err("could not locate repository root containing shared/stack-catalog.json".to_owned())
 }
 
-fn string_field<'a>(
-    object: &'a BTreeMap<String, JsonValue>,
-    field: &str,
-) -> Option<&'a str> {
+fn string_field<'a>(object: &'a BTreeMap<String, JsonValue>, field: &str) -> Option<&'a str> {
     object.get(field).and_then(JsonValue::as_str)
 }
 
