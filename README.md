@@ -1,7 +1,30 @@
 # ores-comparisons
 
-Deployable, side-by-side example projects for BeamScale, Scintilla, and ORES
-Stack. Each stack implements three benchmark workloads plus three larger multi-repo organization examples:
+Side-by-side comparison authority for a governed FaaS/runtime fleet, with a strict
+separation between **registered platform coverage** and **executable/materialized
+benchmark coverage**.
+
+The governed FaaS cohort must contain at least seven distinct platforms. It
+currently contains eight:
+
+- `scintilla-run`
+- `iso-lattes`
+- `lunatic-lorry`
+- `wasm-xprs`
+- `litegraph`
+- `beamscale`
+- `graal-vm` (platform alias backed by the canonical `graal-show` stack/GitHub fleet)
+- `pony-expres`
+
+`ORESoftware/ores-stack` remains a materialized comparison/reference stack, but
+it does **not** count toward the FaaS minimum. Registration is also deliberately
+not treated as runtime proof: only BeamScale, Scintilla, and ORES Stack are
+currently materialized into the executable matrix. See `stacks/README.md` and
+`shared/stack-catalog.json` for the machine-governed distinction and promotion
+gate.
+
+Each materialized stack implements three benchmark workloads plus three larger
+multi-repo organization examples:
 
 - `http-observability`
 - `forms-chat-workflow`
@@ -10,13 +33,13 @@ Stack. Each stack implements three benchmark workloads plus three larger multi-r
 - `big-org-example-collaboration`
 - `big-org-example-operations`
 
-| Stack | Execution model |
+| Materialized stack | Execution model |
 | --- | --- |
 | BeamScale | admitted Gleam -> Erlang/BEAM actor/lambda execution |
 | Scintilla | polyglot lambda/container/sub-process runtime |
 | ORES Stack | Rust native servers, WASM/page assets, RPC/API generation |
 
-All 18 matrix-governed projects expose the same integration graph: ores-otel, ores-forms,
+The 18 currently materialized matrix-governed projects expose the same integration graph: ores-otel, ores-forms,
 opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
 ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
 
@@ -133,13 +156,20 @@ implementations. Local `just tools-bootstrap` does the same using the
 developer's existing Git credentials; it does not depend on an unpublished npm
 package.
 
+The FaaS cohort itself is guarded by a separate fail-closed Rust gate:
+`tools/verify_stack_catalog.rs`. It enforces the minimum platform count, the
+required eight platform identities, distinct backing stacks, the `graal-vm` ->
+`graal-show` alias, materialized/project/dummy-org equality, and benchmark
+TypeSpec/JSON Schema stack-kind parity.
+
 
 ## Smoke tests and performance matrix
 
-`benchmarks/matrix.json` covers all nine stack/scenario combinations with
+`benchmarks/matrix.json` covers all nine executable stack/scenario combinations with
 argv-only build/deploy smoke commands. BeamScale and Scintilla use their real
 dry-run deployment flags; ORES Stack app repos explicitly stop at artifact
-handoff until an infra target is supplied.
+handoff until an infra target is supplied. Registered-only stacks are excluded
+from this matrix until they satisfy the materialization gate.
 
 Benchmark observations and smoke receipts have their own TypeSpec + JSON Schema
 peer authorities under `benchmarks/contracts/`. The runner records warm
@@ -171,7 +201,7 @@ The private-authority CI lanes resolve one read-only cross-repository credential
 through a single governed compatibility order: `COMPARISON_REPO_READ_TOKEN`,
 `cross-repo-token`, `ORES_CROSS_REPO_READ_TOKEN`, then
 `TEST_FLEET_READ_TOKEN`. The resolved credential must cover the pinned private
-repositories used by the three stacks and the six dummy organizations. With
+repositories used by the three materialized stacks and the six dummy organizations. With
 that authority present, CI bootstraps exact revisions, runs full tjsv parity,
 validates every ores-compose plan, and the dedicated runtime proof can execute
 the full 18-project matrix. Credential absence is reported explicitly and must
@@ -263,12 +293,13 @@ The six comparison scenarios map one-to-one onto `ores-dummy-org-1` through
 `ores-dummy-org-6`. The governed mapping, repository sets, and per-stack
 branch names live in `shared/dummy-org-map.json`.
 
-Each component keeps one stable GitHub repository identity while its three
-stack implementations live on `stack/beamscale`, `stack/ores-stack`, and
-`stack/scintilla-run`. After cutover, every repository child under
-`stacks/<stack>/projects/<scenario>/repos/` (including `.github`) is a git
-submodule; only `repos/readme.md` remains owned directly by this
-superproject.
+Each component keeps one stable GitHub repository identity while its currently
+materialized implementations live on `stack/beamscale`, `stack/ores-stack`, and
+`stack/scintilla-run`. Registered-only FaaS stacks do not gain dummy-org branch
+or gitlink status until their full promotion evidence lands. After cutover,
+every repository child under `stacks/<stack>/projects/<scenario>/repos/`
+(including `.github`) is a git submodule; only `repos/readme.md` remains owned
+directly by this superproject.
 
 Zed is the supported synchronization path. The root manifest declares
 `[interop.git].consume_gitmodules = true`, and the exact `zed-cli` revision
@@ -288,7 +319,7 @@ rules, fresh-clone flow, and private-repository CI requirements.
 
 ## Governed multi-repo topology
 
-Every project now materializes at least four sibling repositories:
+Every materialized project now materializes at least four sibling repositories:
 
 - `.github` — organization governance, contracts, conformance, compose and env policy;
 - `app` — the stack-native runnable application;
