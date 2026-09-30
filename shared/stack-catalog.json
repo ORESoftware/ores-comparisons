@@ -1,0 +1,86 @@
+{
+  "schema": "ores.comparisons.stack-catalog/v1",
+  "stacks": [
+    {
+      "id": "beamscale",
+      "display_name": "BeamScale",
+      "github_owner": "beamscale",
+      "comparison_branch": "stack/beamscale",
+      "status": "materialized",
+      "execution_model": "admitted Gleam -> Erlang/BEAM actor/lambda execution",
+      "benchmark_executable": "bmscl"
+    },
+    {
+      "id": "scintilla-run",
+      "display_name": "Scintilla Run",
+      "github_owner": "scintilla-run",
+      "comparison_branch": "stack/scintilla-run",
+      "status": "materialized",
+      "execution_model": "polyglot lambda/container/sub-process runtime",
+      "benchmark_executable": "scintilla"
+    },
+    {
+      "id": "ores-stack",
+      "display_name": "ORES Stack",
+      "github_owner": "ores-stack",
+      "comparison_branch": "stack/ores-stack",
+      "status": "materialized",
+      "execution_model": "Rust native servers, WASM/page assets, RPC/API generation",
+      "benchmark_executable": "ores-stack"
+    },
+    {
+      "id": "pony-expres",
+      "display_name": "Pony Expres",
+      "github_owner": "pony-expres",
+      "comparison_branch": "stack/pony-expres",
+      "status": "registered",
+      "execution_model": "Pony-native actor-oriented lambda/runtime target",
+      "benchmark_executable": null
+    },
+    {
+      "id": "wasm-xprs",
+      "display_name": "WASM Xprs",
+      "github_owner": "wasm-xprs",
+      "comparison_branch": "stack/wasm-xprs",
+      "status": "registered",
+      "execution_model": "WebAssembly-first lambda/component runtime",
+      "benchmark_executable": null
+    },
+    {
+      "id": "iso-lattes",
+      "display_name": "Iso Lattes",
+      "github_owner": "iso-lattes",
+      "comparison_branch": "stack/iso-lattes",
+      "status": "registered",
+      "execution_model": "isolate-oriented JavaScript/runtime execution",
+      "benchmark_executable": null
+    },
+    {
+      "id": "graal-show",
+      "display_name": "Graal Show",
+      "github_owner": "graal-show",
+      "comparison_branch": "stack/graal-show",
+      "status": "registered",
+      "execution_model": "GraalVM polyglot lambda/runtime target",
+      "benchmark_executable": null
+    },
+    {
+      "id": "lunatic-lorry",
+      "display_name": "Lunatic Lorry",
+      "github_owner": "lunatic-lorry",
+      "comparison_branch": "stack/lunatic-lorry",
+      "status": "registered",
+      "execution_model": "Lunatic WebAssembly process/actor runtime target",
+      "benchmark_executable": null
+    },
+    {
+      "id": "litegraph",
+      "display_name": "LiteGraph",
+      "github_owner": "litegraph",
+      "comparison_branch": "stack/litegraph",
+      "status": "registered",
+      "execution_model": "GPU-oriented lightweight isolate/actor lambda runtime",
+      "benchmark_executable": null
+    }
+  ]
+}
