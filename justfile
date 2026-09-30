@@ -1,6 +1,7 @@
 verify:
     python3 scripts/verify_examples.py
     python3 scripts/verify_project_matrix.py
+    python3 scripts/verify_stack_catalog.py
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_dummy_org_gitlinks.py
@@ -21,6 +22,7 @@ verify:
 
 verify-static:
     python3 scripts/verify_project_matrix.py
+    python3 scripts/verify_stack_catalog.py
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_dummy_org_gitlinks.py

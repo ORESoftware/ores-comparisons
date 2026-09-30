@@ -5,17 +5,24 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-matrix = json.loads((ROOT / "benchmarks/matrix.json").read_text())
+benchmark_matrix = json.loads((ROOT / "benchmarks/matrix.json").read_text())
+project_matrix = json.loads((ROOT / "shared/project-matrix.json").read_text())
+stack_catalog = json.loads((ROOT / "shared/stack-catalog.json").read_text())
 errors: list[str] = []
 
 expected = {
-    (stack, scenario)
-    for stack in ("beamscale", "scintilla-run", "ores-stack")
-    for scenario in ("http-observability", "forms-chat-workflow", "cached-rpc")
+    (item.get("stack"), item.get("scenario"))
+    for item in project_matrix.get("projects", [])
+    if isinstance(item, dict) and item.get("benchmark") is True
+}
+executables = {
+    item.get("id"): item.get("benchmark_executable")
+    for item in stack_catalog.get("stacks", [])
+    if isinstance(item, dict) and item.get("status") == "materialized"
 }
 seen: set[tuple[str, str]] = set()
 
-for item in matrix.get("projects", []):
+for item in benchmark_matrix.get("projects", []):
     key = (item.get("stack"), item.get("scenario"))
     if key in seen:
         errors.append(f"duplicate benchmark entry {key}")
@@ -29,18 +36,16 @@ for item in matrix.get("projects", []):
     if mode not in {"dry-run", "artifact-handoff"}:
         errors.append(f"{key} invalid deploy mode {mode!r}")
 
-    expected_executable = {
-        "beamscale": "bmscl",
-        "scintilla-run": "scintilla",
-        "ores-stack": "ores-stack",
-    }.get(key[0])
+    expected_executable = executables.get(key[0])
+    if not isinstance(expected_executable, str) or not expected_executable:
+        errors.append(f"{key} stack has no materialized benchmark executable in stack catalog")
 
     commands = list(item.get("build", [])) + list(item.get("deploy", []))
     for argv in commands:
         if not isinstance(argv, list) or not argv or not all(isinstance(value, str) and value for value in argv):
             errors.append(f"{key} contains an invalid argv command")
             continue
-        if argv[0] != expected_executable:
+        if expected_executable is not None and argv[0] != expected_executable:
             errors.append(f"{key} command must use {expected_executable}, got {argv[0]}")
         if argv[0] in {"sh", "bash", "zsh"} or any(value in {"&&", "||", ";", "|", "-c"} for value in argv):
             errors.append(f"{key} contains shell control syntax")
@@ -63,7 +68,7 @@ if seen != expected:
         f"benchmark matrix coverage drift: missing={sorted(expected - seen)} extra={sorted(seen - expected)}"
     )
 
-if matrix.get("schema") != "ores.comparisons.smoke-matrix/v1":
+if benchmark_matrix.get("schema") != "ores.comparisons.smoke-matrix/v1":
     errors.append("benchmark matrix schema drift")
 
 if errors:
@@ -72,4 +77,9 @@ if errors:
         print(" -", error)
     raise SystemExit(1)
 
-print("benchmark matrix verification OK: 3 stacks x 3 scenarios")
+stack_count = len({stack for stack, _scenario in expected})
+scenario_count = len({scenario for _stack, scenario in expected})
+print(
+    f"benchmark matrix verification OK: {len(expected)} projects, "
+    f"{stack_count} materialized stacks x {scenario_count} benchmark scenarios"
+)
