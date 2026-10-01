@@ -394,3 +394,603 @@
 	path = stacks/scintilla-run/projects/http-observability/repos/sdk-typescript
 	url = https://github.com/ores-dummy-org-6/sdk-typescript.git
 	branch = stack/scintilla-run
+[submodule "runtime--graal-show--clojure-jvm-1--_github"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/.github
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/.github.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-admin-api-server_clj"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-admin-api-server.clj
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-admin-api-server.clj.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-admin-mcp-server_clj"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-admin-mcp-server.clj
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-admin-mcp-server.clj.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-admin-web-server_clj"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-admin-web-server.clj
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-admin-web-server.clj.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-api-server_clj"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-api-server.clj
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-api-server.clj.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-cli"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-cli
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-cli.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-clients"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-clients
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-clients.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-desktop-app_rs"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-desktop-app.rs
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-desktop-app.rs.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-docs"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-docs
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-docs.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-flutter"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-flutter
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-flutter.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-infra"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-infra
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-infra.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-interfaces"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-interfaces
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-interfaces.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-lambdas"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-lambdas
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-lambdas.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-lib-core"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-lib-core
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-lib-core.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-mcp-server_clj"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-mcp-server.clj
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-mcp-server.clj.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-monorepo"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-monorepo
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-monorepo.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-orm-core"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-orm-core
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-orm-core.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-pub-lib-core"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-pub-lib-core
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-pub-lib-core.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-sync"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-sync
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-sync.git
+	branch = main
+[submodule "runtime--graal-show--clojure-jvm-1--ores-dummy-org-clojure-jvm-1-web-server_clj"]
+	path = stacks/graal-show/projects/clojure-jvm-1/repos/ores-dummy-org-clojure-jvm-1-web-server.clj
+	url = https://github.com/ores-dummy-org-clojure-jvm-1/ores-dummy-org-clojure-jvm-1-web-server.clj.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--_github"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/.github
+	url = https://github.com/ores-dummy-org-java-jvm-1/.github.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-admin-api-server_java"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-admin-api-server.java
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-admin-api-server.java.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-admin-mcp-server_java"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-admin-mcp-server.java
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-admin-mcp-server.java.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-admin-web-server_java"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-admin-web-server.java
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-admin-web-server.java.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-api-server_java"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-api-server.java
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-api-server.java.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-cli"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-cli
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-cli.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-clients"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-clients
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-clients.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-desktop-app_rs"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-desktop-app.rs
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-desktop-app.rs.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-docs"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-docs
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-docs.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-flutter"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-flutter
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-flutter.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-infra"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-infra
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-infra.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-interfaces"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-interfaces
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-interfaces.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-lambdas"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-lambdas
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-lambdas.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-lib-core"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-lib-core
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-lib-core.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-mcp-server_java"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-mcp-server.java
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-mcp-server.java.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-monorepo"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-monorepo
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-monorepo.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-orm-core"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-orm-core
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-orm-core.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-pub-lib-core"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-pub-lib-core
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-pub-lib-core.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-sync"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-sync
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-sync.git
+	branch = main
+[submodule "runtime--graal-show--java-jvm-1--ores-dummy-org-java-jvm-1-web-server_java"]
+	path = stacks/graal-show/projects/java-jvm-1/repos/ores-dummy-org-java-jvm-1-web-server.java
+	url = https://github.com/ores-dummy-org-java-jvm-1/ores-dummy-org-java-jvm-1-web-server.java.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--_github"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/.github
+	url = https://github.com/ores-dummy-org-gleam-js-1/.github.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-admin-api-server_gleam"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-admin-api-server.gleam
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-admin-api-server.gleam.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-admin-mcp-server_gleam"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-admin-mcp-server.gleam
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-admin-mcp-server.gleam.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-admin-web-server_gleam"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-admin-web-server.gleam
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-admin-web-server.gleam.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-api-server_gleam"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-api-server.gleam
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-api-server.gleam.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-cli"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-cli
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-cli.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-clients"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-clients
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-clients.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-desktop-app_rs"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-desktop-app.rs
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-desktop-app.rs.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-docs"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-docs
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-docs.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-flutter"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-flutter
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-flutter.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-infra"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-infra
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-infra.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-interfaces"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-interfaces
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-interfaces.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-lambdas"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-lambdas
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-lambdas.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-lib-core"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-lib-core
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-lib-core.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-mcp-server_gleam"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-mcp-server.gleam
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-mcp-server.gleam.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-monorepo"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-monorepo
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-monorepo.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-orm-core"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-orm-core
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-orm-core.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-pub-lib-core"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-pub-lib-core
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-pub-lib-core.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-sync"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-sync
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-sync.git
+	branch = main
+[submodule "runtime--iso-lattes--gleam-js-1--ores-dummy-org-gleam-js-1-web-server_gleam"]
+	path = stacks/iso-lattes/projects/gleam-js-1/repos/ores-dummy-org-gleam-js-1-web-server.gleam
+	url = https://github.com/ores-dummy-org-gleam-js-1/ores-dummy-org-gleam-js-1-web-server.gleam.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--_github"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/.github
+	url = https://github.com/ores-dummy-org-typescript-js-1/.github.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-admin-api-server_ts"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-admin-api-server.ts
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-admin-api-server.ts.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-admin-mcp-server_ts"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-admin-mcp-server.ts
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-admin-mcp-server.ts.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-admin-web-server_ts"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-admin-web-server.ts
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-admin-web-server.ts.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-api-server_ts"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-api-server.ts
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-api-server.ts.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-cli"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-cli
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-cli.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-clients"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-clients
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-clients.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-desktop-app_rs"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-desktop-app.rs
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-desktop-app.rs.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-docs"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-docs
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-docs.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-flutter"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-flutter
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-flutter.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-infra"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-infra
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-infra.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-interfaces"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-interfaces
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-interfaces.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-lambdas"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-lambdas
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-lambdas.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-lib-core"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-lib-core
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-lib-core.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-mcp-server_ts"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-mcp-server.ts
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-mcp-server.ts.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-monorepo"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-monorepo
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-monorepo.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-orm-core"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-orm-core
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-orm-core.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-pub-lib-core"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-pub-lib-core
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-pub-lib-core.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-sync"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-sync
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-sync.git
+	branch = main
+[submodule "runtime--iso-lattes--typescript-js-1--ores-dummy-org-typescript-js-1-web-server_ts"]
+	path = stacks/iso-lattes/projects/typescript-js-1/repos/ores-dummy-org-typescript-js-1-web-server.ts
+	url = https://github.com/ores-dummy-org-typescript-js-1/ores-dummy-org-typescript-js-1-web-server.ts.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--_github"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/.github
+	url = https://github.com/ores-dummy-org-rust-wasm-1/.github.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-admin-api-server_rs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-admin-api-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-admin-api-server.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-admin-mcp-server_rs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-admin-mcp-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-admin-mcp-server.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-admin-web-server_rs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-admin-web-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-admin-web-server.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-api-server_rs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-api-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-api-server.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-cli"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-cli
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-cli.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-clients"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-clients
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-clients.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-desktop-app_rs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-desktop-app.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-desktop-app.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-docs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-docs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-docs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-flutter"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-flutter
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-flutter.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-infra"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-infra
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-infra.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-interfaces"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-interfaces
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-interfaces.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-lambdas"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-lambdas
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-lambdas.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-lib-core"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-lib-core
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-lib-core.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-mcp-server_rs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-mcp-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-mcp-server.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-monorepo"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-monorepo
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-monorepo.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-orm-core"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-orm-core
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-orm-core.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-pub-lib-core"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-pub-lib-core
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-pub-lib-core.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-sync"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-sync
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-sync.git
+	branch = main
+[submodule "runtime--lunatic-lorry--rust-wasm-1--ores-dummy-org-rust-wasm-1-web-server_rs"]
+	path = stacks/lunatic-lorry/projects/rust-wasm-1/repos/ores-dummy-org-rust-wasm-1-web-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-1/ores-dummy-org-rust-wasm-1-web-server.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--_github"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/.github
+	url = https://github.com/ores-dummy-org-zig-wasm-1/.github.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-admin-api-server_zig"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-admin-api-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-admin-api-server.zig.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-admin-mcp-server_zig"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-admin-mcp-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-admin-mcp-server.zig.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-admin-web-server_zig"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-admin-web-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-admin-web-server.zig.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-api-server_zig"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-api-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-api-server.zig.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-cli"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-cli
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-cli.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-clients"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-clients
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-clients.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-desktop-app_rs"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-desktop-app.rs
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-desktop-app.rs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-docs"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-docs
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-docs.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-flutter"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-flutter
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-flutter.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-infra"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-infra
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-infra.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-interfaces"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-interfaces
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-interfaces.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-lambdas"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-lambdas
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-lambdas.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-lib-core"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-lib-core
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-lib-core.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-mcp-server_zig"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-mcp-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-mcp-server.zig.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-monorepo"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-monorepo
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-monorepo.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-orm-core"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-orm-core
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-orm-core.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-pub-lib-core"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-pub-lib-core
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-pub-lib-core.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-sync"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-sync
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-sync.git
+	branch = main
+[submodule "runtime--lunatic-lorry--zig-wasm-1--ores-dummy-org-zig-wasm-1-web-server_zig"]
+	path = stacks/lunatic-lorry/projects/zig-wasm-1/repos/ores-dummy-org-zig-wasm-1-web-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-1/ores-dummy-org-zig-wasm-1-web-server.zig.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--_github"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/.github
+	url = https://github.com/ores-dummy-org-rust-wasm-2/.github.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-admin-api-server_rs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-admin-api-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-admin-api-server.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-admin-mcp-server_rs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-admin-mcp-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-admin-mcp-server.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-admin-web-server_rs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-admin-web-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-admin-web-server.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-api-server_rs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-api-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-api-server.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-cli"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-cli
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-cli.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-clients"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-clients
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-clients.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-desktop-app_rs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-desktop-app.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-desktop-app.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-docs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-docs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-docs.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-flutter"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-flutter
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-flutter.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-infra"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-infra
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-infra.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-interfaces"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-interfaces
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-interfaces.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-lambdas"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-lambdas
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-lambdas.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-lib-core"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-lib-core
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-lib-core.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-mcp-server_rs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-mcp-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-mcp-server.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-monorepo"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-monorepo
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-monorepo.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-orm-core"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-orm-core
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-orm-core.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-pub-lib-core"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-pub-lib-core
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-pub-lib-core.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-sync"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-sync
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-sync.git
+	branch = main
+[submodule "runtime--wasm-xprs--rust-wasm-2--ores-dummy-org-rust-wasm-2-web-server_rs"]
+	path = stacks/wasm-xprs/projects/rust-wasm-2/repos/ores-dummy-org-rust-wasm-2-web-server.rs
+	url = https://github.com/ores-dummy-org-rust-wasm-2/ores-dummy-org-rust-wasm-2-web-server.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--_github"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/.github
+	url = https://github.com/ores-dummy-org-zig-wasm-2/.github.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-admin-api-server_zig"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-admin-api-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-admin-api-server.zig.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-admin-mcp-server_zig"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-admin-mcp-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-admin-mcp-server.zig.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-admin-web-server_zig"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-admin-web-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-admin-web-server.zig.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-api-server_zig"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-api-server.zig
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-api-server.zig.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-cli"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-cli
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-cli.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-clients"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-clients
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-clients.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-desktop-app_rs"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-desktop-app.rs
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-desktop-app.rs.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-docs"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-docs
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-docs.git
+	branch = main
+[submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-flutter"]
+	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-flutter
+	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-flutter.git
+	branch = main
