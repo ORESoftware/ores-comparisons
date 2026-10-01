@@ -1,5 +1,12 @@
 # Iso Lattes comparison projects
 
-Iso Lattes is registered in `shared/stack-catalog.json` and reserves the governed comparison branch `stack/iso-lattes`.
+Iso Lattes uses dedicated JavaScript-target runtime fixtures.
 
-This stack is not yet marked `materialized`. Promotion requires stack-native implementations of all six comparison scenarios, matching dummy-org branches/gitlinks, build/deploy verification, and benchmark/runtime-proof integration. Until those artifacts exist, CI must not count Iso Lattes as executable comparison coverage.
+| Fixture org | Source → target | Canary | Current proof |
+| --- | --- | --- | --- |
+| `ores-dummy-org-gleam-js-1` | Gleam → JavaScript | `*-web-server.gleam` | Gleam JS build/run contract defined |
+| `ores-dummy-org-typescript-js-1` | TypeScript → JavaScript | `*-web-server.ts` | pinned TypeScript JS build/smoke contract defined |
+
+TypeScript → WASM is explicitly forbidden; this lane emits JavaScript only. The current Iso Lattes CLI exposes `capabilities`, `functions`, and `invoke`, so the canaries record those actual runtime probes rather than inventing a deploy command.
+
+Iso Lattes remains `status: registered` until both generated JavaScript artifacts are installed through the real runtime deployment/control-plane path and actual `isl invoke` receipts are recorded. Exact revisions and blockers are governed by `shared/runtime-execution-evidence.json`.
