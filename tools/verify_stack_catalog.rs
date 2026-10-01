@@ -26,21 +26,27 @@ const REQUIRED_FAAS_PLATFORMS: [(&str, &str); 8] = [
 struct Summary {
     registered: usize,
     materialized: usize,
-    pending: usize,
+    verified: usize,
+    pending_materialization: usize,
+    pending_verification: usize,
     faas_platforms: usize,
     faas_materialized: usize,
+    faas_verified: usize,
 }
 
 fn main() {
     match verify_repository() {
         Ok(summary) => {
             println!(
-                "stack catalog verification OK: registered={}, materialized={}, pending={}, faas={}, faas_materialized={}",
+                "stack catalog verification OK: registered={}, materialized={}, verified={}, pending_materialization={}, pending_verification={}, faas={}, faas_materialized={}, faas_verified={}",
                 summary.registered,
                 summary.materialized,
-                summary.pending,
+                summary.verified,
+                summary.pending_materialization,
+                summary.pending_verification,
                 summary.faas_platforms,
-                summary.faas_materialized
+                summary.faas_materialized,
+                summary.faas_verified
             );
         }
         Err(errors) => {
@@ -67,6 +73,11 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
         Ok(value) => value,
         Err(error) => return Err(vec![error]),
     };
+    let materialization_matrix =
+        match read_json(&root.join("shared/materialization-matrix.json")) {
+            Ok(value) => value,
+            Err(error) => return Err(vec![error]),
+        };
     let dummy_org_map = match read_json(&root.join("shared/dummy-org-map.json")) {
         Ok(value) => value,
         Err(error) => return Err(vec![error]),
@@ -95,6 +106,11 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
             catalog.get("schema").and_then(JsonValue::as_str)
         ));
     }
+    if materialization_matrix.get("schema").and_then(JsonValue::as_str)
+        != Some("ores.comparisons.materialization-matrix/v1")
+    {
+        errors.push("unexpected materialization matrix schema".to_owned());
+    }
 
     let raw_stacks = match catalog.get("stacks").and_then(JsonValue::as_array) {
         Some(values) if !values.is_empty() => values,
@@ -106,6 +122,7 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
 
     let mut registered = BTreeSet::new();
     let mut materialized = BTreeSet::new();
+    let mut verified = BTreeSet::new();
 
     for raw in raw_stacks {
         let Some(object) = raw.as_object() else {
@@ -142,12 +159,22 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
 
         let status = string_field(object, "status");
         match status {
-            Some("materialized") => {
+            Some("verified") => {
                 materialized.insert(stack_id.to_owned());
+                verified.insert(stack_id.to_owned());
                 match string_field(object, "benchmark_executable") {
                     Some(value) if !value.trim().is_empty() => {}
                     _ => errors.push(format!(
-                        "{stack_id}: materialized stack requires benchmark_executable"
+                        "{stack_id}: verified stack requires benchmark_executable"
+                    )),
+                }
+            }
+            Some("materialized") => {
+                materialized.insert(stack_id.to_owned());
+                match object.get("benchmark_executable") {
+                    Some(JsonValue::Null) => {}
+                    _ => errors.push(format!(
+                        "{stack_id}: topology-materialized stack must set benchmark_executable to null until verified"
                     )),
                 }
             }
@@ -172,13 +199,28 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
         }
     }
 
-    let matrix_stacks = collect_project_matrix_stacks(&project_matrix, &mut errors);
+    let verified_matrix_stacks = collect_project_matrix_stacks(
+        &project_matrix,
+        "project matrix",
+        &mut errors,
+    );
+    let topology_matrix_stacks = collect_project_matrix_stacks(
+        &materialization_matrix,
+        "materialization matrix",
+        &mut errors,
+    );
     let dummy_stacks = collect_dummy_org_stacks(&dummy_org_map, &mut errors);
 
-    if materialized != matrix_stacks {
+    if verified != verified_matrix_stacks {
         errors.push(format!(
-            "materialized stack set {:?} != project matrix {:?}",
-            materialized, matrix_stacks
+            "verified stack set {:?} != runtime project matrix {:?}",
+            verified, verified_matrix_stacks
+        ));
+    }
+    if materialized != topology_matrix_stacks {
+        errors.push(format!(
+            "materialized stack set {:?} != materialization matrix {:?}",
+            materialized, topology_matrix_stacks
         ));
     }
     if materialized != dummy_stacks {
@@ -186,6 +228,9 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
             "materialized stack set {:?} != dummy-org map {:?}",
             materialized, dummy_stacks
         ));
+    }
+    if !verified.is_subset(&materialized) {
+        errors.push("verified stacks must be materialized".to_owned());
     }
     if !materialized.is_subset(&registered) {
         errors.push("materialized stacks must be registered".to_owned());
@@ -213,14 +258,18 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
 
     let faas_backing_stacks = verify_faas_coverage(&catalog, &registered, &mut errors);
     let faas_materialized = faas_backing_stacks.intersection(&materialized).count();
+    let faas_verified = faas_backing_stacks.intersection(&verified).count();
 
     if errors.is_empty() {
         Ok(Summary {
             registered: registered.len(),
             materialized: materialized.len(),
-            pending: registered.len().saturating_sub(materialized.len()),
+            verified: verified.len(),
+            pending_materialization: registered.len().saturating_sub(materialized.len()),
+            pending_verification: materialized.len().saturating_sub(verified.len()),
             faas_platforms: faas_backing_stacks.len(),
             faas_materialized,
+            faas_verified,
         })
     } else {
         Err(errors)
@@ -322,10 +371,11 @@ fn verify_faas_coverage(
 
 fn collect_project_matrix_stacks(
     project_matrix: &JsonValue,
+    label: &str,
     errors: &mut Vec<String>,
 ) -> BTreeSet<String> {
     let Some(projects) = project_matrix.get("projects").and_then(JsonValue::as_array) else {
-        errors.push("project matrix must contain projects array".to_owned());
+        errors.push(format!("{label} must contain projects array"));
         return BTreeSet::new();
     };
     projects
