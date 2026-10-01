@@ -12,6 +12,8 @@ verify: stack-catalog-check
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_runtime_fixture_org_map.py
+    python3 scripts/render_runtime_fixture_gitmodules.py --check
+    python3 scripts/verify_runtime_fixture_gitlinks.py
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_org_manifests.py
@@ -33,6 +35,8 @@ verify-static: stack-catalog-check
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_runtime_fixture_org_map.py
+    python3 scripts/render_runtime_fixture_gitmodules.py --check
+    python3 scripts/verify_runtime_fixture_gitlinks.py
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_toolchain_pins.py
@@ -44,6 +48,8 @@ verify-static: stack-catalog-check
 
 runtime-fixture-check:
     python3 scripts/verify_runtime_fixture_org_map.py
+    python3 scripts/render_runtime_fixture_gitmodules.py --check
+    python3 scripts/verify_runtime_fixture_gitlinks.py
 
 runtime-fixture-remote-check:
     python3 scripts/verify_runtime_fixture_remote_reachability.py
@@ -76,6 +82,8 @@ submodules-status:
 submodules-verify:
     python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_runtime_fixture_org_map.py
+    python3 scripts/render_runtime_fixture_gitmodules.py --check
+    python3 scripts/verify_runtime_fixture_gitlinks.py
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
 

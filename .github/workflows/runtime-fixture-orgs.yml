@@ -3,20 +3,34 @@ name: runtime fixture orgs
 on:
   pull_request:
     paths:
+      - '.gitmodules'
       - 'shared/dummy-org-fleet.json'
+      - 'shared/runtime-fixture-submodules.json'
       - 'shared/stack-catalog.json'
+      - 'scripts/render_runtime_fixture_gitmodules.py'
       - 'scripts/verify_runtime_fixture_org_map.py'
+      - 'scripts/verify_runtime_fixture_gitlinks.py'
       - 'scripts/verify_runtime_fixture_remote_reachability.py'
+      - 'scripts/verify_dummy_org_map.py'
+      - 'scripts/verify_dummy_org_gitlinks.py'
+      - 'scripts/verify_project_repo_layout.py'
       - 'docs/DUMMY-ORG-FLEET.md'
       - 'stacks/**/fixtures/README.md'
       - '.github/workflows/runtime-fixture-orgs.yml'
   push:
     branches: [main]
     paths:
+      - '.gitmodules'
       - 'shared/dummy-org-fleet.json'
+      - 'shared/runtime-fixture-submodules.json'
       - 'shared/stack-catalog.json'
+      - 'scripts/render_runtime_fixture_gitmodules.py'
       - 'scripts/verify_runtime_fixture_org_map.py'
+      - 'scripts/verify_runtime_fixture_gitlinks.py'
       - 'scripts/verify_runtime_fixture_remote_reachability.py'
+      - 'scripts/verify_dummy_org_map.py'
+      - 'scripts/verify_dummy_org_gitlinks.py'
+      - 'scripts/verify_project_repo_layout.py'
       - 'docs/DUMMY-ORG-FLEET.md'
       - 'stacks/**/fixtures/README.md'
       - '.github/workflows/runtime-fixture-orgs.yml'
@@ -33,7 +47,15 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify dummy-org fleet topology
-        run: python3 scripts/verify_runtime_fixture_org_map.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_runtime_fixture_org_map.py
+          python3 scripts/render_runtime_fixture_gitmodules.py --check
+          python3 scripts/verify_runtime_fixture_gitlinks.py
+          python3 scripts/verify_dummy_org_map.py
+          python3 scripts/verify_dummy_org_gitlinks.py
+          python3 scripts/verify_project_repo_layout.py
 
   remote-reachability:
     runs-on: ubuntu-24.04
@@ -44,12 +66,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Verify all governed private fixture repositories
+      - name: Verify materialized private fixture repositories
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
-            echo "::notice::no established cross-repository read credential is configured; offline topology verification remains mandatory and private remote reachability is skipped."
+            echo "::notice::no established cross-repository read credential is configured; offline gitlink verification remains mandatory and private remote reachability is skipped."
             exit 0
           fi
           export GIT_CONFIG_COUNT=1

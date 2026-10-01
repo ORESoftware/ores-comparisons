@@ -138,6 +138,10 @@ for name, config in modules.items():
 
 states: set[str] = set()
 expected_submodule_paths: set[str] = set()
+scenario_repos_roots = {
+    spec.repos_path.relative_to(ROOT).as_posix()
+    for spec in specs
+}
 
 for spec in specs:
     project = projects.get(spec.scenario)
@@ -196,10 +200,12 @@ for spec in specs:
         elif path in modules_by_path:
             errors.append(f"{path}: materialized repo unexpectedly has .gitmodules metadata")
 
+# This verifier owns only the six scenario-project trees. Runtime source/target
+# fixture submodules are governed independently by verify_runtime_fixture_gitlinks.py.
 for path, (_name, _config) in sorted(modules_by_path.items()):
-    if path.startswith("stacks/") and "/projects/" in path and "/repos/" in path:
+    if any(path.startswith(root + "/") for root in scenario_repos_roots):
         if path not in expected_submodule_paths:
-            errors.append(f"{path}: unexpected comparison-project submodule")
+            errors.append(f"{path}: unexpected scenario comparison-project submodule")
 
 if len(states) > 1:
     errors.append(
@@ -213,10 +219,10 @@ if mode == "materialized" and modules:
     governed = [
         path
         for path in modules_by_path
-        if path.startswith("stacks/") and "/projects/" in path and "/repos/" in path
+        if any(path.startswith(root + "/") for root in scenario_repos_roots)
     ]
     if governed:
-        errors.append("materialized mode cannot contain governed comparison submodules")
+        errors.append("materialized mode cannot contain governed scenario comparison submodules")
 
 if errors:
     print("dummy-org/submodule verification FAILED")

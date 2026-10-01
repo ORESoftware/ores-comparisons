@@ -119,7 +119,7 @@ for stack, scenario in sorted(matrix_keys):
         }
 
 if len(expected) != 99:
-    errors.append(f"governed topology must contain 99 gitlinks, found {len(expected)}")
+    errors.append(f"governed topology must contain 99 scenario gitlinks, found {len(expected)}")
 
 ledger_by_path: dict[str, dict[str, object]] = {}
 for raw in entries:
@@ -196,34 +196,23 @@ for path, authority in sorted(expected.items()):
             f"{path}: submodule branch {cfg.get('branch')!r} != {authority['branch']!r}"
         )
 
-governed_gitlinks = {
+# This ledger owns exactly the original 99 scenario links. Runtime source/target
+# fixture links have an independent state/verification ledger.
+scenario_gitlinks = {
     path
     for path, (mode, _sha) in index.items()
-    if mode == "160000"
-    and path.startswith("stacks/")
-    and "/projects/" in path
-    and "/repos/" in path
+    if mode == "160000" and path in expected
 }
-if governed_gitlinks != set(expected):
-    missing = sorted(set(expected) - governed_gitlinks)
-    extra = sorted(governed_gitlinks - set(expected))
+if scenario_gitlinks != set(expected):
+    missing = sorted(set(expected) - scenario_gitlinks)
     if missing:
-        errors.append(f"Git index missing governed gitlinks: {missing}")
-    if extra:
-        errors.append(f"Git index has unexpected governed gitlinks: {extra}")
+        errors.append(f"Git index missing scenario gitlinks: {missing}")
 
-governed_modules = {
-    path
-    for path in modules_by_path
-    if path.startswith("stacks/") and "/projects/" in path and "/repos/" in path
-}
-if governed_modules != set(expected):
-    missing = sorted(set(expected) - governed_modules)
-    extra = sorted(governed_modules - set(expected))
+scenario_modules = {path for path in modules_by_path if path in expected}
+if scenario_modules != set(expected):
+    missing = sorted(set(expected) - scenario_modules)
     if missing:
-        errors.append(f".gitmodules missing governed paths: {missing}")
-    if extra:
-        errors.append(f".gitmodules has unexpected governed paths: {extra}")
+        errors.append(f".gitmodules missing scenario paths: {missing}")
 
 for spec in matrix:
     readme = f"stacks/{spec.stack}/projects/{spec.scenario}/repos/readme.md"
@@ -241,5 +230,5 @@ if errors:
 
 print(
     "dummy-org gitlink verification OK: "
-    f"{len(expected)} gitlinks, {len(projects)} org mirrors, {len(stacks)} stack branches"
+    f"{len(expected)} scenario gitlinks, {len(projects)} org mirrors, {len(stacks)} stack branches"
 )

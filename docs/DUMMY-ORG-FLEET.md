@@ -1,6 +1,6 @@
 # Dummy-org fleet and runtime fixtures
 
-`ores-comparisons` now governs two independent dummy-org axes.
+`ores-comparisons` governs two independent dummy-org axes.
 
 ## 1. Cross-stack application scenarios
 
@@ -42,31 +42,45 @@ Stacks that do not use BeamScale's Gleam → BEAM execution path receive at leas
 
 TypeScript → WASM is intentionally forbidden in this matrix. TypeScript belongs in the JavaScript target lane; Rust and Zig are the governed WASM source lanes.
 
-Each runtime fixture org owns the same 19-role repository family. Runtime-facing server and MCP repository names use the source-language extension (`.clj`, `.java`, `.gleam`, `.ts`, `.rs`, `.zig`, `.pony`, or `.cu`). `desktop-app.rs` remains Rust and `flutter` remains Flutter because those are client-shell roles rather than the server runtime under test.
+Each complete runtime fixture org owns `.github` plus the same 19-role repository family, for 20 repositories total. Runtime-facing server and MCP repository names use the source-language extension (`.clj`, `.java`, `.gleam`, `.ts`, `.rs`, `.zig`, `.pony`, or `.cu`). `desktop-app.rs` remains Rust and `flutter` remains Flutter because those are client-shell roles rather than the server runtime under test.
 
 ## Materialization versus executable proof
 
-`topology_status: materialized` means the dummy-org topology is fully declared and remotely reachable. It does **not** mean the stack has passed executable benchmark/runtime proof.
+`topology_status: materialized` means the intended dummy-org topology is declared. It does **not** mean the stack has passed executable benchmark/runtime proof, and it does not override the fail-closed repository/submodule state in `shared/runtime-fixture-submodules.json`.
 
 The pre-existing `status` field in `shared/stack-catalog.json` remains the executable gate:
 
-- `registered`: topology may be materialized, but runtime/build proof is not yet admitted.
+- `registered`: topology may be declared/materialized, but runtime/build proof is not yet admitted.
 - `materialized`: full executable scenario/benchmark evidence exists.
 
-This distinction prevents newly created fixture orgs from being counted as runtime evidence.
+This distinction prevents repository creation or submodule wiring from being counted as runtime evidence.
 
 ## Private fixture transport
 
-The 14 language-target fixture orgs were created private. They therefore use `governed-remote` transport instead of being inserted as unauthenticated public submodules. The six public/shared scenario org projections keep their existing exact gitlink model.
+Private repositories are valid Git submodules. Runtime fixture repos are pinned as ordinary `160000` gitlinks under:
 
-When a cross-repository read credential is present, CI checks all 266 runtime-fixture repositories and their `main` branches. Without that credential, the offline topology gate still validates the complete deterministic repository family and language/target policy.
+```text
+stacks/<stack>/projects/<source-target-index>/repos/<repo>
+```
+
+`.gitmodules` points at the private HTTPS GitHub URL and tracks `main`; the superproject gitlink pins the exact commit. A developer or CI job materializing those submodules must independently authenticate to the private repositories.
+
+`shared/runtime-fixture-submodules.json` is the fail-closed materialization ledger. It distinguishes:
+
+- `complete_orgs`: `.github` plus all 19 role repos are pinned;
+- `partial_orgs`: only the explicitly listed existing repositories are pinned;
+- `pending_orgs`: no gitlinks are admitted yet because the expected repositories do not exist.
+
+At the time this transport was introduced, seven fixture orgs were complete, `ores-dummy-org-zig-wasm-2` had 10 of its expected 20 repositories, and the six later fixture orgs had no repositories. Those incomplete creation states are intentionally recorded rather than represented by broken submodule URLs.
 
 ## Verification
 
-Offline, fail-closed topology validation:
+Offline, fail-closed topology and gitlink validation:
 
 ```sh
 python3 scripts/verify_runtime_fixture_org_map.py
+python3 scripts/render_runtime_fixture_gitmodules.py --check
+python3 scripts/verify_runtime_fixture_gitlinks.py
 ```
 
 Authorized remote reachability validation:
@@ -75,4 +89,4 @@ Authorized remote reachability validation:
 python3 scripts/verify_runtime_fixture_remote_reachability.py
 ```
 
-The remote check uses the established cross-repository read credential in CI and verifies every governed runtime fixture repository's `main` branch.
+When a cross-repository read credential is present, CI verifies every currently materialized private fixture repository's `main` branch. Without that credential, the exact local gitlink and `.gitmodules` projections are still mandatory.
