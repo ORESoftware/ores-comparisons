@@ -1,0 +1,29 @@
+name: runtime-execution-evidence
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-runtime-execution-ledger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
+          components: rustfmt
+      - name: Compile, test, and execute runtime evidence gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          rustfmt --edition 2024 --check tools/verify_runtime_execution.rs tools/json_value.rs
+          rustc --edition 2024 --test tools/verify_runtime_execution.rs -o tmp/verify-runtime-execution-tests
+          ./tmp/verify-runtime-execution-tests
+          rustc --edition 2024 tools/verify_runtime_execution.rs -o tmp/verify-runtime-execution
+          ./tmp/verify-runtime-execution
