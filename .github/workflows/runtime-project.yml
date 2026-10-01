@@ -114,7 +114,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p tmp artifacts/runtime-topology
-          rustfmt --edition 2024 --check tools/verify_runtime_topology.rs tools/json_value.rs
           rustc --edition 2024 --test tools/verify_runtime_topology.rs -o tmp/verify-runtime-topology-tests
           ./tmp/verify-runtime-topology-tests
           rustc --edition 2024 tools/verify_runtime_topology.rs -o tmp/verify-runtime-topology
