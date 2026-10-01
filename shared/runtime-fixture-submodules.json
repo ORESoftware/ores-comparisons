@@ -2,34 +2,21 @@
   "schema": "ores.comparisons.runtime-fixture-submodules/v1",
   "complete_orgs": [
     "ores-dummy-org-clojure-jvm-1",
-    "ores-dummy-org-java-jvm-1",
+    "ores-dummy-org-cuda-gpu-1",
     "ores-dummy-org-gleam-js-1",
-    "ores-dummy-org-typescript-js-1",
-    "ores-dummy-org-rust-wasm-1",
-    "ores-dummy-org-zig-wasm-1",
-    "ores-dummy-org-rust-wasm-2"
-  ],
-  "partial_orgs": {
-    "ores-dummy-org-zig-wasm-2": [
-      ".github",
-      "ores-dummy-org-zig-wasm-2-admin-api-server.zig",
-      "ores-dummy-org-zig-wasm-2-admin-mcp-server.zig",
-      "ores-dummy-org-zig-wasm-2-admin-web-server.zig",
-      "ores-dummy-org-zig-wasm-2-api-server.zig",
-      "ores-dummy-org-zig-wasm-2-cli",
-      "ores-dummy-org-zig-wasm-2-clients",
-      "ores-dummy-org-zig-wasm-2-desktop-app.rs",
-      "ores-dummy-org-zig-wasm-2-docs",
-      "ores-dummy-org-zig-wasm-2-flutter"
-    ]
-  },
-  "pending_orgs": [
+    "ores-dummy-org-java-jvm-1",
     "ores-dummy-org-pony-native-1",
     "ores-dummy-org-pony-native-2",
-    "ores-dummy-org-rust-native-1",
-    "ores-dummy-org-rust-wasm-3",
     "ores-dummy-org-rust-gpu-1",
-    "ores-dummy-org-cuda-gpu-1"
+    "ores-dummy-org-rust-native-1",
+    "ores-dummy-org-rust-wasm-1",
+    "ores-dummy-org-rust-wasm-2",
+    "ores-dummy-org-rust-wasm-3",
+    "ores-dummy-org-typescript-js-1",
+    "ores-dummy-org-zig-wasm-1",
+    "ores-dummy-org-zig-wasm-2"
   ],
-  "notes": "Gitlinks are pinned to exact current main commits. Complete orgs have .github plus the full 19-repo ores-cli family. Partial/pending entries reflect repositories that do not currently exist or are not reachable through the GitHub installation; the verifier fails closed if the manifest claims more than the index contains."
+  "partial_orgs": {},
+  "pending_orgs": [],
+  "notes": "All 14 runtime fixture orgs are fully materialized as private Git submodules. Each complete org has .github plus the full 19-repo ores-cli family; Git index gitlinks pin exact main-branch commits and .gitmodules records the authenticated private HTTPS transport."
 }
