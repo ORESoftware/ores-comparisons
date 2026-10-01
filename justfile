@@ -11,6 +11,7 @@ verify: stack-catalog-check
     python3 scripts/verify_project_matrix.py
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
+    python3 scripts/verify_runtime_fixture_org_map.py
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_org_manifests.py
@@ -31,6 +32,7 @@ verify-static: stack-catalog-check
     python3 scripts/verify_project_matrix.py
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
+    python3 scripts/verify_runtime_fixture_org_map.py
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
     python3 scripts/verify_toolchain_pins.py
@@ -39,6 +41,12 @@ verify-static: stack-catalog-check
     python3 scripts/generate_ores_stack_server_inventory.py --check
     python3 -m unittest tests.test_adversarial_fixtures tests.test_ores_stack_cli_release_safety tests.test_ores_stack_clean_machine tests.test_ores_stack_toolchain_switch
     python3 scripts/verify_benchmark_matrix.py
+
+runtime-fixture-check:
+    python3 scripts/verify_runtime_fixture_org_map.py
+
+runtime-fixture-remote-check:
+    python3 scripts/verify_runtime_fixture_remote_reachability.py
 
 generate:
     python3 scripts/generate_all_contracts.py
@@ -67,6 +75,7 @@ submodules-status:
 
 submodules-verify:
     python3 scripts/verify_dummy_org_map.py
+    python3 scripts/verify_runtime_fixture_org_map.py
     python3 scripts/verify_dummy_org_gitlinks.py
     python3 scripts/verify_project_repo_layout.py
 

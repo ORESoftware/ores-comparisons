@@ -20,8 +20,11 @@
       "github_owner": "beamscale",
       "comparison_branch": "stack/beamscale",
       "status": "materialized",
+      "topology_status": "materialized",
       "execution_model": "admitted Gleam -> Erlang/BEAM actor/lambda execution",
-      "benchmark_executable": "bmscl"
+      "benchmark_executable": "bmscl",
+      "scenario_orgs": ["ores-dummy-org-1", "ores-dummy-org-2", "ores-dummy-org-3", "ores-dummy-org-4", "ores-dummy-org-5", "ores-dummy-org-6"],
+      "runtime_fixture_orgs": []
     },
     {
       "id": "scintilla-run",
@@ -29,8 +32,11 @@
       "github_owner": "scintilla-run",
       "comparison_branch": "stack/scintilla-run",
       "status": "materialized",
+      "topology_status": "materialized",
       "execution_model": "polyglot lambda/container/sub-process runtime",
-      "benchmark_executable": "scintilla"
+      "benchmark_executable": "scintilla",
+      "scenario_orgs": ["ores-dummy-org-1", "ores-dummy-org-2", "ores-dummy-org-3", "ores-dummy-org-4", "ores-dummy-org-5", "ores-dummy-org-6"],
+      "runtime_fixture_orgs": []
     },
     {
       "id": "ores-stack",
@@ -38,8 +44,11 @@
       "github_owner": "ores-stack",
       "comparison_branch": "stack/ores-stack",
       "status": "materialized",
+      "topology_status": "materialized",
       "execution_model": "Rust native servers, WASM/page assets, RPC/API generation",
-      "benchmark_executable": "ores-stack"
+      "benchmark_executable": "ores-stack",
+      "scenario_orgs": ["ores-dummy-org-1", "ores-dummy-org-2", "ores-dummy-org-3", "ores-dummy-org-4", "ores-dummy-org-5", "ores-dummy-org-6"],
+      "runtime_fixture_orgs": ["ores-dummy-org-rust-native-1", "ores-dummy-org-rust-wasm-3"]
     },
     {
       "id": "pony-expres",
@@ -47,8 +56,11 @@
       "github_owner": "pony-expres",
       "comparison_branch": "stack/pony-expres",
       "status": "registered",
+      "topology_status": "materialized",
       "execution_model": "Pony-native actor-oriented lambda/runtime target",
-      "benchmark_executable": null
+      "benchmark_executable": null,
+      "scenario_orgs": [],
+      "runtime_fixture_orgs": ["ores-dummy-org-pony-native-1", "ores-dummy-org-pony-native-2"]
     },
     {
       "id": "wasm-xprs",
@@ -56,8 +68,11 @@
       "github_owner": "wasm-xprs",
       "comparison_branch": "stack/wasm-xprs",
       "status": "registered",
+      "topology_status": "materialized",
       "execution_model": "WebAssembly-first lambda/component runtime",
-      "benchmark_executable": null
+      "benchmark_executable": null,
+      "scenario_orgs": [],
+      "runtime_fixture_orgs": ["ores-dummy-org-rust-wasm-2", "ores-dummy-org-zig-wasm-2"]
     },
     {
       "id": "iso-lattes",
@@ -65,8 +80,11 @@
       "github_owner": "iso-lattes",
       "comparison_branch": "stack/iso-lattes",
       "status": "registered",
+      "topology_status": "materialized",
       "execution_model": "isolate-oriented JavaScript/runtime execution",
-      "benchmark_executable": null
+      "benchmark_executable": null,
+      "scenario_orgs": [],
+      "runtime_fixture_orgs": ["ores-dummy-org-gleam-js-1", "ores-dummy-org-typescript-js-1"]
     },
     {
       "id": "graal-show",
@@ -74,8 +92,11 @@
       "github_owner": "graal-show",
       "comparison_branch": "stack/graal-show",
       "status": "registered",
+      "topology_status": "materialized",
       "execution_model": "GraalVM polyglot lambda/runtime target",
-      "benchmark_executable": null
+      "benchmark_executable": null,
+      "scenario_orgs": [],
+      "runtime_fixture_orgs": ["ores-dummy-org-clojure-jvm-1", "ores-dummy-org-java-jvm-1"]
     },
     {
       "id": "lunatic-lorry",
@@ -83,8 +104,11 @@
       "github_owner": "lunatic-lorry",
       "comparison_branch": "stack/lunatic-lorry",
       "status": "registered",
+      "topology_status": "materialized",
       "execution_model": "Lunatic WebAssembly process/actor runtime target",
-      "benchmark_executable": null
+      "benchmark_executable": null,
+      "scenario_orgs": [],
+      "runtime_fixture_orgs": ["ores-dummy-org-rust-wasm-1", "ores-dummy-org-zig-wasm-1"]
     },
     {
       "id": "litegraph",
@@ -92,8 +116,11 @@
       "github_owner": "litegraph",
       "comparison_branch": "stack/litegraph",
       "status": "registered",
+      "topology_status": "materialized",
       "execution_model": "GPU-oriented lightweight isolate/actor lambda runtime",
-      "benchmark_executable": null
+      "benchmark_executable": null,
+      "scenario_orgs": [],
+      "runtime_fixture_orgs": ["ores-dummy-org-rust-gpu-1", "ores-dummy-org-cuda-gpu-1"]
     }
   ]
 }
