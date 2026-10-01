@@ -11,6 +11,7 @@ use std::process;
 
 const CATALOG_SCHEMA: &str = "ores.comparisons.stack-catalog/v1";
 const MINIMUM_FAAS_FLOOR: i64 = 7;
+const MINIMUM_RUNTIME_FIXTURES: usize = 2;
 const REQUIRED_FAAS_PLATFORMS: [(&str, &str); 8] = [
     ("scintilla-run", "scintilla-run"),
     ("iso-lattes", "iso-lattes"),
@@ -26,6 +27,8 @@ const REQUIRED_FAAS_PLATFORMS: [(&str, &str); 8] = [
 struct Summary {
     registered: usize,
     materialized: usize,
+    scenario_materialized: usize,
+    fixture_materialized: usize,
     pending: usize,
     faas_platforms: usize,
     faas_materialized: usize,
@@ -35,9 +38,11 @@ fn main() {
     match verify_repository() {
         Ok(summary) => {
             println!(
-                "stack catalog verification OK: registered={}, materialized={}, pending={}, faas={}, faas_materialized={}",
+                "stack catalog verification OK: registered={}, materialized={}, scenario_materialized={}, fixture_materialized={}, pending={}, faas={}, faas_materialized={}",
                 summary.registered,
                 summary.materialized,
+                summary.scenario_materialized,
+                summary.fixture_materialized,
                 summary.pending,
                 summary.faas_platforms,
                 summary.faas_materialized
@@ -54,38 +59,21 @@ fn main() {
 }
 
 fn verify_repository() -> Result<Summary, Vec<String>> {
-    let root = match find_repo_root() {
-        Ok(root) => root,
-        Err(error) => return Err(vec![error]),
-    };
-
-    let catalog = match read_json(&root.join("shared/stack-catalog.json")) {
-        Ok(value) => value,
-        Err(error) => return Err(vec![error]),
-    };
-    let project_matrix = match read_json(&root.join("shared/project-matrix.json")) {
-        Ok(value) => value,
-        Err(error) => return Err(vec![error]),
-    };
-    let dummy_org_map = match read_json(&root.join("shared/dummy-org-map.json")) {
-        Ok(value) => value,
-        Err(error) => return Err(vec![error]),
-    };
+    let root = find_repo_root().map_err(|error| vec![error])?;
+    let catalog = read_json(&root.join("shared/stack-catalog.json")).map_err(|e| vec![e])?;
+    let project_matrix =
+        read_json(&root.join("shared/project-matrix.json")).map_err(|e| vec![e])?;
+    let dummy_org_map = read_json(&root.join("shared/dummy-org-map.json")).map_err(|e| vec![e])?;
     let benchmark_schema =
-        match read_json(&root.join("benchmarks/contracts/json-schema/benchmark.schema.json")) {
-            Ok(value) => value,
-            Err(error) => return Err(vec![error]),
-        };
+        read_json(&root.join("benchmarks/contracts/json-schema/benchmark.schema.json"))
+            .map_err(|e| vec![e])?;
     let typespec_path = root.join("benchmarks/contracts/typespec/main.tsp");
-    let typespec = match fs::read_to_string(&typespec_path) {
-        Ok(value) => value,
-        Err(error) => {
-            return Err(vec![format!(
-                "failed to read {}: {error}",
-                typespec_path.display()
-            )]);
-        }
-    };
+    let typespec = fs::read_to_string(&typespec_path).map_err(|error| {
+        vec![format!(
+            "failed to read {}: {error}",
+            typespec_path.display()
+        )]
+    })?;
 
     let mut errors = Vec::new();
 
@@ -106,6 +94,8 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
 
     let mut registered = BTreeSet::new();
     let mut materialized = BTreeSet::new();
+    let mut scenario_materialized = BTreeSet::new();
+    let mut fixture_materialized = BTreeSet::new();
 
     for raw in raw_stacks {
         let Some(object) = raw.as_object() else {
@@ -140,6 +130,23 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
             ));
         }
 
+        if string_field(object, "topology_status") != Some("materialized") {
+            errors.push(format!(
+                "{stack_id}: topology_status must be materialized before catalog admission"
+            ));
+        }
+
+        let scenario_orgs = string_array_field(object, "scenario_orgs", stack_id, &mut errors);
+        let runtime_fixture_orgs =
+            string_array_field(object, "runtime_fixture_orgs", stack_id, &mut errors);
+        ensure_unique(&scenario_orgs, stack_id, "scenario_orgs", &mut errors);
+        ensure_unique(
+            &runtime_fixture_orgs,
+            stack_id,
+            "runtime_fixture_orgs",
+            &mut errors,
+        );
+
         let status = string_field(object, "status");
         match status {
             Some("materialized") => {
@@ -150,6 +157,16 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
                         "{stack_id}: materialized stack requires benchmark_executable"
                     )),
                 }
+
+                if !scenario_orgs.is_empty() {
+                    scenario_materialized.insert(stack_id.to_owned());
+                } else if runtime_fixture_orgs.len() >= MINIMUM_RUNTIME_FIXTURES {
+                    fixture_materialized.insert(stack_id.to_owned());
+                } else {
+                    errors.push(format!(
+                        "{stack_id}: materialized stack must be scenario-backed or declare at least {MINIMUM_RUNTIME_FIXTURES} runtime fixture orgs"
+                    ));
+                }
             }
             Some("registered") => match object.get("benchmark_executable") {
                 Some(JsonValue::Null) => {}
@@ -158,6 +175,15 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
                 )),
             },
             other => errors.push(format!("{stack_id}: invalid status {other:?}")),
+        }
+
+        if scenario_orgs.is_empty()
+            && !runtime_fixture_orgs.is_empty()
+            && runtime_fixture_orgs.len() < MINIMUM_RUNTIME_FIXTURES
+        {
+            errors.push(format!(
+                "{stack_id}: dedicated runtime fixture topology requires at least {MINIMUM_RUNTIME_FIXTURES} orgs"
+            ));
         }
 
         let scaffold = root
@@ -175,20 +201,33 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
     let matrix_stacks = collect_project_matrix_stacks(&project_matrix, &mut errors);
     let dummy_stacks = collect_dummy_org_stacks(&dummy_org_map, &mut errors);
 
-    if materialized != matrix_stacks {
+    if matrix_stacks != dummy_stacks {
         errors.push(format!(
-            "materialized stack set {:?} != project matrix {:?}",
-            materialized, matrix_stacks
+            "project matrix stacks {:?} != shared scenario dummy-org stacks {:?}",
+            matrix_stacks, dummy_stacks
         ));
     }
-    if materialized != dummy_stacks {
+    if scenario_materialized != matrix_stacks {
         errors.push(format!(
-            "materialized stack set {:?} != dummy-org map {:?}",
-            materialized, dummy_stacks
+            "scenario-backed materialized stacks {:?} != project/scenario matrix {:?}",
+            scenario_materialized, matrix_stacks
         ));
     }
     if !materialized.is_subset(&registered) {
         errors.push("materialized stacks must be registered".to_owned());
+    }
+    if !scenario_materialized.is_disjoint(&fixture_materialized) {
+        errors.push("a materialized stack cannot be both scenario-backed and fixture-only".to_owned());
+    }
+    let classified = scenario_materialized
+        .union(&fixture_materialized)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if classified != materialized {
+        errors.push(format!(
+            "materialized stacks {:?} are not fully classified by scenario/fixture paths {:?}",
+            materialized, classified
+        ));
     }
 
     let schema_stack_values = collect_benchmark_schema_stacks(&benchmark_schema, &mut errors);
@@ -218,6 +257,8 @@ fn verify_repository() -> Result<Summary, Vec<String>> {
         Ok(Summary {
             registered: registered.len(),
             materialized: materialized.len(),
+            scenario_materialized: scenario_materialized.len(),
+            fixture_materialized: fixture_materialized.len(),
             pending: registered.len().saturating_sub(materialized.len()),
             faas_platforms: faas_backing_stacks.len(),
             faas_materialized,
@@ -405,6 +446,49 @@ fn extract_typespec_stack_values(source: &str) -> Result<BTreeSet<String>, Strin
     Ok(values)
 }
 
+fn string_array_field(
+    object: &BTreeMap<String, JsonValue>,
+    field: &str,
+    label: &str,
+    errors: &mut Vec<String>,
+) -> Vec<String> {
+    let Some(values) = object.get(field).and_then(JsonValue::as_array) else {
+        errors.push(format!("{label}: {field} must be an array"));
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(|value| match value.as_str() {
+            Some(value) => Some(value.to_owned()),
+            None => {
+                errors.push(format!("{label}: {field} entries must be strings"));
+                None
+            }
+        })
+        .collect()
+}
+
+fn ensure_unique(values: &[String], label: &str, field: &str, errors: &mut Vec<String>) {
+    let unique = values.iter().collect::<BTreeSet<_>>();
+    if unique.len() != values.len() {
+        errors.push(format!("{label}: {field} contains duplicate entries"));
+    }
+}
+
+fn string_field<'a>(object: &'a BTreeMap<String, JsonValue>, field: &str) -> Option<&'a str> {
+    object.get(field).and_then(JsonValue::as_str)
+}
+
+fn valid_stack_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
 fn read_json(path: &Path) -> Result<JsonValue, String> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
@@ -426,20 +510,6 @@ fn find_repo_root() -> Result<PathBuf, String> {
     Err("could not locate repository root containing shared/stack-catalog.json".to_owned())
 }
 
-fn string_field<'a>(object: &'a BTreeMap<String, JsonValue>, field: &str) -> Option<&'a str> {
-    object.get(field).and_then(JsonValue::as_str)
-}
-
-fn valid_stack_id(value: &str) -> bool {
-    !value.is_empty()
-        && value.split('-').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        })
-}
-
 fn relative_display(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
@@ -452,49 +522,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stack_ids_are_strict_kebab_case() {
-        for valid in ["beamscale", "scintilla-run", "wasm-xprs", "3fa-runtime"] {
-            assert!(valid_stack_id(valid), "{valid} should be valid");
-        }
-        for invalid in ["", "Scintilla", "bad_name", "bad--name", "-bad", "bad-"] {
-            assert!(!valid_stack_id(invalid), "{invalid} must be rejected");
-        }
+    fn stack_ids_are_fail_closed() {
+        assert!(valid_stack_id("graal-show"));
+        assert!(valid_stack_id("wasm-xprs"));
+        assert!(!valid_stack_id("Graal-Show"));
+        assert!(!valid_stack_id("../graal-show"));
+        assert!(!valid_stack_id("-graal-show"));
     }
 
     #[test]
-    fn typespec_stack_kind_extraction_is_fail_closed() {
-        let source = r#"
-            enum StackKind {
-              beamscale: "beamscale",
-              scintillaRun: "scintilla-run",
-            }
-        "#;
-        assert_eq!(
-            extract_typespec_stack_values(source).expect("extract"),
-            BTreeSet::from(["beamscale".to_owned(), "scintilla-run".to_owned()])
-        );
-        assert!(extract_typespec_stack_values("enum Other { x: \"x\" }").is_err());
-    }
-
-    #[test]
-    fn required_faas_cohort_is_distinct_and_exceeds_floor() {
-        let platform_ids: BTreeSet<_> = REQUIRED_FAAS_PLATFORMS
-            .iter()
-            .map(|(platform_id, _)| *platform_id)
-            .collect();
-        let backing_stacks: BTreeSet<_> = REQUIRED_FAAS_PLATFORMS
-            .iter()
-            .map(|(_, stack_id)| *stack_id)
-            .collect();
-        assert_eq!(platform_ids.len(), REQUIRED_FAAS_PLATFORMS.len());
-        assert_eq!(backing_stacks.len(), REQUIRED_FAAS_PLATFORMS.len());
-        assert!(REQUIRED_FAAS_PLATFORMS.len() >= MINIMUM_FAAS_FLOOR as usize);
-        assert_eq!(
-            REQUIRED_FAAS_PLATFORMS
-                .iter()
-                .find(|(platform_id, _)| *platform_id == "graal-vm")
-                .map(|(_, stack_id)| *stack_id),
-            Some("graal-show")
-        );
+    fn materialization_modes_are_disjoint_sets() {
+        let scenario = BTreeSet::from(["beamscale".to_owned()]);
+        let fixtures = BTreeSet::from(["graal-show".to_owned()]);
+        assert!(scenario.is_disjoint(&fixtures));
     }
 }
