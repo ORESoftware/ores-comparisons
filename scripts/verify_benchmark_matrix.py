@@ -18,7 +18,7 @@ expected = {
 executables = {
     item.get("id"): item.get("benchmark_executable")
     for item in stack_catalog.get("stacks", [])
-    if isinstance(item, dict) and item.get("status") == "materialized"
+    if isinstance(item, dict) and item.get("status") == "verified"
 }
 seen: set[tuple[str, str]] = set()
 
@@ -38,7 +38,7 @@ for item in benchmark_matrix.get("projects", []):
 
     expected_executable = executables.get(key[0])
     if not isinstance(expected_executable, str) or not expected_executable:
-        errors.append(f"{key} stack has no materialized benchmark executable in stack catalog")
+        errors.append(f"{key} stack has no verified benchmark executable in stack catalog")
 
     commands = list(item.get("build", [])) + list(item.get("deploy", []))
     for argv in commands:
@@ -81,5 +81,5 @@ stack_count = len({stack for stack, _scenario in expected})
 scenario_count = len({scenario for _stack, scenario in expected})
 print(
     f"benchmark matrix verification OK: {len(expected)} projects, "
-    f"{stack_count} materialized stacks x {scenario_count} benchmark scenarios"
+    f"{stack_count} verified stacks x {scenario_count} benchmark scenarios"
 )
