@@ -4,14 +4,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from project_matrix import ROOT, load_project_specs
+from project_matrix import ROOT, load_materialization_specs
 
 errors: list[str] = []
 
 try:
-    specs = load_project_specs()
+    specs = load_materialization_specs()
 except Exception as exc:
-    raise SystemExit(f"invalid project matrix: {exc}") from exc
+    raise SystemExit(f"invalid materialization matrix: {exc}") from exc
 
 index = subprocess.run(
     ["git", "ls-files", "--stage"],
@@ -35,9 +35,9 @@ actual = {
 }
 
 for project in sorted(expected - actual):
-    errors.append(f"matrix project is missing: {project.relative_to(ROOT)}")
+    errors.append(f"materialization project is missing: {project.relative_to(ROOT)}")
 for project in sorted(actual - expected):
-    errors.append(f"project exists outside shared/project-matrix.json: {project.relative_to(ROOT)}")
+    errors.append(f"project exists outside shared/materialization-matrix.json: {project.relative_to(ROOT)}")
 
 for spec in specs:
     project = spec.path
@@ -78,7 +78,7 @@ for spec in specs:
 
     # Content checks run whenever the repository is materialized or the submodule
     # has been initialized. An uninitialized gitlink is validated structurally by
-    # verify_dummy_org_map.py and is intentionally not dereferenced here.
+    # verify_dummy_org_gitlinks.py and is intentionally not dereferenced here.
     if shared.is_dir() and not shared_is_gitlink:
         for required in (
             "README.md",
@@ -97,6 +97,8 @@ for spec in specs:
             if not (shared / required).exists():
                 errors.append(f"{rel} repos/.github missing {required}")
 
+    # Runtime-native content checks apply only to stacks admitted to executable
+    # verification. Topology-only materialization is enforced by gitlinks.
     if app.is_dir() and not app_is_gitlink:
         if spec.stack == "beamscale":
             for required in (".ores-lambda.toml", "bmscl-policy.toml"):
@@ -132,7 +134,7 @@ for submodule in sorted(gitlinks):
     )
     if owner is None:
         errors.append(
-            f"git submodule {path} is outside a matrix-governed project repos/ org mirror"
+            f"git submodule {path} is outside a materialization-matrix-governed project repos/ org mirror"
         )
     elif submodule.parent != owner.repos_path:
         errors.append(
@@ -147,7 +149,7 @@ if errors:
     raise SystemExit(1)
 
 print(
-    f"project repo-layout verification OK: {len(expected)} projects expose only "
+    f"project repo-layout verification OK: {len(expected)} materialized projects expose only "
     "repos/{readme.md,.github/,repo...}; repository children may be materialized "
     "or governed gitlinks"
 )
