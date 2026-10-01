@@ -1,5 +1,12 @@
 # Graal Show comparison projects
 
-Graal Show is registered in `shared/stack-catalog.json` and reserves the governed comparison branch `stack/graal-show`.
+Graal Show uses the dedicated runtime-fixture path rather than requiring the six BEAM-oriented scenario branches.
 
-This stack is not yet marked `materialized`. Promotion requires stack-native implementations of all six comparison scenarios, matching dummy-org branches/gitlinks, build/deploy verification, and benchmark/runtime-proof integration. Until those artifacts exist, CI must not count Graal Show as executable comparison coverage.
+| Fixture org | Source → target | Canary | Current proof |
+| --- | --- | --- | --- |
+| `ores-dummy-org-clojure-jvm-1` | Clojure → JVM | `*-web-server.clj` | source smoke + `gs-compiler` admission command defined |
+| `ores-dummy-org-java-jvm-1` | Java → JVM | `*-web-server.java` | `javac` smoke + `gs-compiler` admission command defined |
+
+Both canaries include the Graal Show JVM admission policy and expect `dist/worker.jar` plus compiler admission metadata. Their exact pinned revisions and blockers live in `shared/runtime-execution-evidence.json`.
+
+Graal Show remains `status: registered`: neither lane is marked `runtime_proven` yet. Promotion requires both JVM lanes to produce admitted artifacts, execute through the Graal Show runtime, record receipts, and pass the shared conformance/benchmark gates. Topology alone is not executable coverage.
