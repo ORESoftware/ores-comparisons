@@ -30,6 +30,17 @@ The gate protects all of these invariants together:
 - catalog stack identities stay in lockstep with the benchmark TypeSpec and JSON Schema authorities;
 - every registered stack keeps a comparison scaffold.
 
+`tools/verify_runtime_topology.rs` is the fail-closed runtime-topology admission gate.
+Its unit tests run without private submodules; the executable gate runs only after
+exact project gitlinks are initialized. It verifies that runtime-bearing repositories
+(`application`, `service`, `worker`, and `frontend`) declared by `org.manifest.json`
+are present in `.ores-compose.yaml`, that compose dependency ordering is at least as
+strong as the manifest dependency graph, that the umbrella `app` is present, and that
+materialized runtime repos match their exact superproject gitlinks. Whole-fleet mode
+also requires sibling stacks for the same scenario to expose the same runtime repo set.
+Per-project runtime jobs emit an immutable topology receipt before `ores-compose`
+check/plan/up is allowed to run.
+
 The former Python stack-catalog validator has been retired so there is one
 canonical implementation of these fleet-level invariants.
 
