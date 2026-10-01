@@ -40,7 +40,7 @@ def render_repos(policy: dict, entry: dict) -> list[str]:
     family = policy["repository_family"]
     org = entry["org"]
     extension = entry["server_extension"]
-    return [
+    return [".github"] + [
         family["name_template"].format(
             org=org,
             role=role.format(server_extension=extension),
@@ -95,11 +95,15 @@ def main() -> int:
     minimum = policy.get("minimum_orgs_per_dedicated_stack")
     if minimum != 2:
         fail(errors, "minimum_orgs_per_dedicated_stack must remain 2")
+    if policy.get("private_repo_transport") != "git-submodule":
+        fail(errors, "private_repo_transport must be git-submodule")
 
     family = policy.get("repository_family", {})
     roles = family.get("roles", [])
-    if family.get("count") != 19 or len(roles) != 19 or len(set(roles)) != 19:
-        fail(errors, "runtime fixture repository family must contain exactly 19 unique roles")
+    if family.get("count") != 20 or len(roles) != 19 or len(set(roles)) != 19:
+        fail(errors, "runtime fixture repository family must contain .github plus exactly 19 unique role repos")
+    if family.get("includes_dot_github") is not True:
+        fail(errors, "runtime fixture repository family must explicitly include .github")
     if family.get("name_template") != "{org}-{role}":
         fail(errors, "runtime fixture repository name_template must be {org}-{role}")
 
@@ -134,14 +138,14 @@ def main() -> int:
 
         if entry.get("default_branch") != "main":
             fail(errors, f"{org}: default_branch must be main")
-        if entry.get("transport") != "governed-remote":
-            fail(errors, f"{org}: private runtime fixtures must use governed-remote transport")
+        if entry.get("transport") != "git-submodule":
+            fail(errors, f"{org}: private runtime fixtures must use git-submodule transport")
 
         rendered = render_repos(policy, entry)
-        if len(rendered) != 19 or len(set(rendered)) != 19:
-            fail(errors, f"{org}: rendered repository family is not exactly 19 unique repos")
+        if len(rendered) != 20 or len(set(rendered)) != 20:
+            fail(errors, f"{org}: rendered repository family is not exactly 20 unique repos")
         for repo in rendered:
-            if not repo.startswith(org + "-"):
+            if repo != ".github" and not repo.startswith(org + "-"):
                 fail(errors, f"{org}: repository escaped org prefix: {repo}")
         total_repos += len(rendered)
         by_stack[stack].append(org)
