@@ -93,7 +93,7 @@
       "comparison_branch": "stack/graal-show",
       "status": "registered",
       "topology_status": "materialized",
-      "execution_model": "GraalVM polyglot lambda/runtime target",
+      "execution_model": "tenant+deployment OS process with bounded stateless, route, session, and opt-in route+session Graal isolate affinity; Native Image and Polyglot Engine modes benchmarked separately",
       "benchmark_executable": null,
       "scenario_orgs": [],
       "runtime_fixture_orgs": ["ores-dummy-org-clojure-jvm-1", "ores-dummy-org-java-jvm-1"]
