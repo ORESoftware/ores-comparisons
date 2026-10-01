@@ -2,13 +2,14 @@
 
 `shared/stack-catalog.json` is the machine-readable registry for comparison runtimes and the governed FaaS coverage cohort.
 
-Three independent concepts are intentionally kept separate:
+Four independent concepts are intentionally kept separate:
 
 - **FaaS coverage** means the platform is a first-class comparison identity in the catalog and has a stable backing stack.
 - **Topology materialization** means the required dummy organizations and repository families exist and are governed by the comparison fleet.
-- **Executable/materialized coverage** means the stack has admitted stack-native build/deploy verification plus benchmark/runtime-proof integration.
+- **Artifact/admission evidence** means a source→target lane has a deterministic build/admission contract and pinned canary revision.
+- **Executable/materialized coverage** means the stack has actual stack-native runtime proof plus benchmark/runtime-proof integration.
 
-A materialized dummy-org topology is not benchmark evidence. CI must never count a repository scaffold as executable coverage.
+A materialized dummy-org topology or a compile command is not benchmark evidence. CI must never count a repository scaffold, mock compiler output, or unexecuted command as executable coverage.
 
 ## Governed FaaS cohort
 
@@ -41,6 +42,8 @@ Dedicated runtime fixture orgs use:
 
 The source/target pair is fail-closed. In particular, TypeScript → WASM is not an admitted lane.
 
+Every source→target fixture has one `web-server.<language>` canary revision tracked by `shared/runtime-execution-evidence.json`. The canary is the first executable boundary for that org; the rest of the 19-repository family may consume the same contract as it is implemented.
+
 ## Catalog states
 
 | Field/state | Meaning |
@@ -55,15 +58,36 @@ A dedicated non-BEAM fixture stack must have, at minimum:
 
 1. two runtime fixture orgs;
 2. source and artifact/runtime target encoded in each org name;
-3. the governed 19-repository family in each org;
+3. the governed 19-role repository family plus `.github` in each org;
 4. source-language extensions on API/web/MCP server repository names;
 5. no forbidden source→target pair such as TypeScript → WASM;
-6. `shared/dummy-org-fleet.json` and `shared/stack-catalog.json` agreeing exactly;
-7. offline validation through `scripts/verify_runtime_fixture_org_map.py`;
-8. authorized remote branch reachability through `scripts/verify_runtime_fixture_remote_reachability.py`.
+6. `shared/dummy-org-fleet.json`, `shared/runtime-fixture-submodules.json`, and `shared/stack-catalog.json` agreeing exactly;
+7. a pinned canary revision for each runtime fixture in `shared/runtime-execution-evidence.json`;
+8. offline validation through the Rust runtime-execution gate plus the existing topology/gitlink checks;
+9. authorized remote branch reachability where private repositories are dereferenced.
 
-## Executable promotion gate
+## Two executable promotion paths
 
-Promoting a stack from `registered` to executable `materialized` remains stricter and requires actual runtime evidence. For the shared six-scenario model that includes the existing project matrix, scenario branches/gitlinks, build/deploy smoke verification, benchmark/runtime-proof integration, and all contract/parity gates. A topology-only fixture is never sufficient by itself.
+A stack can reach executable `materialized` status through one of two governed paths.
+
+### Scenario-backed path
+
+BeamScale, Scintilla Run, and the ORES Stack control lane already use the six shared application scenarios. That path requires the governed project matrix, scenario branches/gitlinks, stack-native build/deploy smoke verification, benchmark/runtime-proof integration, and the normal contract/parity gates.
+
+### Dedicated runtime-fixture path
+
+Stacks whose execution model does not share the BEAM scenario implementation may instead use their dedicated source→target fixture orgs. Promotion requires:
+
+1. at least two governed fixture orgs for the stack;
+2. every declared fixture represented in `shared/runtime-execution-evidence.json`;
+3. deterministic source→artifact build/admission metadata in each canary repo;
+4. all required compiler/runtime ABIs represented honestly (for example `wasmx-v1`, Lunatic mailbox framing, JVM admission, Pony framing, or real accelerator targets);
+5. `runtime_proven: true` for every declared fixture, backed by actual build/invoke receipts rather than commands that merely exist;
+6. real hardware evidence for GPU claims;
+7. benchmark or conformance evidence that exercises the same logical contract across the stack's fixture lanes;
+8. a non-null benchmark executable/runtime entrypoint in the stack catalog;
+9. all stack catalog, benchmark TypeSpec/JSON Schema, and runtime-execution Rust gates passing in the same change set.
+
+Topology, source compilation alone, or mock compiler output does not satisfy this gate. `tools/verify_runtime_execution.rs` fails closed if a fixture-backed stack is marked `materialized` while any declared fixture remains unproven.
 
 The Rust stack-catalog gate continues to fail closed if the FaaS cohort drops below seven distinct platforms, if any required platform disappears, if two platform identities reuse one backing stack, or if the GraalVM platform stops mapping to the `graal-show` fleet identity.
