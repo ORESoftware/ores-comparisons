@@ -5,14 +5,23 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-from project_matrix import ROOT, load_project_specs
+from project_matrix import ROOT, load_materialization_specs, load_project_specs
 
 errors: list[str] = []
 
 try:
     specs = load_project_specs()
+    materialized_specs = load_materialization_specs()
 except Exception as exc:
-    raise SystemExit(f"invalid project matrix: {exc}") from exc
+    raise SystemExit(f"invalid project/materialization matrix: {exc}") from exc
+
+execution_keys = {(spec.stack, spec.scenario) for spec in specs}
+materialized_keys = {(spec.stack, spec.scenario) for spec in materialized_specs}
+if not execution_keys.issubset(materialized_keys):
+    errors.append(
+        "runtime project matrix must be a subset of shared/materialization-matrix.json: "
+        f"missing={sorted(execution_keys - materialized_keys)}"
+    )
 
 index = subprocess.run(
     ["git", "ls-files", "--stage"],
@@ -30,6 +39,7 @@ for line in index.splitlines():
         gitlinks.add(ROOT / path)
 
 expected = {spec.path for spec in specs}
+topology_expected = {spec.path for spec in materialized_specs}
 actual = {
     path
     for path in ROOT.glob("stacks/*/projects/*")
@@ -42,9 +52,11 @@ actual = {
 }
 
 for path in sorted(expected - actual):
-    errors.append(f"matrix project is missing: {path.relative_to(ROOT)}")
-for path in sorted(actual - expected):
-    errors.append(f"project exists outside shared/project-matrix.json: {path.relative_to(ROOT)}")
+    errors.append(f"runtime matrix project is missing: {path.relative_to(ROOT)}")
+for path in sorted(actual - topology_expected):
+    errors.append(
+        f"project exists outside shared/materialization-matrix.json: {path.relative_to(ROOT)}"
+    )
 
 for spec in specs:
     project = spec.path
@@ -97,4 +109,7 @@ if errors:
         print(f" - {error}")
     raise SystemExit(1)
 
-print(f"project matrix verification OK: {len(specs)} GitHub-org-mirrored projects")
+print(
+    f"project matrix verification OK: {len(specs)} runtime-verified projects are a subset "
+    f"of {len(materialized_specs)} materialized GitHub-org-mirrored projects"
+)
