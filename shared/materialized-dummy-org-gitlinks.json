@@ -1,0 +1,14 @@
+{
+  "schema": "ores.comparisons.materialized-dummy-org-gitlinks/v1",
+  "source_commit": "bc3820c98b92f65e2d1a2b6dacabaaf9bf9ad315",
+  "base_stack": "ores-stack",
+  "stacks": [
+    "pony-expres",
+    "wasm-xprs",
+    "iso-lattes",
+    "graal-show",
+    "lunatic-lorry",
+    "litegraph"
+  ],
+  "policy": "Each materialized stack reuses the exact ores-stack gitlink commit for the same scenario/repository until stack-native runtime verification promotes it to verified."
+}
