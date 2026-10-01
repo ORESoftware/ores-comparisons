@@ -1,0 +1,180 @@
+{
+  "schema": "ores.comparisons.runtime-execution-evidence/v1",
+  "policy": {
+    "minimum_runtime_fixture_orgs_per_dedicated_stack": 2,
+    "topology_is_not_runtime_proof": true,
+    "materialization_requires_runtime_proof": true,
+    "typescript_to_wasm_forbidden": true,
+    "gpu_runtime_proof_requires_real_hardware": true
+  },
+  "fixtures": [
+    {
+      "stack": "graal-show",
+      "org": "ores-dummy-org-clojure-jvm-1",
+      "repo": "ores-dummy-org-clojure-jvm-1-web-server.clj",
+      "source_language": "clojure",
+      "artifact_target": "jvm",
+      "canary_role": "web-server",
+      "pinned_commit": "c4e0e9f91296a278579866c11dc1a6ea50f234a1",
+      "proof_level": "admission-command-defined",
+      "runtime_proven": false,
+      "blocker": "Run clojure smoke plus gs-compiler admission/build and record worker.jar/admission-report evidence"
+    },
+    {
+      "stack": "graal-show",
+      "org": "ores-dummy-org-java-jvm-1",
+      "repo": "ores-dummy-org-java-jvm-1-web-server.java",
+      "source_language": "java",
+      "artifact_target": "jvm",
+      "canary_role": "web-server",
+      "pinned_commit": "03ff28122dd0f51a9e1d54bc80b2a80ca87bf662",
+      "proof_level": "admission-command-defined",
+      "runtime_proven": false,
+      "blocker": "Run javac smoke plus gs-compiler admission/build and record worker.jar/admission-report evidence"
+    },
+    {
+      "stack": "iso-lattes",
+      "org": "ores-dummy-org-gleam-js-1",
+      "repo": "ores-dummy-org-gleam-js-1-web-server.gleam",
+      "source_language": "gleam",
+      "artifact_target": "js",
+      "canary_role": "web-server",
+      "pinned_commit": "366e0c6070bb8b5c980baaa6be09e670b9667e28",
+      "proof_level": "source-to-js-defined",
+      "runtime_proven": false,
+      "blocker": "Build the Gleam JavaScript artifact and record an Iso Lattes invoke receipt against the deployed function"
+    },
+    {
+      "stack": "iso-lattes",
+      "org": "ores-dummy-org-typescript-js-1",
+      "repo": "ores-dummy-org-typescript-js-1-web-server.ts",
+      "source_language": "typescript",
+      "artifact_target": "js",
+      "canary_role": "web-server",
+      "pinned_commit": "b25c1e0d699e329a1a1e4c348d789d8ffccfa8a4",
+      "proof_level": "source-to-js-defined",
+      "runtime_proven": false,
+      "blocker": "Build the pinned TypeScript JavaScript artifact and record an Iso Lattes invoke receipt against the deployed function"
+    },
+    {
+      "stack": "lunatic-lorry",
+      "org": "ores-dummy-org-rust-wasm-1",
+      "repo": "ores-dummy-org-rust-wasm-1-web-server.rs",
+      "source_language": "rust",
+      "artifact_target": "wasm",
+      "canary_role": "web-server",
+      "pinned_commit": "49ae76aaab8be82e8da48a0e14e8ca5fd0ba770d",
+      "proof_level": "runtime-compatible-artifact-defined",
+      "runtime_proven": false,
+      "blocker": "Build wasm32-wasip1 and record a real fresh-Lunatic-actor invocation receipt"
+    },
+    {
+      "stack": "lunatic-lorry",
+      "org": "ores-dummy-org-zig-wasm-1",
+      "repo": "ores-dummy-org-zig-wasm-1-web-server.zig",
+      "source_language": "zig",
+      "artifact_target": "wasm",
+      "canary_role": "web-server",
+      "pinned_commit": "ded6db5d570ee28959c90ac16bc974006137ccd3",
+      "proof_level": "artifact-only",
+      "runtime_proven": false,
+      "blocker": "Implement reviewed Zig bindings for Lunatic Lorry mailbox/bincode invocation; plain WASI stdout is not runtime proof"
+    },
+    {
+      "stack": "wasm-xprs",
+      "org": "ores-dummy-org-rust-wasm-2",
+      "repo": "ores-dummy-org-rust-wasm-2-web-server.rs",
+      "source_language": "rust",
+      "artifact_target": "wasm",
+      "canary_role": "web-server",
+      "pinned_commit": "d741e5cb5fbdcab1da5aaa469a8d98580adb7980",
+      "proof_level": "runtime-compatible-artifact-defined",
+      "runtime_proven": false,
+      "blocker": "Build the no-WASI wasmx-v1 module and record wasmx deploy/invoke evidence"
+    },
+    {
+      "stack": "wasm-xprs",
+      "org": "ores-dummy-org-zig-wasm-2",
+      "repo": "ores-dummy-org-zig-wasm-2-web-server.zig",
+      "source_language": "zig",
+      "artifact_target": "wasm",
+      "canary_role": "web-server",
+      "pinned_commit": "bf9fe6ff17ffc98042fb5123ce2dcdf0bb1995dc",
+      "proof_level": "runtime-compatible-artifact-defined",
+      "runtime_proven": false,
+      "blocker": "Build the four-import no-WASI wasmx-v1 module and record wasmx deploy/invoke evidence"
+    },
+    {
+      "stack": "pony-expres",
+      "org": "ores-dummy-org-pony-native-1",
+      "repo": "ores-dummy-org-pony-native-1-web-server.pony",
+      "source_language": "pony",
+      "artifact_target": "native",
+      "canary_role": "web-server",
+      "pinned_commit": "323a6efc3e734791bd2d35c2a77cc7998fd4dcf6",
+      "proof_level": "runtime-compatible-artifact-defined",
+      "runtime_proven": false,
+      "blocker": "Run ponyc/frame smoke and record poex invoke evidence for the echo actor"
+    },
+    {
+      "stack": "pony-expres",
+      "org": "ores-dummy-org-pony-native-2",
+      "repo": "ores-dummy-org-pony-native-2-web-server.pony",
+      "source_language": "pony",
+      "artifact_target": "native",
+      "canary_role": "web-server",
+      "pinned_commit": "10ee834b1578e26cfe7f154ea12f4c82412f5616",
+      "proof_level": "runtime-compatible-artifact-defined",
+      "runtime_proven": false,
+      "blocker": "Run ponyc/frame smoke and record poex invoke evidence for the structured-response actor"
+    },
+    {
+      "stack": "ores-stack",
+      "org": "ores-dummy-org-rust-native-1",
+      "repo": "ores-dummy-org-rust-native-1-web-server.rs",
+      "source_language": "rust",
+      "artifact_target": "native",
+      "canary_role": "web-server",
+      "pinned_commit": "b9f871ec27d2759d8578de2af34e9df3a6ee716c",
+      "proof_level": "runtime-compatible-artifact-defined",
+      "runtime_proven": false,
+      "blocker": "Record the native Axum build/smoke receipt; ORES Stack remains materialized through its existing scenario matrix independently of this fixture"
+    },
+    {
+      "stack": "ores-stack",
+      "org": "ores-dummy-org-rust-wasm-3",
+      "repo": "ores-dummy-org-rust-wasm-3-web-server.rs",
+      "source_language": "rust",
+      "artifact_target": "wasm",
+      "canary_role": "web-server",
+      "pinned_commit": "1e233a2c0ca9cda3f0ec24d331c2260396123ca0",
+      "proof_level": "adapter-source-seeded",
+      "runtime_proven": false,
+      "blocker": "Run ores-stack generate/lambda build and record the immutable ores.lambda.wasm-artifact.receipt/v1 receipt"
+    },
+    {
+      "stack": "litegraph",
+      "org": "ores-dummy-org-rust-gpu-1",
+      "repo": "ores-dummy-org-rust-gpu-1-web-server.rs",
+      "source_language": "rust",
+      "artifact_target": "gpu",
+      "canary_role": "web-server",
+      "pinned_commit": "c1a26c373aa587bf1732b7dd03a18ce94dfe3ccf",
+      "proof_level": "source-contract-only",
+      "runtime_proven": false,
+      "blocker": "Implement a real pinned Rust-to-accelerator compiler adapter; native Rust output must not be relabeled as GPU code"
+    },
+    {
+      "stack": "litegraph",
+      "org": "ores-dummy-org-cuda-gpu-1",
+      "repo": "ores-dummy-org-cuda-gpu-1-web-server.cu",
+      "source_language": "cuda",
+      "artifact_target": "gpu",
+      "canary_role": "web-server",
+      "pinned_commit": "753b825d5b2850c0a007e3a7059dd92ededa77de",
+      "proof_level": "hardware-required-artifact",
+      "runtime_proven": false,
+      "blocker": "Pin the CUDA toolchain image and record a real litegraph-gpu-host execution on compatible NVIDIA hardware"
+    }
+  ]
+}
