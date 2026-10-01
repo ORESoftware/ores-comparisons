@@ -33,6 +33,14 @@ jobs:
           ./tmp/verify-stack-catalog-tests
           rustc --edition 2024 tools/verify_stack_catalog.rs -o tmp/verify-stack-catalog
           ./tmp/verify-stack-catalog
+      - name: Compile and mutation-test Rust runtime topology gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          rustfmt --edition 2024 --check tools/verify_runtime_topology.rs tools/json_value.rs
+          rustc --edition 2024 --test tools/verify_runtime_topology.rs -o tmp/verify-runtime-topology-tests
+          ./tmp/verify-runtime-topology-tests
       - run: python3 scripts/verify_dummy_org_map.py
       - run: python3 scripts/verify_dummy_org_gitlinks.py
       - if: ${{ hashFiles('.gitmodules') == '' }}
@@ -89,7 +97,16 @@ jobs:
             if curl --fail --silent http://127.0.0.1:18765/ >/dev/null; then break; fi
             sleep 0.1
           done
-          python3 scripts/run_benchmark.py             --stack beamscale             --scenario http-observability             --url http://127.0.0.1:18765/             --requests 5             --warmup 1             --pid "$server_pid"             --artifact README.md             --cost-per-million-usd 0.125             --output benchmarks/results/benchmark-ci.json
+          python3 scripts/run_benchmark.py \
+            --stack beamscale \
+            --scenario http-observability \
+            --url http://127.0.0.1:18765/ \
+            --requests 5 \
+            --warmup 1 \
+            --pid "$server_pid" \
+            --artifact README.md \
+            --cost-per-million-usd 0.125 \
+            --output benchmarks/results/benchmark-ci.json
           python3 scripts/render_benchmark_matrix.py --output benchmarks/results/matrix-ci.md
           grep -q "http-observability" benchmarks/results/matrix-ci.md
           rm -f benchmarks/results/benchmark-ci.json benchmarks/results/matrix-ci.md
@@ -154,6 +171,8 @@ jobs:
           mkdir -p tmp
           rustc --edition 2024 tools/verify_stack_catalog.rs -o tmp/verify-stack-catalog
           ./tmp/verify-stack-catalog
+          rustc --edition 2024 tools/verify_runtime_topology.rs -o tmp/verify-runtime-topology
+          ./tmp/verify-runtime-topology
           python3 scripts/verify_dummy_org_map.py
           python3 scripts/verify_dummy_org_gitlinks.py
           python3 scripts/verify_project_repo_layout.py
