@@ -4,9 +4,8 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from pathlib import Path
 
-from project_matrix import ROOT, load_project_specs
+from project_matrix import ROOT, load_materialization_specs
 
 MAP_PATH = ROOT / "shared/dummy-org-map.json"
 SCHEMA = "ores.comparisons.dummy-org-map/v1"
@@ -84,16 +83,18 @@ if not isinstance(projects, dict) or not projects:
     errors.append("dummy-org map must declare projects")
     projects = {}
 
-specs = load_project_specs()
+specs = load_materialization_specs()
 matrix_stacks = {spec.stack for spec in specs}
 matrix_projects = {spec.scenario for spec in specs}
 if set(stacks) != matrix_stacks:
     errors.append(
-        f"dummy-org stack set {sorted(stacks)} != project matrix {sorted(matrix_stacks)}"
+        f"dummy-org stack set {sorted(stacks)} != materialization matrix "
+        f"{sorted(matrix_stacks)}"
     )
 if set(projects) != matrix_projects:
     errors.append(
-        f"dummy-org project set {sorted(projects)} != project matrix {sorted(matrix_projects)}"
+        f"dummy-org project set {sorted(projects)} != materialization matrix "
+        f"{sorted(matrix_projects)}"
     )
 
 orgs: set[str] = set()
@@ -167,7 +168,8 @@ for spec in specs:
             observed_names.add(top)
     if observed_names != expected_names:
         errors.append(
-            f"{repos_rel}: repo set {sorted(observed_names)} != governed set {sorted(expected_names)}"
+            f"{repos_rel}: repo set {sorted(observed_names)} != "
+            f"governed set {sorted(expected_names)}"
         )
 
     for repo in repos:
