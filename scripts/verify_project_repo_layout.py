@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,22 @@ try:
     specs = load_project_specs()
 except Exception as exc:
     raise SystemExit(f"invalid project matrix: {exc}") from exc
+
+# Runtime language/target fixtures are deliberately outside project-matrix runtime
+# certification. They are nevertheless first-class project envelopes once their
+# private repositories are pinned as gitlinks.
+fleet = json.loads((ROOT / "shared/dummy-org-fleet.json").read_text())
+fixture_state = json.loads((ROOT / "shared/runtime-fixture-submodules.json").read_text())
+fixture_entries = {item["org"]: item for item in fleet["runtime_fixture_orgs"]}
+materialized_fixture_orgs = set(fixture_state["complete_orgs"]) | set(fixture_state["partial_orgs"])
+fixture_repos_paths: set[Path] = set()
+for org in materialized_fixture_orgs:
+    item = fixture_entries.get(org)
+    if item is None:
+        errors.append(f"runtime fixture submodule state references unknown org {org}")
+        continue
+    slug = org.removeprefix("ores-dummy-org-")
+    fixture_repos_paths.add(ROOT / "stacks" / item["stack"] / "projects" / slug / "repos")
 
 index = subprocess.run(
     ["git", "ls-files", "--stage"],
@@ -130,15 +147,20 @@ for submodule in sorted(gitlinks):
         (spec for spec in specs if submodule.is_relative_to(spec.repos_path)),
         None,
     )
-    if owner is None:
-        errors.append(
-            f"git submodule {path} is outside a matrix-governed project repos/ org mirror"
-        )
-    elif submodule.parent != owner.repos_path:
-        errors.append(
-            f"git submodule {path} must be a direct repository child of "
-            f"{owner.repos_path.relative_to(ROOT)}"
-        )
+    if owner is not None:
+        if submodule.parent != owner.repos_path:
+            errors.append(
+                f"git submodule {path} must be a direct repository child of "
+                f"{owner.repos_path.relative_to(ROOT)}"
+            )
+        continue
+
+    if submodule.parent in fixture_repos_paths:
+        continue
+
+    errors.append(
+        f"git submodule {path} is outside a matrix or governed runtime-fixture project repos/ org mirror"
+    )
 
 if errors:
     print("project repo-layout verification FAILED")
@@ -147,7 +169,7 @@ if errors:
     raise SystemExit(1)
 
 print(
-    f"project repo-layout verification OK: {len(expected)} projects expose only "
-    "repos/{readme.md,.github/,repo...}; repository children may be materialized "
-    "or governed gitlinks"
+    f"project repo-layout verification OK: {len(expected)} runtime projects plus "
+    f"{len(fixture_repos_paths)} runtime-fixture project envelopes; repository "
+    "children may be materialized or governed gitlinks"
 )
