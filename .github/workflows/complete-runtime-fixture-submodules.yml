@@ -1,0 +1,59 @@
+name: complete runtime fixture submodules
+
+on:
+  push:
+    branches:
+      - chatgpt/complete-runtime-fixture-submodules-20261001
+    paths:
+      - 'scripts/materialize_runtime_fixture_submodules.py'
+      - '.github/workflows/complete-runtime-fixture-submodules.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          submodules: false
+      - name: Resolve and pin all private runtime fixture repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            echo '::error::cross-repository read credential is required to materialize private runtime fixtures'
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+          python3 scripts/materialize_runtime_fixture_submodules.py --apply
+      - name: Verify complete runtime fixture projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/render_runtime_fixture_gitmodules.py --check
+          python3 scripts/verify_runtime_fixture_org_map.py
+          python3 scripts/verify_runtime_fixture_gitlinks.py
+          python3 scripts/verify_dummy_org_map.py
+          python3 scripts/verify_dummy_org_gitlinks.py
+          python3 scripts/verify_project_repo_layout.py
+      - name: Commit complete projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .gitmodules shared/runtime-fixture-submodules.json
+          if git diff --cached --quiet; then
+            echo 'runtime fixture submodule projection already complete'
+            exit 0
+          fi
+          git commit -m 'feat: pin complete runtime fixture submodule fleet'
+          git push origin HEAD:${GITHUB_REF_NAME}
