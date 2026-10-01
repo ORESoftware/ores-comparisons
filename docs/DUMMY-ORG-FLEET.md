@@ -42,18 +42,36 @@ Stacks that do not use BeamScale's Gleam → BEAM execution path receive at leas
 
 TypeScript → WASM is intentionally forbidden in this matrix. TypeScript belongs in the JavaScript target lane; Rust and Zig are the governed WASM source lanes.
 
-Each complete runtime fixture org owns `.github` plus the same 19-role repository family, for 20 repositories total. Runtime-facing server and MCP repository names use the source-language extension (`.clj`, `.java`, `.gleam`, `.ts`, `.rs`, `.zig`, `.pony`, or `.cu`). `desktop-app.rs` remains Rust and `flutter` remains Flutter because those are client-shell roles rather than the server runtime under test.
+Each runtime fixture org owns `.github` plus the same 19-role repository family, for 20 repositories total. Runtime-facing server and MCP repository names use the source-language extension (`.clj`, `.java`, `.gleam`, `.ts`, `.rs`, `.zig`, `.pony`, or `.cu`). `desktop-app.rs` remains Rust and `flutter` remains Flutter because those are client-shell roles rather than the server runtime under test.
 
-## Materialization versus executable proof
+## Topology versus execution evidence
 
-`topology_status: materialized` means the intended dummy-org topology is declared. It does **not** mean the stack has passed executable benchmark/runtime proof, and it does not override the fail-closed repository/submodule state in `shared/runtime-fixture-submodules.json`.
+All 14 source→target fixture orgs are now topologically complete. `shared/runtime-fixture-submodules.json` has no partial or pending orgs; every fixture org is pinned as private Git submodules.
+
+Topology still does **not** mean executable runtime proof. Three separate authorities are used:
+
+- `shared/dummy-org-fleet.json` — which source→target orgs and repository naming rules are allowed;
+- `shared/runtime-fixture-submodules.json` — whether the full private repository topology is pinned;
+- `shared/runtime-execution-evidence.json` — which canary revision is under test, its current proof level, whether runtime proof exists, and the explicit blocker when it does not.
+
+Every fixture org uses its language-specific `web-server.<ext>` repository as the first executable canary. This is intentionally narrower than claiming all 19 role repositories are implemented; the remaining family members can adopt the same runtime contract incrementally.
 
 The pre-existing `status` field in `shared/stack-catalog.json` remains the executable gate:
 
-- `registered`: topology may be declared/materialized, but runtime/build proof is not yet admitted.
-- `materialized`: full executable scenario/benchmark evidence exists.
+- `registered`: topology may be fully materialized and source/artifact work may exist, but runtime/build proof is not yet admitted;
+- `materialized`: full executable runtime/benchmark evidence is admitted.
 
-This distinction prevents repository creation or submodule wiring from being counted as runtime evidence.
+`tools/verify_runtime_execution.rs` fails closed if fleet/evidence coverage drifts, if TypeScript→WASM appears, if pinned canary revisions are malformed, or if a fixture-backed stack is promoted while any declared runtime fixture remains unproven. GPU runtime proof additionally requires a hardware receipt.
+
+## Current canary proof boundaries
+
+- **Graal Show:** Clojure/JVM and Java/JVM canaries include `gs-compiler` admission policy/build commands; real admission/runtime receipts are still pending.
+- **Iso Lattes:** Gleam→JS and TypeScript→JS canaries have deterministic source→JS builds and use the actual `isl capabilities` / `isl invoke` surface; deployed invoke receipts are pending.
+- **Lunatic Lorry:** Rust→`wasm32-wasip1` matches the fresh-Lunatic-actor guest model. Zig currently proves a deterministic WASI artifact only; reviewed mailbox/bincode bindings remain a blocker.
+- **WASM Xprs:** Rust and Zig guests both implement the no-WASI `wasmx-v1` four-import ABI and define real `wasmx deploy`/`invoke` probes; execution receipts are pending.
+- **Pony Expres:** both Pony-native canaries preserve U32BE framing and fresh actor per invocation; one is echo, one structured metadata. Build/frame/runtime receipts are pending.
+- **ORES Stack:** the native canary is Axum/Tokio; the WASM canary uses provider-neutral `lambda.rs` plus the `ores-stack` adapter/build receipt path.
+- **LiteGraph:** CUDA has a real `sm_80` cubin build contract; Rust currently defines portable workload semantics only. Real GPU execution requires compatible hardware and LiteGraph host evidence.
 
 ## Private fixture transport
 
@@ -65,17 +83,11 @@ stacks/<stack>/projects/<source-target-index>/repos/<repo>
 
 `.gitmodules` points at the private HTTPS GitHub URL and tracks `main`; the superproject gitlink pins the exact commit. A developer or CI job materializing those submodules must independently authenticate to the private repositories.
 
-`shared/runtime-fixture-submodules.json` is the fail-closed materialization ledger. It distinguishes:
-
-- `complete_orgs`: `.github` plus all 19 role repos are pinned;
-- `partial_orgs`: only the explicitly listed existing repositories are pinned;
-- `pending_orgs`: no gitlinks are admitted yet because the expected repositories do not exist.
-
-At the time this transport was introduced, seven fixture orgs were complete, `ores-dummy-org-zig-wasm-2` had 10 of its expected 20 repositories, and the six later fixture orgs had no repositories. Those incomplete creation states are intentionally recorded rather than represented by broken submodule URLs.
+`shared/runtime-fixture-submodules.json` is the fail-closed topology ledger. A complete org means `.github` plus all 19 role repositories are pinned. Partial/pending states remain valid schema states for future migrations, but the current fleet has neither.
 
 ## Verification
 
-Offline, fail-closed topology and gitlink validation:
+Offline topology and gitlink validation remains:
 
 ```sh
 python3 scripts/verify_runtime_fixture_org_map.py
@@ -83,10 +95,16 @@ python3 scripts/render_runtime_fixture_gitmodules.py --check
 python3 scripts/verify_runtime_fixture_gitlinks.py
 ```
 
-Authorized remote reachability validation:
+Runtime evidence validation is Rust-only:
+
+```sh
+just runtime-execution-check
+```
+
+Authorized remote reachability validation remains:
 
 ```sh
 python3 scripts/verify_runtime_fixture_remote_reachability.py
 ```
 
-When a cross-repository read credential is present, CI verifies every currently materialized private fixture repository's `main` branch. Without that credential, the exact local gitlink and `.gitmodules` projections are still mandatory.
+When a cross-repository read credential is present, CI verifies private fixture repository reachability and exact gitlinks. Without that credential, the local topology and execution ledgers remain mandatory and fail closed.
