@@ -6,7 +6,16 @@ stack-catalog-check:
     rustc --edition 2024 tools/verify_stack_catalog.rs -o .local/bin/verify-stack-catalog
     ./.local/bin/verify-stack-catalog
 
-verify: stack-catalog-check
+runtime-topology-unit-check:
+    mkdir -p .local/bin
+    rustc --edition 2024 --test tools/verify_runtime_topology.rs -o .local/bin/verify-runtime-topology-tests
+    ./.local/bin/verify-runtime-topology-tests
+
+runtime-topology-check: runtime-topology-unit-check
+    rustc --edition 2024 tools/verify_runtime_topology.rs -o .local/bin/verify-runtime-topology
+    ./.local/bin/verify-runtime-topology
+
+verify: stack-catalog-check runtime-topology-unit-check
     python3 scripts/verify_examples.py
     python3 scripts/verify_project_matrix.py
     python3 scripts/verify_private_authority_credentials.py
@@ -30,7 +39,7 @@ verify: stack-catalog-check
     python3 -m unittest tests.test_adversarial_fixtures tests.test_ores_stack_cli_hardening tests.test_ores_stack_cli_integrity tests.test_ores_stack_cli_release_safety tests.test_ores_stack_clean_machine tests.test_ores_stack_toolchain_switch
     bash conformance/check-all.sh
 
-verify-static: stack-catalog-check
+verify-static: stack-catalog-check runtime-topology-unit-check
     python3 scripts/verify_project_matrix.py
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
