@@ -1,0 +1,329 @@
+{
+  "schema": "ores.comparisons.materialization-matrix/v1",
+  "projects": [
+    {
+      "stack": "beamscale",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "beamscale",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "beamscale",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "beamscale",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "beamscale",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "beamscale",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "scintilla-run",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "ores-stack",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "pony-expres",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "pony-expres",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "pony-expres",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "pony-expres",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "pony-expres",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "pony-expres",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "wasm-xprs",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "wasm-xprs",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "wasm-xprs",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "wasm-xprs",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "wasm-xprs",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "wasm-xprs",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "iso-lattes",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "iso-lattes",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "iso-lattes",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "iso-lattes",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "iso-lattes",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "iso-lattes",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "graal-show",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "graal-show",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "graal-show",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "graal-show",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "graal-show",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "graal-show",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "lunatic-lorry",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "lunatic-lorry",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "lunatic-lorry",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "lunatic-lorry",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "lunatic-lorry",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "lunatic-lorry",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "litegraph",
+      "scenario": "big-org-example-collaboration",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "litegraph",
+      "scenario": "big-org-example-commerce",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "litegraph",
+      "scenario": "big-org-example-operations",
+      "contracts": true,
+      "benchmark": false
+    },
+    {
+      "stack": "litegraph",
+      "scenario": "cached-rpc",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "litegraph",
+      "scenario": "forms-chat-workflow",
+      "contracts": true,
+      "benchmark": true
+    },
+    {
+      "stack": "litegraph",
+      "scenario": "http-observability",
+      "contracts": true,
+      "benchmark": true
+    }
+  ]
+}
