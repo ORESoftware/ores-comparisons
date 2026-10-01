@@ -1,34 +1,97 @@
 {
   "schema": "ores.comparisons.dummy-org-map/v1",
   "stacks": {
-    "beamscale": {"branch": "stack/beamscale"},
-    "ores-stack": {"branch": "stack/ores-stack"},
-    "scintilla-run": {"branch": "stack/scintilla-run"}
+    "beamscale": {
+      "branch": "stack/beamscale"
+    },
+    "scintilla-run": {
+      "branch": "stack/scintilla-run"
+    },
+    "ores-stack": {
+      "branch": "stack/ores-stack"
+    },
+    "pony-expres": {
+      "branch": "stack/pony-expres"
+    },
+    "wasm-xprs": {
+      "branch": "stack/wasm-xprs"
+    },
+    "iso-lattes": {
+      "branch": "stack/iso-lattes"
+    },
+    "graal-show": {
+      "branch": "stack/graal-show"
+    },
+    "lunatic-lorry": {
+      "branch": "stack/lunatic-lorry"
+    },
+    "litegraph": {
+      "branch": "stack/litegraph"
+    }
   },
   "projects": {
     "big-org-example-collaboration": {
       "org": "ores-dummy-org-1",
-      "repos": [".github", "app", "contract-tests", "message-worker", "presence-service", "sdk-typescript", "workspace-web"]
+      "repos": [
+        ".github",
+        "app",
+        "contract-tests",
+        "message-worker",
+        "presence-service",
+        "sdk-typescript",
+        "workspace-web"
+      ]
     },
     "big-org-example-commerce": {
       "org": "ores-dummy-org-2",
-      "repos": [".github", "app", "catalog-service", "contract-tests", "orders-worker", "sdk-typescript", "storefront-web"]
+      "repos": [
+        ".github",
+        "app",
+        "catalog-service",
+        "contract-tests",
+        "orders-worker",
+        "sdk-typescript",
+        "storefront-web"
+      ]
     },
     "big-org-example-operations": {
       "org": "ores-dummy-org-3",
-      "repos": [".github", "app", "automation-worker", "contract-tests", "ingest-service", "ops-console", "sdk-typescript"]
+      "repos": [
+        ".github",
+        "app",
+        "automation-worker",
+        "contract-tests",
+        "ingest-service",
+        "ops-console",
+        "sdk-typescript"
+      ]
     },
     "cached-rpc": {
       "org": "ores-dummy-org-4",
-      "repos": [".github", "app", "contract-tests", "sdk-typescript"]
+      "repos": [
+        ".github",
+        "app",
+        "contract-tests",
+        "sdk-typescript"
+      ]
     },
     "forms-chat-workflow": {
       "org": "ores-dummy-org-5",
-      "repos": [".github", "app", "contract-tests", "sdk-typescript"]
+      "repos": [
+        ".github",
+        "app",
+        "contract-tests",
+        "sdk-typescript"
+      ]
     },
     "http-observability": {
       "org": "ores-dummy-org-6",
-      "repos": [".github", "app", "contract-tests", "sdk-typescript"]
+      "repos": [
+        ".github",
+        "app",
+        "contract-tests",
+        "sdk-typescript"
+      ]
     }
   }
 }
