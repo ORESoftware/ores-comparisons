@@ -74,7 +74,7 @@
   ],
   "runtime_fixture_policy": {
     "minimum_orgs_per_dedicated_stack": 2,
-    "private_repo_transport": "governed-remote",
+    "private_repo_transport": "git-submodule",
     "forbidden_source_targets": [
       {
         "source_language": "typescript",
@@ -91,7 +91,8 @@
       "litegraph"
     ],
     "repository_family": {
-      "count": 19,
+      "count": 20,
+      "includes_dot_github": true,
       "name_template": "{org}-{role}",
       "roles": [
         "interfaces",
@@ -125,7 +126,7 @@
       "server_extension": ".clj",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "graal-show",
@@ -135,7 +136,7 @@
       "server_extension": ".java",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "iso-lattes",
@@ -145,7 +146,7 @@
       "server_extension": ".gleam",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "iso-lattes",
@@ -155,7 +156,7 @@
       "server_extension": ".ts",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "lunatic-lorry",
@@ -165,7 +166,7 @@
       "server_extension": ".rs",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "lunatic-lorry",
@@ -175,7 +176,7 @@
       "server_extension": ".zig",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "wasm-xprs",
@@ -185,7 +186,7 @@
       "server_extension": ".rs",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "wasm-xprs",
@@ -195,7 +196,7 @@
       "server_extension": ".zig",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "pony-expres",
@@ -205,7 +206,7 @@
       "server_extension": ".pony",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "pony-expres",
@@ -215,7 +216,7 @@
       "server_extension": ".pony",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "ores-stack",
@@ -225,7 +226,7 @@
       "server_extension": ".rs",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "ores-stack",
@@ -235,7 +236,7 @@
       "server_extension": ".rs",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "litegraph",
@@ -245,7 +246,7 @@
       "server_extension": ".rs",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     },
     {
       "stack": "litegraph",
@@ -255,7 +256,7 @@
       "server_extension": ".cu",
       "default_branch": "main",
       "visibility": "private",
-      "transport": "governed-remote"
+      "transport": "git-submodule"
     }
   ]
 }
