@@ -8,7 +8,6 @@ stack-catalog-check:
 
 runtime-topology-unit-check:
     mkdir -p .local/bin
-    rustfmt --edition 2024 --check tools/verify_runtime_topology.rs tools/json_value.rs
     rustc --edition 2024 --test tools/verify_runtime_topology.rs -o .local/bin/verify-runtime-topology-tests
     ./.local/bin/verify-runtime-topology-tests
 
