@@ -1356,6 +1356,11 @@ public final class TypeChecker {
                     String ownerName = functionOwners.get(direct);
                     Ast.ModuleDecl owner = ownerName == null ? null : modules.get(ownerName);
                     if (owner != null && owner.singleton() && !owner.name().equals(env.moduleName)) {
+                        if (direct.visibility() != Ast.Visibility.PUBLIC) {
+                            throw new IllegalArgumentException(
+                                    "private singleton callable '" + owner.name() + "."
+                                            + direct.name() + "' is actor-private");
+                        }
                         return new Named("Future", List.of(result));
                     }
                     return result;

@@ -276,7 +276,7 @@ final class SingletonModuleTest {
         IllegalArgumentException mutableBoundary = assertThrows(IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
                         define singleton module mutable_boundary as
-                          pub fnc consume(Array<int> mut values) => void {
+                          pub fnc consume(mut Array<int> values) => void {
                             return;
                           }
                         end
@@ -298,7 +298,7 @@ final class SingletonModuleTest {
                           }
                         end
                         """)));
-        assertTrue(ordinaryHelper.getMessage().contains("ordinary helper function"));
+        assertTrue(ordinaryHelper.getMessage().contains("actor/context-local function"));
 
         IllegalArgumentException ambient = assertThrows(IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
@@ -308,7 +308,7 @@ final class SingletonModuleTest {
                           }
                         end
                         """)));
-        assertTrue(ambient.getMessage().contains("ambient capability"));
+        assertTrue(ambient.getMessage().contains("ambient caller capability"));
     }
 
     @Test
@@ -326,7 +326,7 @@ final class SingletonModuleTest {
                         end
                         """)));
 
-        assertTrue(error.getMessage().contains("ambient capability"));
+        assertTrue(error.getMessage().contains("ambient caller capability"));
     }
 
     @Test

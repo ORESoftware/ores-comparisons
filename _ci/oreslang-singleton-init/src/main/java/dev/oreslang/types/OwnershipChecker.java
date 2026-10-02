@@ -144,13 +144,13 @@ public final class OwnershipChecker {
 
     private VarState stateForParam(Ast.Param param) {
         ValueKind kind = switch (param.mode()) {
-            case BORROW -> ValueKind.IMM_BORROW;
+            case BORROW -> isCopyType(param.type()) ? ValueKind.COPY : ValueKind.IMM_BORROW;
             case MUT -> ValueKind.MUT_BORROW;
             case TAKE -> kindOfType(param.type());
         };
         if (param.structural()) kind = ValueKind.IMM_BORROW;
-        // Parameter bindings themselves are immutable. MUT grants exclusive
-        // mutation through the borrowed value; it does not permit rebinding.
+        // Copy parameters are copied at the boundary. Non-Copy BORROW
+        // parameters are immutable aliases; MUT is an exclusive alias.
         return new VarState(param.type(), false, kind, Origin.PARAM);
     }
 
@@ -869,6 +869,10 @@ public final class OwnershipChecker {
 
     private boolean isCopyType(Ast.TypeRef type) {
         if (type == null || type.isBorrow()) return false;
+        if (type.name().equals("Option") && type.arguments().size() == 1) {
+            Ast.TypeRef inner = type.arguments().getFirst();
+            return inner.name().equals("null") || isCopyType(inner);
+        }
         return switch (type.name()) {
             case "i8","i16","i32","i64","u8","u16","u32","u64","int","uint","bigint",
                     "f32","f64","float","decimal","complex64","complex128","complex",

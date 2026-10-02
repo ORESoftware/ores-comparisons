@@ -70,7 +70,8 @@ final class ParserTest {
         Ast.Program program = Parser.parse(source);
         Ast.ClassDecl klass = (Ast.ClassDecl) program.modules().getFirst().declarations().getFirst();
         assertNull(klass.methods().getFirst().explicitReceiverType());
-        assertEquals("x", klass.methods().get(1).explicitReceiverType().name());
+        assertTrue(klass.methods().get(1).explicitReceiverType().isBorrow());
+        assertEquals("x", klass.methods().get(1).explicitReceiverType().borrowedTarget().name());
     }
 
     @Test

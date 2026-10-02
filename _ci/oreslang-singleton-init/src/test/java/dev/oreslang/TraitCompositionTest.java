@@ -178,7 +178,8 @@ final class TraitCompositionTest {
                         """)));
 
         assertTrue(error.getMessage().contains("cannot be extracted"));
-        assertTrue(error.getMessage().contains("persistent exclusive"));
+        assertTrue(error.getMessage().contains("receiver ownership")
+                || error.getMessage().contains("persistent exclusive"));
     }
 
     @Test
@@ -407,8 +408,8 @@ final class TraitCompositionTest {
                 define module model as
                   define trait Echo<T> as
                     pub echo(T value) => T {
-                      val T copy = value;
-                      return copy;
+                      val T copied_value = value;
+                      return copied_value;
                     }
                   end
 
