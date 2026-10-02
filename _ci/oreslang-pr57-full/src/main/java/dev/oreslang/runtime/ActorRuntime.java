@@ -790,8 +790,11 @@ public final class ActorRuntime implements AutoCloseable {
             try {
                 estimateSharedTransportBytes(message, new IdentityHashMap<>(), 0, allowed);
             } catch (IllegalStateException tooLarge) {
+                String scope = runtimeRemaining < actorRemaining
+                        ? "aggregate runtime limit exceeded"
+                        : "shared actor mailbox memory limit exceeded";
                 throw new IllegalStateException(
-                        "shared actor mailbox memory limit exceeded for " + ref.id() + ": " + tooLarge.getMessage(),
+                        scope + " for " + ref.id() + ": " + tooLarge.getMessage(),
                         tooLarge);
             }
         } else {
@@ -800,8 +803,11 @@ public final class ActorRuntime implements AutoCloseable {
             try {
                 estimatePrivateTransportBytes(message, new IdentityHashMap<>(), 0, allowed);
             } catch (IllegalStateException tooLarge) {
+                String scope = runtimeRemaining < actorRemaining
+                        ? "aggregate runtime limit exceeded"
+                        : "private actor mailbox limit exceeded";
                 throw new IllegalStateException(
-                        "private actor mailbox limit exceeded for " + ref.id() + ": " + tooLarge.getMessage(),
+                        scope + " for " + ref.id() + ": " + tooLarge.getMessage(),
                         tooLarge);
             }
         }
