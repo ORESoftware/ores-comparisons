@@ -157,6 +157,7 @@ public final class ActorRuntime implements AutoCloseable {
     public record GcStats(
             long actorRequests,
             long processRequests,
+            long suppressedActorRequests,
             long suppressedProcessRequests,
             long actorCollections,
             long processCollections) { }
@@ -243,6 +244,7 @@ public final class ActorRuntime implements AutoCloseable {
     private final AtomicLong sharedMemoryBytes = new AtomicLong();
     private final AtomicLong actorGcRequests = new AtomicLong();
     private final AtomicLong processGcRequests = new AtomicLong();
+    private final AtomicLong suppressedActorGcRequests = new AtomicLong();
     private final AtomicLong suppressedProcessGcRequests = new AtomicLong();
     private final AtomicLong actorCollections = new AtomicLong();
     private final AtomicLong processCollections = new AtomicLong();
@@ -326,6 +328,7 @@ public final class ActorRuntime implements AutoCloseable {
         return new GcStats(
                 actorGcRequests.get(),
                 processGcRequests.get(),
+                suppressedActorGcRequests.get(),
                 suppressedProcessGcRequests.get(),
                 actorCollections.get(),
                 processCollections.get());
@@ -1190,10 +1193,18 @@ public final class ActorRuntime implements AutoCloseable {
     public void gcCurrentActor() {
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
         ActorCell<?> cell = currentActor.get();
-        if (cell == null || actors.get(cell.ref.id()) != cell || cell.stopped.get()) {
+        if (cell == null || actors.get(cell.ref.id()) != cell || cell.stopped.get() || !cell.messageActive) {
             throw new IllegalStateException("actor.gc() requires a live current actor mailbox turn");
         }
         actorGcRequests.incrementAndGet();
+        // actor.gc() is an advisory collection hint, not an unbounded native
+        // collector trigger. Multiple requests inside one mailbox message are
+        // semantically redundant and are coalesced to protect the dispatcher.
+        if (cell.explicitGcRequestedThisMessage) {
+            suppressedActorGcRequests.incrementAndGet();
+            return;
+        }
+        cell.explicitGcRequestedThisMessage = true;
         collectActor(cell, GcReason.EXPLICIT, true);
     }
 
@@ -2526,6 +2537,8 @@ public final class ActorRuntime implements AutoCloseable {
         private final Object executionDomain = new Object();
         private int activeTurns;
         private boolean finalized;
+        private boolean messageActive;
+        private boolean explicitGcRequestedThisMessage;
         private long completedMessages;
         private Behavior<M> behavior;
 
@@ -2712,14 +2725,20 @@ public final class ActorRuntime implements AutoCloseable {
                     if (envelope == null) break;
                     releaseMailboxSlot();
                     try (envelope) {
-                        behavior.onMessage((M) envelope.value(), context);
-                        if (kind == ActorKind.PRIVATE && !trustedFactory) {
-                            // Private state that survives a mailbox turn must
-                            // remain in actor-owned storage/capabilities. This
-                            // catches behavior fields that were null/immutable
-                            // at construction but later retain a mutable JVM
-                            // object across turns.
-                            validatePrivateBehaviorState(ref.id(), behavior);
+                        explicitGcRequestedThisMessage = false;
+                        messageActive = true;
+                        try {
+                            behavior.onMessage((M) envelope.value(), context);
+                            if (kind == ActorKind.PRIVATE && !trustedFactory) {
+                                // Private state that survives a mailbox turn must
+                                // remain in actor-owned storage/capabilities. This
+                                // catches behavior fields that were null/immutable
+                                // at construction but later retain a mutable JVM
+                                // object across turns.
+                                validatePrivateBehaviorState(ref.id(), behavior);
+                            }
+                        } finally {
+                            messageActive = false;
                         }
                     }
                     afterActorMessage(this);
