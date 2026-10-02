@@ -29,7 +29,7 @@ module_member   = callable_decl
                 | binding_decl ;
 
 visibility      = [ "pub" | "private" ] ;
-callable_modifier = "abstract" | "async" ;
+callable_modifier = "abstract" | "async" | "nlex" ;
 
 callable_decl   = { annotation } visibility { callable_modifier } callable_kind IDENT [ generic_params ]
                   "(" [ param_list ] ")" return_spec block ;
@@ -150,7 +150,7 @@ primary         = literal
                 | object_literal
                 | "(" expression ")" ;
 
-lambda          = pipe_lambda | typed_legacy_lambda ;
+lambda          = [ "nlex" ] ( pipe_lambda | typed_legacy_lambda ) ;
 pipe_lambda     = "|" [ lambda_param { "," lambda_param } ] "|" "->" block ;
 lambda_param    = IDENT | type_ref IDENT ;
 typed_legacy_lambda
@@ -212,6 +212,13 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
    - Modules are flat: module names are single identifiers and modules may not
      contain modules.
    - fnc declarations may recurse; routines may not participate in a call cycle.
+   - nlex on fnc/routine is a capture barrier inherited by lambdas created
+     anywhere inside that callable. Explicit nlex lambdas establish the same
+     barrier for themselves and their nested lambdas.
+   - nlex blocks activation-local captures only. Module members, imports,
+     top-level callables/classes, and built-ins remain statically resolvable.
+   - Parameters and locals declared inside an nlex callable/lambda use normal
+     lexical shadowing and take precedence over module/global names.
    - fnc and routine declarations do not overload.
    - instance methods may overload only when arity differs.
    - class-level functions use "static fnc"; they have no self receiver and are
