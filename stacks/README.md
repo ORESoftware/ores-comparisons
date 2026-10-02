@@ -22,7 +22,7 @@ The repository must recognize at least seven distinct FaaS platforms. The curren
 | WASM Xprs | `wasm-xprs` | `rust-wasm` + `zig-wasm` fixture orgs | registered |
 | LiteGraph | `litegraph` | `rust-gpu` + `cuda-gpu` fixture orgs | registered |
 | BeamScale | `beamscale` | materialized through the six scenario orgs | materialized |
-| GraalVM | `graal-show` (`graal-vm` platform alias) | `clojure-jvm` + `java-jvm` fixture orgs | registered |
+| GraalVM | `graal-show` (`graal-vm` platform alias) | `clojure-jvm` + `java-jvm` + `ruby-graal` fixture orgs | registered |
 | Pony Expres | `pony-expres` | two `pony-native` fixture orgs | registered |
 
 `graal-vm` is the public/runtime platform name used by the comparison cohort; `graal-show` remains the canonical stack and GitHub organization identity.
@@ -33,7 +33,7 @@ ORES Stack remains a materialized comparison/control stack, but it is not used t
 
 The six application-scenario orgs remain governed by `shared/dummy-org-map.json` and exact gitlinks in `shared/dummy-org-gitlinks.json`.
 
-The 14 source→target fixture orgs are governed by `shared/dummy-org-fleet.json`. Together the two authorities cover **20 dummy organizations**.
+The 15 source→target fixture orgs are governed by `shared/dummy-org-fleet.json`. Together the two authorities cover **21 dummy organizations**.
 
 Dedicated runtime fixture orgs use:
 
