@@ -853,7 +853,7 @@ final class LanguageHardeningTest {
                           return;
                         }
                         """)));
-        assertTrue(listDiamond.getMessage().contains("explicit type argument"));
+        assertTrue(listDiamond.getMessage().contains("diamond inference"));
     }
 
     @Test

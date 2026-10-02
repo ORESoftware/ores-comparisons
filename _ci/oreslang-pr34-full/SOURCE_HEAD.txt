@@ -1,3 +1,3 @@
 source=ores-truffle-oreslang/oreslang-source.java
-head=f552c79c95b6a2ef0647ab432235d1ab9ec46d0b
+head=716fdca3c08159b582c9fe1c97bf12575136dbde
 pr=34
