@@ -204,4 +204,65 @@ final class ActorRuntimeTest {
         }
     }
 
+
+    @Test
+    void strictRuntimeCannotCreateReadonlyShareFromHost() {
+        IsolatePolicy strict = IsolatePolicy.strictFaas();
+        try (ActorRuntime runtime = new ActorRuntime(strict)) {
+            SecurityException error = assertThrows(
+                    SecurityException.class,
+                    () -> runtime.shareReadonly(List.of(1, 2, 3)));
+            assertTrue(error.getMessage().contains("ACTOR_SHARE_READONLY"));
+        }
+    }
+
+    @Test
+    void strictActorCannotBypassReadonlyCapabilityThroughRuntimeHandle() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            IsolatePolicy strict = IsolatePolicy.strictFaas();
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> observed = new AtomicReference<>();
+
+            var ref = runtime.<String>spawn(strict, () -> (message, context) -> {
+                try {
+                    context.runtime().shareReadonly(List.of("secret"));
+                } catch (Throwable failure) {
+                    observed.set(failure);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send("check");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertInstanceOf(SecurityException.class, observed.get());
+        }
+    }
+
+    @Test
+    void closeStopsActorEvenWhenBehaviorClearsInterruptBeforeReturning() throws Exception {
+        ActorRuntime runtime = new ActorRuntime();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch cleared = new CountDownLatch(1);
+
+        var ref = runtime.<String>spawn(() -> (message, context) -> {
+            started.countDown();
+            try {
+                Thread.sleep(30_000);
+            } catch (InterruptedException interrupted) {
+                // Deliberately consume/clear the interrupt. Runtime shutdown
+                // must still be observed by the mailbox-turn lifecycle.
+                Thread.interrupted();
+                cleared.countDown();
+            }
+        });
+
+        ref.send("block");
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+
+        assertDoesNotThrow(runtime::close);
+        assertTrue(cleared.await(1, TimeUnit.SECONDS));
+        assertThrows(IllegalStateException.class, () -> ref.send("after-close"));
+    }
+
 }
