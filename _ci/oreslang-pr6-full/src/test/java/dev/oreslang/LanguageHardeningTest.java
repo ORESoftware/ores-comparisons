@@ -4,6 +4,8 @@ import dev.oreslang.ast.Ast;
 import dev.oreslang.parser.Lexer;
 import dev.oreslang.parser.Parser;
 import dev.oreslang.parser.Token;
+import dev.oreslang.runtime.CapabilityChecker;
+import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.types.TypeChecker;
 import org.junit.jupiter.api.Test;
 
@@ -164,33 +166,6 @@ final class LanguageHardeningTest {
     }
 
     @Test
-    void destructureDiscardNeverBecomesAReadableBinding() {
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define module app
-                  fnc f() => int {
-                    [_, const value] = (1, 2);
-                    return _;
-                  }
-                end
-                """)));
-
-        assertTrue(error.getMessage().contains("unknown name '_'"));
-    }
-
-    @Test
-    void explicitBindingKindOnUnderscoreIsAlsoDiscarded() {
-        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define module app
-                  fnc f() => int {
-                    [const _, let value] = (1, 2);
-                    [let _, const next] = (3, 4);
-                    return value + next;
-                  }
-                end
-                """)));
-    }
-
-    @Test
     void valAndConstCannotBeReassigned() {
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
                 define module app
@@ -270,4 +245,51 @@ final class LanguageHardeningTest {
                 end
                 """)));
     }
+    @Test
+    void strictFaasRejectsSharedActorDeclarationsAtAdmission() {
+        Ast.Program sharedActor = TypeChecker.check(Parser.parse("""
+                shared actor Account {
+                  let balance = 100;
+
+                  pub fnc current() => int {
+                    return self.balance;
+                  }
+                }
+                """));
+
+        assertThrows(SecurityException.class, () ->
+                CapabilityChecker.check(sharedActor, IsolatePolicy.strictFaas()));
+        assertDoesNotThrow(() ->
+                CapabilityChecker.check(sharedActor, IsolatePolicy.developer()));
+    }
+
+
+
+@Test
+    void destructureDiscardNeverBecomesAReadableBinding() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                define module app
+                  fnc f() => int {
+                    [_, const value] = (1, 2);
+                    return _;
+                  }
+                end
+                """)));
+
+        assertTrue(error.getMessage().contains("unknown name '_'"));
+    }
+
+@Test
+    void explicitBindingKindOnUnderscoreIsAlsoDiscarded() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module app
+                  fnc f() => int {
+                    [const _, let value] = (1, 2);
+                    [let _, const next] = (3, 4);
+                    return value + next;
+                  }
+                end
+                """)));
+    }
+
 }
