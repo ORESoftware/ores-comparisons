@@ -1,6 +1,5 @@
 package dev.oreslang.runtime;
 
-import com.oracle.truffle.api.TruffleContext;
 import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.TruffleLanguage.ContextReference;
 import com.oracle.truffle.api.nodes.Node;
@@ -11,8 +10,13 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
 
 public final class OresContext implements AutoCloseable {
     private static final ContextReference<OresContext> REFERENCE = ContextReference.create(OresLanguage.class);
@@ -22,12 +26,15 @@ public final class OresContext implements AutoCloseable {
     private final BufferedReader input;
     private final PrintWriter output;
     private final ActorRuntime actors;
-    private final RuntimeGarbageCollector garbageCollector;
+    private final GcController gc;
     private final UUID contextId = UUID.randomUUID();
     private final AtomicLong schedulerSafepoints = new AtomicLong();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final ConcurrentHashMap<CompletableFuture<?>, Thread> asyncTasks = new ConcurrentHashMap<>();
+    private final ThreadLocal<Long> asyncDeadlineNanos = new ThreadLocal<>();
+    private final Semaphore asyncPermits;
     private final IsolatePolicy isolatePolicy;
     private final ExecutionProfile executionProfile;
-    private final ReentrantLock adversarialActorTurnLock = new ReentrantLock(true);
 
     public OresContext(OresLanguage language, TruffleLanguage.Env env) {
         this.language = language;
@@ -36,12 +43,9 @@ public final class OresContext implements AutoCloseable {
         this.output = new PrintWriter(env.out(), true);
         this.isolatePolicy = IsolatePolicy.fromApplicationArguments(env.getApplicationArguments());
         this.executionProfile = IsolatePolicy.executionProfileFromApplicationArguments(env.getApplicationArguments());
-        this.actors = new ActorRuntime(
-                isolatePolicy,
-                ActorRuntime.DispatcherConfig.defaults(),
-                this::executeActorTurn);
-        this.garbageCollector = new RuntimeGarbageCollector();
-        this.actors.setActorExitHook(garbageCollector::retireActorDomain);
+        this.actors = new ActorRuntime(isolatePolicy);
+        this.gc = new GcController(actors);
+        this.asyncPermits = new Semaphore(Math.max(1, isolatePolicy.maxAsyncTasks()), true);
     }
 
     public static OresContext get(Node node) {
@@ -53,32 +57,13 @@ public final class OresContext implements AutoCloseable {
     public BufferedReader input() { return input; }
     public PrintWriter output() { return output; }
     public ActorRuntime actors() { return actors; }
-    public RuntimeGarbageCollector garbageCollector() { return garbageCollector; }
+    public GcController gc() { return gc; }
     public UUID contextId() { return contextId; }
     public IsolatePolicy isolatePolicy() { return isolatePolicy; }
     public ExecutionProfile executionProfile() { return executionProfile; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
-        IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
-        if (actorPolicy != null && ActorRuntime.currentActorRuntime() != actors) {
-            throw new SecurityException(
-                    "actor capability check crossed ActorRuntime boundary for " + api);
-        }
-        requireEffectiveCapability(isolatePolicy, capability, api);
-    }
-
-    static void requireEffectiveCapability(
-            IsolatePolicy contextPolicy,
-            IsolatePolicy.Capability capability,
-            String api) {
-        // Actor turns execute inside the parent Truffle context, but they may
-        // have a strictly narrower capability set than that context. Always
-        // enforce the actor-local policy first so helper functions, imported
-        // code, and ordinary class methods cannot launder authority from the
-        // parent context into a private actor.
-        IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
-        if (actorPolicy != null) actorPolicy.require(capability, api);
-        contextPolicy.require(capability, api);
+        isolatePolicy.require(capability, api);
     }
 
     /**
@@ -88,45 +73,117 @@ public final class OresContext implements AutoCloseable {
      */
     public void schedulerSafepoint() {
         schedulerSafepoints.incrementAndGet();
+        Long asyncDeadline = asyncDeadlineNanos.get();
+        if (asyncDeadline != null && System.nanoTime() - asyncDeadline >= 0L) {
+            throw new java.util.concurrent.CancellationException(
+                    "async task exceeded its wall-time policy");
+        }
         actors.schedulerSafepoint();
     }
 
     public long schedulerSafepoints() { return schedulerSafepoints.get(); }
 
-    private void executeActorTurn(Runnable turn) {
-        boolean serialize = isolatePolicy.adversarial();
-        if (serialize) adversarialActorTurnLock.lock();
-        TruffleContext truffleContext = env.getContext();
-        Object previous = null;
-        boolean entered = false;
+    /**
+     * Bounded structured-at-context async execution. Async callables use virtual
+     * threads, but task creation is admission-controlled and every live task is
+     * owned by this context so close() can cancel it.
+     */
+    public <T> CompletionStage<T> submitAsync(Callable<T> task) {
+        java.util.Objects.requireNonNull(task, "task");
+        if (closed.get()) throw new java.util.concurrent.CancellationException("Oreslang context is closed");
+        if (!asyncPermits.tryAcquire()) {
+            throw new IllegalStateException(
+                    "async task limit exceeded for isolate: maxAsyncTasks=" + isolatePolicy.maxAsyncTasks());
+        }
+
+        CompletableFuture<T> future = new CompletableFuture<>();
         try {
-            previous = truffleContext.enter(null);
-            entered = true;
-            turn.run();
-        } finally {
-            if (entered) truffleContext.leave(null, previous);
-            if (serialize) adversarialActorTurnLock.unlock();
+            Thread thread = Thread.ofVirtual().name("ores-async-" + contextId).unstarted(() -> {
+                asyncDeadlineNanos.set(deadlineAfter(isolatePolicy.maxWallTime()));
+                try {
+                    if (closed.get()) throw new java.util.concurrent.CancellationException("Oreslang context is closing");
+                    future.complete(task.call());
+                } catch (Throwable failure) {
+                    future.completeExceptionally(failure);
+                } finally {
+                    asyncDeadlineNanos.remove();
+                    asyncTasks.remove(future);
+                    asyncPermits.release();
+                }
+            });
+            asyncTasks.put(future, thread);
+            if (closed.get()) {
+                asyncTasks.remove(future);
+                asyncPermits.release();
+                future.cancel(true);
+                throw new java.util.concurrent.CancellationException("Oreslang context is closing");
+            }
+            thread.start();
+            return future;
+        } catch (Throwable startFailure) {
+            if (asyncTasks.remove(future) != null) asyncPermits.release();
+            throw startFailure;
         }
     }
 
+    public int activeAsyncTasks() {
+        return asyncTasks.size();
+    }
+
+    private static long deadlineAfter(java.time.Duration duration) {
+        long delta;
+        try {
+            delta = Math.max(1L, duration.toNanos());
+        } catch (ArithmeticException overflow) {
+            delta = Long.MAX_VALUE / 4L;
+        }
+        delta = Math.min(delta, Long.MAX_VALUE / 4L);
+        return System.nanoTime() + delta;
+    }
 
     public Map<String, Object> processDescriptor() {
-        return Map.of(
-                "context_id", contextId.toString(),
-                "runtime", "graalvm-truffle",
-                "language", "oreslang",
-                "execution_mode", executionProfile.mode().name(),
-                "platform", executionProfile.platform().name(),
-                "scheduler_safepoints", schedulerSafepoints.get());
+        return Map.ofEntries(
+                Map.entry("context_id", contextId.toString()),
+                Map.entry("runtime", "graalvm-truffle"),
+                Map.entry("language", "oreslang"),
+                Map.entry("execution_mode", executionProfile.mode().name()),
+                Map.entry("platform", executionProfile.platform().name()),
+                Map.entry("scheduler_safepoints", schedulerSafepoints.get()),
+                Map.entry("active_actors", actors.activeActorCount()),
+                Map.entry("active_monitors", actors.activeMonitorCount()),
+                Map.entry("max_actors", isolatePolicy.maxActors()),
+                Map.entry("active_async_tasks", activeAsyncTasks()),
+                Map.entry("max_async_tasks", isolatePolicy.maxAsyncTasks()),
+                Map.entry("actor_heap_backend", "logical_jvm"),
+                Map.entry("actor_physical_heap_isolation", false),
+                Map.entry("manual_gc_requests", gc.requests()));
     }
 
     @Override
     public void close() {
-        try {
-            actors.close();
-        } finally {
-            garbageCollector.close();
-            output.flush();
+        if (!closed.compareAndSet(false, true)) return;
+
+        var tasks = java.util.List.copyOf(asyncTasks.entrySet());
+        for (Map.Entry<CompletableFuture<?>, Thread> entry : tasks) {
+            entry.getKey().cancel(true);
+            entry.getValue().interrupt();
         }
+
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(1);
+        for (Map.Entry<CompletableFuture<?>, Thread> entry : tasks) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) break;
+            try {
+                long millis = Math.max(1L, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining));
+                entry.getValue().join(millis);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        asyncTasks.clear();
+        actors.close();
+        output.flush();
     }
 }
