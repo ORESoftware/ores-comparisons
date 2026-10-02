@@ -103,6 +103,11 @@ public final class OresMutex {
         return new Shared<>(value);
     }
 
+    /** Runtime marker for futures whose successful value is a lexical MutexGuard. */
+    public static final class GuardFuture<T> extends CompletableFuture<Guard<T>> {
+        private GuardFuture() { }
+    }
+
     public sealed interface Lock<T> permits Local, Shared {
         Guard<T> lock();
         Optional<Guard<T>> tryLock();
@@ -200,11 +205,13 @@ public final class OresMutex {
 
         @Override
         public CompletableFuture<Guard<T>> lockAsync() {
+            GuardFuture<T> future = new GuardFuture<>();
             try {
-                return CompletableFuture.completedFuture(lock());
+                future.complete(lock());
             } catch (Throwable failure) {
-                return CompletableFuture.failedFuture(failure);
+                future.completeExceptionally(failure);
             }
+            return future;
         }
 
         @Override
@@ -260,6 +267,8 @@ public final class OresMutex {
      */
     public static final class Shared<T> implements Lock<T>, ActorRuntime.Sendable {
         private static final int MAX_ASYNC_WAITERS = 8_192;
+        private static final int MAX_GLOBAL_ASYNC_WAITERS = 32_768;
+        private static final AtomicInteger GLOBAL_ASYNC_WAITERS = new AtomicInteger();
 
         private final T value;
         private final Semaphore permit = new Semaphore(1, true);
@@ -330,20 +339,32 @@ public final class OresMutex {
                     : Math.min(MAX_ASYNC_WAITERS, policy.maxMailboxMessages());
         }
 
-        private boolean reserveAsyncWaiter(int limit) {
+        private static boolean reserveWaiter(AtomicInteger counter, int limit) {
             while (true) {
-                int current = asyncWaiters.get();
+                int current = counter.get();
                 if (current >= limit) return false;
-                if (asyncWaiters.compareAndSet(current, current + 1)) return true;
+                if (counter.compareAndSet(current, current + 1)) return true;
+            }
+        }
+
+        private boolean reserveAsyncWaiter(int limit) {
+            return reserveWaiter(asyncWaiters, limit);
+        }
+
+        private static void releaseWaiter(AtomicInteger counter, String scope) {
+            int remaining = counter.decrementAndGet();
+            if (remaining < 0) {
+                counter.incrementAndGet();
+                throw new IllegalStateException("SharedMutex " + scope + " async waiter accounting underflow");
             }
         }
 
         private void releaseAsyncWaiter() {
-            int remaining = asyncWaiters.decrementAndGet();
-            if (remaining < 0) {
-                asyncWaiters.incrementAndGet();
-                throw new IllegalStateException("SharedMutex async waiter accounting underflow");
-            }
+            releaseWaiter(asyncWaiters, "per-mutex");
+        }
+
+        private static void releaseGlobalAsyncWaiter() {
+            releaseWaiter(GLOBAL_ASYNC_WAITERS, "global");
         }
 
         private Guard<T> checkedGuardAfterAcquire(Object ownerDomain, boolean enforceOwnerDomain) {
@@ -420,9 +441,15 @@ public final class OresMutex {
                 return CompletableFuture.failedFuture(new IllegalStateException(
                         "SharedMutex async waiter limit exceeded: " + waiterLimit));
             }
+            if (!reserveWaiter(GLOBAL_ASYNC_WAITERS, MAX_GLOBAL_ASYNC_WAITERS)) {
+                releaseAsyncWaiter();
+                releaseDomain(ownerDomain);
+                return CompletableFuture.failedFuture(new IllegalStateException(
+                        "SharedMutex process-wide async waiter limit exceeded: " + MAX_GLOBAL_ASYNC_WAITERS));
+            }
 
             boolean enforceOwnerDomain = ActorRuntime.inActorExecution();
-            CompletableFuture<Guard<T>> future = new CompletableFuture<>();
+            GuardFuture<T> future = new GuardFuture<>();
             final Thread waiter;
             try {
                 waiter = Thread.ofVirtual().name("ores-shared-mutex-waiter").unstarted(() -> {
@@ -450,11 +477,13 @@ public final class OresMutex {
             } catch (Throwable startupFailure) {
                 releaseDomain(ownerDomain);
                 releaseAsyncWaiter();
+                releaseGlobalAsyncWaiter();
                 return CompletableFuture.failedFuture(startupFailure);
             }
 
             future.whenComplete((ignored, failure) -> {
                 releaseAsyncWaiter();
+                releaseGlobalAsyncWaiter();
                 if (future.isCancelled()) waiter.interrupt();
             });
 
@@ -578,9 +607,10 @@ public final class OresMutex {
             @Override
             public void fail() {
                 requireOwnerDomain();
-                if (released()) return;
+                if (!released.compareAndSet(false, true)) return;
                 poisoned.set(true);
-                release();
+                releaseDomain(ownerDomain);
+                permit.release();
             }
         }
     }
