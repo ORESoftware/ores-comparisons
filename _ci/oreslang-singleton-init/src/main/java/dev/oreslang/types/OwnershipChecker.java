@@ -359,7 +359,12 @@ public final class OwnershipChecker {
                     Ast.TypeRef fieldType = moduleField.type() == null
                             ? inferFieldType(moduleField.initializer())
                             : moduleField.type();
-                    if (isCopyType(fieldType)) return new ValueInfo(fieldType, ValueKind.COPY, null);
+                    if (isCopyType(fieldType) || isSingletonProxyField(modules.get(namespace.name()), moduleField)) {
+                        // A public class-valued singleton field is not the raw
+                        // process-owned object. TypeChecker/runtime expose an
+                        // immutable actor-backed proxy capability.
+                        return new ValueInfo(fieldType, ValueKind.COPY, null);
+                    }
                     throw error("cannot directly extract non-Copy module state '"
                             + namespace.name() + "." + member.member()
                             + "'; use a borrowing accessor or explicit ownership-transfer API");
@@ -405,6 +410,34 @@ public final class OwnershipChecker {
                     }
                     return new ValueInfo(Ast.TypeRef.borrowed(fieldType, false), ValueKind.IMM_BORROW, owner);
                 }
+            }
+
+            Ast.TypeRef structuralField = objectFieldType(receiver.type, member.member());
+            if (structuralField != null) {
+                if (isCopyType(structuralField)) {
+                    return new ValueInfo(structuralField, ValueKind.COPY, null);
+                }
+                VarState owner = receiver.borrowSource != null
+                        ? receiver.borrowSource
+                        : projectionOwner(member.receiver(), scope);
+                if (owner == null && consuming && receiver.kind == ValueKind.MOVE_ONLY) {
+                    return new ValueInfo(structuralField, ValueKind.MOVE_ONLY, null);
+                }
+                return new ValueInfo(
+                        Ast.TypeRef.borrowed(structuralField, false),
+                        ValueKind.IMM_BORROW,
+                        owner);
+            }
+
+            // Any unresolved projection rooted in a live owned binding is
+            // conservatively a read borrow. This keeps imported/dynamic shapes
+            // from manufacturing a second owner.
+            VarState rootOwner = projectionOwner(member.receiver(), scope);
+            if (rootOwner != null && rootOwner.kind != ValueKind.COPY) {
+                return new ValueInfo(
+                        Ast.TypeRef.borrowed(Ast.TypeRef.inferred(), false),
+                        ValueKind.IMM_BORROW,
+                        rootOwner);
             }
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
@@ -456,8 +489,15 @@ public final class OwnershipChecker {
                     null);
         }
         if (expr instanceof Ast.ObjectExpr object) {
-            for (Ast.ObjectField field : object.fields()) checkExpr(field.value(), scope, true);
-            return new ValueInfo(Ast.TypeRef.simple("obj"), ValueKind.MOVE_ONLY, null);
+            List<Ast.TypeRef> fields = new ArrayList<>();
+            for (Ast.ObjectField field : object.fields()) {
+                ValueInfo value = checkExpr(field.value(), scope, true);
+                fields.add(new Ast.TypeRef(
+                        "$objfield$" + field.name(),
+                        List.of(value.type),
+                        false));
+            }
+            return new ValueInfo(new Ast.TypeRef("$obj$", fields, false), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.LambdaExpr lambda) return checkLambda(lambda, scope, null);
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
@@ -974,6 +1014,17 @@ public final class OwnershipChecker {
     }
 
     private Ast.TypeRef ownershipTypeOfExpr(Ast.Expr expression, Scope scope) {
+        if (expression instanceof Ast.ObjectExpr object) {
+            List<Ast.TypeRef> fields = new ArrayList<>();
+            for (Ast.ObjectField field : object.fields()) {
+                Ast.TypeRef valueType = ownershipTypeOfExpr(field.value(), scope);
+                fields.add(new Ast.TypeRef(
+                        "$objfield$" + field.name(),
+                        List.of(valueType == null ? Ast.TypeRef.inferred() : valueType),
+                        false));
+            }
+            return new Ast.TypeRef("$obj$", fields, false);
+        }
         if (expression instanceof Ast.NameExpr name) {
             VarState state = scope.lookup(name.name());
             return state == null ? null : state.type;
@@ -1008,7 +1059,9 @@ public final class OwnershipChecker {
                 Ast.InterfaceFunctionDecl method = findInterfaceMethod(iface, member.member(), 0, new LinkedHashSet<>());
                 if (method != null) return method.returnType();
             }
-            return null;
+
+            Ast.TypeRef receiverType = ownershipTypeOfExpr(member.receiver(), scope);
+            return objectFieldType(receiverType, member.member());
         }
         if (expression instanceof Ast.IndexExpr indexed) return indexedElementType(indexed, scope);
         if (expression instanceof Ast.CallExpr call) {
@@ -1057,6 +1110,27 @@ public final class OwnershipChecker {
         return returnType != null && returnType.name().equals("self")
                 ? Ast.TypeRef.simple(klass.name())
                 : returnType;
+    }
+
+    private Ast.TypeRef objectFieldType(Ast.TypeRef objectType, String fieldName) {
+        if (objectType == null) return null;
+        while (objectType.isBorrow()) objectType = objectType.borrowedTarget();
+        if (!objectType.name().equals("$obj$")) return null;
+        String expected = "$objfield$" + fieldName;
+        for (Ast.TypeRef field : objectType.arguments()) {
+            if (field.name().equals(expected) && field.arguments().size() == 1) {
+                return field.arguments().getFirst();
+            }
+        }
+        return null;
+    }
+
+    private boolean isSingletonProxyField(Ast.ModuleDecl module, Ast.FieldDecl field) {
+        if (module == null || !module.singleton()) return false;
+        if (field.visibility() != Ast.Visibility.PUBLIC) return false;
+        if (field.bindingKind() == Ast.BindingKind.LET) return false;
+        if (field.type() == null || field.type().isBorrow() || !field.type().arguments().isEmpty()) return false;
+        return findClass(field.type().name()) != null;
     }
 
     private Ast.FieldDecl findModuleField(Ast.ModuleDecl module, String name) {
