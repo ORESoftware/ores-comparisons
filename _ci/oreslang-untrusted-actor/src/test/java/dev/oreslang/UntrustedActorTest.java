@@ -113,6 +113,52 @@ final class UntrustedActorTest {
     }
 
     @Test
+    void capabilityFacadesCannotBeLaunderedThroughAliases() {
+        Ast.Program program = Parser.parse("""
+                pub untrusted actor fnc worker() => void {
+                  val p = process;
+                  return;
+                }
+                """);
+
+        SecurityException denied = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+        assertTrue(denied.getMessage().contains("restricted capability facade"));
+    }
+
+    @Test
+    void privilegedHelpersCannotBeLaunderedAsFunctionValues() {
+        Ast.Program program = Parser.parse("""
+                fnc privileged() => void {
+                  val id = process.context_id;
+                  return;
+                }
+
+                pub untrusted actor fnc worker() => void {
+                  val callback = privileged;
+                  return;
+                }
+                """);
+
+        SecurityException denied = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+        assertTrue(denied.getMessage().contains("PROCESS_INFO"));
+    }
+
+    @Test
+    void actorModifiersRemainContextualIdentifiers() {
+        assertDoesNotThrow(() -> Parser.parse("""
+                fnc ordinary() => int {
+                  val shared = 1;
+                  val untrusted = shared + 1;
+                  return untrusted;
+                }
+                """));
+    }
+
+    @Test
     void runtimeForcesZeroCapabilityAdversarialPolicyAndPrivateMemory() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer())) {
             var ref = runtime.<String>spawnUntrusted(context -> {

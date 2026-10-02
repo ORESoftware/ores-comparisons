@@ -1,4 +1,4 @@
 source_repo=ores-truffle-oreslang/oreslang-source.java
 source_branch=feat/untrusted-actor-sandbox-20261002
-source_head=14d5f620b26a1c33758a25ae36fb0208d60398bc
+source_head=55ac76a1719405172c4d7e3aed3bed73a48cec37
 purpose=validation-only mirror; do not merge

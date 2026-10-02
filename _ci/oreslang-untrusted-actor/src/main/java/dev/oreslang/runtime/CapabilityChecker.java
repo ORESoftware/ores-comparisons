@@ -123,6 +123,11 @@ public final class CapabilityChecker {
     }
 
     private static void checkExpr(Ast.Expr expr, IsolatePolicy policy) {
+        if (expr instanceof Ast.NameExpr n && isZeroAuthorityAdversarial(policy)
+                && isRestrictedFacadeRoot(n.name())) {
+            throw new SecurityException(
+                    "untrusted actor cannot extract restricted capability facade '" + n.name() + "'");
+        }
         if (expr instanceof Ast.NameExpr n && n.name().equals("print")) {
             require(policy, IsolatePolicy.Capability.STDOUT, "print");
         } else if (expr instanceof Ast.NameExpr n && n.name().equals("SharedMutex")) {
@@ -268,6 +273,30 @@ public final class CapabilityChecker {
             Set<String> ambiguous,
             Set<String> importedRoots,
             Set<Ast.FunctionDecl> visited) {
+        if (expr instanceof Ast.NameExpr name) {
+            if (importedRoots.contains(name.name())) {
+                throw new SecurityException(
+                        "untrusted actor cannot extract imported code without explicit effect metadata: "
+                                + name.name());
+            }
+            Ast.FunctionDecl helper = ambiguous.contains(name.name())
+                    ? null
+                    : functions.get(name.name());
+            if (helper != null && visited.add(helper)) {
+                if (helper.actorKind() != Ast.ActorKind.NONE) {
+                    require(
+                            IsolatePolicy.untrustedActor(),
+                            IsolatePolicy.Capability.ACTOR_SPAWN,
+                            "actor helper " + name.name());
+                }
+                checkCallableTypes(
+                        helper.parameters(), helper.returnType(), IsolatePolicy.untrustedActor());
+                checkStatements(helper.body(), IsolatePolicy.untrustedActor());
+                checkUntrustedHelperCalls(
+                        helper.body(), functions, ambiguous, importedRoots, visited);
+            }
+            return;
+        }
         if (expr instanceof Ast.CallExpr call) {
             String path = memberPath(call.callee());
             if (path != null) {
@@ -341,6 +370,18 @@ public final class CapabilityChecker {
                         e.blockBody(), functions, ambiguous, importedRoots, visited);
             }
         }
+    }
+
+    private static boolean isZeroAuthorityAdversarial(IsolatePolicy policy) {
+        return policy.adversarial() && policy.capabilities().isEmpty();
+    }
+
+    private static boolean isRestrictedFacadeRoot(String name) {
+        return switch (name) {
+            case "stdio", "process", "actor", "network", "ipc", "gpu",
+                    "fs", "env", "ffi", "polyglot", "thread", "SharedMutex", "print" -> true;
+            default -> false;
+        };
     }
 
     private static String memberPath(Ast.Expr expr) {
