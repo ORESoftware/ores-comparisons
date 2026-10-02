@@ -50,6 +50,7 @@ public final class TypeChecker {
     private final Set<String> ambiguousInterfaces = new HashSet<>();
     private final Set<String> ambiguousTypeAliases = new HashSet<>();
     private final Set<String> importedValues = new HashSet<>();
+    private final Set<String> importedNames = new HashSet<>();
     private final Set<Ast.TypeAliasDecl> resolvingAliases = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
     // Set only while checking a method expanded from a trait.
     private String activeTraitOwner;
@@ -74,11 +75,13 @@ public final class TypeChecker {
             if (imported.wildcard()) {
                 if (imported.namespace() == null || imported.namespace().isBlank()) throw new IllegalArgumentException("wildcard imports require a namespace alias");
                 if (!exposed.add(imported.namespace())) throw new IllegalArgumentException("duplicate imported name '" + imported.namespace() + "'");
+                importedNames.add(imported.namespace());
                 importedValues.add(imported.namespace());
             } else {
                 if (imported.names().isEmpty()) throw new IllegalArgumentException("named import must select at least one name");
                 for (String name : imported.names()) {
                     if (!exposed.add(name)) throw new IllegalArgumentException("duplicate imported name '" + name + "'");
+                    importedNames.add(name);
                     if (imported.kind() != Ast.ImportKind.CLASS && imported.kind() != Ast.ImportKind.STRUCT) importedValues.add(name);
                 }
             }
@@ -187,6 +190,10 @@ public final class TypeChecker {
                     if (!all.add(generic)) throw new IllegalArgumentException("duplicate/shadowed generic '" + generic + "' in interface " + iface.name() + "." + fn.name());
                 }
                 functionType(fn.parameters(), fn.returnType(), all, null);
+            } else {
+                Ast.InterfaceFieldDecl field = (Ast.InterfaceFieldDecl) member;
+                if (!memberKeys.add(field.name())) throw new IllegalArgumentException("duplicate interface member '" + iface.name() + "." + field.name() + "'");
+                resolve(field.type(), generics, null);
             }
         }
     }
@@ -269,9 +276,10 @@ public final class TypeChecker {
     }
 
     private void checkFunction(Ast.ModuleDecl module, Ast.FunctionDecl fn) {
+        Set<String> generics = uniqueGenerics(fn.genericParameters(), (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
+        rejectLocalTypeGenericCollisions(fn.body(), generics);
         pushLocalTypeScope(fn.body());
         try {
-            Set<String> generics = uniqueGenerics(fn.genericParameters(), (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
             Env env = module.singleton() ? singletonModuleEnv(module) : moduleBindingEnv(module);
             for (Ast.Param param : fn.parameters()) env.define(param.name(), resolveParam(param, generics, null), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
             Type returns = resolve(fn.returnType(), generics, null);
@@ -734,6 +742,7 @@ public final class TypeChecker {
                 for (String generic : method.genericParameters()) {
                     if (!generics.add(generic)) throw new IllegalArgumentException("duplicate/shadowed generic '" + generic + "' in " + klass.name() + "." + method.name());
                 }
+                rejectLocalTypeGenericCollisions(method.body(), generics);
 
                 if (method.explicitReceiverType() != null) {
                     Ast.TypeRef receiverRef = method.explicitReceiverType();
@@ -791,6 +800,7 @@ public final class TypeChecker {
     }
 
     private void checkBlock(List<Ast.Stmt> body, Env parent, Set<String> generics, Type expectedReturn, Type self) {
+        rejectLocalTypeGenericCollisions(body, generics);
         pushLocalTypeScope(body);
         try {
             Env env = new Env(parent);
@@ -1053,6 +1063,7 @@ public final class TypeChecker {
                     if (klass != null) {
                         Ast.MethodDecl method = findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
                         if (method == null) throw new IllegalArgumentException("no method '" + member.member() + "' with arity " + call.arguments().size() + " on " + named.name());
+                        requireTraitMethodAccessible(method, named.name() + "." + member.member());
                         Function signature = methodFunctionType(method, klass, named);
                         for (int i = 0; i < call.arguments().size(); i++) {
                             Type expected = signature.parameters().get(i);
@@ -1157,6 +1168,7 @@ public final class TypeChecker {
                     List<Ast.MethodDecl> methods = findMethodsByName(klass, member.member(), new LinkedHashSet<>());
                     if (methods.size() == 1) {
                         Ast.MethodDecl method = methods.getFirst();
+                        requireTraitMethodAccessible(method, named.name() + "." + member.member());
                         return methodFunctionType(method, klass, named);
                     }
                     if (methods.size() > 1) throw new IllegalArgumentException("overloaded method '" + member.member() + "' must be called so arity can select the overload");
@@ -1174,7 +1186,14 @@ public final class TypeChecker {
         }
         if (expr instanceof Ast.NewExpr created) {
             Ast.ClassDecl klass = findClass(created.type().name());
-            if (klass == null) return new Named(created.type().name(), created.type().arguments().stream().map(a -> resolve(a, generics, self)).toList());
+            if (klass == null) {
+                if (created.type().inferArguments()) {
+                    throw new IllegalArgumentException("cannot infer generic arguments for unknown/imported class '"
+                            + created.type().name() + "' without its declaration; provide explicit type arguments");
+                }
+                return new Named(created.type().name(),
+                        created.type().arguments().stream().map(a -> resolve(a, generics, self)).toList());
+            }
             if (klass.isStruct()) throw new IllegalArgumentException("struct '" + klass.name() + "' is a value type; initialize it with " + klass.name() + " { ... }, not new");
             String ownerName = classOwners.get(klass);
             Ast.ModuleDecl owner = ownerName == null ? null : modules.get(ownerName);
@@ -1779,6 +1798,14 @@ public final class TypeChecker {
         return List.copyOf(functions.values());
     }
 
+    private void requireTraitMethodAccessible(Ast.MethodDecl method, String where) {
+        if (!method.composed() || method.visibility() == Ast.Visibility.PUBLIC) return;
+        if (activeTraitOwner != null && activeTraitOwner.equals(method.compositionOwner())) return;
+        throw new IllegalArgumentException(
+                "trait-private method '" + method.compositionOwner() + "." + method.name()
+                        + "' is not accessible from " + where);
+    }
+
     private boolean methodAccessible(Ast.ClassDecl owner, Ast.MethodDecl method) {
         if (method.visibility() == Ast.Visibility.PUBLIC) return true;
         if (method.composed()) {
@@ -1835,6 +1862,7 @@ public final class TypeChecker {
         try {
             Set<String> generics = new HashSet<>(klass.genericParameters());
             generics.addAll(method.genericParameters());
+            rejectLocalTypeGenericCollisions(method.body(), generics);
             Function signature = functionType(method.parameters(), method.returnType(), generics, self);
             if (self instanceof Named named && named.arguments().size() == klass.genericParameters().size()) {
                 signature = (Function) substituteGenerics(signature, classGenericSubstitutions(klass, named));
@@ -1880,6 +1908,10 @@ public final class TypeChecker {
 
         Ast.TypeAliasDecl alias = findTypeAlias(ref.name());
         if (alias != null) {
+            if (ref.inferArguments()) {
+                throw new IllegalArgumentException("type alias '" + alias.name()
+                        + "' requires explicit type arguments; diamond inference is construction-only");
+            }
             if (alias.genericParameters().size() != ref.arguments().size()) {
                 throw new IllegalArgumentException("type alias '" + alias.name() + "' expects " + alias.genericParameters().size()
                         + " type argument(s), got " + ref.arguments().size());
@@ -1896,6 +1928,40 @@ public final class TypeChecker {
             }
         }
 
+        Ast.ClassDecl namedClass = findClass(ref.name());
+        if (namedClass != null) {
+            if (ref.inferArguments()) {
+                throw new IllegalArgumentException((namedClass.isStruct() ? "struct '" : "class '") + namedClass.name()
+                        + "' requires explicit type arguments in type positions; use <> only at construction");
+            }
+            if (ref.arguments().size() != namedClass.genericParameters().size()) {
+                throw new IllegalArgumentException((namedClass.isStruct() ? "struct '" : "class '") + namedClass.name()
+                        + "' expects " + namedClass.genericParameters().size() + " type argument(s), got "
+                        + ref.arguments().size());
+            }
+            return new Named(qualifiedClassName(namedClass),
+                    ref.arguments().stream().map(arg -> resolve(arg, generics, self)).toList());
+        }
+
+        Ast.InterfaceDecl namedInterface = findInterface(ref.name());
+        if (namedInterface != null) {
+            if (ref.inferArguments()) {
+                throw new IllegalArgumentException("interface '" + namedInterface.name()
+                        + "' requires explicit type arguments in type positions");
+            }
+            if (ref.arguments().size() != namedInterface.genericParameters().size()) {
+                throw new IllegalArgumentException("interface '" + namedInterface.name() + "' expects "
+                        + namedInterface.genericParameters().size() + " type argument(s), got "
+                        + ref.arguments().size());
+            }
+            return new Named(qualifiedInterfaceName(namedInterface),
+                    ref.arguments().stream().map(arg -> resolve(arg, generics, self)).toList());
+        }
+
+        if (ref.inferArguments()) {
+            throw new IllegalArgumentException("diamond inference '<>' is only valid for a known class/struct construction");
+        }
+
         return switch (ref.name()) {
             case "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "int", "uint", "bigint" -> Primitive.INT;
             case "f32", "f64", "float" -> Primitive.FLOAT;
@@ -1905,8 +1971,8 @@ public final class TypeChecker {
             case "string", "String" -> Primitive.STRING;
             case "void" -> Primitive.VOID;
             case "Array", "List" -> {
-                if (!ref.inferArguments() && ref.arguments().size() != 1) throw new IllegalArgumentException(ref.name() + " requires exactly one type argument");
-                yield new ListType(ref.arguments().isEmpty() ? Unknown.INSTANCE : resolve(ref.arguments().getFirst(), generics, self));
+                if (ref.arguments().size() != 1) throw new IllegalArgumentException(ref.name() + " requires exactly one explicit type argument");
+                yield new ListType(resolve(ref.arguments().getFirst(), generics, self));
             }
             case "Option" -> {
                 if (ref.inferArguments() || ref.arguments().size() != 1) throw new IllegalArgumentException("Option requires exactly one explicit type argument");
@@ -2220,6 +2286,23 @@ public final class TypeChecker {
         return null;
     }
 
+    private void rejectLocalTypeGenericCollisions(List<Ast.Stmt> body, Set<String> generics) {
+        if (generics.isEmpty()) return;
+        for (Ast.Stmt stmt : body) {
+            if (!(stmt instanceof Ast.TypeDeclStmt local)) continue;
+            String name = switch (local.declaration()) {
+                case Ast.ClassDecl struct -> struct.name();
+                case Ast.InterfaceDecl iface -> iface.name();
+                case Ast.TypeAliasDecl alias -> alias.name();
+                default -> null;
+            };
+            if (name != null && generics.contains(name)) {
+                throw new IllegalArgumentException("callable-local type '" + name
+                        + "' collides with an in-scope generic type parameter");
+            }
+        }
+    }
+
     private void pushLocalTypeScope(List<Ast.Stmt> body) {
         Map<String, Ast.ClassDecl> classesHere = new LinkedHashMap<>();
         Map<String, Ast.InterfaceDecl> interfacesHere = new LinkedHashMap<>();
@@ -2255,9 +2338,10 @@ public final class TypeChecker {
     }
 
     private Function declaredFunctionType(Ast.FunctionDecl fn) {
+        Set<String> generics = Set.copyOf(fn.genericParameters());
+        rejectLocalTypeGenericCollisions(fn.body(), generics);
         pushLocalTypeScope(fn.body());
         try {
-            Set<String> generics = Set.copyOf(fn.genericParameters());
             return functionType(fn.parameters(), fn.returnType(), generics, null);
         } finally {
             popLocalTypeScope();
@@ -2267,8 +2351,8 @@ public final class TypeChecker {
     private Type nominalLocalType(Ast.ClassDecl klass, Ast.TypeRef ref, Set<String> generics, Type self) {
         if (!klass.isStruct()) throw new IllegalArgumentException("callable-local classes are not supported");
         if (ref.inferArguments()) {
-            return new Named(qualifiedClassName(klass),
-                    klass.genericParameters().stream().map(ignored -> (Type) Unknown.INSTANCE).toList());
+            throw new IllegalArgumentException("struct '" + klass.name()
+                    + "' requires explicit type arguments in type positions; use <> only at construction");
         }
         if (ref.arguments().size() != klass.genericParameters().size()) {
             throw new IllegalArgumentException("struct '" + klass.name() + "' expects "

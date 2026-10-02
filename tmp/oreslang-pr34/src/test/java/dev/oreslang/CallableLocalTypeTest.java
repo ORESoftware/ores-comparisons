@@ -492,6 +492,40 @@ final class CallableLocalTypeTest {
         assertTrue(error.getMessage().contains("duplicate callable-local type 'T'"));
     }
 
+    @Test
+    void localTypeNamesCannotCollideWithCallableGenericParameters() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          fnc bad<T>() => void {
+                            struct T {
+                              value: int;
+                            }
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("collides with an in-scope generic type parameter"));
+    }
+
+    @Test
+    void nestedLocalTypeNamesCannotShadowMethodOrClassGenericParameters() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box<T> as
+                          pub read<U>() => void {
+                            if true do
+                              type U = int;
+                            fi
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("collides with an in-scope generic type parameter"));
+    }
+
     private static String runProgram(String program) throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         Source source = Source.newBuilder(OresLanguage.ID, program, "callable-local-types.ores")
