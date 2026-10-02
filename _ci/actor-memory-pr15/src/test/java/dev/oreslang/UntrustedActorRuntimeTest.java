@@ -228,6 +228,97 @@ final class UntrustedActorRuntimeTest {
     }
 
     @Test
+    void untrustedHttpRequestMetadataIsBounded() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorRuntime.HttpRequestTransport request = new ActorRuntime.HttpRequestTransport() {
+                @Override public String method() { return "GET"; }
+                @Override public String path() { return "/" + "x".repeat(9000); }
+                @Override public int read(ByteBuffer target) { return -1; }
+            };
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 1024, 1024, 1024);
+
+            var sandbox = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    request,
+                    null,
+                    ignored -> (message, turn) ->
+                            turn.httpRequest().orElseThrow().path());
+
+            sandbox.send("request");
+            assertTrue(sandbox.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.HttpRequestLimitExceededException.class,
+                    sandbox.failure().orElseThrow());
+        }
+    }
+
+    @Test
+    void untrustedHttpHeaderLookupFloodIsBounded() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorRuntime.HttpRequestTransport request = new ActorRuntime.HttpRequestTransport() {
+                @Override public String method() { return "GET"; }
+                @Override public String path() { return "/"; }
+                @Override public java.util.Optional<String> header(String name) {
+                    return java.util.Optional.of("v");
+                }
+                @Override public int read(ByteBuffer target) { return -1; }
+            };
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 1000, 1024, 1024, 1024);
+
+            var sandbox = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    request,
+                    null,
+                    ignored -> (message, turn) -> {
+                        var http = turn.httpRequest().orElseThrow();
+                        for (int i = 0; i < 129; i++) {
+                            http.header("x-test");
+                        }
+                    });
+
+            sandbox.send("request");
+            assertTrue(sandbox.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.HttpRequestLimitExceededException.class,
+                    sandbox.failure().orElseThrow());
+        }
+    }
+
+    @Test
+    void httpCapabilitiesCannotEscapeThroughActorMailboxes() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var parent = runtime.<Object>spawnPrivate(context -> (message, turn) -> { });
+            RecordingResponse response = new RecordingResponse();
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 1024, 1024, 1024);
+
+            var sandbox = runtime.<Object>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    response,
+                    ignored -> (message, turn) -> {
+                        @SuppressWarnings("unchecked")
+                        ActorRuntime.ActorRef<Object> target =
+                                (ActorRuntime.ActorRef<Object>) message;
+                        target.send(turn.httpResponse().orElseThrow());
+                    });
+
+            sandbox.send(parent);
+            assertTrue(sandbox.awaitTermination(2, TimeUnit.SECONDS));
+            IllegalArgumentException failure = assertInstanceOf(
+                    IllegalArgumentException.class,
+                    sandbox.failure().orElseThrow());
+            assertTrue(failure.getMessage().contains("not Sendable"));
+            assertTrue(parent.isAlive());
+        }
+    }
+
+    @Test
     void outboundMailboxDataFromUntrustedActorIsCapped() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
             var target = runtime.<Object>spawnPrivate(() -> (message, turn) -> { });

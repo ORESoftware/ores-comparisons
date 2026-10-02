@@ -62,6 +62,10 @@ public final class ActorRuntime implements AutoCloseable {
     private static final long DEFAULT_UNTRUSTED_MAILBOX_RETURN_BYTES = 1024L * 1024L;
     private static final long DEFAULT_UNTRUSTED_HTTP_REQUEST_BYTES = 16L * 1024L * 1024L;
     private static final long DEFAULT_UNTRUSTED_HTTP_RESPONSE_BYTES = 16L * 1024L * 1024L;
+    private static final int MAX_UNTRUSTED_HTTP_REQUEST_HEADER_LOOKUPS = 128;
+    private static final long MAX_UNTRUSTED_HTTP_REQUEST_METADATA_BYTES = 64L * 1024L;
+    private static final long MAX_UNTRUSTED_HTTP_REQUEST_PATH_BYTES = 8L * 1024L;
+    private static final long MAX_UNTRUSTED_HTTP_REQUEST_HEADER_VALUE_BYTES = 16L * 1024L;
     private static final int MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS = 128;
     private static final long MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES = 64L * 1024L;
     private static final ThreadLocal<Boolean> ACTOR_CARRIER = ThreadLocal.withInitial(() -> Boolean.FALSE);
@@ -284,6 +288,10 @@ public final class ActorRuntime implements AutoCloseable {
         private final HttpRequestTransport transport;
         private final long maxBytes;
         private final AtomicLong readBytes = new AtomicLong();
+        private final AtomicLong metadataBytes = new AtomicLong();
+        private final AtomicInteger headerLookups = new AtomicInteger();
+        private final AtomicReference<String> cachedMethod = new AtomicReference<>();
+        private final AtomicReference<String> cachedPath = new AtomicReference<>();
         private final AtomicBoolean eof = new AtomicBoolean();
 
         private HttpRequestCapability(
@@ -298,6 +306,8 @@ public final class ActorRuntime implements AutoCloseable {
         public long maxBytes() { return maxBytes; }
         public long readBytes() { return readBytes.get(); }
         public long remainingBytes() { return Math.max(0L, maxBytes - readBytes.get()); }
+        public long metadataBytes() { return metadataBytes.get(); }
+        public int headerLookups() { return headerLookups.get(); }
         public boolean eof() { return eof.get(); }
 
         private ActorCell<?> requireOwner(String operation) {
@@ -312,18 +322,84 @@ public final class ActorRuntime implements AutoCloseable {
 
         public String method() {
             requireOwner("method");
-            return transport.method();
+            String cached = cachedMethod.get();
+            if (cached != null) return cached;
+
+            String method = Objects.requireNonNull(transport.method(), "HTTP request method");
+            if (!method.matches("[!#$%&'*+.^_|~0-9A-Za-z-]{1,32}")) {
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request method is invalid or too large");
+            }
+            chargeRequestMetadata(method.getBytes(StandardCharsets.UTF_8).length);
+            cachedMethod.compareAndSet(null, method);
+            return cachedMethod.get();
         }
 
         public String path() {
             requireOwner("path");
-            return transport.path();
+            String cached = cachedPath.get();
+            if (cached != null) return cached;
+
+            String path = Objects.requireNonNull(transport.path(), "HTTP request path");
+            if (path.indexOf('\r') >= 0 || path.indexOf('\n') >= 0) {
+                throw new IllegalArgumentException("HTTP request path cannot contain CR/LF");
+            }
+            long bytes = path.getBytes(StandardCharsets.UTF_8).length;
+            if (bytes > MAX_UNTRUSTED_HTTP_REQUEST_PATH_BYTES) {
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request path exceeds "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_PATH_BYTES + " bytes");
+            }
+            chargeRequestMetadata(bytes);
+            cachedPath.compareAndSet(null, path);
+            return cachedPath.get();
         }
 
         public Optional<String> header(String name) {
             requireOwner("header");
             Objects.requireNonNull(name, "header name");
-            return transport.header(name);
+            if (!name.matches("[!#$%&'*+.^_|~0-9A-Za-z-]{1,256}")) {
+                throw new IllegalArgumentException("invalid or oversized HTTP request header name");
+            }
+            int lookups = headerLookups.incrementAndGet();
+            if (lookups > MAX_UNTRUSTED_HTTP_REQUEST_HEADER_LOOKUPS) {
+                headerLookups.decrementAndGet();
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request header lookup limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_HEADER_LOOKUPS);
+            }
+
+            Optional<String> result = Objects.requireNonNull(
+                    transport.header(name),
+                    "HTTP request header result");
+            if (result.isEmpty()) {
+                chargeRequestMetadata(name.length());
+                return result;
+            }
+
+            String value = Objects.requireNonNull(result.orElseThrow(), "HTTP request header value");
+            if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+                throw new IllegalArgumentException("HTTP request header value cannot contain CR/LF");
+            }
+            long valueBytes = value.getBytes(StandardCharsets.UTF_8).length;
+            if (valueBytes > MAX_UNTRUSTED_HTTP_REQUEST_HEADER_VALUE_BYTES) {
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request header value exceeds "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_HEADER_VALUE_BYTES + " bytes");
+            }
+            chargeRequestMetadata((long) name.length() + valueBytes);
+            return Optional.of(value);
+        }
+
+        private void chargeRequestMetadata(long bytes) {
+            if (bytes < 0) throw new IllegalArgumentException("HTTP request metadata bytes cannot be negative");
+            long next = metadataBytes.addAndGet(bytes);
+            if (next > MAX_UNTRUSTED_HTTP_REQUEST_METADATA_BYTES) {
+                metadataBytes.addAndGet(-bytes);
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request metadata limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_METADATA_BYTES + " bytes");
+            }
         }
 
         /**
