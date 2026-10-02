@@ -40,7 +40,7 @@ shared actor SharedCounter {
 // - unqualified "actor" means private
 // - owns its mutable state exclusively
 // - receives a private actor memory slice at runtime
-// - SHARED_MEMORY and ACTOR_SHARE_READONLY are stripped from this actor domain
+// - SHARED_MEMORY capability is stripped from this actor domain
 actor PrivateCounter {
   let int value = 10;
 
@@ -62,8 +62,13 @@ actor PrivateCounter {
  * Intentionally ILLEGAL Oreslang:
  *
  * A private actor cannot declare or use SharedMutex<T>, because private actor
- * capability admission removes SHARED_MEMORY before checking its fields,
- * method signatures, and method bodies.
+ * capability admission removes both SHARED_MEMORY and ACTOR_SHARE_READONLY.
+ * The check is transitive through aliases, stored class state, instance methods,
+ * ordinary helper functions, and static class helpers. Runtime capability checks
+ * also consult the current actor-local policy, so imported/dynamic helper code
+ * cannot regain the parent Truffle context's authority.
+ *
+ * process.share_readonly(...) is therefore private-actor forbidden too.
  *
  * actor BrokenPrivateCounter {
  *   let SharedMutex<CounterState> shared_count =
