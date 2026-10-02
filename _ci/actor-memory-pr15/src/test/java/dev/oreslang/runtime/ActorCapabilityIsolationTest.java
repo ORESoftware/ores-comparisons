@@ -244,4 +244,57 @@ final class ActorCapabilityIsolationTest {
             assertTrue(shared.failure().isEmpty());
         }
     }
+    @Test
+    void privateActorCannotLaunderSharedMemoryThroughFunctionValue() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                fnc build_shared() => void {
+                  val shared = SharedMutex.new(1);
+                  stdio.println(shared);
+                  return;
+                }
+
+                actor PrivateWorker {
+                  pub fnc run() => void {
+                    val callback = build_shared;
+                    callback();
+                    return;
+                  }
+                }
+                """));
+
+        SecurityException error = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+
+        assertTrue(error.getMessage().contains("SHARED_MEMORY"));
+    }
+
+    @Test
+    void privateActorCannotLaunderReadonlyShareThroughQualifiedFunctionValue() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                define module helpers
+                  pub fnc expose() => void {
+                    val shared = process.share_readonly(arr[1, 2, 3]);
+                    stdio.println(shared);
+                    return;
+                  }
+                end
+
+                actor PrivateWorker {
+                  pub fnc run() => void {
+                    val callback = helpers.expose;
+                    callback();
+                    return;
+                  }
+                }
+                """));
+
+        SecurityException error = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+
+        assertTrue(error.getMessage().contains("ACTOR_SHARE_READONLY"));
+    }
+
+
 }
