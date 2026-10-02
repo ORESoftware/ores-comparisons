@@ -66,6 +66,7 @@ public final class ActorRuntime implements AutoCloseable {
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
     public int maxActors() { return maxActors; }
+    public boolean isClosed() { return closed.get(); }
 
     private void requireCallerRuntimeAffinity(String operation) {
         ActorRuntime caller = CURRENT_ACTOR_RUNTIME.get();
@@ -275,22 +276,30 @@ public final class ActorRuntime implements AutoCloseable {
                 if (sender != null) sender.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor send");
                 else policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex host send");
                 cell.policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor receive");
-
-                boolean compatible = OresMutex.publishToRuntime(this, sharedMutexes, () -> {
-                    if (!cell.enqueueReserved(frozen)) {
-                        throw new IllegalStateException(
-                                "actor terminated before message admission for " + ref.id());
-                    }
-                });
-                if (!compatible) {
-                    throw new IllegalArgumentException(
-                            "SharedMutex may cross actor mailboxes only within its owning ActorRuntime");
-                }
-            } else if (!cell.enqueueReserved(frozen)) {
-                throw new IllegalStateException(
-                        "actor terminated before message admission for " + ref.id());
             }
-            enqueued = true;
+
+            synchronized (lifecycleLock) {
+                if (closed.get()) {
+                    throw new IllegalStateException("actor runtime is closed");
+                }
+
+                if (!sharedMutexes.isEmpty()) {
+                    boolean compatible = OresMutex.publishToRuntime(this, sharedMutexes, () -> {
+                        if (!cell.enqueueReserved(frozen)) {
+                            throw new IllegalStateException(
+                                    "actor terminated before message admission for " + ref.id());
+                        }
+                    });
+                    if (!compatible) {
+                        throw new IllegalArgumentException(
+                                "SharedMutex may cross actor mailboxes only within its owning ActorRuntime");
+                    }
+                } else if (!cell.enqueueReserved(frozen)) {
+                    throw new IllegalStateException(
+                            "actor terminated before message admission for " + ref.id());
+                }
+                enqueued = true;
+            }
         } finally {
             if (!enqueued) cell.releaseMailboxSlot();
         }
