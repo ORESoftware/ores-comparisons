@@ -49,3 +49,6 @@ jobs:
       - name: Compile full actor-memory integration source tree
         working-directory: _ci/oreslang-pr19-full
         run: mvn -B -ntp -DskipTests compile
+      - name: Run actor callable language tests
+        working-directory: _ci/oreslang-pr19-full
+        run: mvn -B -ntp -Dtest=ActorCallableKeywordTest,ActorInvocationRuntimeTest test
