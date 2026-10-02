@@ -110,6 +110,19 @@ public final class ActorRuntime implements AutoCloseable {
         return current == null ? null : current.kind();
     }
 
+    /**
+     * Control-plane aborts must bypass guest catch/recover semantics.
+     * They are scheduler/sandbox decisions, not application exceptions.
+     */
+    public static boolean isActorControlAbort(Throwable failure) {
+        if (failure instanceof ActorBudgetExceededException
+                || failure instanceof ActorLifetimeExceededException) {
+            return true;
+        }
+        return failure instanceof CancellationException
+                && currentActorKind() == ActorKind.UNTRUSTED;
+    }
+
     public static Object currentExecutionDomain() {
         ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
         return current == null ? Thread.currentThread() : current.executionDomain();

@@ -766,7 +766,11 @@ public final class TypeChecker {
                 if (klass != null) {
                     ResolvedField field = findFieldTarget(klass, named, member.member(), new LinkedHashSet<>());
                     if (field != null) {
-                        Type pattern = resolve(field.field().type(), Set.copyOf(field.owner().genericParameters()), field.ownerType());
+                        Type pattern = fieldType(
+                                field.field(),
+                                Set.copyOf(field.owner().genericParameters()),
+                                field.ownerType(),
+                                field.owner().name());
                         return substituteGenerics(pattern, classGenericBindings(field.owner(), field.ownerType()));
                     }
                     List<Ast.MethodDecl> methods = findMethodsByName(klass, member.member(), new LinkedHashSet<>());
@@ -959,7 +963,11 @@ public final class TypeChecker {
             if (klass != null) {
                 ResolvedField field = findFieldTarget(klass, named, member.member(), new LinkedHashSet<>());
                 if (field != null) {
-                    Type pattern = resolve(field.field().type(), Set.copyOf(field.owner().genericParameters()), field.ownerType());
+                    Type pattern = fieldType(
+                                field.field(),
+                                Set.copyOf(field.owner().genericParameters()),
+                                field.ownerType(),
+                                field.owner().name());
                     return substituteGenerics(pattern, classGenericBindings(field.owner(), field.ownerType()));
                 }
             }
@@ -1275,10 +1283,11 @@ public final class TypeChecker {
         Set<String> classGenericNames = Set.copyOf(klass.genericParameters());
         for (int i = 0; i < arguments.size(); i++) {
             ResolvedField resolvedField = fields.get(i);
-            Type fieldPattern = resolve(
-                    resolvedField.field().type(),
+            Type fieldPattern = fieldType(
+                    resolvedField.field(),
                     Set.copyOf(resolvedField.owner().genericParameters()),
-                    resolvedField.ownerType());
+                    resolvedField.ownerType(),
+                    resolvedField.owner().name());
             fieldPattern = substituteGenerics(
                     fieldPattern,
                     classGenericBindings(resolvedField.owner(), resolvedField.ownerType()));
