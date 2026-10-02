@@ -335,4 +335,98 @@ final class ActorRuntimeTest {
         }
     }
 
+
+    @Test
+    void sendFailsIfActorTerminatesWhileMessageIsBeingFrozen() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch enteredBehavior = new CountDownLatch(1);
+            CountDownLatch allowFailure = new CountDownLatch(1);
+            CountDownLatch freezeEntered = new CountDownLatch(1);
+            CountDownLatch releaseFreeze = new CountDownLatch(1);
+            AtomicReference<Throwable> senderFailure = new AtomicReference<>();
+
+            var ref = runtime.<Object>spawn(() -> (message, context) -> {
+                if ("die".equals(message)) {
+                    enteredBehavior.countDown();
+                    allowFailure.await();
+                    throw new IllegalStateException("intentional actor failure");
+                }
+            });
+
+            ref.send("die");
+            assertTrue(enteredBehavior.await(2, TimeUnit.SECONDS));
+
+            ActorRuntime.Sendable blocking = () -> {
+                freezeEntered.countDown();
+                try {
+                    if (!releaseFreeze.await(2, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("timed out waiting to release freeze");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+                return "late-message";
+            };
+
+            Thread sender = Thread.ofPlatform().start(() -> {
+                try {
+                    ref.send(blocking);
+                } catch (Throwable failure) {
+                    senderFailure.set(failure);
+                }
+            });
+
+            assertTrue(freezeEntered.await(2, TimeUnit.SECONDS));
+            allowFailure.countDown();
+
+            IllegalStateException unknown = null;
+            for (int i = 0; i < 500 && unknown == null; i++) {
+                try {
+                    ref.send("probe");
+                    Thread.yield();
+                } catch (IllegalStateException failure) {
+                    if (failure.getMessage().contains("unknown actor")) unknown = failure;
+                }
+            }
+            assertNotNull(unknown, "actor should have terminated and left the registry");
+
+            releaseFreeze.countDown();
+            sender.join();
+
+            assertInstanceOf(IllegalStateException.class, senderFailure.get());
+            assertTrue(senderFailure.get().getMessage().contains("terminated before message admission"));
+        }
+    }
+
+    @Test
+    void closeCanBeRetriedAfterInitialTerminationTimeout() throws Exception {
+        ActorRuntime runtime = new ActorRuntime();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        var ref = runtime.<String>spawn(() -> (message, context) -> {
+            started.countDown();
+            while (true) {
+                try {
+                    release.await();
+                    return;
+                } catch (InterruptedException ignored) {
+                    // Deliberately ignore the first shutdown interrupt so the
+                    // supervisor's bounded close wait expires.
+                }
+            }
+        });
+
+        ref.send("block");
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+
+        IllegalStateException timedOut = assertThrows(IllegalStateException.class, runtime::close);
+        assertTrue(timedOut.getMessage().contains("did not observe full actor termination"));
+
+        release.countDown();
+        assertDoesNotThrow(runtime::close);
+        assertThrows(IllegalStateException.class, () -> ref.send("after-close"));
+    }
+
 }
