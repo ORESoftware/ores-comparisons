@@ -1,6 +1,7 @@
 package dev.oreslang.nodes;
 
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.exception.AbstractTruffleException;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
 import dev.oreslang.OresLanguage;
@@ -107,10 +108,14 @@ public final class OresEvalRootNode extends RootNode {
                 String module = functionOwners.getOrDefault(fn, "__root__");
                 String callable = module + "." + fn.name();
                 context.requireCapability(IsolatePolicy.Capability.GPU, "gpu callable " + callable);
-                return thawGpuValue(context.gpu().dispatch(
-                        callable,
-                        GpuRuntime.CallableKind.valueOf(fn.kind().name()),
-                        args));
+                try {
+                    return thawGpuValue(context.gpu().dispatch(
+                            callable,
+                            GpuRuntime.CallableKind.valueOf(fn.kind().name()),
+                            args));
+                } catch (GpuRuntime.GpuException failure) {
+                    throw new OresGuestException(failure.getMessage());
+                }
             }
             Env env = new Env(null);
             for (int i = 0; i < fn.parameters().size(); i++) {
@@ -750,6 +755,11 @@ public final class OresEvalRootNode extends RootNode {
     private static final class ReturnSignal extends RuntimeException {
         private final Object value;
         private ReturnSignal(Object value) { super(null,null,false,false); this.value=value; }
+    }
+
+    @SuppressWarnings("serial")
+    private static final class OresGuestException extends AbstractTruffleException {
+        private OresGuestException(String message) { super(message); }
     }
 
     private record Complex(double real, double imaginary) implements GpuRuntime.Transferable {

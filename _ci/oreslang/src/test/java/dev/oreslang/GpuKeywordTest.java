@@ -176,7 +176,7 @@ final class GpuKeywordTest {
                   val GpuArray<int> device = GpuArray.from_cpu(host);
                   val GpuStream<int> stream = device.stream();
                   val GpuArray<int> collected = stream.collect();
-                  val Array<int> copied = collected.copy_to_cpu();
+                  let Array<int> copied = collected.copy_to_cpu();
                   copied[0] = 42;
                   stdio.stdout.write(copied[0]);
                 }
