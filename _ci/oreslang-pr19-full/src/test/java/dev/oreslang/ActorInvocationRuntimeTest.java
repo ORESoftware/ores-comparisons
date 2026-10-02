@@ -2,99 +2,63 @@ package dev.oreslang;
 
 import dev.oreslang.runtime.ActorRuntime;
 import dev.oreslang.runtime.IsolatePolicy;
+import dev.oreslang.runtime.OresMutex;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 final class ActorInvocationRuntimeTest {
 
     @Test
-    void oneShotInvocationSelectsSharedOrPrivateMemoryMode() {
+    void invokeUsesRequestedSharedOrPrivateActorKind() {
         try (ActorRuntime runtime = new ActorRuntime()) {
-            ActorRuntime.MemoryMode shared = runtime.invoke(
+            ActorRuntime.ActorKind shared = runtime.invoke(
+                    ActorRuntime.ActorKind.SHARED,
                     "ping",
-                    ActorRuntime.MemoryPolicy.sharedHeap(),
-                    (message, context) -> context.memory().mode());
-
-            ActorRuntime.MemoryMode isolated = runtime.invoke(
-                    "ping",
-                    ActorRuntime.MemoryPolicy.privateArena(1024L * 1024L),
                     (message, context) -> {
-                        assertTrue(Thread.currentThread().isVirtual());
-                        assertTrue(context.memory().capacityBytes() >= 1024L * 1024L);
+                        assertTrue(context.privateMemory().isEmpty());
+                        return context.kind();
+                    });
+
+            ActorRuntime.ActorKind isolated = runtime.invoke(
+                    ActorRuntime.ActorKind.PRIVATE,
+                    "ping",
+                    (message, context) -> {
+                        assertTrue(context.privateMemory().isPresent());
                         assertFalse(context.policy().allows(IsolatePolicy.Capability.SHARED_MEMORY));
                         assertFalse(context.policy().allows(IsolatePolicy.Capability.ACTOR_SHARE_READONLY));
-                        return context.memory().mode();
+                        return context.kind();
                     });
 
-            assertEquals(ActorRuntime.MemoryMode.SHARED_HEAP, shared);
-            assertEquals(ActorRuntime.MemoryMode.PRIVATE_ARENA, isolated);
+            assertEquals(ActorRuntime.ActorKind.SHARED, shared);
+            assertEquals(ActorRuntime.ActorKind.PRIVATE, isolated);
         }
     }
 
     @Test
-    void oneShotInvocationPropagatesFailureToCaller() {
+    void privateInvocationRejectsSharedMutexTransport() {
         try (ActorRuntime runtime = new ActorRuntime()) {
-            IllegalStateException failure = assertThrows(
-                    IllegalStateException.class,
-                    () -> runtime.invoke(
-                            "boom",
-                            ActorRuntime.MemoryPolicy.sharedHeap(),
-                            (message, context) -> {
-                                throw new IllegalStateException(message);
-                            }));
+            OresMutex.Shared<List<Integer>> shared = OresMutex.shared(List.of(1, 2, 3));
 
-            assertEquals("boom", failure.getMessage());
+            assertThrows(
+                    SecurityException.class,
+                    () -> runtime.invoke(
+                            ActorRuntime.ActorKind.PRIVATE,
+                            shared,
+                            (message, context) -> 1));
         }
     }
 
     @Test
-    void oneShotInvocationSurfacesPrivateArenaStartupFailureInsteadOfHanging() throws Exception {
-        long mib = 1024L * 1024L;
-        IsolatePolicy policy = new IsolatePolicy(
-                Set.of(),
-                16 * mib,
-                32,
-                Duration.ofSeconds(5));
-
-        try (ActorRuntime runtime = new ActorRuntime(policy)) {
-            CountDownLatch reserved = new CountDownLatch(1);
-            runtime.<String>spawn(
-                    policy,
-                    ActorRuntime.MemoryPolicy.privateArena(16 * mib),
-                    () -> {
-                        reserved.countDown();
-                        return (message, context) -> { };
-                    });
-
-            assertTrue(reserved.await(2, TimeUnit.SECONDS));
-            Throwable failure = assertThrows(
-                    Throwable.class,
-                    () -> runtime.invoke(
-                            "cannot-start",
-                            ActorRuntime.MemoryPolicy.privateArena(mib),
-                            (message, context) -> message));
-
-            assertTrue(
-                    failure instanceof OutOfMemoryError
-                            || failure.getCause() instanceof OutOfMemoryError,
-                    () -> "expected private arena OOM, got " + failure);
-        }
-    }
-
-    @Test
-    void oneShotInvocationRejectsMutableHostReturnValues() {
+    void invocationRejectsMutableHostReturnValues() {
         try (ActorRuntime runtime = new ActorRuntime()) {
             IllegalArgumentException failure = assertThrows(
                     IllegalArgumentException.class,
                     () -> runtime.invoke(
+                            ActorRuntime.ActorKind.SHARED,
                             "ok",
-                            ActorRuntime.MemoryPolicy.sharedHeap(),
                             (message, context) -> new StringBuilder(message)));
 
             assertTrue(failure.getMessage().contains("not Sendable"));
@@ -102,18 +66,18 @@ final class ActorInvocationRuntimeTest {
     }
 
     @Test
-    void isolatedInvocationCannotReturnSharedMemoryCapability() {
+    void invocationPropagatesActorFailure() {
         try (ActorRuntime runtime = new ActorRuntime()) {
-            SecurityException failure = assertThrows(
-                    SecurityException.class,
+            IllegalStateException failure = assertThrows(
+                    IllegalStateException.class,
                     () -> runtime.invoke(
-                            "x",
-                            ActorRuntime.MemoryPolicy.privateArena(1024L * 1024L),
-                            (message, context) -> dev.oreslang.runtime.OresMutex.shared(new int[]{1})));
+                            ActorRuntime.ActorKind.SHARED,
+                            "boom",
+                            (message, context) -> {
+                                throw new IllegalStateException(message);
+                            }));
 
-            assertTrue(
-                    failure.getMessage().contains("SHARED_MEMORY")
-                            || failure.getMessage().contains("shared JVM-heap capabilities"));
+            assertEquals("boom", failure.getMessage());
         }
     }
 }
