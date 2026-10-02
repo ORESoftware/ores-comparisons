@@ -1,0 +1,54 @@
+name: oreslang-pr34-validation
+
+on:
+  push:
+    branches:
+      - ci/oreslang-pr34-validation
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Oreslang PR34 branch
+        uses: actions/checkout@v4
+        with:
+          repository: ores-truffle-oreslang/oreslang-source.java
+          ref: feat/four-way-types-integration
+          path: oreslang
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: oreslang/pom.xml
+      - name: Compile and test
+        shell: bash
+        run: |
+          set +e
+          cd oreslang
+          {
+            echo '=== COMPILE ==='
+            mvn -B -DskipTests compile
+            COMPILE_EXIT=$?
+            echo "compile_exit=$COMPILE_EXIT"
+            echo
+            echo '=== FOCUSED ==='
+            mvn -B -Dtest=CallableLocalTypeTest test
+            FOCUSED_EXIT=$?
+            echo "focused_exit=$FOCUSED_EXIT"
+            echo
+            echo '=== FULL TEST ==='
+            mvn -B test
+            TEST_EXIT=$?
+            echo "test_exit=$TEST_EXIT"
+            echo
+            echo "summary compile=$COMPILE_EXIT focused=$FOCUSED_EXIT full=$TEST_EXIT"
+          } > ../oreslang-pr34.log 2>&1
+          cat ../oreslang-pr34.log
+          exit 0
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: oreslang-pr34-diagnostics
+          path: oreslang-pr34.log
