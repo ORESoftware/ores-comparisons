@@ -2,7 +2,7 @@ name: oreslang-pr68-gc-validation
 
 on:
   push:
-    branches: ["ci/oreslang-pr68-gc-validation"]
+    branches: ["ci/oreslang-pr68-v4-mirror"]
   pull_request:
     branches: ["main"]
 
