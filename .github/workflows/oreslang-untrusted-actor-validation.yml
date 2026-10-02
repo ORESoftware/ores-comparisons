@@ -29,5 +29,5 @@ jobs:
         run: |
           java --version
           mvn --version
-      - name: Compile and test exact Oreslang untrusted-actor snapshot
-        run: mvn -B -ntp -Dtest=UntrustedActorTest test
+      - name: Compile and run full Oreslang test suite
+        run: mvn -B -ntp test
