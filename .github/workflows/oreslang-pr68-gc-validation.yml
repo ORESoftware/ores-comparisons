@@ -49,8 +49,14 @@ jobs:
         run: mvn -B -ntp -q -e -DskipTests compile
       - name: Run mirrored GC demo contract
         run: |
+          set +e
           output="$(mvn -B -ntp -q -e -DskipTests exec:java -Dexec.args=examples/demo-gc-contract.ores 2>&1)"
+          status=$?
+          set -e
           printf '%s\n' "$output"
+          if [[ "$status" -ne 0 ]]; then
+            exit "$status"
+          fi
           grep -Fq "gc-contract-ok" <<<"$output"
 
   full-test:
