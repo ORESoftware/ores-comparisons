@@ -591,7 +591,6 @@ public final class OresEvalRootNode extends RootNode {
             if (expr instanceof Ast.UnaryExpr unary) {
                 Object value = eval(unary.operand(), env);
                 return switch (unary.operator()) {
-                    case "&", "&mut" -> value;
                     case "!" -> !truth(value); case "+" -> value; case "-" -> negate(value);
                     default -> throw new IllegalArgumentException("unsupported unary operator " + unary.operator());
                 };
@@ -602,6 +601,23 @@ public final class OresEvalRootNode extends RootNode {
                 return binary(binary.operator(), eval(binary.left(), env), eval(binary.right(), env));
             }
             if (expr instanceof Ast.CallExpr call) {
+                if (call.callee() instanceof Ast.NameExpr intrinsic
+                        && (intrinsic.name().equals("borrow")
+                        || intrinsic.name().equals("take")
+                        || intrinsic.name().equals("copy")
+                        || intrinsic.name().equals("share"))) {
+                    if (call.arguments().size() != 1) {
+                        throw new IllegalArgumentException(intrinsic.name() + "(...) expects exactly one argument");
+                    }
+                    if (intrinsic.name().equals("share")) {
+                        throw new IllegalArgumentException(
+                                "share(...) requires an explicit shared-capability runtime and cannot alias ordinary owned state");
+                    }
+                    // borrow/take are compile-time ownership operations and
+                    // erase to the same JVM reference. copy is currently
+                    // accepted only for statically Copy immutable values.
+                    return eval(call.arguments().getFirst(), env);
+                }
                 if (call.callee() instanceof Ast.MemberExpr methodCall) {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();

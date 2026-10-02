@@ -207,6 +207,8 @@ public final class IncrementalCompiler {
         abi.append('(');
         for (Ast.Param param : params) {
             if (param.structural()) abi.append("structural ");
+            Ast.ParamMode mode = param.structural() ? Ast.ParamMode.BORROW : param.mode();
+            abi.append(mode.name().toLowerCase()).append(' ');
             abi.append(typeRef(param.type())).append(',');
         }
         abi.append(')');

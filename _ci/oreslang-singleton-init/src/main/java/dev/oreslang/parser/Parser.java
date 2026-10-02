@@ -344,11 +344,24 @@ public final class Parser {
 
         Ast.TypeRef receiverType = null;
         List<Ast.Param> params;
-        if (mods.isStatic && check(SELF)) throw error(peek(), "static class functions do not have a self receiver");
-        if (match(SELF)) {
-            receiverType = parseTypeRef();
+        boolean mutableReceiver = check(MUT) && checkNext(SELF);
+        if (mods.isStatic && (check(SELF) || mutableReceiver)) {
+            throw error(peek(), "static class functions do not have a self receiver");
+        }
+        if (mutableReceiver) {
+            advance(); // mut
+            consume(SELF, "mutable receiver syntax is 'mut self'");
+            Ast.TypeRef target = check(RPAREN) ? Ast.TypeRef.simple("self") : parseTypeRef();
+            receiverType = Ast.TypeRef.borrowed(target, true);
+            consume(RPAREN, "expected ')' after mutable self receiver");
+            consume(LPAREN, "explicit receiver form is method(mut self)(params)");
+            params = parseParametersUntil(RPAREN);
+            consume(RPAREN, "expected ')' after method parameters");
+        } else if (match(SELF)) {
+            Ast.TypeRef target = check(RPAREN) ? Ast.TypeRef.simple("self") : parseTypeRef();
+            receiverType = Ast.TypeRef.borrowed(target, false);
             consume(RPAREN, "expected ')' after explicit self receiver");
-            consume(LPAREN, "explicit receiver form is method(self Type)(params)");
+            consume(LPAREN, "explicit receiver form is method(self)(params) or method(self Type)(params)");
             params = parseParametersUntil(RPAREN);
             consume(RPAREN, "expected ')' after method parameters");
         } else {
@@ -458,24 +471,33 @@ public final class Parser {
         List<Ast.Param> params = new ArrayList<>();
         do {
             boolean structural = false;
+            Ast.ParamMode mode = Ast.ParamMode.BORROW;
+
+            // Pointerless ownership markers are contextual to parameter position.
+            if (match(MUT)) mode = Ast.ParamMode.MUT;
+            else if (check(IDENT) && peek().lexeme().equals("take")) {
+                advance();
+                mode = Ast.ParamMode.TAKE;
+            }
 
             // Name-first structural spelling: y structural Foo
-            if (check(IDENT) && checkNextLexeme("structural")) {
+            if (mode == Ast.ParamMode.BORROW && check(IDENT) && checkNextLexeme("structural")) {
                 String name = advance().lexeme();
                 Token marker = consume(IDENT, "expected structural");
                 if (!marker.lexeme().equals("structural")) throw error(marker, "expected structural");
                 Ast.TypeRef type = parseTypeRef();
-                boolean mutable = match(MUT);
-                params.add(new Ast.Param(type, name, true, mutable));
+                params.add(new Ast.Param(type, name, true, Ast.ParamMode.BORROW));
                 continue;
             }
 
             // Function annotation spelling: @AllowStructural(y) fnc x(y Foo)
-            if (check(IDENT) && annotationStructuralNames.contains(peek().lexeme()) && checkNext(IDENT)) {
+            if (mode == Ast.ParamMode.BORROW
+                    && check(IDENT)
+                    && annotationStructuralNames.contains(peek().lexeme())
+                    && checkNext(IDENT)) {
                 String name = advance().lexeme();
                 Ast.TypeRef type = parseTypeRef();
-                boolean mutable = match(MUT);
-                params.add(new Ast.Param(type, name, true, mutable));
+                params.add(new Ast.Param(type, name, true, Ast.ParamMode.BORROW));
                 continue;
             }
 
@@ -485,10 +507,16 @@ public final class Parser {
                 if (!annotation.equals("Structural")) throw error(previous(), "only @Structural is currently supported on parameters");
                 structural = true;
             }
+            if (structural && mode != Ast.ParamMode.BORROW) {
+                throw error(peek(), "structural parameters are read-only views and cannot use mut or take");
+            }
+
             Ast.TypeRef type = parseTypeRef();
-            boolean mutable = match(MUT);
+            if (match(MUT)) {
+                throw error(previous(), "put mut before the parameter type: 'mut Type name'");
+            }
             String name = consume(IDENT, "expected parameter name").lexeme();
-            params.add(new Ast.Param(type, name, structural, mutable));
+            params.add(new Ast.Param(type, name, structural, mode));
         } while (match(COMMA));
         return params;
     }
@@ -514,8 +542,11 @@ public final class Parser {
         List<Ast.Param> result = new ArrayList<>(params.size());
         for (Ast.Param param : params) {
             boolean structural = param.structural() || allowed.contains(param.name());
+            if (structural && param.mode() != Ast.ParamMode.BORROW) {
+                throw error(previous(), "@AllowStructural parameters are read-only and cannot use mut or take: " + param.name());
+            }
             if (allowed.contains(param.name())) found.add(param.name());
-            result.add(new Ast.Param(param.type(), param.name(), structural, param.mutable()));
+            result.add(new Ast.Param(param.type(), param.name(), structural, param.mode()));
         }
         if (!found.equals(allowed)) {
             java.util.Set<String> missing = new java.util.HashSet<>(allowed);
@@ -526,9 +557,8 @@ public final class Parser {
     }
 
     private Ast.TypeRef parseTypeRef() {
-        if (match(AMP)) {
-            boolean mutable = match(MUT);
-            return Ast.TypeRef.borrowed(parseTypeRef(), mutable);
+        if (check(AMP)) {
+            throw error(peek(), "pointer-style '&' borrow types are not part of Oreslang; use ordinary parameters, 'mut Type name', or contextual 'take Type name'");
         }
         if (match(STRING)) return Ast.TypeRef.stringLiteral(previous().lexeme());
 
@@ -828,9 +858,8 @@ public final class Parser {
 
     private Ast.Expr parseUnary() {
         if (match(BANG, MINUS, PLUS)) return new Ast.UnaryExpr(previous().lexeme(), parseUnary());
-        if (match(AMP)) {
-            boolean mutable = match(MUT);
-            return new Ast.UnaryExpr(mutable ? "&mut" : "&", parseUnary());
+        if (check(AMP)) {
+            throw error(peek(), "pointer-style '&' borrow expressions are not part of Oreslang; calls borrow automatically, use borrow(x) for a stored read view");
         }
         if (match(AWAIT)) return new Ast.AwaitExpr(parseUnary());
         return parsePostfix();
@@ -936,12 +965,18 @@ public final class Parser {
             do {
                 if (check(IDENT) && (checkNext(COMMA) || checkNext(PIPE))) {
                     String name = advance().lexeme();
-                    params.add(new Ast.Param(Ast.TypeRef.inferred(), name, false, false));
+                    params.add(new Ast.Param(Ast.TypeRef.inferred(), name, false, Ast.ParamMode.BORROW));
                 } else {
+                    Ast.ParamMode mode = Ast.ParamMode.BORROW;
+                    if (match(MUT)) mode = Ast.ParamMode.MUT;
+                    else if (check(IDENT) && peek().lexeme().equals("take")) {
+                        advance();
+                        mode = Ast.ParamMode.TAKE;
+                    }
                     Ast.TypeRef type = parseTypeRef();
-                    boolean mutable = match(MUT);
+                    if (match(MUT)) throw error(previous(), "put mut before the lambda parameter type: 'mut Type name'");
                     String name = consume(IDENT, "expected lambda parameter name").lexeme();
-                    params.add(new Ast.Param(type, name, false, mutable));
+                    params.add(new Ast.Param(type, name, false, mode));
                 }
             } while (match(COMMA));
         }

@@ -70,9 +70,34 @@ public final class Ast {
         public String stringLiteralValue() { return name.substring("$string$".length()); }
     }
 
-    public record Param(TypeRef type, String name, boolean structural, boolean mutable) {
-        public Param(TypeRef type, String name) { this(type, name, false, false); }
-        public Param(TypeRef type, String name, boolean structural) { this(type, name, structural, false); }
+    /**
+     * Source-level parameter ownership policy. This is deliberately separate
+     * from TypeRef so borrow semantics never leak into type/ABI syntax.
+     *
+     * BORROW: ordinary read-only temporary borrow (default)
+     * MUT: exclusive temporary mutable borrow
+     * TAKE: ownership transfer into the callee
+     */
+    public enum ParamMode { BORROW, MUT, TAKE }
+
+    public record Param(TypeRef type, String name, boolean structural, ParamMode mode) {
+        public Param {
+            mode = mode == null ? ParamMode.BORROW : mode;
+        }
+        public Param(TypeRef type, String name) { this(type, name, false, ParamMode.BORROW); }
+        public Param(TypeRef type, String name, boolean structural) { this(type, name, structural, ParamMode.BORROW); }
+
+        /**
+         * Compatibility constructor for compiler code written before ParamMode.
+         * true maps to the new exclusive mutable-borrow semantics.
+         */
+        public Param(TypeRef type, String name, boolean structural, boolean mutable) {
+            this(type, name, structural, mutable ? ParamMode.MUT : ParamMode.BORROW);
+        }
+
+        public boolean mutable() { return mode == ParamMode.MUT; }
+        public boolean borrowed() { return mode == ParamMode.BORROW || mode == ParamMode.MUT; }
+        public boolean takesOwnership() { return mode == ParamMode.TAKE; }
     }
 
     /** Lifecycle routine. Scope is derived from its containing module:
