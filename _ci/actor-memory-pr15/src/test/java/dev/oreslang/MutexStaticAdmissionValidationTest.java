@@ -220,4 +220,32 @@ final class MutexStaticAdmissionValidationTest {
         assertTrue(error.getMessage().contains("concrete shared-safe type"));
     }
 
+
+    @Test
+    void conditionalExpressionsPreserveGuardLinearity() {
+        var program = Parser.parse("""
+                define module model
+                  define class Counter
+                    pub let int value = 0;
+                  end
+                end
+
+                define module app
+                  async fnc bad(bool choose) => void {
+                    val mutex = Mutex.new(new Counter());
+                    val maybe_guard = choose ? 1 : mutex.lock();
+                    await mutex.lock_async();
+                    stdio.println(maybe_guard);
+                    return;
+                  }
+                end
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "cannot await while holding a MutexGuard"));
+    }
+
 }
