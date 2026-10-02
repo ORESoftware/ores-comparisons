@@ -152,12 +152,15 @@ public final class IncrementalCompiler {
             abi.append('\n');
             for (Ast.FieldDecl field : klass.fields()) {
                 if (field.visibility() != Ast.Visibility.PUBLIC) continue;
-                abi.append(" field ").append(field.bindingKind()).append(' ')
+                abi.append(field.isStatic() ? " static-field " : " field ")
+                        .append(field.bindingKind()).append(' ')
                         .append(typeRef(field.type())).append(' ').append(field.name()).append('\n');
             }
             for (Ast.MethodDecl method : klass.methods()) {
-                if (method.visibility() != Ast.Visibility.PUBLIC) continue;
-                abi.append(method.isStatic() ? " static-fnc " : " method ")
+                boolean constructor = !method.isStatic() && method.name().equals("constructor");
+                if (method.visibility() != Ast.Visibility.PUBLIC && !constructor) continue;
+                abi.append(constructor ? " constructor "
+                        : method.isStatic() ? " static-fnc " : " method ")
                         .append(method.name());
                 appendGenerics(abi, method.genericParameters());
                 appendParams(abi, method.parameters());
@@ -190,7 +193,8 @@ public final class IncrementalCompiler {
             return;
         }
         if (decl instanceof Ast.FieldDecl field && field.visibility() == Ast.Visibility.PUBLIC) {
-            abi.append("binding ").append(field.bindingKind()).append(' ')
+            abi.append(field.isStatic() ? "static-binding " : "binding ")
+                    .append(field.bindingKind()).append(' ')
                     .append(field.type() == null ? "<inferred:" + field.initializer() + ">" : typeRef(field.type()))
                     .append(' ').append(field.name()).append('\n');
         }
