@@ -1,0 +1,36 @@
+namespace ownership_intrinsics_demo;
+
+define class Box as
+  pub let int value = 1;
+end
+
+fnc read(Box box) => int {
+  return box.value;
+}
+
+fnc bump(mut Box box) => void {
+  box.value = box.value + 1;
+  return;
+}
+
+fnc consume(take Box box) => int {
+  return box.value;
+}
+
+pub routine main() => void {
+  let Box box = new Box();
+
+  val int borrowed_value = read(borrow(box));
+  bump(box);
+  val int copied_value = copy(box.value);
+
+  let Box moved = new Box();
+  val int taken_value = consume(moved);
+
+  stdio.println(borrowed_value);
+  stdio.println(box.value);
+  stdio.println(copied_value);
+  stdio.println(taken_value);
+  stdio.println("ownership-ok");
+  return;
+}
