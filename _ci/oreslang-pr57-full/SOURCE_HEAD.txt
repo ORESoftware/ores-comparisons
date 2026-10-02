@@ -1,1 +1,3 @@
-ores-truffle-oreslang/oreslang-source.java\nPR #68\nhead 321dc3d5f71753302d5d58a88704036ab53efe4c\n
+ores-truffle-oreslang/oreslang-source.java
+PR #68 rebased
+head 0ca680123936a7f2f7557d10b85910a021a4e6f0
