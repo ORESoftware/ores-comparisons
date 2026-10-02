@@ -1399,7 +1399,7 @@ public final class TypeChecker {
                 if (!call.arguments().isEmpty()) {
                     throw new IllegalArgumentException(runtimeName.name() + ".gc() takes no arguments");
                 }
-                return new Named("GcReport", List.of());
+                return gcReportType();
             }
             if (call.callee() instanceof Ast.NameExpr intrinsic
                     && (intrinsic.name().equals("borrow")
@@ -1870,6 +1870,17 @@ public final class TypeChecker {
             }
         }
         throw new IllegalArgumentException("assignment target '" + member.member() + "' is not a mutable data field");
+    }
+
+    private Type gcReportType() {
+        Map<String, Type> members = new LinkedHashMap<>();
+        members.put("scope", Primitive.STRING);
+        members.put("sequence", Primitive.INT);
+        members.put("safepoints", Primitive.INT);
+        members.put("scavenged", Primitive.INT);
+        members.put("host_gc_requested", Primitive.BOOL);
+        members.put("trigger", Primitive.STRING);
+        return new Record(members);
     }
 
     private Type iterableElementType(Type iterable) {
