@@ -185,6 +185,11 @@ public final class OresEvalRootNode extends RootNode {
                 } finally { executeBlock(tried.finallyBody(), env); }
                 return;
             }
+            if (stmt instanceof Ast.ReceiveLoopStmt || stmt instanceof Ast.SelectStmt) {
+                throw new IllegalStateException(
+                        "actor receive/select syntax requires continuation + channel lowering; "
+                                + "the reference interpreter refuses synchronous/no-op fallback");
+            }
             if (stmt instanceof Ast.ForOfStmt loop) {
                 Object iterable = eval(loop.iterable(), env);
                 for (Object item : iterableValues(iterable)) {
@@ -340,6 +345,11 @@ public final class OresEvalRootNode extends RootNode {
                     fields.put(field.name(), value);
                 }
                 return new OresObject(klass, fields);
+            }
+            if (expr instanceof Ast.ChannelExpr || expr instanceof Ast.ChannelOpExpr) {
+                throw new IllegalStateException(
+                        "channel send/receive syntax requires scheduler-aware lowering; "
+                                + "the reference interpreter refuses ordinary-call fallback");
             }
             if (expr instanceof Ast.AwaitExpr awaited) {
                 return AwaitSupport.await(eval(awaited.expression(), env));

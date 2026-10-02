@@ -144,6 +144,47 @@ final class AwaitReceiveHardeningTest {
         }
     }
 
+
+    @Test
+    void awaitSupportsRuntimeDefinedAwaitablesAndRejectsNonAwaitables() {
+        AwaitSupport.Awaitable<Integer> custom = new AwaitSupport.Awaitable<>() {
+            @Override public boolean isDone() { return true; }
+            @Override public Integer await() { return 42; }
+        };
+
+        assertEquals(42, AwaitSupport.await(custom));
+        assertThrows(IllegalArgumentException.class, () -> AwaitSupport.await(null));
+        assertThrows(IllegalArgumentException.class, () -> AwaitSupport.await("not-awaitable"));
+    }
+
+    @Test
+    void cancelledReceiveDoesNotStealTheNextMailboxMessage() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch armed = new CountDownLatch(1);
+            CountDownLatch delivered = new CountDownLatch(1);
+            AtomicReference<String> ordinary = new AtomicReference<>();
+
+            var ref = runtime.<String>spawnPrivate(() -> (message, context) -> {
+                if ("arm".equals(message)) {
+                    var waiter = context.receive().toCompletableFuture();
+                    assertTrue(waiter.cancel(true));
+                    armed.countDown();
+                    return;
+                }
+                ordinary.set(message);
+                delivered.countDown();
+            });
+
+            ref.send("arm");
+            assertTrue(armed.await(2, TimeUnit.SECONDS));
+            ref.send("payload");
+
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals("payload", ordinary.get(),
+                    "cancelling a receive must restore ordinary FIFO delivery for the next message");
+        }
+    }
+
     @Test
     void receiveAPIsAreActorTurnScopedAndOneWaiterAtATime() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
@@ -170,4 +211,104 @@ final class AwaitReceiveHardeningTest {
             ref.stop();
         }
     }
+
+    @Test
+    void nonblockingAwaitAdapterDoesNotParkActorCarrier() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            FutureTask<Integer> task = new FutureTask<>(() -> 42);
+            CountDownLatch adapted = new CountDownLatch(1);
+            AtomicReference<java.util.concurrent.CompletionStage<?>> stage = new AtomicReference<>();
+
+            var ref = runtime.<String>spawnPrivate(() -> (message, context) -> {
+                stage.set(AwaitSupport.toCompletionStage(task));
+                adapted.countDown();
+            });
+
+            ref.send("adapt");
+            assertTrue(adapted.await(2, TimeUnit.SECONDS),
+                    "actor carrier must return without waiting for the host Future");
+            assertNotNull(stage.get());
+            assertFalse(stage.get().toCompletableFuture().isDone());
+
+            Thread.startVirtualThread(task);
+            assertEquals(42, stage.get().toCompletableFuture().get(2, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void nonblockingAwaitAdapterUnwrapsExactlyOneLayer() {
+        CompletableFuture<Integer> inner = CompletableFuture.completedFuture(42);
+        CompletableFuture<CompletableFuture<Integer>> outer =
+                CompletableFuture.completedFuture(inner);
+
+        Object result = AwaitSupport.toCompletionStage(outer).toCompletableFuture().join();
+        assertSame(inner, result);
+    }
+
+    @Test
+    void nonblockingAwaitAdapterReturnsReadOnlyCompletionView() throws Exception {
+        FutureTask<Integer> task = new FutureTask<>(() -> 42);
+        var stage = AwaitSupport.toCompletionStage(task);
+
+        CompletableFuture<?> forgedView = stage.toCompletableFuture();
+        assertTrue(((CompletableFuture<Object>) forgedView).complete(99));
+        assertEquals(99, forgedView.join(),
+                "a caller may mutate its detached CompletableFuture copy");
+
+        assertFalse(stage.toCompletableFuture().isDone(),
+                "mutating a detached view must not forge runtime completion");
+
+        Thread.startVirtualThread(task);
+        assertEquals(42, stage.toCompletableFuture().get(2, TimeUnit.SECONDS));
+    }
+
+
+    @Test
+    void actorMailboxReceiveCannotBeForgedByHostCompletion() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch armed = new CountDownLatch(1);
+            AtomicReference<java.util.concurrent.CompletionStage<String>> receive = new AtomicReference<>();
+
+            var ref = runtime.<String>spawnPrivate(() -> (message, context) -> {
+                if ("arm".equals(message)) {
+                    receive.set(context.receive());
+                    armed.countDown();
+                }
+            });
+
+            ref.send("arm");
+            assertTrue(armed.await(2, TimeUnit.SECONDS));
+
+            CompletableFuture<String> future = receive.get().toCompletableFuture();
+            assertThrows(UnsupportedOperationException.class, () -> future.complete("forged"));
+            assertThrows(UnsupportedOperationException.class,
+                    () -> future.completeExceptionally(new IllegalStateException("forged")));
+            assertFalse(future.isDone());
+
+            ref.send("real");
+            assertEquals("real", future.get(2, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void stoppingActorFailsSealedPendingReceiveThroughRuntimePath() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch armed = new CountDownLatch(1);
+            AtomicReference<java.util.concurrent.CompletionStage<String>> receive = new AtomicReference<>();
+
+            var ref = runtime.<String>spawnPrivate(() -> (message, context) -> {
+                receive.set(context.receive());
+                armed.countDown();
+            });
+
+            ref.send("arm");
+            assertTrue(armed.await(2, TimeUnit.SECONDS));
+            ref.stop();
+
+            var failure = assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> receive.get().toCompletableFuture().get(2, TimeUnit.SECONDS));
+            assertInstanceOf(ActorRuntime.ActorTerminatedException.class, failure.getCause());
+        }
+    }
+
 }

@@ -201,7 +201,7 @@ public final class Ast {
     public enum BindingKind { CONST, VAL, LET }
 
     public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, ExprStmt, DeferStmt,
-            IfStmt, TryStmt, ForOfStmt, ForStmt { }
+            IfStmt, TryStmt, ForOfStmt, ForStmt, ReceiveLoopStmt, SelectStmt { }
 
     public record BindingStmt(BindingKind kind, TypeRef declaredType, String name, Expr initializer) implements Stmt { }
     public record DestructureBinding(BindingKind kind, String name) { }
@@ -241,8 +241,34 @@ public final class Ast {
         public ForStmt { body = List.copyOf(body); }
     }
 
+    public enum ReceiveLoopMode { BLOCKING, NONBLOCKING }
+
+    public record ReceiveLoopStmt(
+            ReceiveLoopMode mode,
+            TypeRef bindingType,
+            String bindingName,
+            List<Stmt> body) implements Stmt {
+        public ReceiveLoopStmt { body = List.copyOf(body); }
+    }
+
+    public record SelectCase(
+            ChannelOpExpr operation,
+            TypeRef bindingType,
+            String bindingName,
+            List<Stmt> body) {
+        public SelectCase { body = List.copyOf(body); }
+    }
+
+    public record SelectStmt(List<SelectCase> cases, List<Stmt> defaultBody) implements Stmt {
+        public SelectStmt {
+            cases = List.copyOf(cases);
+            defaultBody = List.copyOf(defaultBody);
+        }
+    }
+
     public sealed interface Expr permits LiteralExpr, NameExpr, BinaryExpr, UnaryExpr, AssignExpr, ConditionalExpr,
-            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
+            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ChannelExpr, ChannelOpExpr,
+            ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
 
     public record LiteralExpr(Object value) implements Expr { }
     public record Imaginary(double coefficient) { }
@@ -264,6 +290,25 @@ public final class Ast {
     }
 
     public record AwaitExpr(Expr expression) implements Expr { }
+
+    public record ChannelExpr(TypeRef elementType, Expr capacity) implements Expr { }
+
+    public enum ChannelOpKind { SEND, TRY_SEND, RECEIVE, TRY_RECEIVE }
+
+    /**
+     * Dedicated concurrency operation. channel == null denotes the current
+     * actor's own mailbox for RECEIVE/TRY_RECEIVE.
+     */
+    public record ChannelOpExpr(ChannelOpKind kind, Expr channel, Expr value) implements Expr {
+        public ChannelOpExpr {
+            if ((kind == ChannelOpKind.SEND || kind == ChannelOpKind.TRY_SEND) && (channel == null || value == null)) {
+                throw new IllegalArgumentException("send operations require channel and value");
+            }
+            if ((kind == ChannelOpKind.RECEIVE || kind == ChannelOpKind.TRY_RECEIVE) && value != null) {
+                throw new IllegalArgumentException("receive operations do not carry a send value");
+            }
+        }
+    }
 
     public record ListExpr(List<Expr> elements) implements Expr {
         public ListExpr { elements = List.copyOf(elements); }

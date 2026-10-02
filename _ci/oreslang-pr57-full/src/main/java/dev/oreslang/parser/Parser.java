@@ -146,12 +146,13 @@ public final class Parser {
             }
             Ast.ActorKind actorKind = modifiers.shared ? Ast.ActorKind.SHARED : Ast.ActorKind.PRIVATE;
             if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC, actorKind);
+            if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE, actorKind);
             if (modifiers.isStatic || modifiers.isAbstract) {
                 throw error(previous(), "actor declarations do not accept static or abstract modifiers");
             }
             return parseActorClass(actorKind);
         }
-        if (modifiers.shared) throw error(previous(), "'shared' must modify an actor declaration or actor fnc");
+        if (modifiers.shared) throw error(previous(), "'shared' must modify an actor declaration or actor callable");
         if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC);
         if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE);
         if (match(INTERFACE)) return parseInterface(modifiers.visibility);
@@ -171,9 +172,6 @@ public final class Parser {
             Ast.ActorKind actorKind) {
         if (modifiers.isStatic) throw error(previous(), "'static fnc' is only valid inside a class");
         if (modifiers.isAbstract) throw error(previous(), "top-level/module callables cannot be abstract");
-        if (kind == Ast.CallableKind.ROUTINE && actorKind != Ast.ActorKind.NONE) {
-            throw error(previous(), "actor entry points use fnc, not routine");
-        }
         if (modifiers.async && actorKind != Ast.ActorKind.NONE) {
             throw error(previous(), "'async' and 'actor' cannot be combined");
         }
@@ -661,10 +659,103 @@ public final class Parser {
         if (match(IF)) return parseIf();
         if (match(TRY)) return parseTry();
         if (match(FOR)) return parseFor();
+        if (check(RECEIVE) && checkNext(LOOP)) return parseReceiveLoop(Ast.ReceiveLoopMode.BLOCKING);
+        if (check(TRY_RECEIVE) && checkNext(LOOP)) return parseReceiveLoop(Ast.ReceiveLoopMode.NONBLOCKING);
+        if (match(SELECT)) return parseSelect();
 
         Ast.Expr expression = parseExpression();
         consumeStatementTerminator("expression statement should end with ';'");
         return new Ast.ExprStmt(expression);
+    }
+
+    private Ast.ReceiveLoopStmt parseReceiveLoop(Ast.ReceiveLoopMode mode) {
+        consume(mode == Ast.ReceiveLoopMode.BLOCKING ? RECEIVE : TRY_RECEIVE,
+                "expected receive loop keyword");
+        consume(LOOP, "expected 'loop' after receive keyword");
+        consume(LPAREN, "expected '(' after receive loop");
+
+        Ast.TypeRef bindingType = null;
+        String bindingName;
+        if (check(IDENT) && checkNext(RPAREN)) {
+            bindingName = advance().lexeme();
+        } else {
+            bindingType = parseTypeRef();
+            bindingName = consume(IDENT, "expected receive-loop binding name").lexeme();
+        }
+        consume(RPAREN, "expected ')' after receive-loop binding");
+        return new Ast.ReceiveLoopStmt(mode, bindingType, bindingName, parseBlock());
+    }
+
+    private Ast.SelectStmt parseSelect() {
+        consume(LBRACE, "expected '{' after select");
+        List<Ast.SelectCase> cases = new ArrayList<>();
+        List<Ast.Stmt> defaultBody = List.of();
+
+        while (match(CASE)) {
+            Ast.ChannelOpExpr operation = parseChannelOperation(true);
+            Ast.TypeRef bindingType = null;
+            String bindingName = null;
+
+            if (match(AS)) {
+                if (operation.kind() == Ast.ChannelOpKind.SEND) {
+                    throw error(previous(), "send select cases do not bind a received value");
+                }
+                if (check(IDENT) && checkNext(FAT_ARROW)) {
+                    bindingName = advance().lexeme();
+                } else {
+                    bindingType = parseTypeRef();
+                    bindingName = consume(IDENT, "expected select receive binding name").lexeme();
+                }
+            }
+
+            consume(FAT_ARROW, "expected '=>' after select case");
+            cases.add(new Ast.SelectCase(operation, bindingType, bindingName, parseBlock()));
+        }
+
+        if (match(DEFAULT)) {
+            consume(FAT_ARROW, "expected '=>' after select default");
+            defaultBody = parseBlock();
+        }
+
+        if (cases.isEmpty() && defaultBody.isEmpty()) {
+            throw error(peek(), "select requires at least one case or default");
+        }
+        consume(RBRACE, "expected '}' after select");
+        return new Ast.SelectStmt(cases, defaultBody);
+    }
+
+    private Ast.ChannelOpExpr parseChannelOperation(boolean selectCase) {
+        if (match(RECEIVE)) {
+            consume(LPAREN, "expected '(' after receive");
+            Ast.Expr channel = check(RPAREN) ? null : parseExpression();
+            consume(RPAREN, "expected ')' after receive");
+            return new Ast.ChannelOpExpr(Ast.ChannelOpKind.RECEIVE, channel, null);
+        }
+        if (!selectCase && match(TRY_RECEIVE)) {
+            consume(LPAREN, "expected '(' after try_receive");
+            Ast.Expr channel = check(RPAREN) ? null : parseExpression();
+            consume(RPAREN, "expected ')' after try_receive");
+            return new Ast.ChannelOpExpr(Ast.ChannelOpKind.TRY_RECEIVE, channel, null);
+        }
+        if (match(SEND)) {
+            consume(LPAREN, "expected '(' after send");
+            Ast.Expr channel = parseExpression();
+            consume(COMMA, "send requires channel and value");
+            Ast.Expr value = parseExpression();
+            consume(RPAREN, "expected ')' after send");
+            return new Ast.ChannelOpExpr(Ast.ChannelOpKind.SEND, channel, value);
+        }
+        if (!selectCase && match(TRY_SEND)) {
+            consume(LPAREN, "expected '(' after try_send");
+            Ast.Expr channel = parseExpression();
+            consume(COMMA, "try_send requires channel and value");
+            Ast.Expr value = parseExpression();
+            consume(RPAREN, "expected ')' after try_send");
+            return new Ast.ChannelOpExpr(Ast.ChannelOpKind.TRY_SEND, channel, value);
+        }
+        throw error(peek(), selectCase
+                ? "select case requires receive(...) or send(...)"
+                : "expected channel operation");
     }
 
     private Ast.Stmt parseFor() {
@@ -906,6 +997,18 @@ public final class Parser {
         if (match(TRUE)) return new Ast.LiteralExpr(Boolean.TRUE);
         if (match(FALSE)) return new Ast.LiteralExpr(Boolean.FALSE);
         if (match(NULL)) throw error(previous(), "standalone null values are forbidden; use Option<T>");
+        if (match(CHANNEL)) {
+            consume(LT, "expected '<' after channel");
+            Ast.TypeRef elementType = parseTypeRef();
+            consume(GT, "expected '>' after channel element type");
+            consume(LPAREN, "expected '(' after channel type");
+            Ast.Expr capacity = parseExpression();
+            consume(RPAREN, "expected ')' after channel capacity");
+            return new Ast.ChannelExpr(elementType, capacity);
+        }
+        if (check(SEND) || check(TRY_SEND) || check(RECEIVE) || check(TRY_RECEIVE)) {
+            return parseChannelOperation(false);
+        }
         if (match(SELF)) return new Ast.NameExpr("self");
         if (match(IDENT)) return new Ast.NameExpr(previous().lexeme());
         if (match(NEW)) {

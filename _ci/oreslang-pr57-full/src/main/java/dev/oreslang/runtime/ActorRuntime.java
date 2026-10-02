@@ -69,21 +69,27 @@ public final class ActorRuntime implements AutoCloseable {
             int privateParallelism,
             int sharedParallelism,
             int throughput,
-            int maxActors) {
+            int maxActors,
+            int operationBudget) {
         public DispatcherConfig {
             if (privateParallelism <= 0) throw new IllegalArgumentException("privateParallelism must be > 0");
             if (sharedParallelism <= 0) throw new IllegalArgumentException("sharedParallelism must be > 0");
             if (throughput <= 0) throw new IllegalArgumentException("throughput must be > 0");
             if (maxActors <= 0) throw new IllegalArgumentException("maxActors must be > 0");
+            if (operationBudget <= 0) throw new IllegalArgumentException("operationBudget must be > 0");
+        }
+
+        public DispatcherConfig(int privateParallelism, int sharedParallelism, int throughput, int maxActors) {
+            this(privateParallelism, sharedParallelism, throughput, maxActors, 4_096);
         }
 
         public DispatcherConfig(int privateParallelism, int sharedParallelism, int throughput) {
-            this(privateParallelism, sharedParallelism, throughput, 16_384);
+            this(privateParallelism, sharedParallelism, throughput, 16_384, 4_096);
         }
 
         public static DispatcherConfig defaults() {
             int cpus = Math.max(2, Runtime.getRuntime().availableProcessors());
-            return new DispatcherConfig(cpus, cpus, 64, 16_384);
+            return new DispatcherConfig(cpus, cpus, 64, 16_384, 4_096);
         }
     }
 
@@ -845,19 +851,43 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
-     * Cooperative scheduler hook used by compiler-injected loop safepoints.
-     * Carrier threads remain an implementation detail.
+     * Charge compiler/runtime work against the current actor turn.
+     *
+     * Returning true means the actor's operation quantum is exhausted. Generated
+     * actor continuations must persist their program counter/live frame and
+     * return to the dispatcher at that point. This is the semantic fairness
+     * mechanism; Thread.yield() is not relied on for correctness.
      */
-    public void schedulerSafepoint() {
+    public boolean chargeActorOperations(int operations) {
+        if (operations <= 0) throw new IllegalArgumentException("operations must be > 0");
         if (closed.get()) throw new CancellationException("actor runtime is closing");
         ActorCell<?> cell = currentActor.get();
-        if (cell != null && cell.stopped.get()) {
-            throw new CancellationException("actor execution stopped");
+        if (cell == null) {
+            throw new IllegalStateException("actor operation accounting requires an active actor turn");
         }
+        if (cell.stopped.get()) throw new CancellationException("actor execution stopped");
         if (Thread.currentThread().isInterrupted()) {
             throw new CancellationException("actor execution interrupted");
         }
-        Thread.yield();
+        return cell.chargeOperations(operations);
+    }
+
+    /**
+     * Compatibility scheduler hook for the current interpreter. Compiler-lowered
+     * actor state machines use chargeActorOperations(...) and suspend when it
+     * returns true; ordinary host execution merely hints to the JVM scheduler.
+     */
+    public void schedulerSafepoint() {
+        ActorCell<?> cell = currentActor.get();
+        if (cell == null) {
+            if (closed.get()) throw new CancellationException("actor runtime is closing");
+            if (Thread.currentThread().isInterrupted()) {
+                throw new CancellationException("actor execution interrupted");
+            }
+            Thread.yield();
+            return;
+        }
+        if (chargeActorOperations(1)) Thread.yield();
     }
 
     @SuppressWarnings("unchecked")
@@ -1470,6 +1500,58 @@ public final class ActorRuntime implements AutoCloseable {
         };
     }
 
+    private static final class MailboxReceiveFuture<T> extends CompletableFuture<T> {
+        @Override
+        public boolean complete(T value) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        @Override
+        public boolean completeExceptionally(Throwable failure) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        @Override
+        public void obtrudeValue(T value) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        @Override
+        public void obtrudeException(Throwable failure) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        @Override
+        public CompletableFuture<T> completeAsync(java.util.function.Supplier<? extends T> supplier) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        @Override
+        public CompletableFuture<T> completeAsync(
+                java.util.function.Supplier<? extends T> supplier,
+                java.util.concurrent.Executor executor) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        @Override
+        public CompletableFuture<T> completeOnTimeout(T value, long timeout, TimeUnit unit) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        @Override
+        public CompletableFuture<T> orTimeout(long timeout, TimeUnit unit) {
+            throw new UnsupportedOperationException("actor mailbox receive completion is runtime-owned");
+        }
+
+        private boolean completeFromMailbox(T value) {
+            return super.complete(value);
+        }
+
+        private boolean failFromRuntime(Throwable failure) {
+            return super.completeExceptionally(failure);
+        }
+    }
+
     private final class ActorCell<M> {
         private final ActorRef<M> ref;
         private final ActorKind kind;
@@ -1482,7 +1564,8 @@ public final class ActorRuntime implements AutoCloseable {
         private final AtomicLong sharedMailboxBytes = new AtomicLong();
         private final Object lifecycleLock = new Object();
         private Behavior<M> behavior;
-        private CompletableFuture<M> pendingReceive;
+        private MailboxReceiveFuture<M> pendingReceive;
+        private int operationsRemaining;
 
         private ActorCell(
                 ActorRef<M> ref,
@@ -1506,9 +1589,20 @@ public final class ActorRuntime implements AutoCloseable {
             }
         }
 
+        private boolean chargeOperations(int operations) {
+            requireCurrentTurn("actor operation accounting");
+            if (operationsRemaining <= 0) return true;
+            if (operations >= operationsRemaining) {
+                operationsRemaining = 0;
+                return true;
+            }
+            operationsRemaining -= operations;
+            return false;
+        }
+
         private CompletionStage<M> receive() {
             requireCurrentTurn("actor.receive");
-            CompletableFuture<M> waiter;
+            MailboxReceiveFuture<M> waiter;
             synchronized (lifecycleLock) {
                 if (stopped.get() || closed.get()) {
                     return CompletableFuture.failedFuture(terminated(ref));
@@ -1517,7 +1611,7 @@ public final class ActorRuntime implements AutoCloseable {
                     throw new IllegalStateException(
                             "actor.receive already has a pending receive; one actor may suspend on only one mailbox receive at a time");
                 }
-                pendingReceive = new CompletableFuture<>();
+                pendingReceive = new MailboxReceiveFuture<>();
                 waiter = pendingReceive;
             }
 
@@ -1555,7 +1649,7 @@ public final class ActorRuntime implements AutoCloseable {
 
         @SuppressWarnings("unchecked")
         private ReceiveService servicePendingReceive() {
-            CompletableFuture<M> waiter;
+            MailboxReceiveFuture<M> waiter;
             MessageEnvelope envelope;
             synchronized (lifecycleLock) {
                 waiter = pendingReceive;
@@ -1570,7 +1664,7 @@ public final class ActorRuntime implements AutoCloseable {
             }
 
             try (envelope) {
-                waiter.complete((M) envelope.value());
+                waiter.completeFromMailbox((M) envelope.value());
             }
             return ReceiveService.DELIVERED;
         }
@@ -1635,6 +1729,7 @@ public final class ActorRuntime implements AutoCloseable {
         @SuppressWarnings("unchecked")
         private void runBatchEntered() {
             currentActor.set(this);
+            operationsRemaining = dispatcherConfig.operationBudget();
             try {
                 if (stopped.get()) return;
 
@@ -1702,7 +1797,7 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         private void fail(Throwable failure) {
-            CompletableFuture<M> waiter;
+            MailboxReceiveFuture<M> waiter;
             synchronized (lifecycleLock) {
                 ref.terminationCause.compareAndSet(null, failure);
                 stopped.set(true);
@@ -1712,11 +1807,11 @@ public final class ActorRuntime implements AutoCloseable {
                 if (memorySlice != null) memorySlice.close();
                 unregisterActor(this);
             }
-            if (waiter != null) waiter.completeExceptionally(terminated(ref));
+            if (waiter != null) waiter.failFromRuntime(terminated(ref));
         }
 
         private void stop() {
-            CompletableFuture<M> waiter;
+            MailboxReceiveFuture<M> waiter;
             synchronized (lifecycleLock) {
                 if (!stopped.compareAndSet(false, true)) return;
                 waiter = pendingReceive;
@@ -1725,7 +1820,7 @@ public final class ActorRuntime implements AutoCloseable {
                 if (memorySlice != null) memorySlice.close();
                 unregisterActor(this);
             }
-            if (waiter != null) waiter.completeExceptionally(terminated(ref));
+            if (waiter != null) waiter.failFromRuntime(terminated(ref));
         }
     }
 }

@@ -210,7 +210,7 @@ final class AsyncAwaitHardeningTest {
                   return await fetch();
                 }
                 """)));
-        assertTrue(error.getMessage().contains("live across await"));
+        assertTrue(error.getMessage().contains("live across a suspension/checkpoint"));
     }
 
     @Test
