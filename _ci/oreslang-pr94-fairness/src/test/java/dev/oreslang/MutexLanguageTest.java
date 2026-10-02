@@ -15,6 +15,73 @@ import static org.junit.jupiter.api.Assertions.*;
 
 final class MutexLanguageTest {
     @Test
+    void actorCannotHideBlockingSharedMutexInOrdinaryHelper() {
+        var program = Parser.parse("""
+                fnc blocking_helper(SharedMutex<int> mutex) => void {
+                  val guard = mutex.lock();
+                  guard.release();
+                  return;
+                }
+
+                pub shared actor fnc worker(SharedMutex<int> mutex) => void {
+                  blocking_helper(mutex);
+                  return;
+                }
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class, () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "actor code cannot use blocking SharedMutex.lock"));
+    }
+
+    @Test
+    void actorCannotLaunderBlockingHelperThroughFunctionValue() {
+        var program = Parser.parse("""
+                fnc blocking_helper(SharedMutex<int> mutex) => void {
+                  mutex.with_lock(|value| -> {
+                    return;
+                  });
+                  return;
+                }
+
+                pub shared actor fnc worker(SharedMutex<int> mutex) => void {
+                  val helper = blocking_helper;
+                  helper(mutex);
+                  return;
+                }
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class, () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "actor code cannot use blocking SharedMutex.with_lock"));
+    }
+
+    @Test
+    void actorCannotHideBlockingSharedMutexInInstanceMethod() {
+        var program = Parser.parse("""
+                define class Helper as
+                  pub fnc block(SharedMutex<int> mutex) => void {
+                    val guard = mutex.lock();
+                    guard.release();
+                    return;
+                  }
+                end
+
+                pub shared actor fnc worker(SharedMutex<int> mutex, Helper helper) => void {
+                  helper.block(mutex);
+                  return;
+                }
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class, () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "actor code cannot use blocking SharedMutex.lock"));
+    }
+
+    @Test
     void sharedActorFunctionsRejectBlockingSharedMutexLock() {
         var program = Parser.parse("""
                 pub shared actor fnc worker(SharedMutex<int> mutex) => void {
