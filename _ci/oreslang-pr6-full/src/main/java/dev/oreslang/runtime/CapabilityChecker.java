@@ -15,19 +15,31 @@ public final class CapabilityChecker {
         for (Ast.ModuleDecl module : program.modules()) {
             for (Ast.Decl declaration : module.declarations()) {
                 if (declaration instanceof Ast.FunctionDecl fn) {
-                    checkCallableTypes(fn.parameters(), fn.returnType(), policy);
-                    checkStatements(fn.body(), policy);
+                    IsolatePolicy actorPolicy = fn.actorKind() == Ast.ActorKind.PRIVATE
+                            ? policy.withoutCapabilities(IsolatePolicy.Capability.SHARED_MEMORY)
+                            : policy;
+                    if (fn.actorKind() == Ast.ActorKind.SHARED) {
+                        require(actorPolicy, IsolatePolicy.Capability.SHARED_MEMORY, "shared actor fnc " + fn.name());
+                    }
+                    checkCallableTypes(fn.parameters(), fn.returnType(), actorPolicy);
+                    checkStatements(fn.body(), actorPolicy);
                 } else if (declaration instanceof Ast.ClassDecl klass) {
-                    for (Ast.TypeRef parent : klass.parents()) checkType(parent, policy);
-                    for (Ast.TypeRef iface : klass.interfaces()) checkType(iface, policy);
+                    IsolatePolicy actorPolicy = klass.actorKind() == Ast.ActorKind.PRIVATE
+                            ? policy.withoutCapabilities(IsolatePolicy.Capability.SHARED_MEMORY)
+                            : policy;
+                    if (klass.actorKind() == Ast.ActorKind.SHARED) {
+                        require(actorPolicy, IsolatePolicy.Capability.SHARED_MEMORY, "shared actor " + klass.name());
+                    }
+                    for (Ast.TypeRef parent : klass.parents()) checkType(parent, actorPolicy);
+                    for (Ast.TypeRef iface : klass.interfaces()) checkType(iface, actorPolicy);
                     for (Ast.FieldDecl field : klass.fields()) {
-                        checkType(field.type(), policy);
-                        if (field.initializer() != null) checkExpr(field.initializer(), policy);
+                        checkType(field.type(), actorPolicy);
+                        if (field.initializer() != null) checkExpr(field.initializer(), actorPolicy);
                     }
                     for (Ast.MethodDecl method : klass.methods()) {
-                        checkType(method.explicitReceiverType(), policy);
-                        checkCallableTypes(method.parameters(), method.returnType(), policy);
-                        checkStatements(method.body(), policy);
+                        checkType(method.explicitReceiverType(), actorPolicy);
+                        checkCallableTypes(method.parameters(), method.returnType(), actorPolicy);
+                        checkStatements(method.body(), actorPolicy);
                     }
                 } else if (declaration instanceof Ast.InterfaceDecl iface) {
                     for (Ast.TypeRef parent : iface.parents()) checkType(parent, policy);
