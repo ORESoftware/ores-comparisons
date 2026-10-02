@@ -926,6 +926,8 @@ public final class TypeChecker {
             resolveClassParent(parent, klass);
         }
 
+        validateInheritedMethodOwnership(klass);
+
         Set<String> localMethodSignatures = new HashSet<>();
         for (Ast.MethodDecl method : klass.methods()) {
             String memberKind = method.isStatic() ? "static:" : "instance:";
@@ -1005,6 +1007,70 @@ public final class TypeChecker {
         }
     }
 
+    private Ast.ParamMode receiverOwnershipMode(Ast.MethodDecl method) {
+        Ast.TypeRef receiver = method.explicitReceiverType();
+        if (receiver == null) return Ast.ParamMode.BORROW;
+        if (!receiver.isBorrow()) return Ast.ParamMode.TAKE;
+        return receiver.mutableBorrow() ? Ast.ParamMode.MUT : Ast.ParamMode.BORROW;
+    }
+
+    private List<Ast.ParamMode> parameterOwnershipModes(List<Ast.Param> parameters) {
+        return parameters.stream()
+                .map(param -> param.structural() ? Ast.ParamMode.BORROW : param.mode())
+                .toList();
+    }
+
+    private void validateInheritedMethodOwnership(Ast.ClassDecl klass) {
+        Map<String, MethodOwnership> inherited = new LinkedHashMap<>();
+        Set<Ast.ClassDecl> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Ast.TypeRef parentRef : klass.parents()) {
+            Ast.ClassDecl parent = resolveClassParent(parentRef, klass);
+            if (parent != null) collectMethodOwnership(parent, inherited, seen, klass.name());
+        }
+
+        for (Ast.MethodDecl method : klass.methods()) {
+            if (method.isStatic()) continue;
+            String key = methodKey(method.name(), method.arity());
+            MethodOwnership expected = inherited.get(key);
+            if (expected == null) continue;
+            MethodOwnership actual = methodOwnership(method);
+            if (!expected.equals(actual)) {
+                throw new IllegalArgumentException(
+                        "ownership contract mismatch overriding '" + key + "' in class '" + klass.name()
+                                + "': inherited " + expected + " but child declares " + actual);
+            }
+        }
+    }
+
+    private void collectMethodOwnership(
+            Ast.ClassDecl klass,
+            Map<String, MethodOwnership> methods,
+            Set<Ast.ClassDecl> seen,
+            String childName) {
+        if (!seen.add(klass)) return;
+        for (Ast.TypeRef parentRef : klass.parents()) {
+            Ast.ClassDecl parent = resolveClassParent(parentRef, klass);
+            if (parent != null) collectMethodOwnership(parent, methods, seen, childName);
+        }
+        for (Ast.MethodDecl method : klass.methods()) {
+            if (method.isStatic()) continue;
+            String key = methodKey(method.name(), method.arity());
+            MethodOwnership current = methodOwnership(method);
+            MethodOwnership previous = methods.putIfAbsent(key, current);
+            if (previous != null && !previous.equals(current)) {
+                throw new IllegalArgumentException(
+                        "multiple inheritance ownership conflict for '" + key + "' in class '" + childName
+                                + "': " + previous + " vs " + current);
+            }
+        }
+    }
+
+    private MethodOwnership methodOwnership(Ast.MethodDecl method) {
+        return new MethodOwnership(
+                receiverOwnershipMode(method),
+                parameterOwnershipModes(method.parameters()));
+    }
+
     private void validateInterfaceOwnershipConsistency(
             Ast.InterfaceDecl iface,
             Set<Ast.InterfaceDecl> stack,
@@ -1049,13 +1115,12 @@ public final class TypeChecker {
                     fn.parameters().size(),
                     new LinkedHashSet<>());
             if (method == null || method.visibility() != Ast.Visibility.PUBLIC) continue;
-            if (method.explicitReceiverType() != null
-                    && method.explicitReceiverType().isBorrow()
-                    && method.explicitReceiverType().mutableBorrow()) {
+            Ast.ParamMode receiverMode = receiverOwnershipMode(method);
+            if (receiverMode != Ast.ParamMode.BORROW) {
                 throw new IllegalArgumentException(
                         "interface '" + iface.name() + "." + fn.name()
                                 + "' is a read-receiver contract but class '" + klass.name()
-                                + "' implements it with mut self");
+                                + "' implements it with " + receiverMode.name().toLowerCase() + " self");
             }
             requireParameterOwnershipMatch(
                     fn.parameters(),
@@ -2453,6 +2518,10 @@ public final class TypeChecker {
         }
         return null;
     }
+
+    private record MethodOwnership(
+            Ast.ParamMode receiver,
+            List<Ast.ParamMode> parameters) { }
 
     private static final class Env {
         private final Env parent;
