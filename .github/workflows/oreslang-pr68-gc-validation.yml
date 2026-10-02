@@ -29,7 +29,7 @@ jobs:
       - name: GC and actor-isolation focused tests
         run: >-
           mvn -B -ntp
-          -Dtest=GarbageCollectionHardeningTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest
+          -Dtest=GarbageCollectionHardeningTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest,OreslangActorIsolationExampleTest
           test
 
 
@@ -50,7 +50,7 @@ jobs:
       - name: Run mirrored GC demo contract
         run: |
           set +e
-          output="$(mvn -B -ntp -q -e -DskipTests exec:java -Dexec.args=examples/demo-gc-contract.ores 2>&1)"
+          output="$(mvn -B -ntp -e -DskipTests exec:java -Dexec.args=examples/demo-gc-contract.ores 2>&1)"
           status=$?
           set -e
           printf '%s\n' "$output"
