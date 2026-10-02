@@ -63,19 +63,23 @@ final class ActorTransportHardeningTest {
 
             assertTrue(attempted.await(2, java.util.concurrent.TimeUnit.SECONDS));
 
-            IllegalStateException failure = null;
+            IllegalStateException removed = null;
             long deadline = System.nanoTime()
                     + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
-            while (failure == null && System.nanoTime() - deadline < 0) {
+            while (removed == null && System.nanoTime() - deadline < 0) {
                 try {
                     ref.send("after-failure");
                     Thread.sleep(1);
                 } catch (IllegalStateException expected) {
-                    failure = expected;
+                    if (expected.getMessage().contains("unknown actor")) {
+                        removed = expected;
+                    } else if (!expected.getMessage().contains("terminated before message admission")
+                            && !expected.getMessage().contains("mailbox limit exceeded")) {
+                        throw expected;
+                    }
                 }
             }
-            assertNotNull(failure, "failed actor must be removed from the runtime registry");
-            assertTrue(failure.getMessage().contains("unknown actor"));
+            assertNotNull(removed, "failed actor must eventually be removed from the runtime registry");
         }
     }
 
