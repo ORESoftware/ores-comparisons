@@ -177,10 +177,34 @@ public final class TypeChecker {
     }
 
     private void checkFunction(String module, Ast.FunctionDecl fn) {
-        Set<String> generics = uniqueGenerics(fn.genericParameters(), (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
+        Set<String> generics = uniqueGenerics(
+                fn.genericParameters(),
+                (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
         Env env = new Env(null);
-        for (Ast.Param param : fn.parameters()) env.define(param.name(), resolveParam(param, generics, null), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+        for (Ast.Param param : fn.parameters()) {
+            Type parameterType = resolveParam(param, generics, null);
+            if (fn.actorKind() != Ast.ActorKind.NONE) {
+                validateActorBoundaryType(
+                        parameterType,
+                        fn.actorKind(),
+                        false,
+                        "parameter '" + param.name() + "' of " + fn.actorKind().name().toLowerCase()
+                                + " callable '" + module + "." + fn.name() + "'");
+            }
+            env.define(
+                    param.name(),
+                    parameterType,
+                    param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+        }
         Type returns = resolve(fn.returnType(), generics, null);
+        if (fn.actorKind() != Ast.ActorKind.NONE) {
+            validateActorBoundaryType(
+                    returns,
+                    fn.actorKind(),
+                    true,
+                    "return type of " + fn.actorKind().name().toLowerCase()
+                            + " callable '" + module + "." + fn.name() + "'");
+        }
         checkBlock(fn.body(), env, generics, returns, null);
         if (returns != Primitive.VOID && !definitelyReturns(fn.body())) {
             throw new IllegalArgumentException("non-void " + fn.kind().name().toLowerCase() + " '" + module + "." + fn.name() + "' must explicitly return on every path");
@@ -481,10 +505,6 @@ public final class TypeChecker {
                     && factoryCall.member().equals("new")) {
                 if (call.arguments().size() != 1) throw new IllegalArgumentException(factory.name() + ".new expects exactly one value");
                 Type element = typeOf(call.arguments().getFirst(), env, generics, self);
-                if (element instanceof Borrow) {
-                    throw new IllegalArgumentException(
-                            factory.name() + "<T> requires owned data; borrowed values cannot become mutex state");
-                }
                 if (factory.name().equals("SharedMutex") && !isSharedSafe(element, new LinkedHashSet<>(), Map.of())) {
                     throw new IllegalArgumentException(
                             "SharedMutex<T> requires shared-safe owned data; borrows, Mutex, MutexGuard, Future, closures, and unresolved generic/dynamic values are not shareable");
@@ -748,6 +768,81 @@ public final class TypeChecker {
         throw new IllegalArgumentException("assignment target '" + member.member() + "' is not a mutable data field");
     }
 
+    private void validateActorBoundaryType(
+            Type type,
+            Ast.ActorKind actorKind,
+            boolean allowVoid,
+            String where) {
+        if (type == Unknown.INSTANCE
+                || type instanceof Borrow
+                || type instanceof Function
+                || type instanceof ClassNamespace) {
+            throw new IllegalArgumentException(
+                    where + " is not actor-transferable: " + type);
+        }
+
+        if (type instanceof Primitive primitive) {
+            if (primitive == Primitive.VOID && !allowVoid) {
+                throw new IllegalArgumentException(where + " cannot be void");
+            }
+            return;
+        }
+        if (type instanceof StringLiteral) return;
+
+        if (type instanceof Generic generic) {
+            throw new IllegalArgumentException(
+                    where + " uses unresolved generic '" + generic.name()
+                            + "'; actor boundaries must be statically transferable");
+        }
+
+        if (type instanceof ListType list) {
+            validateActorBoundaryType(list.element(), actorKind, false, where + " element");
+            return;
+        }
+        if (type instanceof Tuple tuple) {
+            for (Type element : tuple.elements()) {
+                validateActorBoundaryType(element, actorKind, false, where + " tuple element");
+            }
+            return;
+        }
+        if (type instanceof Union union) {
+            for (Type option : union.options()) {
+                validateActorBoundaryType(option, actorKind, false, where + " union member");
+            }
+            return;
+        }
+        if (type instanceof Record record) {
+            for (Map.Entry<String, Type> entry : record.members().entrySet()) {
+                validateActorBoundaryType(
+                        entry.getValue(),
+                        actorKind,
+                        false,
+                        where + " field '" + entry.getKey() + "'");
+            }
+            return;
+        }
+        if (!(type instanceof Named named)) {
+            throw new IllegalArgumentException(
+                    where + " is not actor-transferable: " + type);
+        }
+
+        if (named.name().equals("Mutex")
+                || named.name().equals("MutexGuard")
+                || named.name().equals("Future")) {
+            throw new IllegalArgumentException(
+                    where + " cannot cross an actor boundary as " + named.name());
+        }
+        if (actorKind == Ast.ActorKind.ISOLATED
+                && named.name().equals("SharedMutex")) {
+            throw new IllegalArgumentException(
+                    where + " cannot use SharedMutex across an isoactor boundary");
+        }
+
+        for (Type argument : named.arguments()) {
+            validateActorBoundaryType(argument, actorKind, false, where + " type argument");
+        }
+    }
+
     private boolean isSharedSafe(Type type, Set<Ast.ClassDecl> seen, Map<String, Type> genericBindings) {
         if (type == Unknown.INSTANCE || type instanceof Borrow || type instanceof Function || type instanceof ClassNamespace) return false;
         if (type instanceof Primitive primitive) return primitive != Primitive.VOID;
@@ -757,12 +852,12 @@ public final class TypeChecker {
             return bound != null && bound != type && isSharedSafe(bound, seen, genericBindings);
         }
         if (type instanceof ListType list) return isSharedSafe(list.element(), seen, genericBindings);
-        if (type instanceof Union union) {
-            for (Type option : union.options()) if (!isSharedSafe(option, seen, genericBindings)) return false;
-            return true;
-        }
         if (type instanceof Tuple tuple) {
             for (Type element : tuple.elements()) if (!isSharedSafe(element, seen, genericBindings)) return false;
+            return true;
+        }
+        if (type instanceof Union union) {
+            for (Type option : union.options()) if (!isSharedSafe(option, seen, genericBindings)) return false;
             return true;
         }
         if (type instanceof Record record) {
@@ -831,6 +926,18 @@ public final class TypeChecker {
         if (type instanceof ListType list) return new ListType(resolveSharedGeneric(list.element(), bindings));
         if (type instanceof Tuple tuple) {
             return new Tuple(tuple.elements().stream().map(element -> resolveSharedGeneric(element, bindings)).toList());
+        }
+        if (type instanceof Union union) {
+            return Types.unionOf(union.options().stream()
+                    .map(option -> resolveSharedGeneric(option, bindings))
+                    .toList());
+        }
+        if (type instanceof Record record) {
+            Map<String, Type> members = new LinkedHashMap<>();
+            for (Map.Entry<String, Type> entry : record.members().entrySet()) {
+                members.put(entry.getKey(), resolveSharedGeneric(entry.getValue(), bindings));
+            }
+            return new Record(members);
         }
         return type;
     }
@@ -1195,20 +1302,11 @@ public final class TypeChecker {
             }
             case "MutexGuard" -> throw new IllegalArgumentException(
                     "MutexGuard<T> is compiler-managed and cannot be named in source declarations; acquire it from lock()/try_lock()/lock_async()");
-            case "Mutex" -> {
-                if (ref.inferArguments() || ref.arguments().size() != 1) throw new IllegalArgumentException("Mutex requires exactly one explicit type argument");
+            case "Mutex", "Future" -> {
+                if (ref.inferArguments() || ref.arguments().size() != 1) throw new IllegalArgumentException(ref.name() + " requires exactly one explicit type argument");
                 Type element = resolve(ref.arguments().getFirst(), generics, self);
-                if (element == Primitive.VOID) throw new IllegalArgumentException("Mutex<void> is invalid");
-                if (element instanceof Borrow) {
-                    throw new IllegalArgumentException("Mutex<T> requires an owned value type; borrowed payload types are invalid");
-                }
-                yield new Named("Mutex", List.of(element));
-            }
-            case "Future" -> {
-                if (ref.inferArguments() || ref.arguments().size() != 1) throw new IllegalArgumentException("Future requires exactly one explicit type argument");
-                Type element = resolve(ref.arguments().getFirst(), generics, self);
-                if (element == Primitive.VOID) throw new IllegalArgumentException("Future<void> is invalid");
-                yield new Named("Future", List.of(element));
+                if (element == Primitive.VOID) throw new IllegalArgumentException(ref.name() + "<void> is invalid");
+                yield new Named(ref.name(), List.of(element));
             }
             case "SharedMutex" -> {
                 if (ref.inferArguments() || ref.arguments().size() != 1) throw new IllegalArgumentException("SharedMutex requires exactly one explicit type argument");
