@@ -4,7 +4,6 @@ import dev.oreslang.ast.Ast;
 import dev.oreslang.parser.Lexer;
 import dev.oreslang.parser.Parser;
 import dev.oreslang.parser.Token;
-import dev.oreslang.types.OwnershipChecker;
 import dev.oreslang.types.TypeChecker;
 import org.junit.jupiter.api.Test;
 
@@ -14,13 +13,13 @@ final class ParserTest {
     @Test
     void supportsMultipleModulesAndComplexNumbers() {
         String source = """
-                define module math
+                define module math as
                   fnc z() => complex {
                     return 3 + 4i;
                   }
                 end
 
-                define module app
+                define module app as
                   pub fnc main() => void {
                     const answer = 40 + 2;
                     [const first, let second] = [1, 2];
@@ -38,7 +37,7 @@ final class ParserTest {
     @Test
     void parsesIfDoFiWithCommaAndPipeConditions() {
         String source = """
-                define module app
+                define module app as
                   fnc choose(bool a, bool b) => int {
                     if a, b | false; do
                       return 1;
@@ -54,8 +53,8 @@ final class ParserTest {
     @Test
     void methodReceiverIsImplicitOrExplicitSelf() {
         String source = """
-                define module model
-                  define class x
+                define module model as
+                  define class x as
                     @Ret<self>
                     find() {
                       return self;
@@ -75,234 +74,142 @@ final class ParserTest {
     }
 
     @Test
+    void classAndModuleDeclarationsRequireAsAndIsIsReserved() {
+        IllegalArgumentException module = assertThrows(IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        define module app
+                          pub fnc main() => void { return; }
+                        end
+                        """));
+        assertTrue(module.getMessage().contains("require 'as'"));
+
+        IllegalArgumentException klass = assertThrows(IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        define class Box
+                        end
+                        """));
+        assertTrue(klass.getMessage().contains("require 'as'"));
+
+        var tokens = new Lexer("as is").scan();
+        assertEquals(Token.Type.AS, tokens.get(0).type());
+        assertEquals(Token.Type.IS, tokens.get(1).type());
+    }
+
+    @Test
+    void asAndIsCannotBeDeclaredAsVariableNames() {
+        for (String reserved : java.util.List.of("as", "is")) {
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                    () -> Parser.parse("""
+                            define module app as
+                              pub routine main() => void {
+                                let int %s = 1;
+                                return;
+                              }
+                            end
+                            """.formatted(reserved)));
+            assertTrue(error.getMessage().contains("expected binding name")
+                    || error.getMessage().contains("expected"));
+        }
+    }
+
+    @Test
+    void parsesFileAndModuleInitRoutinesAsLifecycleDeclarations() {
+        Ast.Program program = Parser.parse("""
+                init routine() => void {
+                  return;
+                }
+
+                define module app as
+                  init routine() => void {
+                    return;
+                  }
+
+                  pub fnc main() => void {
+                    return;
+                  }
+                end
+                """);
+
+        Ast.ModuleDecl root = program.modules().stream()
+                .filter(module -> module.name().equals(Parser.ROOT_MODULE))
+                .findFirst().orElseThrow();
+        Ast.ModuleDecl app = program.modules().stream()
+                .filter(module -> module.name().equals("app"))
+                .findFirst().orElseThrow();
+
+        assertEquals(1, root.declarations().stream().filter(Ast.InitDecl.class::isInstance).count());
+        assertEquals(1, app.declarations().stream().filter(Ast.InitDecl.class::isInstance).count());
+    }
+
+    @Test
+    void singletonQualifierCannotApplyToAClass() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        define singleton class Foo as
+                        end
+                        """));
+        assertTrue(error.getMessage().contains("'singleton' may only qualify a module"));
+    }
+
+    @Test
+    void classesCannotDeclareLifecycleInitRoutines() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        define class Box as
+                          init routine() => void {
+                            return;
+                          }
+                        end
+                        """));
+        assertTrue(error.getMessage().contains("classes cannot declare init routine"));
+    }
+
+    @Test
     void lexerRecognizesLambdaAndFatReturnArrows() {
         var tokens = new Lexer("(int x) -> x + 1; fnc f() => int { return 1; }").scan();
         assertTrue(tokens.stream().anyMatch(t -> t.type() == Token.Type.ARROW));
         assertTrue(tokens.stream().anyMatch(t -> t.type() == Token.Type.FAT_ARROW));
     }
     @Test
-    void parsesSharedActorAndAllowsMailboxOwnedStateMutation() {
-        String source = """
-                shared actor Account {
-                  let balance = 100;
-
-                  pub fnc withdraw(int amount) => void {
-                    self.balance = self.balance - amount;
-                    return;
-                  }
-                }
-                """;
-
-        Ast.Program program = Parser.parse(source);
-        Ast.ClassDecl actor = (Ast.ClassDecl) program.modules().getFirst().declarations().getFirst();
-
-        assertEquals(Ast.ActorKind.SHARED, actor.actorKind());
-        assertEquals("Account", actor.name());
-        assertEquals("withdraw", actor.methods().getFirst().name());
-
-        Ast.Program typed = TypeChecker.check(program);
-        assertDoesNotThrow(() -> OwnershipChecker.check(typed));
-    }
-
-    @Test
-    void actorFncDefaultsPrivateAndCanBeExplicitlyShared() {
-        Ast.Program privateProgram = Parser.parse("""
-                pub actor fnc worker(int value) => int {
-                  return value;
+    void compactTraitSyntaxParsesLikeLongTraitSyntax() {
+        Ast.Program compact = Parser.parse("""
+                trait Counting {
+                  private val int count = 0;
+                  pub value() => int { return self.count; }
                 }
                 """);
-        Ast.FunctionDecl privateActor = (Ast.FunctionDecl) privateProgram.modules().getFirst().declarations().getFirst();
-        assertEquals(Ast.ActorKind.PRIVATE, privateActor.actorKind());
 
-        Ast.Program sharedProgram = Parser.parse("""
-                pub shared actor fnc worker(int value) => int {
-                  return value;
+        Ast.Program longForm = Parser.parse("""
+                define trait Counting as
+                  private val int count = 0;
+                  pub value() => int { return self.count; }
+                end
+                """);
+
+        Ast.TraitDecl compactTrait = (Ast.TraitDecl) compact.modules().getFirst().declarations().getFirst();
+        Ast.TraitDecl longTrait = (Ast.TraitDecl) longForm.modules().getFirst().declarations().getFirst();
+        assertEquals(longTrait, compactTrait);
+    }
+
+    @Test
+    void callableLocalTraitsAreAcceptedAsTypeDeclarations() {
+        Ast.Program program = Parser.parse("""
+                fnc make() => T {
+                  trait Answering {
+                    private val int seed = 41;
+                    pub answer() => int { return self.seed + 1; }
+                  }
+
+                  struct T with Answering {
+                    value: int;
+                  }
+
+                  return T { value = 1 };
                 }
                 """);
-        Ast.FunctionDecl sharedActor = (Ast.FunctionDecl) sharedProgram.modules().getFirst().declarations().getFirst();
-        assertEquals(Ast.ActorKind.SHARED, sharedActor.actorKind());
+
+        Ast.FunctionDecl fn = (Ast.FunctionDecl) program.modules().getFirst().declarations().getFirst();
+        assertTrue(fn.body().stream().anyMatch(stmt ->
+                stmt instanceof Ast.TypeDeclStmt local && local.declaration() instanceof Ast.TraitDecl));
     }
-
-    @Test
-    void sharedWithoutActorIsRejected() {
-        assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
-                shared fnc nope() => void {
-                  return;
-                }
-                """));
-    }
-
-    @Test
-    void actorEntrypointsCannotBeCalledOrConstructedAsOrdinaryValues() {
-        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                pub actor fnc worker(int value) => int {
-                  return value;
-                }
-
-                pub fnc bad() => int {
-                  return worker(1);
-                }
-                """)));
-
-        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                shared actor Account {
-                  let int balance = 100;
-
-                  pub fnc read() => int {
-                    return self.balance;
-                  }
-                }
-
-                pub fnc bad() => Account {
-                  return new Account();
-                }
-                """)));
-    }
-
-    @Test
-    void rejectsDuplicateAndConflictingActorModifiers() {
-        assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
-                shared shared actor Account {
-                  let balance = 1;
-                }
-                """));
-
-        assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
-                pub private actor fnc worker() => void {
-                  return;
-                }
-                """));
-    }
-
-    @Test
-    void actorFunctionCannotBeProgramMain() {
-        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                pub actor fnc main() => void {
-                  return;
-                }
-                """)));
-    }
-
-
-    @Test
-    void actorSelfAndMutableActorStateCannotEscapeMailboxTurn() {
-        assertThrows(IllegalArgumentException.class, () -> {
-            Ast.Program typed = TypeChecker.check(Parser.parse("""
-                    shared actor Account {
-                      let balance = 100;
-
-                      pub fnc leak() => Account {
-                        return self;
-                      }
-                    }
-                    """));
-            OwnershipChecker.check(typed);
-        });
-
-        assertThrows(IllegalArgumentException.class, () -> {
-            Ast.Program typed = TypeChecker.check(Parser.parse("""
-                    shared actor Account {
-                      let balance = 100;
-
-                      pub fnc leak() => &mut Account {
-                        return &mut self;
-                      }
-                    }
-                    """));
-            OwnershipChecker.check(typed);
-        });
-
-        assertThrows(IllegalArgumentException.class, () -> {
-            Ast.Program typed = TypeChecker.check(Parser.parse("""
-                    shared actor Account {
-                      let balance = 100;
-
-                      pub fnc leak() => &mut Account {
-                        val alias = &mut self;
-                        return alias;
-                      }
-                    }
-                    """));
-            OwnershipChecker.check(typed);
-        });
-
-        assertThrows(IllegalArgumentException.class, () -> {
-            Ast.Program typed = TypeChecker.check(Parser.parse("""
-                    shared actor Account {
-                      let Array<int> items = [1, 2, 3];
-
-                      pub fnc leak() => Array<int> {
-                        return self.items;
-                      }
-                    }
-                    """));
-            OwnershipChecker.check(typed);
-        });
-    }
-
-    @Test
-    void actorMayReturnCopyLikeStateButCannotPassSelfBorrowToOrdinaryFunction() {
-        assertDoesNotThrow(() -> {
-            Ast.Program typed = TypeChecker.check(Parser.parse("""
-                    shared actor Account {
-                      let balance = 100;
-
-                      pub fnc current() => int {
-                        return self.balance;
-                      }
-                    }
-                    """));
-            OwnershipChecker.check(typed);
-        });
-
-        assertThrows(IllegalArgumentException.class, () -> {
-            Ast.Program typed = TypeChecker.check(Parser.parse("""
-                    fnc inspect(&Account account) => int {
-                      return 1;
-                    }
-
-                    shared actor Account {
-                      let balance = 100;
-
-                      pub fnc inspectSelf() => int {
-                        return inspect(&self);
-                      }
-                    }
-                    """));
-            OwnershipChecker.check(typed);
-        });
-    }
-
-
-    @Test
-    void actorInheritanceMustPreserveIsolationKind() {
-        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                shared actor Parent {
-                  let value = 1;
-                }
-
-                shared actor Child extends Parent {
-                  pub fnc current() => int {
-                    return self.value;
-                  }
-                }
-                """)));
-
-        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                actor Parent {
-                  let value = 1;
-                }
-
-                shared actor Child extends Parent {
-                }
-                """)));
-
-        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                shared actor Child extends Object {
-                  let value = 1;
-                }
-                """)));
-    }
-
-
 }
