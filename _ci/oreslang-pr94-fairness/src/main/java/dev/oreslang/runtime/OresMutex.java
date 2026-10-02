@@ -707,18 +707,26 @@ public final class OresMutex {
             synchronized (asyncQueueLock) {
                 if (poisoned.get()) {
                     poisonedNow = true;
-                } else if (!permit.hasQueuedThreads() && permit.tryAcquire()) {
-                    // Untimed Semaphore.tryAcquire() may barge even when the
-                    // semaphore is fair. Do not let a newly-arriving async
-                    // request jump ahead of an already-queued blocking host
-                    // waiter; queue it for the normal alternating handoff path.
-                    acquired = true;
                 } else {
                     boolean waitRegistered = false;
                     try {
-                        beginWait(ownerDomain);
-                        waitRegistered = true;
-                        asyncQueue.addLast(waiter);
+                        // The timed zero-duration form honors a fair
+                        // Semaphore's queue order. Untimed tryAcquire() is
+                        // explicitly allowed to barge ahead of queued host
+                        // waiters, which would violate our mixed-waiter
+                        // fairness contract.
+                        if (permit.tryAcquire(0L, TimeUnit.NANOSECONDS)) {
+                            acquired = true;
+                        } else {
+                            beginWait(ownerDomain);
+                            waitRegistered = true;
+                            asyncQueue.addLast(waiter);
+                        }
+                    } catch (InterruptedException interrupted) {
+                        if (waitRegistered) endWait(ownerDomain);
+                        Thread.currentThread().interrupt();
+                        waitFailure = new java.util.concurrent.CancellationException(
+                                "SharedMutex async acquisition interrupted");
                     } catch (RuntimeException | Error failure) {
                         if (waitRegistered) endWait(ownerDomain);
                         waitFailure = failure;
