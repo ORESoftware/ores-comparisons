@@ -7,6 +7,7 @@
     "ores-dummy-org-java-jvm-1",
     "ores-dummy-org-pony-native-1",
     "ores-dummy-org-pony-native-2",
+    "ores-dummy-org-ruby-graal-1",
     "ores-dummy-org-rust-gpu-1",
     "ores-dummy-org-rust-native-1",
     "ores-dummy-org-rust-wasm-1",
@@ -16,12 +17,7 @@
     "ores-dummy-org-zig-wasm-1",
     "ores-dummy-org-zig-wasm-2"
   ],
-  "partial_orgs": {
-    "ores-dummy-org-ruby-graal-1": [
-      "ores-dummy-org-ruby-graal-1-api-server.rb",
-      "ores-dummy-org-ruby-graal-1-lambdas"
-    ]
-  },
+  "partial_orgs": {},
   "pending_orgs": [],
-  "notes": "14 runtime fixture orgs remain fully materialized; ores-dummy-org-ruby-graal-1 is intentionally partial with the Roda API source and Graal lambda contract pinned first. Additional members of its 20-repository family may be admitted without changing Ruby-to-Graal proof semantics."
+  "notes": "All 15 configured runtime fixture orgs are fully materialized as private Git submodules. Each complete org has .github plus the full 19-repo ores-cli family; Git index gitlinks pin exact main-branch commits and .gitmodules records the authenticated private HTTPS transport."
 }
