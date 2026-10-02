@@ -411,6 +411,154 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void readInterfaceCannotBeImplementedWithStrongerReceiverOwnership() {
+        IllegalArgumentException mutable = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define interface Reader as
+                          fnc read() => int;
+                        end
+
+                        define class Bad is Reader as
+                          pub read(mut self)() => int {
+                            return 1;
+                          }
+                        end
+                        """)));
+        assertTrue(mutable.getMessage().contains("read-receiver contract"));
+
+        IllegalArgumentException consuming = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define interface Reader as
+                          fnc read() => int;
+                        end
+
+                        define class Bad is Reader as
+                          pub read(take self)() => int {
+                            return 1;
+                          }
+                        end
+                        """)));
+        assertTrue(consuming.getMessage().contains("read-receiver contract"));
+    }
+
+    @Test
+    void classOverridesMustPreserveReceiverAndParameterOwnership() {
+        IllegalArgumentException receiver = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Parent as
+                          pub use(mut self)() => void {
+                            return;
+                          }
+                        end
+
+                        define class Child extends Parent as
+                          pub use() => void {
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(receiver.getMessage().contains("ownership contract mismatch"));
+
+        IllegalArgumentException parameter = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                        end
+
+                        define class Parent as
+                          pub use(take Box value) => void {
+                            return;
+                          }
+                        end
+
+                        define class Child extends Parent as
+                          pub use(Box value) => void {
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(parameter.getMessage().contains("ownership contract mismatch"));
+    }
+
+    @Test
+    void multipleInheritanceRejectsConflictingOwnershipContracts() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class A as
+                          pub use(mut self)() => void {
+                            return;
+                          }
+                        end
+
+                        define class B as
+                          pub use() => void {
+                            return;
+                          }
+                        end
+
+                        define class C extends A, B as
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("multiple inheritance ownership conflict"));
+    }
+
+    @Test
+    void interfaceDispatchReservesReadReceiverAcrossArguments() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define interface Touch as
+                          fnc touch(mut Touch other) => void;
+                        end
+
+                        define class Impl is Touch as
+                          pub touch(mut Touch other) => void {
+                            return;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Touch value = new Impl();
+                          value.touch(value);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow"));
+    }
+
+    @Test
+    void interfaceNonCopyFieldProjectionBorrowsItsRootOwner() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Inner as
+                          pub val int value = 7;
+                        end
+
+                        define interface HasInner as
+                          val Inner inner;
+                        end
+
+                        define class Outer is HasInner as
+                          pub val Inner inner = new Inner();
+                        end
+
+                        fnc leak(HasInner value) => Inner {
+                          return value.inner;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("borrowed value")
+                || error.getMessage().contains("return provenance"));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
