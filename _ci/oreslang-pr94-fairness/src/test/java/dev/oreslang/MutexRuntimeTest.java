@@ -548,7 +548,7 @@ final class MutexRuntimeTest {
     }
 
     @Test
-    void queuedBlockingHostWaiterIsNotBargedByNewAsyncRequest() throws Exception {
+    void asyncFastPathDoesNotBargeAfterReleaseToQueuedHostWaiter() throws Exception {
         var mutex = OresMutex.shared(new int[]{0});
         var initial = mutex.lock();
 
@@ -579,22 +579,20 @@ final class MutexRuntimeTest {
         }
         assertTrue(blocking.getState() == Thread.State.WAITING
                         || blocking.getState() == Thread.State.TIMED_WAITING,
-                "blocking host waiter must be queued before async contender arrives");
+                "blocking host waiter must be queued before release");
 
-        AtomicReference<java.util.concurrent.CompletableFuture<OresMutex.Guard<int[]>>> asyncRef =
-                new AtomicReference<>();
-        Thread asyncRequester = Thread.ofPlatform().start(() -> asyncRef.set(mutex.lockAsync()));
-        asyncRequester.join();
-        var async = asyncRef.get();
-        assertNotNull(async);
-        assertFalse(async.isDone());
-
+        // No async waiter exists yet, so this release deliberately exposes the
+        // fair Semaphore permit to the already-queued blocking host waiter.
         initial.release();
 
+        // Arrive only after the release. An untimed tryAcquire() may barge here
+        // before the awakened host thread runs; timed-zero fair acquisition may not.
+        var async = mutex.lockAsync();
+
         assertTrue(blockingAcquired.await(2, TimeUnit.SECONDS),
-                "already-queued blocking waiter must acquire before later async request");
+                "queued blocking waiter must retain its fair position after release");
         assertFalse(async.isDone(),
-                "later async request must not barge ahead of queued blocking waiter");
+                "later async fast-path request must not steal the released permit");
 
         releaseBlocking.countDown();
         var asyncGuard = async.get(2, TimeUnit.SECONDS);
