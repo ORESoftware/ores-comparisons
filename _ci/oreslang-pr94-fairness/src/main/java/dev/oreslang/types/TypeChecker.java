@@ -782,6 +782,7 @@ public final class TypeChecker {
                                 "generic callable '" + namespace.name() + "." + member.member()
                                         + "' must be specialized by a direct call; polymorphic function values are not supported yet");
                     }
+                    validateActorEffectFunction(moduleFunction);
                     return functionType(moduleFunction.parameters(), moduleFunction.returnType(), Set.of(), null);
                 }
                 Ast.ClassDecl memberClass = classes.get(namespace.name() + "." + member.member());
@@ -821,6 +822,7 @@ public final class TypeChecker {
                                 "generic static function '" + klass.name() + "." + fn.name()
                                         + "' must be specialized by a direct call; polymorphic function values are not supported yet");
                     }
+                    validateActorEffectMethod(klass, nominalClassType(klass), fn);
                     return functionType(fn.parameters(), fn.returnType(), Set.of(), null);
                 }
                 if (functions.size() > 1) throw new IllegalArgumentException("overloaded static function '" + member.member() + "' must be called so arity can select the overload");
@@ -850,6 +852,7 @@ public final class TypeChecker {
                         }
                         ResolvedMethod target = findMethodTarget(klass, named, member.member(), method.arity(), new LinkedHashSet<>());
                         if (target == null) throw new IllegalArgumentException("cannot resolve method owner for '" + member.member() + "'");
+                        validateActorEffectMethod(target.owner(), target.ownerType(), method);
                         Set<String> memberGenerics = new HashSet<>(target.owner().genericParameters());
                         memberGenerics.addAll(method.genericParameters());
                         Type signature = functionType(method.parameters(), method.returnType(), memberGenerics, target.ownerType());
