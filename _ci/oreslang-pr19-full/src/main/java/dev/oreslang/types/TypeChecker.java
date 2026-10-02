@@ -191,6 +191,20 @@ public final class TypeChecker {
         }
     }
 
+    private Type fieldType(
+            Ast.FieldDecl field,
+            Set<String> generics,
+            Type self,
+            String ownerName) {
+        if (field.type() != null) return resolve(field.type(), generics, self);
+        if (field.initializer() == null) {
+            throw new IllegalArgumentException(
+                    "field '" + ownerName + "." + field.name()
+                            + "' requires an explicit type or initializer");
+        }
+        return typeOf(field.initializer(), new Env(null), generics, self);
+    }
+
     private void checkFunction(String module, Ast.FunctionDecl fn) {
         if (fn.name().equals("main") && fn.actorKind() != Ast.ActorKind.NONE) {
             throw new IllegalArgumentException(
@@ -253,7 +267,7 @@ public final class TypeChecker {
                 throw new IllegalArgumentException("actor state field '" + klass.name() + "." + field.name()
                         + "' cannot be public; expose state through mailbox-dispatched methods");
             }
-            Type fieldType = resolve(field.type(), classGenerics, self);
+            Type fieldType = fieldType(field, classGenerics, self, klass.name());
             if (field.initializer() != null) {
                 Type actual = typeOf(field.initializer(), new Env(null), classGenerics, self);
                 requireAssignable(actual, fieldType, "field initializer " + klass.name() + "." + field.name());
@@ -811,7 +825,11 @@ public final class TypeChecker {
                 ResolvedField resolvedField = fields.get(i);
                 Ast.FieldDecl field = resolvedField.field();
                 if (i < created.arguments().size()) {
-                    Type fieldPattern = resolve(field.type(), Set.copyOf(resolvedField.owner().genericParameters()), resolvedField.ownerType());
+                    Type fieldPattern = fieldType(
+                            field,
+                            Set.copyOf(resolvedField.owner().genericParameters()),
+                            resolvedField.ownerType(),
+                            resolvedField.owner().name());
                     Type expected = substituteGenerics(fieldPattern, classGenericBindings(resolvedField.owner(), resolvedField.ownerType()));
                     requireAssignable(typeOf(created.arguments().get(i), env, generics, self),
                             expected, "constructor field " + field.name());
@@ -1002,7 +1020,7 @@ public final class TypeChecker {
             // a parent T must never be resolved as an unrelated child T.
             for (Ast.FieldDecl field : klass.fields()) {
                 Type fieldType = resolveSharedGeneric(
-                        resolve(field.type(), classGenerics, nominal),
+                        fieldType(field, classGenerics, nominal, klass.name()),
                         classBindings);
                 if (!isSharedSafe(fieldType, seen, classBindings)) return false;
             }
@@ -1158,7 +1176,9 @@ public final class TypeChecker {
         }
         Set<String> generics = Set.copyOf(klass.genericParameters());
         Type self = nominalClassType(klass);
-        for (Ast.FieldDecl field : klass.fields()) mergeMember(members, field.name(), resolve(field.type(), generics, self), "class " + klass.name());
+        for (Ast.FieldDecl field : klass.fields()) {
+            mergeMember(members, field.name(), fieldType(field, generics, self, klass.name()), "class " + klass.name());
+        }
         for (Ast.MethodDecl method : klass.methods()) {
             if (method.isStatic()) continue;
             mergeMember(members,
@@ -1188,7 +1208,9 @@ public final class TypeChecker {
         Set<String> generics = Set.copyOf(klass.genericParameters());
         Type self = nominalClassType(klass);
         for (Ast.FieldDecl field : klass.fields()) {
-            if (field.visibility() == Ast.Visibility.PUBLIC) mergeMember(members, field.name(), resolve(field.type(), generics, self), "class " + klass.name());
+            if (field.visibility() == Ast.Visibility.PUBLIC) {
+                mergeMember(members, field.name(), fieldType(field, generics, self, klass.name()), "class " + klass.name());
+            }
         }
         for (Ast.MethodDecl method : klass.methods()) {
             if (!method.isStatic() && method.visibility() == Ast.Visibility.PUBLIC) {

@@ -1711,9 +1711,7 @@ public final class ActorRuntime implements AutoCloseable {
 
     private IsolatePolicy intersectUntrustedWithRuntimeCeiling(IsolatePolicy policy) {
         java.util.Set<IsolatePolicy.Capability> caps =
-                policy.capabilities().isEmpty()
-                        ? java.util.Set.of()
-                        : new java.util.HashSet<>(policy.capabilities());
+                new java.util.HashSet<>(policy.capabilities());
         caps.retainAll(policyCeiling.capabilities());
         return new IsolatePolicy(
                 caps,
