@@ -1,8 +1,8 @@
-name: oreslang-pr7-nlex-validation
+name: oreslang-pr35-reconciled-validation
 
 on:
   push:
-    branches: ["ci/oreslang-pr7-nlex"]
+    branches: ["ci/oreslang-pr35-reconciled"]
   workflow_dispatch:
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
         run: |
           java --version
           mvn --version
-      - name: Verify effective Oreslang PR 7 merged snapshot
+      - name: Verify reconciled Oreslang PR 35 merged snapshot
         run: mvn -B -ntp verify
       - name: Run callable examples
         run: |
@@ -38,3 +38,5 @@ jobs:
           mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/modules-namespaces-callables.ores"
           mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/callables.ores" | tee /tmp/oreslang-callables.out
           grep -F "120:9:13" /tmp/oreslang-callables.out
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/shared-private-actor-isolation.ores"
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/actor-isolation-support.ores"
