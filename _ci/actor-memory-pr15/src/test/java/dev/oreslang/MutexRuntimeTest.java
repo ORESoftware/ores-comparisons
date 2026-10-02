@@ -161,6 +161,21 @@ final class MutexRuntimeTest {
     }
 
     @Test
+    void asyncMutexAcquisitionUsesTaggedGuardFutures() {
+        var local = OresMutex.local(new int[]{1});
+        var localFuture = local.lockAsync();
+        assertInstanceOf(OresMutex.GuardFuture.class, localFuture);
+        var localGuard = localFuture.join();
+        localGuard.release();
+
+        var shared = OresMutex.shared(new int[]{2});
+        var sharedFuture = shared.lockAsync();
+        assertInstanceOf(OresMutex.GuardFuture.class, sharedFuture);
+        var sharedGuard = sharedFuture.join();
+        sharedGuard.release();
+    }
+
+    @Test
     void sharedTryLockReportsBusyAndCancelledAsyncWaitDoesNotLeakPermit() throws Exception {
         var mutex = OresMutex.shared(new int[]{0});
         var guard = mutex.lock();
