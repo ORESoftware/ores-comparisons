@@ -195,7 +195,7 @@ public final class OwnershipChecker {
             return;
         }
         if (stmt instanceof Ast.ReceiveLoopStmt loop) {
-            ensureAwaitSuspensionSafe(scope);
+            ensureSuspensionSafe(scope, "receive");
             Map<VarState,Boolean> before = movedSnapshot(scope);
             Scope loopScope = new Scope(scope);
             Ast.TypeRef messageType = loop.bindingType() == null ? Ast.TypeRef.inferred() : loop.bindingType();
@@ -210,7 +210,7 @@ public final class OwnershipChecker {
             return;
         }
         if (stmt instanceof Ast.ReceivePatternLoopStmt loop) {
-            ensureAwaitSuspensionSafe(scope);
+            ensureSuspensionSafe(scope, "receive");
             Map<VarState,Boolean> before = movedSnapshot(scope);
             Map<VarState, StateSnapshot> base = stateSnapshot(scope);
 
@@ -232,7 +232,7 @@ public final class OwnershipChecker {
             return;
         }
         if (stmt instanceof Ast.SelectStmt select) {
-            ensureAwaitSuspensionSafe(scope);
+            ensureSuspensionSafe(scope, "select");
             Map<VarState, StateSnapshot> base = stateSnapshot(scope);
             List<Map<VarState, StateSnapshot>> exits = new ArrayList<>();
 
@@ -460,7 +460,7 @@ public final class OwnershipChecker {
             // Every channel operation is an operation-budget checkpoint. Even
             // TRY_* forms may be the point where a compiled actor hands its
             // continuation back after exhausting its quantum.
-            ensureAwaitSuspensionSafe(scope);
+            ensureSuspensionSafe(scope, "channel operation");
             if (operation.channel() != null) checkExpr(operation.channel(), scope, false);
             if (operation.value() != null) checkExpr(operation.value(), scope, true);
 
@@ -473,7 +473,7 @@ public final class OwnershipChecker {
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.AwaitExpr awaited) {
-            ensureAwaitSuspensionSafe(scope);
+            ensureSuspensionSafe(scope, "await");
             ValueInfo future = checkExpr(awaited.expression(), scope, true);
             if (future.type != null && future.type.name().equals("Future") && future.type.arguments().size() == 1) {
                 Ast.TypeRef result = future.type.arguments().getFirst();
@@ -940,13 +940,14 @@ public final class OwnershipChecker {
         return root != null && isActorConfinedBorrow(root);
     }
 
-    private void ensureAwaitSuspensionSafe(Scope scope) {
+    private void ensureSuspensionSafe(Scope scope, String operation) {
         for (VarState state : scope.visibleStates()) {
             if (state.moved) continue;
             if ((state.kind == ValueKind.IMM_BORROW || state.kind == ValueKind.MUT_BORROW)
                     && !isActorConfinedBorrow(state)) {
                 throw error("borrow '" + state.debugName
-                        + "' is live across a suspension/checkpoint; end the borrow before the checkpoint or keep owned actor-frame state and re-borrow after resume");
+                        + "' is live across " + operation
+                        + "; end the borrow before the checkpoint or keep owned actor-frame state and re-borrow after resume");
             }
         }
     }

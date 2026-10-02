@@ -4,6 +4,7 @@ import dev.oreslang.ast.Ast;
 
 import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +23,7 @@ public final class PatternSupport {
     public static Optional<Map<String, Object>> match(Ast.Pattern pattern, Object value) {
         LinkedHashMap<String, Object> captures = new LinkedHashMap<>();
         if (!matchInto(pattern, value, captures)) return Optional.empty();
-        return Optional.of(Map.copyOf(captures));
+        return Optional.of(Collections.unmodifiableMap(new LinkedHashMap<>(captures)));
     }
 
     private static boolean matchInto(

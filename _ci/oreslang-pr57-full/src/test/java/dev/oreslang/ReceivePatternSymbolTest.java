@@ -213,9 +213,25 @@ final class ReceivePatternSymbolTest {
 
     @Test
     void symbolNamesAreBoundedAndIdentifierShaped() {
+        assertEquals(Ast.Symbol.MAX_NAME_LENGTH, OresSymbol.MAX_NAME_LENGTH);
         assertThrows(IllegalArgumentException.class, () -> OresSymbol.of(""));
         assertThrows(IllegalArgumentException.class, () -> OresSymbol.of("not valid"));
         assertThrows(IllegalArgumentException.class,
                 () -> OresSymbol.of("a".repeat(OresSymbol.MAX_NAME_LENGTH + 1)));
+
+        assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
+                pub fnc bad() => Symbol {
+                  return :%s;
+                }
+                """.formatted("a".repeat(Ast.Symbol.MAX_NAME_LENGTH + 1))));
+    }
+
+    @Test
+    void runtimePatternCaptureCanPreserveHostNullWithoutCrashing() {
+        Ast.Pattern capture = new Ast.BindingPattern(Ast.BindingKind.VAL, "value");
+        Map<String, Object> captures = PatternSupport.match(capture, null).orElseThrow();
+        assertTrue(captures.containsKey("value"));
+        assertNull(captures.get("value"));
+        assertThrows(UnsupportedOperationException.class, () -> captures.put("value", 1L));
     }
 }

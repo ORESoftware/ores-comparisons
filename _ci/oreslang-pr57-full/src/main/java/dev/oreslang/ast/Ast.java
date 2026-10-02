@@ -337,8 +337,17 @@ public final class Ast {
      * as an OresSymbol; no global atom/intern table is involved.
      */
     public record Symbol(String name) {
+        public static final int MAX_NAME_LENGTH = 128;
+
         public Symbol {
             if (name == null || name.isBlank()) throw new IllegalArgumentException("symbol name cannot be blank");
+            if (name.length() > MAX_NAME_LENGTH) {
+                throw new IllegalArgumentException("symbol name exceeds " + MAX_NAME_LENGTH + " characters");
+            }
+            if (!name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                throw new IllegalArgumentException(
+                        "symbol name must be an identifier ([A-Za-z_][A-Za-z0-9_]*)");
+            }
         }
     }
     public record NameExpr(String name) implements Expr { }
