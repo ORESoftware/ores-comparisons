@@ -186,7 +186,7 @@ public final class TypeChecker {
                     "program entrypoint 'main' cannot be an actor fnc; main must run synchronously and explicitly launch actors");
         }
         Set<String> generics = uniqueGenerics(fn.genericParameters(), (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
-        Env env = new Env(null);
+        Env env = new Env(null, fn.nonLexical());
         for (Ast.Param param : fn.parameters()) env.define(param.name(), resolveParam(param, generics, null), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
         Type returns = resolve(fn.returnType(), generics, null);
         checkBlock(fn.body(), env, generics, returns, null);
@@ -347,9 +347,6 @@ public final class TypeChecker {
             if (recursiveLambda && declaredAhead instanceof Function) {
                 env.define(binding.name(), declaredAhead, binding.kind());
             }
-            if (binding.initializer() instanceof Ast.LambdaExpr lambda && declaredAhead instanceof Function expectedFunction) {
-                validateLambdaAgainstExpected(lambda, expectedFunction, env, generics, self);
-            }
             Type actual = typeOfAgainstExpected(binding.initializer(), declaredAhead, env, generics, self);
             Type declared = declaredAhead == null ? actual : declaredAhead;
             requireAssignable(actual, declared, "initializer for " + binding.name());
@@ -404,9 +401,6 @@ public final class TypeChecker {
             return;
         }
         if (stmt instanceof Ast.ReturnStmt ret) {
-            if (ret.value() instanceof Ast.LambdaExpr lambda && expectedReturn instanceof Function expectedFunction) {
-                validateLambdaAgainstExpected(lambda, expectedFunction, env, generics, self);
-            }
             Type actual = ret.value() == null
                     ? Primitive.VOID
                     : typeOfAgainstExpected(ret.value(), expectedReturn, env, generics, self);
@@ -576,8 +570,8 @@ public final class TypeChecker {
                     fnGenerics.addAll(fn.genericParameters());
                     for (int i = 0; i < call.arguments().size(); i++) {
                         Type expected = resolveParam(fn.parameters().get(i), fnGenerics, null);
-                        validateLambdaArgument(call.arguments().get(i), expected, env, generics, self);
-                        requireAssignable(typeOf(call.arguments().get(i), env, generics, self), expected, "argument " + (i + 1));
+                        requireAssignable(typeOfAgainstExpected(call.arguments().get(i), expected, env, generics, self),
+                                expected, "argument " + (i + 1));
                     }
                     return resolve(fn.returnType(), fnGenerics, null);
                 }
@@ -607,8 +601,8 @@ public final class TypeChecker {
                         methodGenerics.addAll(method.genericParameters());
                         for (int i = 0; i < call.arguments().size(); i++) {
                             Type expected = resolveParam(method.parameters().get(i), methodGenerics, named);
-                            validateLambdaArgument(call.arguments().get(i), expected, env, generics, self);
-                            requireAssignable(typeOf(call.arguments().get(i), env, generics, self), expected, "argument " + (i + 1));
+                            requireAssignable(typeOfAgainstExpected(call.arguments().get(i), expected, env, generics, self),
+                                    expected, "argument " + (i + 1));
                         }
                         return resolve(method.returnType(), methodGenerics, named);
                     }
@@ -618,8 +612,8 @@ public final class TypeChecker {
             if (!(callee instanceof Function fn)) return Unknown.INSTANCE;
             if (fn.parameters().size() != call.arguments().size()) throw new IllegalArgumentException("call arity mismatch");
             for (int i = 0; i < fn.parameters().size(); i++) {
-                validateLambdaArgument(call.arguments().get(i), fn.parameters().get(i), env, generics, self);
-                requireAssignable(typeOf(call.arguments().get(i), env, generics, self), fn.parameters().get(i), "argument " + (i + 1));
+                requireAssignable(typeOfAgainstExpected(call.arguments().get(i), fn.parameters().get(i), env, generics, self),
+                        fn.parameters().get(i), "argument " + (i + 1));
             }
             return fn.result();
         }
@@ -737,7 +731,8 @@ public final class TypeChecker {
             return new Record(members);
         }
         if (expr instanceof Ast.LambdaExpr lambda) {
-            Env lambdaEnv = new Env(env);
+            boolean nonLexical = lambda.nonLexical() || env.descendantsNonLexical();
+            Env lambdaEnv = new Env(nonLexical ? null : env, nonLexical);
             List<Type> parameters = new ArrayList<>();
             for (Ast.Param param : lambda.parameters()) {
                 Type type = resolveParam(param, generics, self);
@@ -754,6 +749,10 @@ public final class TypeChecker {
     }
 
     private Type typeOfAgainstExpected(Ast.Expr expr, Type expected, Env env, Set<String> generics, Type self) {
+        if (expr instanceof Ast.LambdaExpr lambda && expected instanceof Function fn) {
+            validateLambdaAgainstExpected(lambda, fn, env, generics, self);
+            return fn;
+        }
         if (expected instanceof Tuple && expr instanceof Ast.ListExpr list) {
             return new Tuple(list.elements().stream().map(item -> typeOf(item, env, generics, self)).toList());
         }
@@ -794,7 +793,8 @@ public final class TypeChecker {
         if (lambda.parameters().size() != expected.parameters().size()) {
             throw new IllegalArgumentException("lambda arity " + lambda.parameters().size() + " does not match expected function arity " + expected.parameters().size());
         }
-        Env lambdaEnv = new Env(parent);
+        boolean nonLexical = lambda.nonLexical() || parent.descendantsNonLexical();
+        Env lambdaEnv = new Env(nonLexical ? null : parent, nonLexical);
         for (int i = 0; i < lambda.parameters().size(); i++) {
             Ast.Param param = lambda.parameters().get(i);
             Type expectedParam = expected.parameters().get(i);
@@ -1578,8 +1578,14 @@ public final class TypeChecker {
 
     private static final class Env {
         private final Env parent;
+        private final boolean descendantsNonLexical;
         private final Map<String, Binding> bindings = new HashMap<>();
-        private Env(Env parent) { this.parent = parent; }
+        private Env(Env parent) { this(parent, parent != null && parent.descendantsNonLexical); }
+        private Env(Env parent, boolean descendantsNonLexical) {
+            this.parent = parent;
+            this.descendantsNonLexical = descendantsNonLexical;
+        }
+        private boolean descendantsNonLexical() { return descendantsNonLexical; }
         private void define(String name, Type type, Ast.BindingKind kind) {
             if (bindings.putIfAbsent(name, new Binding(type, kind)) != null) throw new IllegalArgumentException("duplicate binding '" + name + "'");
         }
