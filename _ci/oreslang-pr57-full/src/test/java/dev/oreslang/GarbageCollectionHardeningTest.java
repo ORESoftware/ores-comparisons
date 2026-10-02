@@ -9,7 +9,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -130,6 +133,100 @@ final class GarbageCollectionHardeningTest {
                 deniedCollector)) {
             assertThrows(SecurityException.class, runtime::gcProcess);
             assertTrue(deniedCollector.processCollections.isEmpty());
+        }
+    }
+
+    @Test
+    void concurrentProcessGcRequestsAreCoalesced() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger processCalls = new AtomicInteger();
+        AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+
+        ActorRuntime.GarbageCollector collector = new ActorRuntime.GarbageCollector() {
+            @Override
+            public void collectActor(
+                    ActorRuntime.ActorId actorId,
+                    ActorRuntime.ActorKind kind,
+                    ActorRuntime.GcReason reason) { }
+
+            @Override
+            public void collectProcess(ActorRuntime.GcReason reason) {
+                processCalls.incrementAndGet();
+                entered.countDown();
+                try {
+                    if (!release.await(2, TimeUnit.SECONDS)) {
+                        throw new AssertionError("timed out waiting to release process GC");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(interrupted);
+                }
+            }
+        };
+
+        try (ActorRuntime runtime = new ActorRuntime(
+                IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8),
+                ActorRuntime.TurnExecutor.direct(),
+                new ActorRuntime.GcConfig(0, 0),
+                collector)) {
+            Thread first = new Thread(() -> {
+                try {
+                    runtime.gcProcess();
+                } catch (Throwable failure) {
+                    firstFailure.set(failure);
+                }
+            });
+            first.start();
+            assertTrue(entered.await(2, TimeUnit.SECONDS));
+
+            runtime.gcProcess(); // coalesces with the in-flight collection
+            assertEquals(1, processCalls.get());
+
+            release.countDown();
+            first.join(2_000);
+            assertFalse(first.isAlive());
+            assertNull(firstFailure.get());
+            assertEquals(2, runtime.gcStats().processRequests());
+            assertEquals(1, runtime.gcStats().processCollections());
+        }
+    }
+
+    @Test
+    void periodicCollectorFailureDoesNotKillActor() throws Exception {
+        AtomicInteger periodicAttempts = new AtomicInteger();
+        ActorRuntime.GarbageCollector collector = new ActorRuntime.GarbageCollector() {
+            @Override
+            public void collectActor(
+                    ActorRuntime.ActorId actorId,
+                    ActorRuntime.ActorKind kind,
+                    ActorRuntime.GcReason reason) {
+                if (reason == ActorRuntime.GcReason.PERIODIC) {
+                    periodicAttempts.incrementAndGet();
+                    throw new IllegalStateException("synthetic periodic collector failure");
+                }
+            }
+
+            @Override
+            public void collectProcess(ActorRuntime.GcReason reason) { }
+        };
+
+        try (ActorRuntime runtime = new ActorRuntime(
+                IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8),
+                ActorRuntime.TurnExecutor.direct(),
+                new ActorRuntime.GcConfig(1, 0),
+                collector)) {
+            var ref = runtime.<String>spawnPrivate(factory -> (message, context) -> {
+                if (message.equals("stop")) context.self().stop();
+            });
+
+            ref.send("tick"); // periodic GC fails, but maintenance is best-effort
+            ref.send("stop");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(ref.failure().isEmpty());
+            assertEquals(1, periodicAttempts.get());
         }
     }
 
