@@ -177,8 +177,6 @@ public final class IncrementalCompiler {
                     appendGenerics(abi, fn.genericParameters());
                     appendParams(abi, fn.parameters());
                     abi.append("=>").append(typeRef(fn.returnType())).append('\n');
-                } else if (member instanceof Ast.InterfaceFieldDecl field) {
-                    abi.append(" iface-field ").append(field.name()).append(':').append(typeRef(field.type())).append('\n');
                 }
             }
             return;

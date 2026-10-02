@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -31,6 +32,7 @@ public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_FREEZE_DEPTH = 256;
     private static final int MAX_FREEZE_NODES = 100_000;
     private static final long MAX_FREEZE_BYTES = 16L * 1024 * 1024;
+    private static final ThreadLocal<ActorExecution> CURRENT_ACTOR = new ThreadLocal<>();
 
     private final Map<ActorId, ActorCell<?>> actors = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -48,6 +50,47 @@ public final class ActorRuntime implements AutoCloseable {
 
     public record ActorId(UUID value) {
         public static ActorId create() { return new ActorId(UUID.randomUUID()); }
+    }
+
+    private record ActorExecution(
+            ActorRuntime runtime,
+            ActorId id,
+            Map<Object, Object> locals,
+            Set<Object> initializingLocals) { }
+
+    /** Returns this runtime's currently executing actor, or null off-actor. */
+    public ActorId currentActorId() {
+        ActorExecution execution = CURRENT_ACTOR.get();
+        return execution != null && execution.runtime == this ? execution.id : null;
+    }
+
+    /**
+     * Actor-cell-local host storage. Values live exactly as long as the actor
+     * cell and are never shared with another actor. Intended for compiler/runtime
+     * lowering such as per-actor module/init state, not direct guest access.
+     *
+     * Returns null when called outside an actor owned by this runtime.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T currentActorLocal(Object key, Supplier<? extends T> initializer) {
+        java.util.Objects.requireNonNull(key, "key");
+        java.util.Objects.requireNonNull(initializer, "initializer");
+        ActorExecution execution = CURRENT_ACTOR.get();
+        if (execution == null || execution.runtime != this) return null;
+
+        Object existing = execution.locals.get(key);
+        if (existing != null) return (T) existing;
+        if (!execution.initializingLocals.add(key)) {
+            throw new IllegalStateException("actor-local initialization cycle for " + key);
+        }
+        try {
+            T value = java.util.Objects.requireNonNull(initializer.get(),
+                    "actor-local initializer returned null for " + key);
+            execution.locals.put(key, value);
+            return value;
+        } finally {
+            execution.initializingLocals.remove(key);
+        }
     }
 
     public record Shared<T>(T value) { }
@@ -341,6 +384,12 @@ public final class ActorRuntime implements AutoCloseable {
 
         @SuppressWarnings("unchecked")
         private void run() {
+            ActorExecution previous = CURRENT_ACTOR.get();
+            CURRENT_ACTOR.set(new ActorExecution(
+                    ActorRuntime.this,
+                    ref.id(),
+                    new HashMap<>(),
+                    new LinkedHashSet<>()));
             try {
                 final Behavior<M> behavior = java.util.Objects.requireNonNull(
                         behaviorFactory.get(), "actor behavior factory returned null");
@@ -363,6 +412,8 @@ public final class ActorRuntime implements AutoCloseable {
                 // so subsequent sends fail immediately instead of targeting a
                 // dead actor left behind in the runtime registry.
             } finally {
+                if (previous == null) CURRENT_ACTOR.remove();
+                else CURRENT_ACTOR.set(previous);
                 actors.remove(ref.id(), this);
             }
         }
