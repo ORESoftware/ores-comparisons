@@ -1,0 +1,47 @@
+name: oreslang-source-pr71-exact-head
+
+on:
+  push:
+    branches: ["ci/oreslang-source-pr71"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+
+      - name: Checkout exact Oreslang PR 71 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=c0112413fcbb30468a47a1bf104da7648669e219
+          git clone --quiet https://github.com/ores-truffle-oreslang/oreslang-source.java.git "$RUNNER_TEMP/oreslang-source.java"
+          git -C "$RUNNER_TEMP/oreslang-source.java" checkout --quiet --detach "$sha"
+          test "$(git -C "$RUNNER_TEMP/oreslang-source.java" rev-parse HEAD)" = "$sha"
+          echo "source_sha=$sha"
+
+      - name: Full Maven verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -f "$RUNNER_TEMP/oreslang-source.java/pom.xml" verify
+
+      - name: Execute source examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/oreslang-source.java"
+          mvn -B -ntp -DskipTests compile exec:java -Dexec.args=examples/showcase.ores
+          mvn -B -ntp -DskipTests compile exec:java -Dexec.args=examples/together.ores
