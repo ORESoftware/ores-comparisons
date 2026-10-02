@@ -1,0 +1,51 @@
+namespace type_model_demo;
+
+define interface Readable as
+  fnc read() => int;
+end
+
+define trait Seeded as
+  private val int seed = 40;
+
+  pub seeded_value() => int {
+    return self.seed + 2;
+  }
+end
+
+define class Box is Readable with Seeded as
+  pub read() => int {
+    return self.seeded_value();
+  }
+end
+
+struct Packet is Readable {
+  value: int;
+
+  pub read() => int {
+    return self.value;
+  }
+}
+
+fnc through_interface(Readable value) => int {
+  return value.read();
+}
+
+fnc through_class(Box value) => int {
+  return value.read();
+}
+
+fnc through_struct(Packet value) => int {
+  return value.read();
+}
+
+pub routine main() => void {
+  val Box box = new Box();
+  val Packet packet = Packet { value = 7 };
+
+  stdio.println(through_interface(box));
+  stdio.println(through_interface(packet));
+  stdio.println(through_class(box));
+  stdio.println(through_struct(packet));
+  stdio.println("type-model-ok");
+  return;
+}
