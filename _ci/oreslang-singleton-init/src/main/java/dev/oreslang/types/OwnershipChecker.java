@@ -261,14 +261,15 @@ public final class OwnershipChecker {
         }
 
         ValueInfo value;
-        if (isIntrinsicCall(binding.initializer(), "borrow")) {
-            VarState owner = intrinsicOwner((Ast.CallExpr) binding.initializer(), scope, "borrow");
-            beginPersistentBorrow(owner, false);
-            value = new ValueInfo(Ast.TypeRef.borrowed(owner.type, false), ValueKind.IMM_BORROW, owner);
-        } else if (binding.initializer() instanceof Ast.LambdaExpr lambda) {
+        if (binding.initializer() instanceof Ast.LambdaExpr lambda) {
             value = checkLambda(lambda, scope, binding.name());
         } else {
             value = checkExpr(binding.initializer(), scope, true);
+        }
+
+        if ((value.kind == ValueKind.IMM_BORROW || value.kind == ValueKind.MUT_BORROW)
+                && value.borrowSource != null) {
+            beginPersistentBorrow(value.borrowSource, value.kind == ValueKind.MUT_BORROW);
         }
 
         if (recursiveLambda) {
@@ -324,29 +325,68 @@ public final class OwnershipChecker {
             Map<VarState, StateSnapshot> rightExit = stateSnapshot(scope);
 
             mergeBranchState(base, List.of(leftExit, rightExit));
-            return left.kind == ValueKind.COPY && right.kind == ValueKind.COPY
-                    ? left
-                    : new ValueInfo(left.type, ValueKind.MOVE_ONLY, null);
+            if (left.kind == ValueKind.COPY && right.kind == ValueKind.COPY) return left;
+
+            boolean leftBorrow = left.kind == ValueKind.IMM_BORROW || left.kind == ValueKind.MUT_BORROW;
+            boolean rightBorrow = right.kind == ValueKind.IMM_BORROW || right.kind == ValueKind.MUT_BORROW;
+            if (leftBorrow || rightBorrow) {
+                if (leftBorrow && rightBorrow
+                        && left.kind == right.kind
+                        && left.borrowSource != null
+                        && left.borrowSource == right.borrowSource) {
+                    return new ValueInfo(left.type, left.kind, left.borrowSource);
+                }
+                throw error("conditional expression has ambiguous borrowed ownership provenance; "
+                        + "bind/copy ownership before the conditional");
+            }
+
+            return new ValueInfo(left.type, ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.CallExpr call) {
             return checkCall(call, scope);
         }
         if (expr instanceof Ast.MemberExpr member) {
-            checkExpr(member.receiver(), scope, false);
+            ValueInfo receiver = checkExpr(member.receiver(), scope, false);
             Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
-            if (klass != null
-                    && findField(klass, member.member(), new LinkedHashSet<>()) == null
-                    && hasMutableReceiverMethod(klass, member.member(), new LinkedHashSet<>())) {
-                throw error("mutable-receiver method value '" + member.member()
-                        + "' cannot be extracted; call it directly through a mutable owner"
-                        + " until persistent exclusive bound-method lifetimes are modeled");
+            if (klass != null) {
+                Ast.FieldDecl field = findField(klass, member.member(), new LinkedHashSet<>());
+                if (field != null) {
+                    Ast.TypeRef fieldType = field.type() == null ? Ast.TypeRef.inferred() : field.type();
+                    if (isCopyType(fieldType)) {
+                        return new ValueInfo(fieldType, ValueKind.COPY, null);
+                    }
+                    VarState owner = receiver.borrowSource != null
+                            ? receiver.borrowSource
+                            : projectionOwner(member.receiver(), scope);
+                    if (owner == null && consuming && receiver.kind == ValueKind.MOVE_ONLY) {
+                        // Moving a field out of an otherwise unreachable temporary is safe.
+                        return new ValueInfo(fieldType, ValueKind.MOVE_ONLY, null);
+                    }
+                    return new ValueInfo(Ast.TypeRef.borrowed(fieldType, false), ValueKind.IMM_BORROW, owner);
+                }
+                if (hasMutableReceiverMethod(klass, member.member(), new LinkedHashSet<>())) {
+                    throw error("mutable-receiver method value '" + member.member()
+                            + "' cannot be extracted; call it directly through a mutable owner"
+                            + " until persistent exclusive bound-method lifetimes are modeled");
+                }
             }
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.IndexExpr indexed) {
-            checkExpr(indexed.receiver(), scope, false);
+            ValueInfo receiver = checkExpr(indexed.receiver(), scope, false);
             checkExpr(indexed.index(), scope, false);
-            return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
+            Ast.TypeRef elementType = indexedElementType(indexed, scope);
+            if (elementType != null && isCopyType(elementType)) {
+                return new ValueInfo(elementType, ValueKind.COPY, null);
+            }
+            Ast.TypeRef effectiveType = elementType == null ? Ast.TypeRef.inferred() : elementType;
+            VarState owner = receiver.borrowSource != null
+                    ? receiver.borrowSource
+                    : projectionOwner(indexed.receiver(), scope);
+            if (owner == null && consuming && receiver.kind == ValueKind.MOVE_ONLY) {
+                return new ValueInfo(effectiveType, ValueKind.MOVE_ONLY, null);
+            }
+            return new ValueInfo(Ast.TypeRef.borrowed(effectiveType, false), ValueKind.IMM_BORROW, owner);
         }
         if (expr instanceof Ast.NewExpr created) {
             for (Ast.Expr arg : created.arguments()) checkExpr(arg, scope, true);
@@ -354,16 +394,30 @@ public final class OwnershipChecker {
         }
         if (expr instanceof Ast.AwaitExpr awaited) return checkExpr(awaited.expression(), scope, consuming);
         if (expr instanceof Ast.ListExpr list) {
-            for (Ast.Expr item : list.elements()) checkExpr(item, scope, true);
-            return new ValueInfo(Ast.TypeRef.simple("Array"), ValueKind.MOVE_ONLY, null);
+            Ast.TypeRef elementType = null;
+            boolean uniform = true;
+            for (Ast.Expr item : list.elements()) {
+                ValueInfo info = checkExpr(item, scope, true);
+                if (elementType == null) elementType = info.type;
+                else uniform &= elementType.equals(info.type);
+            }
+            Ast.TypeRef listType = elementType != null && uniform
+                    ? new Ast.TypeRef("Array", List.of(elementType), false)
+                    : Ast.TypeRef.simple("Array");
+            return new ValueInfo(listType, ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.TupleExpr tuple) {
             boolean copy = true;
+            List<Ast.TypeRef> elementTypes = new ArrayList<>();
             for (Ast.Expr item : tuple.elements()) {
                 ValueInfo info = checkExpr(item, scope, true);
                 copy &= info.kind == ValueKind.COPY;
+                elementTypes.add(info.type);
             }
-            return new ValueInfo(Ast.TypeRef.inferred(), copy ? ValueKind.COPY : ValueKind.MOVE_ONLY, null);
+            return new ValueInfo(
+                    new Ast.TypeRef("Tuple", elementTypes, false),
+                    copy ? ValueKind.COPY : ValueKind.MOVE_ONLY,
+                    null);
         }
         if (expr instanceof Ast.ObjectExpr object) {
             for (Ast.ObjectField field : object.fields()) checkExpr(field.value(), scope, true);
@@ -438,13 +492,40 @@ public final class OwnershipChecker {
                     if (receiver.kind == ValueKind.IMM_BORROW || receiver.kind == ValueKind.MUT_BORROW) {
                         throw error("method '" + method.name() + "' takes self ownership but receiver is borrowed");
                     }
-                } else {
-                    checkExpr(member.receiver(), scope, false);
-                    if (requiresMutableReceiver(method)) {
+                    checkArguments(call.arguments(), method.parameters(), scope, "method " + method.name());
+                    return new ValueInfo(method.returnType(), kindOfType(method.returnType()), null);
+                }
+
+                boolean mutableReceiver = requiresMutableReceiver(method);
+                ValueInfo receiver = checkExpr(member.receiver(), scope, false);
+                VarState receiverOwner = receiver.borrowSource != null
+                        ? receiver.borrowSource
+                        : projectionOwner(member.receiver(), scope);
+
+                if (mutableReceiver) {
+                    if (receiverOwner != null) {
                         ensureMutableReceiver(member.receiver(), scope, "method '" + method.name() + "' receiver");
+                    } else if (receiver.kind != ValueKind.MOVE_ONLY) {
+                        throw error("mutable method '" + method.name() + "' requires a unique owned temporary or mutable owner");
                     }
                 }
-                checkArguments(call.arguments(), method.parameters(), scope, "method " + method.name());
+
+                TemporaryBorrow receiverBorrow = null;
+                if (receiverOwner != null && receiverOwner.kind != ValueKind.COPY) {
+                    beginTemporaryBorrow(
+                            receiverOwner,
+                            mutableReceiver,
+                            "method '" + method.name() + "' receiver",
+                            0,
+                            receiverOwner.debugName);
+                    receiverBorrow = new TemporaryBorrow(receiverOwner, mutableReceiver);
+                }
+
+                try {
+                    checkArguments(call.arguments(), method.parameters(), scope, "method " + method.name());
+                } finally {
+                    if (receiverBorrow != null) endTemporaryBorrow(receiverBorrow);
+                }
                 return new ValueInfo(method.returnType(), kindOfType(method.returnType()), null);
             }
             checkExpr(member.receiver(), scope, false);
@@ -515,9 +596,7 @@ public final class OwnershipChecker {
             }
         } finally {
             for (int i = temporaryBorrows.size() - 1; i >= 0; i--) {
-                TemporaryBorrow temporary = temporaryBorrows.get(i);
-                if (temporary.mutable()) temporary.owner().mutableBorrowed = false;
-                else temporary.owner().immutableBorrows--;
+                endTemporaryBorrow(temporaryBorrows.get(i));
             }
         }
     }
@@ -556,6 +635,11 @@ public final class OwnershipChecker {
         }
 
         beginPersistentBorrow(state, mutable);
+    }
+
+    private void endTemporaryBorrow(TemporaryBorrow temporary) {
+        if (temporary.mutable()) temporary.owner().mutableBorrowed = false;
+        else temporary.owner().immutableBorrows--;
     }
 
     private void checkAssignmentTarget(Ast.Expr target, Scope scope) {
@@ -603,7 +687,16 @@ public final class OwnershipChecker {
             }
             return;
         }
-        throw error("mutation target must be rooted in a let owner or mut parameter");
+        if (receiver instanceof Ast.MemberExpr member) {
+            ensureMutableReceiver(member.receiver(), scope, what);
+            return;
+        }
+        if (receiver instanceof Ast.IndexExpr indexed) {
+            ensureMutableReceiver(indexed.receiver(), scope, what);
+            return;
+        }
+        if (receiver instanceof Ast.NewExpr) return;
+        throw error("mutation target must be rooted in a let owner, mut parameter, or unique temporary");
     }
 
     private boolean isIntrinsicCall(Ast.Expr expression, String name) {
@@ -770,14 +863,96 @@ public final class OwnershipChecker {
     }
 
     private Ast.ClassDecl classOfReceiver(Ast.Expr receiver, Scope scope) {
-        Ast.TypeRef type = null;
-        if (receiver instanceof Ast.NameExpr name) {
-            VarState state = scope.lookup(name.name());
-            if (state != null) type = state.type;
-        } else if (receiver instanceof Ast.NewExpr created) type = created.type();
+        Ast.TypeRef type = ownershipTypeOfExpr(receiver, scope);
         if (type == null) return null;
-        if (type.isBorrow()) type = type.borrowedTarget();
+        while (type.isBorrow()) type = type.borrowedTarget();
         return findClass(type.name());
+    }
+
+    private VarState projectionOwner(Ast.Expr expression, Scope scope) {
+        if (expression instanceof Ast.NameExpr name) return scope.lookup(name.name());
+        if (expression instanceof Ast.MemberExpr member) return projectionOwner(member.receiver(), scope);
+        if (expression instanceof Ast.IndexExpr indexed) return projectionOwner(indexed.receiver(), scope);
+        return null;
+    }
+
+    private Ast.TypeRef indexedElementType(Ast.IndexExpr indexed, Scope scope) {
+        Ast.TypeRef collection = ownershipTypeOfExpr(indexed.receiver(), scope);
+        if (collection == null) return null;
+        while (collection.isBorrow()) collection = collection.borrowedTarget();
+
+        if ((collection.name().equals("Array") || collection.name().equals("List"))
+                && collection.arguments().size() == 1) {
+            return collection.arguments().getFirst();
+        }
+
+        if (collection.name().equals("Tuple") && !collection.arguments().isEmpty()) {
+            if (indexed.index() instanceof Ast.LiteralExpr literal && literal.value() instanceof Long value) {
+                int position = Math.toIntExact(value);
+                if (position >= 0 && position < collection.arguments().size()) {
+                    return collection.arguments().get(position);
+                }
+            }
+            Ast.TypeRef first = collection.arguments().getFirst();
+            boolean uniform = collection.arguments().stream().allMatch(first::equals);
+            if (uniform) return first;
+            boolean allCopy = collection.arguments().stream().allMatch(this::isCopyType);
+            if (allCopy) return first; // exact type is TypeChecker's job; ownership only needs Copy-ness.
+        }
+        return null;
+    }
+
+    private Ast.TypeRef ownershipTypeOfExpr(Ast.Expr expression, Scope scope) {
+        if (expression instanceof Ast.NameExpr name) {
+            VarState state = scope.lookup(name.name());
+            return state == null ? null : state.type;
+        }
+        if (expression instanceof Ast.NewExpr created) return created.type();
+        if (expression instanceof Ast.AwaitExpr awaited) return ownershipTypeOfExpr(awaited.expression(), scope);
+        if (expression instanceof Ast.MemberExpr member) {
+            Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
+            if (klass == null) return null;
+            Ast.FieldDecl field = findField(klass, member.member(), new LinkedHashSet<>());
+            if (field != null) return field.type();
+
+            Ast.MethodDecl method = findMethod(klass, member.member(), 0, new LinkedHashSet<>());
+            return method == null ? null : normalizeSelfReturn(method.returnType(), klass);
+        }
+        if (expression instanceof Ast.IndexExpr indexed) return indexedElementType(indexed, scope);
+        if (expression instanceof Ast.CallExpr call) {
+            if (call.callee() instanceof Ast.NameExpr name) {
+                Ast.FunctionDecl fn = findFunction(name.name());
+                return fn == null ? null : fn.returnType();
+            }
+            if (call.callee() instanceof Ast.MemberExpr member) {
+                if (member.receiver() instanceof Ast.NameExpr namespace && scope.lookup(namespace.name()) == null) {
+                    Ast.FunctionDecl qualified = findFunction(namespace.name() + "." + member.member());
+                    if (qualified != null) return qualified.returnType();
+                    Ast.ClassDecl staticClass = findClass(namespace.name());
+                    Ast.MethodDecl staticMethod = staticClass == null
+                            ? null
+                            : findStaticMethod(staticClass, member.member(), call.arguments().size(), new LinkedHashSet<>());
+                    if (staticMethod != null) return normalizeSelfReturn(staticMethod.returnType(), staticClass);
+                }
+                Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
+                Ast.MethodDecl method = klass == null
+                        ? null
+                        : findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
+                if (method != null) return normalizeSelfReturn(method.returnType(), klass);
+            }
+        }
+        if (expression instanceof Ast.ConditionalExpr conditional) {
+            Ast.TypeRef left = ownershipTypeOfExpr(conditional.whenTrue(), scope);
+            Ast.TypeRef right = ownershipTypeOfExpr(conditional.whenFalse(), scope);
+            return left != null && left.equals(right) ? left : null;
+        }
+        return null;
+    }
+
+    private Ast.TypeRef normalizeSelfReturn(Ast.TypeRef returnType, Ast.ClassDecl klass) {
+        return returnType != null && returnType.name().equals("self")
+                ? Ast.TypeRef.simple(klass.name())
+                : returnType;
     }
 
     private Ast.FieldDecl findField(Ast.ClassDecl klass, String name, Set<Ast.ClassDecl> seen) {
