@@ -6,21 +6,22 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: oreslang-pr68-v4-mirror
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr57-full
+
 jobs:
-  full-test:
+  gc-focused:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out validation repo
-        uses: actions/checkout@v4
-      - name: Check out exact Oreslang GC branch
-        uses: actions/checkout@v4
-        with:
-          repository: ores-truffle-oreslang/oreslang-source.java
-          ref: feat/gc-private-shared-actors
-          path: oreslang-source
+      - uses: actions/checkout@v4
       - name: Set up GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
@@ -29,12 +30,27 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
-      - name: Runtime diagnostics
-        working-directory: oreslang-source
-        run: |
-          git rev-parse HEAD
-          java --version
-          mvn --version
-      - name: Compile and test exact Oreslang PR 68 branch
-        working-directory: oreslang-source
+      - name: Verify exact mirrored source
+        run: grep -Fq "head 3ec80a0006e93509ca90d89a93bc83763a0ce469" SOURCE_HEAD.txt
+      - name: GC and actor-isolation focused tests
+        run: >-
+          mvn -B -ntp
+          -Dtest=GarbageCollectionHardeningTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest,OreslangActorIsolationExampleTest
+          test
+
+  full-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Verify exact mirrored source
+        run: grep -Fq "head 3ec80a0006e93509ca90d89a93bc83763a0ce469" SOURCE_HEAD.txt
+      - name: Full Maven test suite
         run: mvn -B -ntp test
