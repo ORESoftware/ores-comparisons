@@ -163,6 +163,7 @@ public final class ActorRuntime implements AutoCloseable {
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
     public int maxActors() { return maxActors; }
+    public boolean isClosed() { return closed.get(); }
 
     public static SchedulerConfig schedulerConfig() { return PROCESS_SCHEDULERS.config; }
     public static SchedulerSnapshot schedulerSnapshot() { return PROCESS_SCHEDULERS.snapshot(); }
@@ -1231,8 +1232,8 @@ public final class ActorRuntime implements AutoCloseable {
             try {
                 rebalancePrivate();
                 rebalanceShared();
-            } catch (Throwable ignored) {
-                // Telemetry/tuning must never take down actor work.
+            } catch (RuntimeException | LinkageError ignored) {
+                // Telemetry/tuning failures must not take down actor work.
             }
         }
 
@@ -1510,7 +1511,15 @@ public final class ActorRuntime implements AutoCloseable {
                 try {
                     PROCESS_SCHEDULERS.executeShared(
                             this::runSharedTurn);
-                } catch (Throwable schedulingFailure) {
+                } catch (VirtualMachineError fatal) {
+                    sharedTurnScheduled.set(false);
+                    terminate(fatal);
+                    throw fatal;
+                } catch (ThreadDeath death) {
+                    sharedTurnScheduled.set(false);
+                    terminate(death);
+                    throw death;
+                } catch (RuntimeException schedulingFailure) {
                     sharedTurnScheduled.set(false);
                     terminate(schedulingFailure);
                 }
@@ -1651,7 +1660,7 @@ public final class ActorRuntime implements AutoCloseable {
                     false, true)) {
                 try {
                     onTerminated.accept(failure);
-                } catch (Throwable ignored) {
+                } catch (RuntimeException ignored) {
                     // Lifecycle notification must not destabilize runtime cleanup.
                 }
             }
