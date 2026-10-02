@@ -489,6 +489,7 @@ public final class ActorRuntime implements AutoCloseable {
         if (ref == null || !ref.belongsTo(this)) {
             throw new IllegalArgumentException("ActorRef belongs to another ActorRuntime");
         }
+
         ActorCell<M> cell = (ActorCell<M>) actors.get(ref.id());
         if (cell == null) throw new IllegalStateException("unknown actor " + ref.id());
         if (!cell.reserveMailboxSlot()) {
@@ -498,27 +499,65 @@ public final class ActorRuntime implements AutoCloseable {
         boolean enqueued = false;
         try {
             Object frozen = freezeForThisRuntime(message);
+
             if (cell.memoryPolicy.mode() == MemoryMode.PRIVATE_ARENA
                     && containsReadonlyShared(frozen)) {
                 throw new SecurityException(
                         "PRIVATE_ARENA actors cannot receive Shared<T> JVM-heap aliases");
             }
-            if (containsSharedMutex(frozen)) {
+
+            Set<OresMutex.Shared<?>> sharedMutexes = sharedMutexesIn(frozen);
+            if (!sharedMutexes.isEmpty()) {
                 if (cell.memoryPolicy.mode() == MemoryMode.PRIVATE_ARENA) {
                     throw new SecurityException(
                             "PRIVATE_ARENA actors cannot receive SharedMutex<T>");
                 }
+
                 IsolatePolicy sender = CURRENT_ACTOR_POLICY.get();
-                if (sender != null) sender.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor send");
-                else policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex host send");
-                cell.policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor receive");
-                bindSharedMutexes(frozen);
+                if (sender != null) {
+                    sender.require(
+                            IsolatePolicy.Capability.SHARED_MEMORY,
+                            "SharedMutex actor send");
+                } else {
+                    policyCeiling.require(
+                            IsolatePolicy.Capability.SHARED_MEMORY,
+                            "SharedMutex host send");
+                }
+                cell.policy.require(
+                        IsolatePolicy.Capability.SHARED_MEMORY,
+                        "SharedMutex actor receive");
             }
-            if (!cell.enqueueReserved(frozen)) {
-                throw new IllegalStateException(
-                        "actor terminated before message admission for " + ref.id());
+
+            synchronized (lifecycleLock) {
+                if (closed.get()) {
+                    throw new IllegalStateException("actor runtime is closed");
+                }
+
+                if (!sharedMutexes.isEmpty()) {
+                    boolean compatible = OresMutex.publishToRuntime(
+                            this,
+                            sharedMutexes,
+                            () -> {
+                                if (!cell.enqueueReserved(frozen)) {
+                                    throw new IllegalStateException(
+                                            "actor terminated before message admission for "
+                                                    + ref.id());
+                                }
+                            });
+                    if (!compatible) {
+                        throw new IllegalArgumentException(
+                                "SharedMutex may cross actor mailboxes only within its owning ActorRuntime");
+                    }
+                } else if (!cell.enqueueReserved(frozen)) {
+                    throw new IllegalStateException(
+                            "actor terminated before message admission for " + ref.id());
+                }
+
+                enqueued = true;
             }
-            enqueued = true;
+
+            // Publication/admission is complete before a shared actor can
+            // observe the message.
             cell.messageAvailable();
         } finally {
             if (!enqueued) cell.releaseMailboxSlot();
@@ -772,52 +811,41 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
-    private void bindSharedMutexes(Object value) {
+    private static Set<OresMutex.Shared<?>> sharedMutexesIn(Object value) {
+        Set<OresMutex.Shared<?>> found = new LinkedHashSet<>();
+        collectSharedMutexes(value, found);
+        return java.util.Collections.unmodifiableSet(found);
+    }
+
+    private static void collectSharedMutexes(
+            Object value,
+            Set<OresMutex.Shared<?>> found) {
         if (value instanceof OresMutex.Shared<?> sharedMutex) {
-            if (!sharedMutex.bindToRuntime(this)) {
-                throw new IllegalArgumentException(
-                        "SharedMutex may cross actor mailboxes only within its owning ActorRuntime");
-            }
+            found.add(sharedMutex);
             return;
         }
         if (value instanceof Shared<?> shared) {
-            bindSharedMutexes(shared.value());
+            collectSharedMutexes(shared.value(), found);
             return;
         }
         if (value instanceof List<?> list) {
-            for (Object item : list) bindSharedMutexes(item);
+            for (Object item : list) collectSharedMutexes(item, found);
             return;
         }
         if (value instanceof Set<?> set) {
-            for (Object item : set) bindSharedMutexes(item);
+            for (Object item : set) collectSharedMutexes(item, found);
             return;
         }
         if (value instanceof Map<?, ?> map) {
             for (Map.Entry<?, ?> entry : map.entrySet()) {
-                bindSharedMutexes(entry.getKey());
-                bindSharedMutexes(entry.getValue());
+                collectSharedMutexes(entry.getKey(), found);
+                collectSharedMutexes(entry.getValue(), found);
             }
         }
     }
 
     private static boolean containsSharedMutex(Object value) {
-        if (value instanceof OresMutex.Shared<?>) return true;
-        if (value instanceof Shared<?> shared) return containsSharedMutex(shared.value());
-        if (value instanceof List<?> list) {
-            for (Object item : list) if (containsSharedMutex(item)) return true;
-            return false;
-        }
-        if (value instanceof Set<?> set) {
-            for (Object item : set) if (containsSharedMutex(item)) return true;
-            return false;
-        }
-        if (value instanceof Map<?, ?> map) {
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                if (containsSharedMutex(entry.getKey()) || containsSharedMutex(entry.getValue())) return true;
-            }
-            return false;
-        }
-        return false;
+        return !sharedMutexesIn(value).isEmpty();
     }
 
     private static boolean containsReadonlyShared(Object value) {
@@ -1390,6 +1418,7 @@ public final class ActorRuntime implements AutoCloseable {
 
         private volatile boolean terminated;
         private volatile Thread privateActorThread;
+        private volatile Thread sharedExecutingThread;
         private volatile Behavior<M> sharedBehavior;
         private volatile ActorContext<M> sharedContext;
 
@@ -1456,6 +1485,10 @@ public final class ActorRuntime implements AutoCloseable {
                                         "ores-private-actor-"
                                                 + ref.id().value())
                                 .start(this::runPrivateActor);
+            } else {
+                // Eagerly initialize shared behavior so factory/startup
+                // failures remove the actor even before its first message.
+                scheduleSharedTurn();
             }
         }
 
@@ -1530,9 +1563,13 @@ public final class ActorRuntime implements AutoCloseable {
         private void runSharedTurn() {
             Throwable terminalFailure = null;
             boolean reschedule = false;
+            Thread worker = Thread.currentThread();
             installActorThreadLocals();
             try {
-                if (stopped.get() || closed.get()) return;
+                synchronized (this) {
+                    if (terminated || stopped.get() || closed.get()) return;
+                    sharedExecutingThread = worker;
+                }
 
                 Behavior<M> behavior = sharedBehavior;
                 ActorContext<M> context = sharedContext;
@@ -1570,7 +1607,17 @@ public final class ActorRuntime implements AutoCloseable {
             } catch (Throwable failure) {
                 terminalFailure = failure;
             } finally {
+                synchronized (this) {
+                    if (sharedExecutingThread == worker) {
+                        sharedExecutingThread = null;
+                    }
+                }
                 clearActorThreadLocals();
+
+                // Never leak actor cancellation interrupt state back into the
+                // shared ForkJoinPool worker's next unrelated task.
+                if (worker.isInterrupted()) Thread.interrupted();
+
                 sharedTurnScheduled.set(false);
 
                 if (terminalFailure != null
@@ -1691,6 +1738,13 @@ public final class ActorRuntime implements AutoCloseable {
                     actorThread.interrupt();
                 }
             } else {
+                Thread worker;
+                synchronized (this) {
+                    worker = sharedExecutingThread;
+                }
+                if (worker != null && worker != Thread.currentThread()) {
+                    worker.interrupt();
+                }
                 scheduleSharedTurn();
             }
         }
