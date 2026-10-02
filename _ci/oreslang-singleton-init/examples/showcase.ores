@@ -16,11 +16,11 @@ define module math
 end
 
 define module model
-  define class Base as
+  define class Base
     pub seven() => int { return 7; }
   end
 
-  define class Box<T> extends Base as
+  define class Box<T> extends Base
     val T value;
 
     @Ret<self>

@@ -34,41 +34,6 @@ import * as x from './xyz';
 
 Wildcard imports always require a namespace alias. This avoids silently injecting an unbounded set of names into the local scope. Import paths are part of the AST/compiler contract; filesystem/package resolution is a host build/bundling concern so strict isolates do not gain ambient filesystem access merely by using `import`.
 
-### Circular imports and file initialization
-
-Import cycles are legal. Oreslang does not reject a program merely because its
-file/module graph contains a cycle such as `a.ores -> b.ores -> a.ores`.
-
-The loader uses a staged lifecycle:
-
-1. parse and statically validate the complete reachable source graph;
-2. resolve/link imports for every code unit;
-3. compute strongly connected components (SCCs) of the import graph;
-4. for each dependency-first SCC, verify that **all** members are linked;
-5. run each member's optional file init hook;
-6. after initialization, invoke the entry unit's `main`.
-
-A file init hook has the exact shape:
-
-```ores
-fnc init() => void {
-  // side effects are allowed here
-  return;
-}
-```
-
-It is private, synchronous, non-actor, non-generic, takes no parameters, and
-returns `void`. The hook runs at most once for that loaded code-unit
-generation. Inside a cycle, init hooks execute in deterministic normalized
-code-unit-id order, but code must rely only on the stronger barrier guarantee:
-**every peer in the cycle is already linked before any peer's init begins**.
-
-This means an init hook may call exported declarations from a cyclic peer
-without observing an "unloaded module" state. If application state requires a
-specific sequencing relationship *between* two init hooks in the same cycle,
-that relationship should be made explicit in application code rather than
-inferred from the import edges.
-
 ## Module interfaces / OCaml-style module signatures
 
 Interfaces can describe the structural public shape required of a module. A module opts into checking with `@AdheresTo(...)`:
@@ -154,7 +119,7 @@ const {foo, bar} = named();
 // {const foo, const bar} = named();
 ```
 
-A bare `_` is a sequence discard pattern: it consumes that array/tuple position without declaring a variable, so it can be repeated in the same sequence pattern or reused by later destructures. Object patterns do not accept bare `_` because object destructuring is key-based rather than positional.
+A bare `_` is a discard pattern: it consumes that position without declaring a variable, so it can be repeated in the same pattern or reused by later destructures.
 
 ```ores
 [const code, _, let body] = (200, "ignored", "ok");
@@ -164,16 +129,14 @@ A bare `_` is a sequence discard pattern: it consumes that array/tuple position 
 
 `_` is not readable after the destructure because no lexical binding is created for it. A destructured `const` is an immutable runtime binding; unlike a standalone `const x = ...` declaration, the aggregate being destructured does not need to be a compile-time constant.
 
-Sequence destructuring requires a returned tuple or array/list. Finite tuples are checked for exact arity and per-position type. Object destructuring requires a record/map-like value and every requested key must exist. If the returned type is a union, destructuring is allowed only when every union alternative supports the requested pattern; each extracted binding receives the union of the corresponding alternative member types. Function-parameter destructuring is intentionally not part of this syntax yet.
+Sequence destructuring requires a returned tuple or array/list. Finite tuples are checked for exact arity and per-position type. Object destructuring requires a record/map-like value and every requested key must exist. Function-parameter destructuring is intentionally not part of this syntax yet.
 
 ## Classes, receivers, multiple inheritance, and interfaces
-
-Class headers use `as` as the required body delimiter. The canonical form is `define class Name as ... end`; when `extends` or `implements` are present, `as` follows the complete class header.
 
 Methods omit `fnc`. Instance methods always have an implicit receiver named `self`.
 
 ```ores
-define class Box<T> as
+define class Box<T>
   val T value;
 
   @Ret<self>
@@ -196,7 +159,7 @@ The receiver variable name is always `self`.
 A class may list multiple parent classes and multiple interfaces:
 
 ```ores
-define class Combined extends Cacheable, Serializable implements HasId, Named as
+define class Combined extends Cacheable, Serializable implements HasId, Named
 end
 ```
 
@@ -205,10 +168,10 @@ Parent order is significant and is the deterministic v0.2 method-resolution orde
 `Object` and `List` are extensible base classes:
 
 ```ores
-define class RecordBag extends Object as
+define class RecordBag extends Object
 end
 
-define class Names extends List as
+define class Names extends List
 end
 ```
 
@@ -254,14 +217,14 @@ define interface Named
   String name;
 end
 
-define class User implements Named as
+define class User implements Named
   pub val String name;
 end
 ```
 
 Class interface satisfaction uses public members, including inherited public members.
 
-## Option, Result, and null
+## Option and null
 
 Oreslang does **not** have ambient nullable references. A bare `null` value is a compile-time error, and `null` is not a standalone variable/parameter/return type.
 
@@ -277,32 +240,6 @@ fnc lookup(bool found) => Option<int> {
 }
 ```
 
-Fallible operations use `Result<T, E>`, constructed with `Ok(value)` or `Err(error)`. `Result` always has exactly two explicit type arguments.
-
-```ores
-val Option<int> present = Some(42);
-val number = present.unwrap();
-
-val Option<int> missing = None;
-val safe = missing.unwrap_safe();          // Err(OptionUnwrapError(...))
-
-val Result<int, String> parsed = Ok(123);
-val same = parsed.unwrap_safe();            // Ok(123)
-```
-
-- `Option<T>.unwrap() -> T` returns the `Some` payload and panics on `None`.
-- `Option<T>.unwrap_safe() -> Result<T, OptionUnwrapError>` never panics for absence.
-- `Result<T,E>.unwrap() -> T` returns the `Ok` payload and panics on `Err`.
-- `Result<T,E>.unwrap_safe() -> Result<T,E>` never panics; it preserves the error-as-value carrier.
-- `expect(String)` is the descriptive panicking form; `unwrap_or(T)` supplies a fallback.
-- `is_some()/is_none()` and `is_ok()/is_err()` inspect variants without extraction.
-
-Like Rust methods that take `self`, extraction consumes a move-only `Option` or `Result`. `Option<T>` is `Copy` exactly when `T` is `Copy`; `Result<T,E>` is `Copy` exactly when both payload types are `Copy`.
-
-Owned sum values cannot hide lexical borrows until explicit lifetime parameters exist, so `Some(&value)`, `Ok(&value)`, and `Err(&value)` are rejected.
-
-Panics are distinct from ordinary recoverable errors. Normal `try/catch` does not swallow an unwrap panic, while lexical cleanup and `finally` still execute during unwind. Use `unwrap_safe()`, matching, or explicit variant inspection when absence/failure should remain data.
-
 `Option<null>` is accepted only as an explicit type-level escape hatch when an interoperability boundary truly needs to preserve a null marker. The `null` marker cannot escape that direct `Option<null>` position. `Option<void>` is invalid; use `void` when a function returns no value.
 
 ## Numbers
@@ -317,38 +254,11 @@ Numeric widening is loss-aware; real values can widen toward complex values, but
 
 ## Lambdas
 
-Lambdas are lexical closures by default and use `->`. The canonical block
-form keeps returns explicit:
+Lambdas use `->`:
 
 ```ores
-val Fnc<int, int> inc = |int x| -> {
-  return x + 1;
-};
+val Fnc<int, int> inc = (int x) -> x + 1;
 ```
-
-A normal lambda may capture activation-local bindings from its enclosing
-function or block. Captured mutable state remains part of the closure.
-
-## Non-lexical callables (`nlex`)
-
-`nlex` is an opt-in **capture barrier**, not a ban on global/module lookup.
-It prevents a callable from capturing bindings owned by an enclosing runtime
-activation, so an `nlex` lambda does not retain or snapshot an outer local
-environment.
-
-Inside an `nlex` region:
-
-- parameters and locals declared inside the callable remain available;
-- locals shadow module/global/import bindings normally;
-- module members, imports, top-level callables/classes, and built-ins remain
-  statically resolvable;
-- enclosing activation-local bindings cannot be captured;
-- lambdas nested in an `nlex fnc`, `nlex routine`, or `nlex` lambda inherit
-  the barrier.
-
-Actor entry points remain governed by their actor isolation rules. `nlex` may
-add a capture-free guarantee to an actor fnc, but it does not replace mailbox,
-private-slice, or shared-actor isolation.
 
 ## Conditionals
 
@@ -388,63 +298,7 @@ try {
 
 ## Actors
 
-Oreslang uses an Akka-style dispatcher model: an actor is **not** a thread. Every actor owns one mailbox, and at most one mailbox turn for a given actor may execute at a time. Actors are multiplexed over bounded thread pools, so the carrier thread may change between turns.
-
-There are two actor execution domains:
-
-```ores
-pub actor fnc worker(int value) => int {
-  return value;
-}
-
-shared actor Account {
-  let int balance = 100;
-
-  pub fnc withdraw(int amount) => void {
-    self.balance = self.balance - amount;
-    return;
-  }
-}
-```
-
-- an unqualified `actor` is **private**;
-- `shared actor` is a **shared-memory-capable** actor;
-- private and shared actors are scheduled on **different dispatcher pools** for bulkheading;
-- compiler-generated/context-aware actor factories are capture-free for **both** actor kinds; mutable host state must enter through messages or explicit runtime-owned capabilities rather than Java closure capture;
-- trusted host embedding has separately named supervisor-only construction escape hatches, and adversarial policies reject them;
-- both kinds still process their own mailbox serially;
-- actor-owned `let` fields may mutate during a mailbox turn because that turn is the exclusive mutation capability for `self`;
-- no lock is required around ordinary actor-owned fields, including fields of a shared actor;
-- actor `self` and move-only state rooted at `self` cannot escape the mailbox turn by value or returned borrow; copy-like values such as integers, booleans, and strings may be returned normally;
-- synchronized shared memory requires the host-granted `SHARED_MEMORY` capability.
-
-Private actors do not accept explicitly shared mutable memory. Each private actor owns a **confined memory slice** identified by its actor id, independent of whichever dispatcher thread happens to execute a mailbox turn. Incoming messages are isolation-copied into that actor domain and charged against the destination slice before mailbox admission. Compiler-managed actor state allocations use the same slice.
-
-The slice has two simultaneous limits:
-
-- a per-actor limit from that actor's `IsolatePolicy.maxHeapBytes()`;
-- an aggregate private-actor memory budget from the parent runtime policy.
-
-This prevents many private actors from multiplying the parent's memory ceiling. Destroying the actor closes its slice and releases its accounting.
-
-The JVM backend's slice is a language/runtime ownership and accounting boundary, not a separate Java GC heap. The slice follows the actor id across dispatcher workers; it is not thread-local state. When physical heap separation is required for adversarial tenant code, the same private-actor semantics must be backed by a cross-thread-capable private region or a separate Graal polyglot/native isolate.
-
-Shared actors may additionally receive:
-
-1. deeply immutable `Shared<T>` values; and
-2. explicit synchronized shared cells.
-
-The runtime primitive for the second case is `SyncCell<T>`. A cell stores only frozen state and serializes replacement updates under a lock. Shared-cell state is quota-accounted against the same parent actor-memory ceiling as private actor slices. Private actor turns cannot create, inspect, mutate, or close a `SyncCell<T>`. This is the intended lowering target for a future `sync` language construct; `sync` is **not** an implicit lock around actor methods.
-
-Actor message graphs are cyclicity-checked and bounded by nesting depth, node count, and logical byte quotas before admission so malicious container graphs cannot turn actor transport into unbounded recursion, CPU, or memory use.
-
-This preserves the central invariant:
-
-> Actor state is mutated through mailbox ownership. Shared mutable state outside an actor is exceptional and must use an explicit synchronization abstraction.
-
-Arbitrary mutable host objects remain invalid actor messages. Actor kind is part of the public ABI, so changing a normal callable/class into a private or shared actor invalidates dependent compiled units.
-
-Shared writable handles use transactional publication. A `SharedMutex<T>` is reserved to the destination runtime before mailbox visibility, committed only after queue admission, and unbound again when first publication fails. This prevents failed sends from accidentally claiming a writable capability for the wrong runtime.
+Actors own their mutable heaps. Cross-actor communication occurs through mailboxes, and message values are frozen/copied/serialized at the runtime boundary. Arbitrary mutable host objects are rejected as messages. Deeply immutable values may use read-only sharing.
 
 ## Isolates
 
@@ -474,7 +328,7 @@ Named modules remain the normal namespace unit, but a source file may also conta
 
 ```ores
 define module x
-  define class y as
+  define class y
   end
 end
 
@@ -554,7 +408,7 @@ Explicit `implements` and module `@AdheresTo(...)` checks remain structural conf
 Only methods overload, and only by arity:
 
 ```ores
-define class Lookup as
+define class Lookup
   find() => Option<int> {
     return None;
   }
@@ -598,7 +452,7 @@ for (val item of values) {
 Classes can expose a JavaScript-like iterator symbol:
 
 ```ores
-define class Bag as
+define class Bag
   [Symbol.iterator]() => Array<int> {
     return arr[1, 2, 3];
   }
@@ -639,7 +493,7 @@ Security is layered. Oreslang uses a deny-by-default language capability policy 
 
 An isolate policy can independently allow or deny:
 
-`STDIN`, `STDOUT`, `PROCESS_INFO`, `ACTOR_SHARE_READONLY`, `SHARED_MEMORY`, `NETWORK`, `FILESYSTEM_READ`, `FILESYSTEM_WRITE`, `ENVIRONMENT`, `HOT_CODE_LOAD`, `FFI`, `NATIVE`, `REFLECTION`, `CHILD_PROCESS`, `THREAD_CREATE`, and `POLYGLOT`.
+`STDIN`, `STDOUT`, `PROCESS_INFO`, `ACTOR_SHARE_READONLY`, `NETWORK`, `FILESYSTEM_READ`, `FILESYSTEM_WRITE`, `ENVIRONMENT`, `HOT_CODE_LOAD`, `FFI`, `NATIVE`, `REFLECTION`, `CHILD_PROCESS`, `THREAD_CREATE`, and `POLYGLOT`.
 
 The trusted compiler API can reject forbidden API usage before execution:
 
@@ -783,7 +637,7 @@ A deployment may still aggregate many code units into one Native Image for start
 Instance methods continue to omit `fnc`:
 
 ```ores
-define class Counter as
+define class Counter
   read() => int {
     return self.value;
   }
@@ -793,7 +647,7 @@ end
 Class-level functions are not methods. They are declared with the explicit `static fnc` form:
 
 ```ores
-define class Counter as
+define class Counter
   pub static fnc twice(int value) => int {
     return value * 2;
   }
@@ -997,3 +851,94 @@ The same compiled program can target a secondary multi-threaded runtime because:
 - actor messages continue to cross actor boundaries only through the existing frozen/sendable contract.
 
 When explicit thread/task spawning is added, cross-thread transfer will require move semantics and a `Send`-equivalent capability; shared cross-thread references will additionally require a `Sync`-equivalent guarantee. Those marker traits are intentionally a future surface feature—the current source language has no ambient raw-thread API, so there is no unchecked escape hatch to bypass ownership.
+
+
+## GPU execution placement
+
+`gpu` is a reserved execution-placement keyword. It is stronger than an optimization hint: accepted `gpu` code is lowered into a device artifact during ordinary compilation and must never silently fall back to the CPU/Truffle evaluator.
+
+A named function targets its entire body. Buffer results use an explicit mutable output parameter so the device ABI has clear ownership and allocation semantics:
+
+```ores
+gpu fnc saxpy(
+  f32 a,
+  Array<f32> x,
+  Array<f32> y,
+  Array<f32> mut out,
+  i64 n
+) => void {
+  for (let i64 i = 0; i < n; i = i + 1) {
+    out[i] = a * x[i] + y[i];
+  }
+  return;
+}
+```
+
+The compiler emits deterministic OpenCL C 1.2 source for admitted GPU code. Named GPU functions receive a device helper plus a kernel entrypoint. Scalar-returning callables receive an explicit result buffer in the generated kernel ABI. Array/List parameters become `__global` pointers; immutable buffers are emitted `const`, and ownership-safe buffers are emitted `restrict` so the device compiler can optimize aliasing aggressively.
+
+The compiler recognizes a conservative elementwise loop shape:
+
+```ores
+for (let i64 i = 0; i < n; i = i + 1) {
+  out[i] = ...;
+}
+```
+
+When the GPU function is void, the loop is the only top-level operation (apart from `return;`), the induction is canonical, the bound is device-safe, and every access to a mutable buffer is provably indexed by the same induction variable, the wrapper is lowered to `get_global_id(0)`. If race-freedom cannot be proven, the compiler keeps single-work-item semantics instead of performing an unsafe parallelization.
+
+Static class functions may use GPU placement. GPU instance methods remain rejected until Oreslang defines a stable device-side class/object layout.
+
+For one anonymous kernel, GPU lambda parameters are explicit so the device ABI is known at compile time:
+
+```ores
+const work = gpu |f32 x| -> {
+  return x * x;
+};
+```
+
+For a statically known batch, `parallel` is contextual rather than globally reserved:
+
+```ores
+const funcs = gpu parallel List.of(
+  || -> { return; },
+  || -> { return; },
+  || -> { return; }
+);
+```
+
+Every direct lambda in that batch receives its own GPU kernel entrypoint. For a zero-argument, void batch, the compiler also emits a fused dispatcher kernel with one GPU work-item per function and records the dispatcher plus work-item count in the GPU manifest. That gives the runtime an actual concurrent launch shape without repeating `gpu` on each lambda.
+
+`parallel` does **not** mean "bind lambda 0 to physical GPU core 0". GPU schedulers map work-items onto lanes, warps/wavefronts, work-groups, SMs/CUs, and devices dynamically. Physical multi-GPU placement should therefore be a separate future device-affinity surface (for example `gpu device(...)`) rather than a core-number API.
+
+The generated artifact contains kernel symbols, helper symbols, source-level names, argument ABI metadata, result type, batch IDs, launch-shape metadata, launch-extent expressions for proven 1-D loops, a source digest, and required device extensions. `cl_khr_fp64` is emitted only when generated code actually uses `double`. For signed launch bounds, the launch plan explicitly requires clamping negative work-item counts to zero so a source loop with zero iterations cannot become a huge unsigned device launch. Buffer parameters marked `restrict` also carry an enforceable no-alias launch contract; a physical launcher must reject overlapping bindings that would violate that promise.
+
+The current device ABI is deliberately conservative. GPU parameters may be scalar values or flat `Array<T>`/`List<T>` buffers of supported scalar element types. Device scalar widths/signs are preserved exactly (`i32` is distinct from `i64`, `u32` from `i32`, and `f32` from `f64`). GPU lowering rejects implicit narrowing or mixed-width/sign arithmetic; numeric literals may be contextually represented in the surrounding exact device type only when the literal value fits that type. GPU callables and lambdas return a scalar or `void`; array results must be written through a mutable buffer parameter. Generics, structural parameters, tuples in the device ABI, complex arithmetic, strings, bigint/decimal, classes/objects, records, `Option`, nested host-list layouts, host borrows/references, host/global captures, list/tuple allocation, destructuring, `for-of`, `await`, `defer`, `try/catch`, object allocation, nested closures, dynamic calls, recursion, and calls to non-`gpu` functions are rejected.
+
+## Quantum execution placement
+
+`quantum` is a reserved execution-placement keyword for callables whose whole body must execute through a quantum-processing backend rather than the ordinary CPU evaluator or the GPU backend. Unmarked callables remain CPU-targeted by default.
+
+```ores
+quantum fnc phase_estimate(i32 shots) => i32 {
+  return shots;
+}
+```
+
+Static class functions use the canonical long-form class body syntax:
+
+```ores
+define class QuantumOps as
+  quantum static fnc solve(i32 shots) => i32 {
+    return shots;
+  }
+end
+```
+
+In the canonical declaration model, class/module bodies use `as`, interface conformance uses `is`, and trait composition uses `with`. Quantum placement is orthogonal to those declaration relationships.
+
+`quantum` is mutually exclusive with `gpu` and `async`. Quantum routines, instance methods, and abstract methods are rejected. Public ABI fingerprints preserve CPU/GPU/quantum placement so changing the target invalidates dependent compiled artifacts.
+
+There is deliberately no `quantum parallel` or `quantum core(N)` surface. Quantum hardware does not map to GPU-style lanes or stable numbered cores. Future QPU work should add explicit circuit/register/qubit/measurement concepts and backend/device policy without weakening the execution-target contract.
+
+
+Ordinary compilation now runs parsing, type/ownership checking, GPU admission, and GPU lowering. Incremental code units retain the generated GPU artifact. The reference runtime still has no physical GPU launcher wired into Truffle; invoking GPU-targeted code there fails closed instead of executing the GPU body on the CPU.

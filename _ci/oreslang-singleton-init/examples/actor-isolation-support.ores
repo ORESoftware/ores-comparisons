@@ -1,3 +1,0 @@
-pub fnc actor_label(bool shared) => String {
-  return shared ? "shared" : "private";
-}

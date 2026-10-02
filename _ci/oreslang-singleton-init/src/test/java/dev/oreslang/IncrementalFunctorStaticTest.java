@@ -123,6 +123,23 @@ final class IncrementalFunctorStaticTest {
     }
 
     @Test
+    void incrementalUnitsRetainGeneratedGpuArtifacts() {
+        IncrementalCompiler compiler = new IncrementalCompiler();
+        var build = compiler.compile(Map.of(
+                "math.ores", """
+                        gpu fnc add(i32 a, i32 b) => i32 {
+                          return a + b;
+                        }
+                        """));
+
+        var unit = build.units().get("math.ores");
+        assertNotNull(unit.gpuProgram());
+        assertTrue(unit.gpuProgram().hasKernels());
+        assertEquals(1, unit.gpuProgram().kernels().size());
+        assertTrue(unit.gpuProgram().source().contains("__kernel void"));
+    }
+
+    @Test
     void compiledUnitsCanStageDirectlyAsIndependentHotReloadGenerations() {
         IncrementalCompiler compiler = new IncrementalCompiler();
         var build = compiler.compile(Map.of(
@@ -158,7 +175,7 @@ final class IncrementalFunctorStaticTest {
     void staticClassFunctionsUseStaticFncAndDoNotReceiveSelf() throws Exception {
         String output = run("""
                 define module model
-                  define class Counter as
+                  define class Counter
                     pub val int value = 9;
 
                     pub static fnc twice(int x) => int {
@@ -179,19 +196,19 @@ final class IncrementalFunctorStaticTest {
         assertEquals("18", output);
 
         assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
-                define class Bad as
+                define class Bad
                   static nope() => int { return 1; }
                 end
                 """));
 
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Bad as
+                define class Bad
                   static fnc nope() => int { return self.value; }
                 end
                 """)));
 
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Bad as
+                define class Bad
                   static fnc make() => int { return 1; }
                 end
                 fnc bad() => int {

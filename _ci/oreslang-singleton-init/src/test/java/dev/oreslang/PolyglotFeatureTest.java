@@ -11,6 +11,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PolyglotFeatureTest {
     @Test
+    void executesRepeatedUnderscoreDestructureDiscards() throws Exception {
+        String program = """
+                define module app
+                  pub fnc main() => void {
+                    [const foo, _, let bar] = (1, 200, 3);
+                    [const z, _, let y] = (4, 500, 6);
+                    [_, _, const tail] = (700, 800, 9);
+                    stdio.println(foo + bar + z + y + tail);
+                    return;
+                  }
+                end
+                """;
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(OresLanguage.ID, program, "destructure-discard.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        assertTrue(output.toString(StandardCharsets.UTF_8).contains("23"));
+    }
+
+    @Test
     void executesNamespacesCollectionsAssignmentAndInheritedMethods() throws Exception {
         String program = """
                 define module math
@@ -18,10 +47,10 @@ final class PolyglotFeatureTest {
                 end
 
                 define module model
-                  define class A as
+                  define class A
                     pub value() => int { return 7; }
                   end
-                  define class B extends A as
+                  define class B extends A
                   end
                 end
 
@@ -56,34 +85,4 @@ final class PolyglotFeatureTest {
         assertTrue(text.contains("7"));
         assertTrue(text.contains("ores"));
     }
-
-@Test
-    void executesRepeatedUnderscoreDestructureDiscards() throws Exception {
-        String program = """
-                define module app
-                  pub fnc main() => void {
-                    [const foo, _, let bar] = (1, 200, 3);
-                    [const z, _, let y] = (4, 500, 6);
-                    [_, _, const tail] = (700, 800, 9);
-                    stdio.println(foo + bar + z + y + tail);
-                    return;
-                  }
-                end
-                """;
-
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        Source source = Source.newBuilder(OresLanguage.ID, program, "destructure-discard.ores")
-                .mimeType(OresLanguage.MIME_TYPE)
-                .build();
-
-        try (Context context = Context.newBuilder(OresLanguage.ID)
-                .allowAllAccess(false)
-                .out(output)
-                .build()) {
-            context.eval(source);
-        }
-
-        assertTrue(output.toString(StandardCharsets.UTF_8).contains("23"));
-    }
-
 }

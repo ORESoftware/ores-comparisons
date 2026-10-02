@@ -5,14 +5,12 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
 import dev.oreslang.OresLanguage;
 import dev.oreslang.ast.Ast;
-import dev.oreslang.parser.Parser;
 import dev.oreslang.runtime.OresContext;
 import dev.oreslang.runtime.CapabilityChecker;
 import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.OresMutex;
 import dev.oreslang.runtime.ActorRuntime;
 
-import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,22 +24,11 @@ import java.util.concurrent.CompletionStage;
 
 /** Executable Truffle root. Parsing and static checks happen before this node is created. */
 public final class OresEvalRootNode extends RootNode {
-    public static final String LINK_ONLY_COMMAND = "__ores_internal_link_only__";
-    public static final String INIT_ONLY_COMMAND = "__ores_internal_init_only__";
-    public static final String MAIN_ONLY_COMMAND = "__ores_internal_main_only__";
-
     private final Ast.Program program;
-    private final String codeUnitId;
-    private volatile Evaluator evaluator;
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program) {
-        this(language, program, "<anonymous>");
-    }
-
-    public OresEvalRootNode(OresLanguage language, Ast.Program program, String codeUnitId) {
         super(language);
         this.program = program;
-        this.codeUnitId = codeUnitId;
     }
 
     @Override public String getName() { return "ores-eval"; }
@@ -55,72 +42,24 @@ public final class OresEvalRootNode extends RootNode {
     @TruffleBoundary
     private Object executeBoundary(OresContext context, Object[] arguments) {
         CapabilityChecker.check(program, context.isolatePolicy());
-        Evaluator current = evaluator(context);
-        if (isControl(arguments, LINK_ONLY_COMMAND)) {
-            current.link();
-            return null;
-        }
-        if (isControl(arguments, INIT_ONLY_COMMAND)) {
-            current.link();
-            return current.initialize();
-        }
-        if (isControl(arguments, MAIN_ONLY_COMMAND)) {
-            current.link();
-            return current.executeMain(new Object[0]);
-        }
-
-        // Backward-compatible single-source execution. Multi-file hosts use
-        // link/init/main commands to install a full import graph before init.
-        current.link();
-        current.initialize();
-        return current.executeMain(arguments);
-    }
-
-    private Evaluator evaluator(OresContext context) {
-        Evaluator current = evaluator;
-        if (current != null) return current;
-        synchronized (this) {
-            current = evaluator;
-            if (current == null) evaluator = current = new Evaluator(program, context, codeUnitId);
-            return current;
-        }
-    }
-
-    private static boolean isControl(Object[] arguments, String command) {
-        return arguments.length == 1 && command.equals(arguments[0]);
+        return new Evaluator(program, context).execute(arguments);
     }
 
     private static final class Evaluator {
         private final Ast.Program program;
         private final OresContext context;
-        private final String codeUnitId;
         private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
         private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
         private final Map<String, Ast.TypeAliasDecl> typeAliases = new HashMap<>();
         private final Map<String, Ast.ModuleDecl> modules = new HashMap<>();
-        private final Map<String, Ast.ImportDecl> namedImports = new HashMap<>();
-        private final Map<String, Ast.ImportDecl> namespaceImports = new HashMap<>();
         private final Set<String> ambiguousFunctions = new LinkedHashSet<>();
         private final Set<String> ambiguousClasses = new LinkedHashSet<>();
         private final Set<String> ambiguousTypeAliases = new LinkedHashSet<>();
-        private boolean initialized;
 
-        private Evaluator(Ast.Program program, OresContext context, String codeUnitId) {
+        private Evaluator(Ast.Program program, OresContext context) {
             this.program = program;
             this.context = context;
-            this.codeUnitId = normalizeUnitId(codeUnitId);
-            indexImports();
             indexDeclarations();
-        }
-
-        private void indexImports() {
-            for (Ast.ImportDecl imported : program.imports()) {
-                if (imported.wildcard()) {
-                    namespaceImports.put(imported.namespace(), imported);
-                } else {
-                    for (String name : imported.names()) namedImports.put(name, imported);
-                }
-            }
         }
 
         private void indexDeclarations() {
@@ -158,36 +97,20 @@ public final class OresEvalRootNode extends RootNode {
             return typeAliases.get(name);
         }
 
-        private synchronized void link() {
-            context.registerLinkedCodeUnit(codeUnitId, this);
-        }
-
-        private synchronized Object initialize() {
-            if (initialized) return null;
-            // Mark before invocation so a recursive path cannot run init twice.
-            initialized = true;
-            Ast.FunctionDecl init = functions.get(Parser.ROOT_MODULE + ".init");
-            if (init == null) return null;
-            return callFunction(init, List.of());
-        }
-
-        private Object executeMain(Object[] arguments) {
-            Ast.FunctionDecl main = functions.get(Parser.ROOT_MODULE + ".main");
-            if (main == null) main = findFunction("main");
+        private Object execute(Object[] arguments) {
+            Ast.FunctionDecl main = findFunction("main");
             if (main == null) return null;
             return callFunction(main, List.of(arguments));
         }
 
         private Object callFunction(Ast.FunctionDecl fn, List<?> args) {
-            if (fn.actorKind() != Ast.ActorKind.NONE) {
-                throw new IllegalStateException("actor fnc '" + fn.name()
-                        + "' cannot execute on the caller stack; it must be lowered through ActorRuntime");
-            }
+            if (Ast.hasQuantumPlacement(fn.annotations())) throw quantumBackendUnavailable("function " + fn.name());
+            if (Ast.hasGpuPlacement(fn.annotations())) throw gpuBackendUnavailable("function " + fn.name());
             if (args.size() != fn.parameters().size()) {
                 if (fn.parameters().isEmpty() && args.size() == 1 && args.getFirst() instanceof Object[] array && array.length == 0) args = List.of();
                 else throw new IllegalArgumentException("function " + fn.name() + " expects " + fn.parameters().size() + " arguments, got " + args.size());
             }
-            Env env = new Env(null, fn.nonLexical());
+            Env env = new Env(null);
             for (int i = 0; i < fn.parameters().size(); i++) {
                 Ast.Param param = fn.parameters().get(i);
                 env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
@@ -199,6 +122,8 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private Object callMethod(OresObject receiver, Ast.MethodDecl method, List<?> args) {
+            if (Ast.hasQuantumPlacement(method.annotations())) throw quantumBackendUnavailable("method " + method.name());
+            if (Ast.hasGpuPlacement(method.annotations())) throw gpuBackendUnavailable("method " + method.name());
             if (args.size() != method.parameters().size()) throw new IllegalArgumentException("method " + method.name() + " arity mismatch");
             Env env = new Env(null);
             if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
@@ -280,7 +205,6 @@ public final class OresEvalRootNode extends RootNode {
             if (stmt instanceof Ast.TryStmt tried) {
                 try { executeBlock(tried.body(), env); }
                 catch (ReturnSignal signal) { throw signal; }
-                catch (OresPanic panic) { throw panic; }
                 catch (RuntimeException failure) {
                     Env catchEnv = new Env(env);
                     catchEnv.define(tried.errorName(), failure, Ast.BindingKind.VAL);
@@ -320,7 +244,6 @@ public final class OresEvalRootNode extends RootNode {
                 if (local != Env.MISSING) return local;
                 if (name.name().equals("stdio")) return new StdioFacade(context);
                 if (name.name().equals("process")) return new ProcessFacade(context);
-                if (name.name().equals("actor")) return new ActorFacade(context);
                 if (name.name().equals("Mutex")) return new MutexFactory(false, context);
                 if (name.name().equals("SharedMutex")) return new MutexFactory(true, context);
                 if (name.name().equals("print")) return (Invokable) args -> {
@@ -332,20 +255,10 @@ public final class OresEvalRootNode extends RootNode {
                     return new OptionValue(true, args.getFirst());
                 };
                 if (name.name().equals("None")) return new OptionValue(false, null);
-                if (name.name().equals("Ok")) return (Invokable) args -> {
-                    requireOne(args, "Ok");
-                    return new ResultValue(true, args.getFirst());
-                };
-                if (name.name().equals("Err")) return (Invokable) args -> {
-                    requireOne(args, "Err");
-                    return new ResultValue(false, args.getFirst());
-                };
                 Ast.ModuleDecl module = modules.get(name.name());
-                if (module != null) return new ModuleFacade(this, module);
+                if (module != null) return new ModuleFacade(module);
                 Ast.ClassDecl klass = findClass(name.name());
-                if (klass != null) return new ClassFacade(this, klass);
-                Object imported = importedValue(name.name());
-                if (imported != Env.MISSING) return imported;
+                if (klass != null) return new ClassFacade(klass);
                 Ast.FunctionDecl fn = findFunction(name.name());
                 if (fn != null) return (Invokable) args -> callFunction(fn, args);
                 throw new IllegalArgumentException("unknown name " + name.name());
@@ -360,17 +273,7 @@ public final class OresEvalRootNode extends RootNode {
                     Object receiver = eval(target.receiver(), env);
                     if (receiver instanceof OresMutex.Guard<?> guard) receiver = guard.value();
                     if (receiver instanceof OresObject object) {
-                        if (!object.fields.containsKey(target.member())) {
-                            throw new IllegalArgumentException("unknown field " + target.member());
-                        }
-                        Ast.FieldDecl field = effectiveFields(object.klass, new LinkedHashSet<>()).stream()
-                                .filter(candidate -> candidate.name().equals(target.member()))
-                                .findFirst()
-                                .orElseThrow(() -> new IllegalArgumentException("unknown field " + target.member()));
-                        if (field.bindingKind() != Ast.BindingKind.LET) {
-                            throw new IllegalArgumentException("field '" + object.klass.name() + "."
-                                    + target.member() + "' is immutable");
-                        }
+                        if (!object.fields.containsKey(target.member())) throw new IllegalArgumentException("unknown field " + target.member());
                         object.fields.put(target.member(), value);
                         return value;
                     }
@@ -399,41 +302,24 @@ public final class OresEvalRootNode extends RootNode {
                 Object value = eval(unary.operand(), env);
                 return switch (unary.operator()) {
                     case "&", "&mut" -> value;
-                    case "!" -> !truth(value);
-                    case "~" -> ~integralLong(value);
-                    case "+" -> value;
-                    case "-" -> negate(value);
+                    case "!" -> !truth(value); case "+" -> value; case "-" -> negate(value);
                     default -> throw new IllegalArgumentException("unsupported unary operator " + unary.operator());
                 };
             }
             if (expr instanceof Ast.BinaryExpr binary) {
-                if (binary.operator().equals("&&")) {
-                    Object left = eval(binary.left(), env);
-                    return truth(left) && truth(eval(binary.right(), env));
-                }
-                if (binary.operator().equals("||")) {
-                    Object left = eval(binary.left(), env);
-                    return truth(left) || truth(eval(binary.right(), env));
-                }
-                if (binary.operator().equals("^^")) {
-                    return truth(eval(binary.left(), env)) ^ truth(eval(binary.right(), env));
-                }
-                Object left = eval(binary.left(), env);
-                Object right = eval(binary.right(), env);
-                if (binary.operator().equals("|") && left instanceof Boolean lb && right instanceof Boolean rb) {
-                    return lb || rb;
-                }
-                return binary(binary.operator(), left, right);
+                if (binary.operator().equals(",")) return truth(eval(binary.left(), env)) && truth(eval(binary.right(), env));
+                if (binary.operator().equals("|")) return truth(eval(binary.left(), env)) || truth(eval(binary.right(), env));
+                return binary(binary.operator(), eval(binary.left(), env), eval(binary.right(), env));
             }
             if (expr instanceof Ast.CallExpr call) {
                 if (call.callee() instanceof Ast.MemberExpr methodCall) {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
                     if (receiver instanceof OresObject object) {
-                        return object.owner.invokeMethod(object, methodCall.member(), args);
+                        return invokeMethod(object, methodCall.member(), args);
                     }
                     if (receiver instanceof ClassFacade klass) {
-                        return klass.owner().invokeStaticFunction(klass.klass(), methodCall.member(), args);
+                        return invokeStaticFunction(klass.klass(), methodCall.member(), args);
                     }
                     Object callee = member(receiver, methodCall.member());
                     if (!(callee instanceof Invokable invokable)) throw new IllegalArgumentException("value is not callable: " + callee);
@@ -456,28 +342,24 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (expr instanceof Ast.NewExpr created) {
                 Ast.ClassDecl klass = findClass(created.type().name());
-                Evaluator owner = this;
-                if (klass == null) {
-                    Object imported = importedValue(created.type().name());
-                    if (imported instanceof ClassFacade externalClass) {
-                        owner = externalClass.owner();
-                        klass = externalClass.klass();
-                    }
-                }
                 if (klass == null) throw new IllegalArgumentException("unknown class " + created.type().name());
                 List<Object> args = created.arguments().stream().map(arg -> eval(arg, env)).toList();
-                return owner.instantiate(klass, args);
+                List<Ast.FieldDecl> classFields = effectiveFields(klass, new LinkedHashSet<>());
+                if (args.size() > classFields.size()) throw new IllegalArgumentException("too many constructor arguments for " + klass.name());
+                LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+                for (int i = 0; i < classFields.size(); i++) {
+                    Ast.FieldDecl field = classFields.get(i);
+                    Object value;
+                    if (i < args.size()) value = args.get(i);
+                    else if (field.initializer() != null) value = eval(field.initializer(), env);
+                    else throw new IllegalArgumentException("missing constructor field " + klass.name() + "." + field.name());
+                    fields.put(field.name(), value);
+                }
+                return new OresObject(klass, fields);
             }
             if (expr instanceof Ast.AwaitExpr awaited) {
                 Object value = eval(awaited.expression(), env);
-                if (value instanceof CompletionStage<?> stage) {
-                    var future = stage.toCompletableFuture();
-                    if (ActorRuntime.inActorExecution() && !future.isDone()) {
-                        throw new IllegalStateException(
-                                "await would block an actor dispatcher carrier; actor continuation lowering must suspend/resume the mailbox turn");
-                    }
-                    return future.join();
-                }
+                if (value instanceof CompletionStage<?> stage) return stage.toCompletableFuture().join();
                 return value;
             }
             if (expr instanceof Ast.ListExpr list) {
@@ -493,12 +375,29 @@ public final class OresEvalRootNode extends RootNode {
                 }
                 return Map.copyOf(result);
             }
+            if (expr instanceof Ast.GpuExpr gpu) {
+                if (gpu.mode() == Ast.GpuMode.SINGLE) {
+                    if (!(gpu.expression() instanceof Ast.LambdaExpr)) {
+                        throw new IllegalArgumentException("'gpu' expression placement requires a direct lambda");
+                    }
+                    return (Invokable) args -> { throw gpuBackendUnavailable("gpu lambda"); };
+                }
+                List<Ast.Expr> kernels = gpuParallelElements(gpu.expression());
+                ArrayList<Object> batch = new ArrayList<>(kernels.size());
+                for (int i = 0; i < kernels.size(); i++) {
+                    if (!(kernels.get(i) instanceof Ast.LambdaExpr)) {
+                        throw new IllegalArgumentException("'gpu parallel' batch contains a non-lambda");
+                    }
+                    final int kernelIndex = i;
+                    batch.add((Invokable) args -> { throw gpuBackendUnavailable("gpu parallel kernel[" + kernelIndex + "]"); });
+                }
+                return batch;
+            }
             if (expr instanceof Ast.LambdaExpr lambda) {
-                boolean nonLexical = lambda.nonLexical() || env.descendantsNonLexical();
-                Env captured = nonLexical ? null : env.snapshot();
+                Env captured = env.snapshot();
                 return (Invokable) args -> {
                     if (args.size() != lambda.parameters().size()) throw new IllegalArgumentException("lambda arity mismatch");
-                    Env local = new Env(captured, nonLexical);
+                    Env local = new Env(captured);
                     for (int i = 0; i < lambda.parameters().size(); i++) {
                         Ast.Param param = lambda.parameters().get(i);
                         local.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
@@ -532,22 +431,13 @@ public final class OresEvalRootNode extends RootNode {
                     case "context_id" -> process.contextId();
                     case "descriptor" -> process.descriptor();
                     case "share_readonly" -> (Invokable) process::shareReadonly;
-                    case "gc" -> (Invokable) process::gc;
                     default -> throw new IllegalArgumentException("unknown process member " + name);
-                };
-            }
-            if (receiver instanceof ActorFacade actor) {
-                return switch (name) {
-                    case "gc" -> (Invokable) actor::gc;
-                    default -> throw new IllegalArgumentException("unknown actor member " + name);
                 };
             }
             if (receiver instanceof MutexFactory factory) {
                 if (!name.equals("new")) throw new IllegalArgumentException("unknown mutex factory member " + name);
                 return (Invokable) factory::create;
             }
-            if (receiver instanceof OptionValue option) return optionMember(option, name);
-            if (receiver instanceof ResultValue result) return resultMember(result, name);
             if (receiver instanceof OresMutex.Lock<?> lock) return mutexMember(lock, name);
             if (receiver instanceof OresMutex.Guard<?> guard) {
                 return switch (name) {
@@ -556,82 +446,25 @@ public final class OresEvalRootNode extends RootNode {
                     default -> member(guard.value(), name);
                 };
             }
-            if (receiver instanceof ImportedNamespace namespace) return namespace.owner().exportValue(namespace.kind(), name);
-            if (receiver instanceof ModuleFacade namespace) return namespace.owner().moduleMember(namespace.module(), name);
+            if (receiver instanceof ModuleFacade namespace) return moduleMember(namespace.module, name);
             if (receiver instanceof ClassFacade klass) {
-                List<Ast.MethodDecl> functions = klass.owner().findStaticFunctionsByName(klass.klass(), name, new LinkedHashSet<>());
+                List<Ast.MethodDecl> functions = findStaticFunctionsByName(klass.klass(), name, new LinkedHashSet<>());
                 if (functions.size() == 1) {
                     Ast.MethodDecl fn = functions.getFirst();
-                    return (Invokable) args -> klass.owner().callStaticFunction(klass.klass(), fn, args);
+                    return (Invokable) args -> callStaticFunction(klass.klass(), fn, args);
                 }
                 if (functions.size() > 1) throw new IllegalArgumentException("overloaded static function " + klass.klass().name() + "." + name + " must be called so arity can select it");
                 throw new IllegalArgumentException("unknown static member " + klass.klass().name() + "." + name);
             }
             if (receiver instanceof OresObject object) {
                 if (object.fields.containsKey(name)) return object.fields.get(name);
-                return new BoundMethod(object.owner, object, name);
+                return new BoundMethod(object, name);
             }
             if (receiver instanceof Map<?, ?> map) {
                 if (!map.containsKey(name)) throw new IllegalArgumentException("unknown obj member " + name);
                 return map.get(name);
             }
             throw new IllegalArgumentException("cannot access member '" + name + "' on " + receiver);
-        }
-
-        private Object optionMember(OptionValue option, String name) {
-            return switch (name) {
-                case "is_some" -> (Invokable) args -> { requireZero(args, "Option.is_some"); return option.present(); };
-                case "is_none" -> (Invokable) args -> { requireZero(args, "Option.is_none"); return !option.present(); };
-                case "unwrap" -> (Invokable) args -> {
-                    requireZero(args, "Option.unwrap");
-                    if (!option.present()) throw new OresPanic("called Option::unwrap() on a None value");
-                    return option.value();
-                };
-                case "unwrap_safe" -> (Invokable) args -> {
-                    requireZero(args, "Option.unwrap_safe");
-                    return option.present()
-                            ? new ResultValue(true, option.value())
-                            : new ResultValue(false, new OptionUnwrapError("None"));
-                };
-                case "expect" -> (Invokable) args -> {
-                    String message = requireStringArg(args, "Option.expect");
-                    if (!option.present()) throw new OresPanic(message);
-                    return option.value();
-                };
-                case "unwrap_or" -> (Invokable) args -> {
-                    requireOne(args, "Option.unwrap_or");
-                    return option.present() ? option.value() : args.getFirst();
-                };
-                default -> throw new IllegalArgumentException("unknown Option member " + name);
-            };
-        }
-
-        private Object resultMember(ResultValue result, String name) {
-            return switch (name) {
-                case "is_ok" -> (Invokable) args -> { requireZero(args, "Result.is_ok"); return result.ok(); };
-                case "is_err" -> (Invokable) args -> { requireZero(args, "Result.is_err"); return !result.ok(); };
-                case "unwrap" -> (Invokable) args -> {
-                    requireZero(args, "Result.unwrap");
-                    if (!result.ok()) {
-                        throw new OresPanic("called Result::unwrap() on an Err value: " + display(result.value()));
-                    }
-                    return result.value();
-                };
-                case "unwrap_safe" -> (Invokable) args -> {
-                    requireZero(args, "Result.unwrap_safe");
-                    return result;
-                };
-                case "expect" -> (Invokable) args -> {
-                    String message = requireStringArg(args, "Result.expect");
-                    if (!result.ok()) throw new OresPanic(message + ": " + display(result.value()));
-                    return result.value();
-                };
-                case "unwrap_or" -> (Invokable) args -> {
-                    requireOne(args, "Result.unwrap_or");
-                    return result.ok() ? result.value() : args.getFirst();
-                };
-                default -> throw new IllegalArgumentException("unknown Result member " + name);
-            };
         }
 
         @SuppressWarnings("unchecked")
@@ -701,6 +534,8 @@ public final class OresEvalRootNode extends RootNode {
 
         private Object callStaticFunction(Ast.ClassDecl klass, Ast.MethodDecl fn, List<?> args) {
             if (!fn.isStatic()) throw new IllegalArgumentException("not a static class function: " + klass.name() + "." + fn.name());
+            if (Ast.hasQuantumPlacement(fn.annotations())) throw quantumBackendUnavailable("static function " + klass.name() + "." + fn.name());
+            if (Ast.hasGpuPlacement(fn.annotations())) throw gpuBackendUnavailable("static function " + klass.name() + "." + fn.name());
             if (args.size() != fn.parameters().size()) throw new IllegalArgumentException("static function " + fn.name() + " arity mismatch");
             Env env = new Env(null);
             for (int i = 0; i < fn.parameters().size(); i++) {
@@ -719,128 +554,24 @@ public final class OresEvalRootNode extends RootNode {
          * a first-class callback. Direct receiver.method(...) calls allocate no
          * bound-method object.
          */
-        private static final class BoundMethod implements Invokable {
-            private final Evaluator owner;
+        private final class BoundMethod implements Invokable {
             private final OresObject receiver;
             private final String methodName;
 
-            private BoundMethod(Evaluator owner, OresObject receiver, String methodName) {
-                this.owner = owner;
+            private BoundMethod(OresObject receiver, String methodName) {
                 this.receiver = receiver;
                 this.methodName = methodName;
             }
 
             @Override public Object call(List<Object> arguments) {
-                return owner.invokeMethod(receiver, methodName, arguments);
+                return invokeMethod(receiver, methodName, arguments);
             }
-        }
-
-        private Object importedValue(String name) {
-            Ast.ImportDecl direct = namedImports.get(name);
-            if (direct != null) return importedTarget(direct).exportValue(direct.kind(), name);
-            Ast.ImportDecl namespace = namespaceImports.get(name);
-            if (namespace != null) return new ImportedNamespace(importedTarget(namespace), namespace.kind());
-            return Env.MISSING;
-        }
-
-        private Evaluator importedTarget(Ast.ImportDecl imported) {
-            String targetId = resolveImportUnitId(imported.path());
-            Object target = context.linkedCodeUnit(targetId);
-            if (!(target instanceof Evaluator evaluator)) {
-                throw new IllegalStateException(
-                        "import target '" + imported.path() + "' for '" + codeUnitId
-                                + "' is not linked yet; all members of an import cycle must be linked before init");
-            }
-            return evaluator;
-        }
-
-        private String resolveImportUnitId(String rawPath) {
-            String raw = rawPath.replace('\\', '/');
-            Path parent = Path.of(codeUnitId).getParent();
-            Path candidatePath = raw.startsWith(".")
-                    ? (parent == null ? Path.of(raw) : parent.resolve(raw)).normalize()
-                    : Path.of(raw).normalize();
-            String candidate = normalizeUnitId(candidatePath.toString());
-            if (!context.hasLinkedCodeUnit(candidate)
-                    && !candidate.endsWith(".ores")
-                    && context.hasLinkedCodeUnit(candidate + ".ores")) {
-                candidate += ".ores";
-            }
-            return candidate;
-        }
-
-        private Object exportValue(Ast.ImportKind kind, String name) {
-            return switch (kind) {
-                case FUNCTION -> {
-                    Ast.FunctionDecl fn = findFunction(name);
-                    if (fn == null || fn.visibility() != Ast.Visibility.PUBLIC) {
-                        throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export function '" + name + "'");
-                    }
-                    yield (Invokable) args -> callFunction(fn, args);
-                }
-                case CLASS -> {
-                    Ast.ClassDecl klass = findClass(name);
-                    if (klass == null) throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export class '" + name + "'");
-                    yield new ClassFacade(this, klass);
-                }
-                case MODULE -> {
-                    Ast.ModuleDecl module = modules.get(name);
-                    if (module == null) throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export module '" + name + "'");
-                    yield new ModuleFacade(this, module);
-                }
-                case ALL -> exportAny(name);
-            };
-        }
-
-        private Object exportAny(String name) {
-            Ast.ModuleDecl module = modules.get(name);
-            if (module != null && !module.name().equals(Parser.ROOT_MODULE)) return new ModuleFacade(this, module);
-            Ast.ClassDecl klass = findClass(name);
-            if (klass != null) return new ClassFacade(this, klass);
-            Ast.FunctionDecl fn = findFunction(name);
-            if (fn != null && fn.visibility() == Ast.Visibility.PUBLIC) return (Invokable) args -> callFunction(fn, args);
-            for (Ast.ModuleDecl candidate : program.modules()) {
-                for (Ast.Decl decl : candidate.declarations()) {
-                    if (decl instanceof Ast.FieldDecl field
-                            && field.visibility() == Ast.Visibility.PUBLIC
-                            && field.name().equals(name)) {
-                        if (field.initializer() == null) throw new IllegalArgumentException("exported binding has no initializer: " + name);
-                        return eval(field.initializer(), new Env(null));
-                    }
-                }
-            }
-            throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export '" + name + "'");
-        }
-
-        private OresObject instantiate(Ast.ClassDecl klass, List<Object> args) {
-            if (klass.actorKind() != Ast.ActorKind.NONE) {
-                throw new IllegalStateException("actor '" + klass.name()
-                        + "' cannot be constructed with new; actor state must be initialized inside ActorRuntime");
-            }
-            List<Ast.FieldDecl> classFields = effectiveFields(klass, new LinkedHashSet<>());
-            if (args.size() > classFields.size()) throw new IllegalArgumentException("too many constructor arguments for " + klass.name());
-            LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
-            Env env = new Env(null);
-            for (int i = 0; i < classFields.size(); i++) {
-                Ast.FieldDecl field = classFields.get(i);
-                Object value;
-                if (i < args.size()) value = args.get(i);
-                else if (field.initializer() != null) value = eval(field.initializer(), env);
-                else throw new IllegalArgumentException("missing constructor field " + klass.name() + "." + field.name());
-                fields.put(field.name(), value);
-            }
-            return new OresObject(this, klass, fields);
-        }
-
-        private static String normalizeUnitId(String id) {
-            if (id == null || id.isBlank()) throw new IllegalArgumentException("code unit id cannot be blank");
-            return Path.of(id).normalize().toString().replace('\\', '/');
         }
 
         private Object moduleMember(Ast.ModuleDecl module, String name) {
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.ClassDecl klass && klass.name().equals(name)) {
-                    return new ClassFacade(this, klass);
+                    return new ClassFacade(klass);
                 }
                 if (decl instanceof Ast.FunctionDecl fn && fn.name().equals(name) && fn.visibility() == Ast.Visibility.PUBLIC) {
                     return (Invokable) args -> callFunction(fn, args);
@@ -927,6 +658,27 @@ public final class OresEvalRootNode extends RootNode {
             return List.copyOf(result.values());
         }
 
+        private List<Ast.Expr> gpuParallelElements(Ast.Expr expression) {
+            if (expression instanceof Ast.ListExpr list) return list.elements();
+            if (expression instanceof Ast.TupleExpr tuple) return tuple.elements();
+            if (expression instanceof Ast.CallExpr call
+                    && call.callee() instanceof Ast.MemberExpr member
+                    && member.receiver() instanceof Ast.NameExpr name
+                    && name.name().equals("List")
+                    && member.member().equals("of")) {
+                return call.arguments();
+            }
+            throw new IllegalArgumentException("'gpu parallel' requires a list/tuple literal or List.of(...)");
+        }
+
+        private IllegalStateException gpuBackendUnavailable(String target) {
+            return new IllegalStateException(target + " is GPU-targeted, but no GPU lowering/backend is configured; Oreslang never falls back to CPU for 'gpu' code");
+        }
+
+        private IllegalStateException quantumBackendUnavailable(String target) {
+            return new IllegalStateException(target + " is quantum-targeted, but no quantum lowering/backend is configured; Oreslang never falls back to CPU or GPU for 'quantum' code");
+        }
+
         private List<?> iterableValues(Object value) {
             if (value instanceof List<?> list) return list;
             if (value instanceof Object[] array) return List.of(array);
@@ -946,12 +698,6 @@ public final class OresEvalRootNode extends RootNode {
                 case "==" -> Objects.equals(left, right); case "!=" -> !Objects.equals(left, right);
                 case "<" -> compare(left, right) < 0; case "<=" -> compare(left, right) <= 0;
                 case ">" -> compare(left, right) > 0; case ">=" -> compare(left, right) >= 0;
-                case "&" -> integralLong(left) & integralLong(right);
-                case "|" -> integralLong(left) | integralLong(right);
-                case "^" -> integralLong(left) ^ integralLong(right);
-                case "<<" -> integralLong(left) << shiftDistance(right);
-                case ">>" -> integralLong(left) >> shiftDistance(right);
-                case ">>>" -> integralLong(left) >>> shiftDistance(right);
                 default -> throw new IllegalArgumentException("unsupported operator " + op);
             };
         }
@@ -977,21 +723,6 @@ public final class OresEvalRootNode extends RootNode {
             }
             double x = a.doubleValue(), y = b.doubleValue();
             return switch (op) { case '+' -> x + y; case '-' -> x - y; case '*' -> x * y; case '/' -> x / y; case '%' -> x % y; default -> throw new IllegalArgumentException("bad numeric operator"); };
-        }
-
-        private long integralLong(Object value) {
-            if (!(value instanceof Number number) || !isIntegral(number)) {
-                throw new IllegalArgumentException("bitwise operator requires integer operands");
-            }
-            return number.longValue();
-        }
-
-        private int shiftDistance(Object value) {
-            long distance = integralLong(value);
-            if (distance < 0 || distance > 63) {
-                throw new IllegalArgumentException("shift distance must be between 0 and 63");
-            }
-            return (int) distance;
         }
 
         private Object negate(Object value) {
@@ -1035,18 +766,6 @@ public final class OresEvalRootNode extends RootNode {
                 }
             }
 
-            if (declared.isUnion()) {
-                List<String> failures = new ArrayList<>();
-                for (Ast.TypeRef option : declared.arguments()) {
-                    try {
-                        return shapeReturnedValue(option, value, callable, new LinkedHashSet<>(resolving));
-                    } catch (IllegalArgumentException error) {
-                        failures.add(error.getMessage());
-                    }
-                }
-                throw new IllegalArgumentException(callable + " return value does not match any union alternative: " + failures);
-            }
-
             if (declared.isTupleType()) {
                 List<?> items = asSequence(value);
                 if (items.size() != declared.arguments().size()) {
@@ -1059,50 +778,12 @@ public final class OresEvalRootNode extends RootNode {
                 }
                 return java.util.Arrays.asList(fixed);
             }
-
             if (declared.isRecordType()) {
                 for (Map.Entry<String, Ast.TypeRef> member : declared.recordMembers().entrySet()) {
                     Object nested = destructureMember(value, member.getKey());
                     shapeReturnedValue(member.getValue(), nested, callable + "." + member.getKey(), resolving);
                 }
-                return value;
             }
-
-            if (declared.name().equals("Array") || declared.name().equals("List")) {
-                if (declared.arguments().size() != 1) return value;
-                List<?> items = asSequence(value);
-                ArrayList<Object> shaped = new ArrayList<>(items.size());
-                for (int i = 0; i < items.size(); i++) {
-                    shaped.add(shapeReturnedValue(declared.arguments().getFirst(), items.get(i), callable + "[" + i + "]", resolving));
-                }
-                return shaped;
-            }
-
-            if (declared.name().equals("bool") || declared.name().equals("Bool")) {
-                if (!(value instanceof Boolean)) throw returnTypeMismatch(callable, declared, value);
-                return value;
-            }
-            if (declared.name().equals("string") || declared.name().equals("String")) {
-                if (!(value instanceof String)) throw returnTypeMismatch(callable, declared, value);
-                return value;
-            }
-            if (java.util.Set.of("i8","i16","i32","i64","u8","u16","u32","u64","int","uint","bigint").contains(declared.name())) {
-                if (!(value instanceof Number number) || !isIntegral(number)) throw returnTypeMismatch(callable, declared, value);
-                return value;
-            }
-            if (java.util.Set.of("f32","f64","float","decimal").contains(declared.name())) {
-                if (!(value instanceof Number)) throw returnTypeMismatch(callable, declared, value);
-                return value;
-            }
-            if (java.util.Set.of("complex64","complex128","complex").contains(declared.name())) {
-                if (!(value instanceof Number) && !(value instanceof Complex)) throw returnTypeMismatch(callable, declared, value);
-                return value;
-            }
-            if (declared.name().equals("void")) {
-                if (value != null) throw returnTypeMismatch(callable, declared, value);
-                return null;
-            }
-
             return value;
         }
 
@@ -1113,11 +794,6 @@ public final class OresEvalRootNode extends RootNode {
                     ref.name(),
                     ref.arguments().stream().map(arg -> substituteReturnType(arg, substitutions)).toList(),
                     ref.inferArguments());
-        }
-
-        private IllegalArgumentException returnTypeMismatch(String callable, Ast.TypeRef declared, Object value) {
-            return new IllegalArgumentException(callable + " returned " + (value == null ? "null" : value.getClass().getSimpleName())
-                    + " but declared " + declared);
         }
 
         private List<?> asSequence(Object value) { if (value instanceof List<?> l) return l; if (value instanceof Object[] a) return List.of(a); throw new IllegalArgumentException("value is not sequence-destructurable"); }
@@ -1140,14 +816,8 @@ public final class OresEvalRootNode extends RootNode {
     private static final class Env {
         private static final Object MISSING = new Object();
         private final Env parent;
-        private final boolean descendantsNonLexical;
         private final Map<String, Slot> slots = new HashMap<>();
-        private Env(Env parent) { this(parent, parent != null && parent.descendantsNonLexical); }
-        private Env(Env parent, boolean descendantsNonLexical) {
-            this.parent = parent;
-            this.descendantsNonLexical = descendantsNonLexical;
-        }
-        private boolean descendantsNonLexical() { return descendantsNonLexical; }
+        private Env(Env parent) { this.parent = parent; }
         private void define(String name, Object value, Ast.BindingKind kind) {
             if (slots.putIfAbsent(name, new Slot(value, kind)) != null) throw new IllegalArgumentException("duplicate binding " + name);
         }
@@ -1170,11 +840,7 @@ public final class OresEvalRootNode extends RootNode {
             if (parent != null) { parent.assign(name, value); return; }
             throw new IllegalArgumentException("unknown binding " + name);
         }
-        private Env snapshot() {
-            Env cp = new Env(parent == null ? null : parent.snapshot(), descendantsNonLexical);
-            cp.slots.putAll(slots);
-            return cp;
-        }
+        private Env snapshot() { Env cp=new Env(parent==null?null:parent.snapshot()); cp.slots.putAll(slots); return cp; }
         private void releaseMutexGuards(boolean failed) {
             Set<Object> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
             for (Slot slot : slots.values()) releaseMutexGuardsInValue(slot.value, failed, seen);
@@ -1193,10 +859,6 @@ public final class OresEvalRootNode extends RootNode {
 
             if (value instanceof OptionValue option) {
                 if (option.present()) releaseMutexGuardsInValue(option.value(), failed, seen);
-                return;
-            }
-            if (value instanceof ResultValue result) {
-                releaseMutexGuardsInValue(result.value(), failed, seen);
                 return;
             }
             if (value instanceof OresMutex.GuardFuture<?> future) {
@@ -1256,20 +918,13 @@ public final class OresEvalRootNode extends RootNode {
     }
 
     private static final class OresObject {
-        private final Evaluator owner;
-        private final Ast.ClassDecl klass;
-        private final Map<String,Object> fields;
-        private OresObject(Evaluator owner, Ast.ClassDecl klass, Map<String,Object> fields) {
-            this.owner = owner;
-            this.klass = klass;
-            this.fields = fields;
-        }
+        private final Ast.ClassDecl klass; private final Map<String,Object> fields;
+        private OresObject(Ast.ClassDecl klass, Map<String,Object> fields){this.klass=klass;this.fields=fields;}
         @Override public String toString(){return klass.name()+fields;}
     }
 
-    private record ImportedNamespace(Evaluator owner, Ast.ImportKind kind) { }
-    private record ModuleFacade(Evaluator owner, Ast.ModuleDecl module) { }
-    private record ClassFacade(Evaluator owner, Ast.ClassDecl klass) { }
+    private record ModuleFacade(Ast.ModuleDecl module) { }
+    private record ClassFacade(Ast.ClassDecl klass) { }
     private record MutexFactory(boolean shared, OresContext context) {
         private Object create(List<Object> args) {
             requireOne(args, shared ? "SharedMutex.new" : "Mutex.new");
@@ -1309,10 +964,6 @@ public final class OresEvalRootNode extends RootNode {
             if (value instanceof OptionValue option) {
                 return !option.present() || runtimeSharedSafe(option.value(), seen);
             }
-            if (value instanceof ResultValue result) {
-                return runtimeSharedSafe(result.value(), seen);
-            }
-            if (value instanceof OptionUnwrapError) return true;
             if (value instanceof ActorRuntime.Shared<?> readonly) {
                 return runtimeSharedSafe(readonly.value(), seen);
             }
@@ -1346,15 +997,6 @@ public final class OresEvalRootNode extends RootNode {
     private record OptionValue(boolean present, Object value) {
         @Override public String toString(){return present ? "Some(" + value + ")" : "None";}
     }
-    private record ResultValue(boolean ok, Object value) {
-        @Override public String toString(){return ok ? "Ok(" + value + ")" : "Err(" + value + ")";}
-    }
-    private record OptionUnwrapError(String reason) {
-        @Override public String toString(){return "OptionUnwrapError(" + reason + ")";}
-    }
-    private static final class OresPanic extends RuntimeException {
-        private OresPanic(String message) { super(message, null, false, false); }
-    }
     private record StdioFacade(OresContext context) {
         private Object print(List<Object> args){context.requireCapability(IsolatePolicy.Capability.STDOUT,"stdio.print");requireOne(args,"stdio.print");context.output().print(String.valueOf(args.getFirst()));context.output().flush();return null;}
         private Object println(List<Object> args){context.requireCapability(IsolatePolicy.Capability.STDOUT,"stdio.println");requireOne(args,"stdio.println");context.output().println(String.valueOf(args.getFirst()));return null;}
@@ -1367,16 +1009,7 @@ public final class OresEvalRootNode extends RootNode {
         private String contextId(){context.requireCapability(IsolatePolicy.Capability.PROCESS_INFO,"process.context_id");return context.contextId().toString();}
         private Map<String,Object> descriptor(){context.requireCapability(IsolatePolicy.Capability.PROCESS_INFO,"process.descriptor");return context.processDescriptor();}
         private Object shareReadonly(List<Object> args){context.requireCapability(IsolatePolicy.Capability.ACTOR_SHARE_READONLY,"process.share_readonly");requireOne(args,"process.share_readonly");return context.actors().shareReadonly(args.getFirst());}
-        private Map<String,Object> gc(List<Object> args){context.requireCapability(IsolatePolicy.Capability.GC_CONTROL,"process.gc");requireZero(args,"process.gc");return context.garbageCollector().collectProcess().asMap();}
-    }
-    private record ActorFacade(OresContext context) {
-        private Map<String,Object> gc(List<Object> args){requireZero(args,"actor.gc");return context.garbageCollector().collectCurrentActor().asMap();}
     }
     private static void requireZero(List<Object> args,String name){if(!args.isEmpty())throw new IllegalArgumentException(name+" expects no arguments");}
     private static void requireOne(List<Object> args,String name){if(args.size()!=1)throw new IllegalArgumentException(name+" expects one argument");}
-    private static String requireStringArg(List<Object> args,String name){
-        requireOne(args,name);
-        if(!(args.getFirst() instanceof String message)) throw new IllegalArgumentException(name+" expects a String message");
-        return message;
-    }
 }

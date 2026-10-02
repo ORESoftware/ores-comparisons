@@ -13,8 +13,6 @@ import_names    = IDENT
                 | "*" "as" IDENT ;
 
 top_level_item  = annotated_module_decl
-                | actor_decl
-                | actor_callable_decl
                 | callable_decl
                 | class_decl
                 | interface_decl
@@ -24,38 +22,18 @@ top_level_item  = annotated_module_decl
 annotated_module_decl = { annotation } "define" "module" IDENT
                         { module_member } "end" ;
 
-module_member   = actor_decl
-                | actor_callable_decl
-                | callable_decl
+module_member   = callable_decl
                 | class_decl
                 | interface_decl
                 | type_decl
                 | binding_decl ;
 
 visibility      = [ "pub" | "private" ] ;
-callable_modifier = "abstract" | "async" | "nlex" ;
-method_modifier   = "abstract" | "async" ;
+callable_modifier = "abstract" | "async" | "gpu" | "quantum" ;
 
 callable_decl   = { annotation } visibility { callable_modifier } callable_kind IDENT [ generic_params ]
                   "(" [ param_list ] ")" return_spec block ;
 callable_kind   = "fnc" | "routine" ;
-
-actor_callable_decl
-                = { annotation } visibility [ "async" ] [ "nlex" ] [ "shared" ] "actor" "fnc" IDENT [ generic_params ]
-                  "(" [ param_list ] ")" return_spec block ;
-
-actor_decl      = visibility [ "shared" ] "actor" IDENT [ generic_params ]
-                  [ "extends" type_ref { "," type_ref } ]
-                  [ ( "implements" | "impl" ) type_ref { "," type_ref } ]
-                  actor_body ;
-actor_body      = "{" { actor_member } "}"
-                | { actor_member } "end" ;
-actor_member    = field_decl
-                | actor_method_decl
-                | static_function_decl ;
-actor_method_decl
-                = { annotation } visibility { callable_modifier } [ "fnc" ] method_name [ generic_params ]
-                  method_head return_spec block ;
 
 class_decl      = "define" [ "abstract" ] "class" IDENT [ generic_params ]
                   [ "extends" type_ref { "," type_ref } ]
@@ -68,14 +46,14 @@ class_member    = field_decl
 
 field_decl      = visibility binding_kind type_ref IDENT [ "=" expression ] stmt_terminator ;
 
-method_decl     = { annotation } visibility { method_modifier } method_name [ generic_params ]
+method_decl     = { annotation } visibility { callable_modifier } method_name [ generic_params ]
                   method_head return_spec ( block | stmt_terminator ) ;
 method_name     = IDENT | "[" "Symbol" "." IDENT "]" ;
 method_head     = "(" [ explicit_receiver | param_list ] ")" [ "(" [ param_list ] ")" ] ;
 explicit_receiver = "self" type_ref ;
 
 static_function_decl
-                = { annotation } visibility "static" [ "async" ] "fnc" IDENT [ generic_params ]
+                = { annotation } visibility { "static" | "gpu" | "quantum" } "fnc" IDENT [ generic_params ]
                   "(" [ param_list ] ")" return_spec block ;
 
 interface_decl  = visibility "interface" IDENT [ generic_params ]
@@ -107,12 +85,9 @@ binding_kind    = "val" | "const" | "let" ;
 
 destructure_stmt= [ binding_kind ] sequence_pattern "=" expression stmt_terminator
                 | [ binding_kind ] object_pattern "=" expression stmt_terminator ;
-sequence_pattern= "[" sequence_destructure_item { "," sequence_destructure_item } "]" ;
-object_pattern  = "{" object_destructure_item { "," object_destructure_item } "}" ;
-sequence_destructure_item
-                = [ binding_kind ] IDENT | "_" ;
-object_destructure_item
-                = [ binding_kind ] IDENT ;
+sequence_pattern= "[" destructure_item { "," destructure_item } "]" ;
+object_pattern  = "{" destructure_item { "," destructure_item } "}" ;
+destructure_item= [ binding_kind ] IDENT | "_" ;
 
 block           = "{" { statement } "}" ;
 statement       = binding_decl
@@ -151,7 +126,8 @@ comparison      = additive { ( "<" | "<=" | ">" | ">=" ) additive } ;
 additive        = multiplicative { ( "+" | "-" ) multiplicative } ;
 multiplicative  = unary { ( "*" | "/" | "%" ) unary } ;
 unary           = [ "!" | "-" | "+" | "await" ] postfix
-                | "&" [ "mut" ] unary ;
+                | "&" [ "mut" ] unary
+                | "gpu" [ "parallel" ] unary ;
 postfix         = primary { call_suffix | member_suffix | index_suffix } ;
 call_suffix     = "(" [ argument_list ] ")" ;
 member_suffix   = "." IDENT ;
@@ -169,7 +145,7 @@ primary         = literal
                 | object_literal
                 | "(" expression ")" ;
 
-lambda          = [ "nlex" ] ( pipe_lambda | typed_legacy_lambda ) ;
+lambda          = pipe_lambda | typed_legacy_lambda ;
 pipe_lambda     = "|" [ lambda_param { "," lambda_param } ] "|" "->" block ;
 lambda_param    = IDENT | type_ref IDENT ;
 typed_legacy_lambda
@@ -231,23 +207,12 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
    - Modules are flat: module names are single identifiers and modules may not
      contain modules.
    - fnc declarations may recurse; routines may not participate in a call cycle.
-   - nlex on a fnc/routine is a capture barrier inherited by lambdas created
-     inside it; an explicit nlex lambda establishes the same barrier.
-   - nlex blocks activation-local captures only. Module members, imports,
-     top-level callables/classes, and built-ins remain statically resolvable.
-   - nlex may qualify an actor fnc as an additional capture-free guarantee;
-     actor classes and actor/class methods do not accept nlex.
    - fnc and routine declarations do not overload.
    - instance methods may overload only when arity differs.
    - class-level functions use "static fnc"; they have no self receiver and are
      dispatched through the class namespace, never through an instance.
    - "=>" belongs to named callable return declarations.
    - "->" belongs to function types and lambdas.
-   - Unqualified "actor" declarations are private actors; "shared actor" opts
-     into the SHARED_MEMORY execution domain.
-   - Actor fields are private mailbox-owned state; public actor API is exposed
-     through actor methods/messages rather than public mutable fields.
-   - Actor inheritance must preserve actor isolation kind.
    - In a destructure pattern, an explicit binding kind propagates to subsequent
      unqualified names until another binding kind appears. A leading binding
      kind (for example const [a, b]) seeds the whole pattern. "_" never binds.
@@ -277,4 +242,26 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
      into the closure environment; borrowed values cannot be captured.
    - Class fields declared val/const are immutable; field mutation requires let
      plus mutable owner access.
+   - gpu is a reserved execution-placement keyword. On a named fnc/static fnc it
+     targets the entire body. In expression position, gpu requires a direct lambda.
+   - quantum is a reserved whole-callable execution target for fnc/static fnc.
+     It is mutually exclusive with gpu and async and never implies CPU/GPU fallback.
+   - Canonical class/module long-form bodies use "as"; interface conformance uses
+     "is"; trait composition uses "with" in the declaration-syntax/trait stack.
+   - gpu parallel is a contextual batch form over a non-empty list/tuple literal
+     or List.of(...) containing only direct lambda literals. "parallel" remains a
+     contextual word rather than a globally reserved identifier.
+   - gpu and async cannot be combined. GPU routines, instance methods, structural
+     parameters, generics, inferred lambda parameters, tuple device-ABI parameters,
+     complex arithmetic, host borrows, host objects, strings, list/tuple allocation,
+     destructuring, for-of, await/defer/try, dynamic calls, recursion, and host/global
+     captures are rejected by the current GPU ABI.
+   - GPU callables return only a supported scalar or void. Array/List results use an
+     explicit mutable Array<T>/List<T> output parameter.
+   - A canonical top-level index loop may lower to get_global_id(0) only when mutable
+     buffer access is proven elementwise; otherwise lowering preserves single-work-item
+     semantics.
+   - GPU placement never implies stable GPU-core affinity. The backend maps work
+     to lanes/warps/work-groups. Physical multi-device affinity is a separate,
+     future execution-placement concern.
 *)
