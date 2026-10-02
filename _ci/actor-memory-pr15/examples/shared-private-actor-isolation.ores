@@ -40,7 +40,7 @@ shared actor SharedCounter {
 // - unqualified "actor" means private
 // - owns its mutable state exclusively
 // - receives a private actor memory slice at runtime
-// - SHARED_MEMORY and ACTOR_SHARE_READONLY are stripped from this actor domain
+// - SHARED_MEMORY capability is stripped from this actor domain
 actor PrivateCounter {
   let int value = 10;
 
@@ -80,7 +80,4 @@ actor PrivateCounter {
  *
  * The compiler/runtime must reject that actor instead of silently sharing
  * mutable memory with the shared actor domain.
- *
- * See private-actor-sharing-invalid.ores for checked-in negative cases,
- * including type-alias, readonly-sharing, and helper-function indirection.
  */
