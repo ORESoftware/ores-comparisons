@@ -52,3 +52,8 @@ jobs:
       - name: Run actor callable language tests
         working-directory: _ci/oreslang-pr19-full
         run: mvn -B -ntp -Dtest=ActorCallableKeywordTest,ActorInvocationRuntimeTest test
+      - name: Run checked-in actor callable example
+        working-directory: _ci/oreslang-pr19-full
+        run: |
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/actor-callables.ores" | tee /tmp/oreslang-actor-callables.out
+          grep -F "42:shared:isolated" /tmp/oreslang-actor-callables.out
