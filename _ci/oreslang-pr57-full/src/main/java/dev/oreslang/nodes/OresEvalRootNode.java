@@ -700,10 +700,7 @@ public final class OresEvalRootNode extends RootNode {
                 case "<" -> compare(left, right) < 0; case "<=" -> compare(left, right) <= 0;
                 case ">" -> compare(left, right) > 0; case ">=" -> compare(left, right) >= 0;
                 case "&" -> integralLong(left) & integralLong(right);
-                case "|" -> {
-                    if (left instanceof Boolean a && right instanceof Boolean b) yield a || b;
-                    yield integralLong(left) | integralLong(right);
-                }
+                case "|" -> integralLong(left) | integralLong(right);
                 case "^" -> integralLong(left) ^ integralLong(right);
                 case "<<" -> integralLong(left) << shiftDistance(right);
                 case ">>" -> integralLong(left) >> shiftDistance(right);
