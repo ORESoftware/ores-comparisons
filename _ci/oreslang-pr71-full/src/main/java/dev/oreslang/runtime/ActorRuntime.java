@@ -130,7 +130,13 @@ public final class ActorRuntime implements AutoCloseable {
         public ActorId parentId() { return parentId; }
         public boolean isAlive() { return alive.get(); }
         public boolean failed() { return failure.get() != null; }
-        public Throwable failure() { return failure.get(); }
+        public Throwable failure() {
+            Throwable current = failure.get();
+            if (current instanceof OresTrace.TracedRuntimeException traced) {
+                return traced.failure();
+            }
+            return current;
+        }
         public String failureTrace() {
             Throwable current = failure.get();
             return current == null ? "" : OresTrace.format(current);
