@@ -38,9 +38,27 @@ public final class OwnershipChecker {
     private final Set<String> ambiguousFunctions = new HashSet<>();
     private final Set<String> ambiguousClasses = new HashSet<>();
     private final Set<String> ambiguousInterfaces = new HashSet<>();
+    private final Set<String> importedFunctions = new HashSet<>();
+    private final Set<String> importedClasses = new HashSet<>();
+    private final Set<String> importedNamespaces = new HashSet<>();
 
     private OwnershipChecker(Ast.Program program) {
+        indexImports(program);
         index(program);
+    }
+
+    private void indexImports(Ast.Program program) {
+        for (Ast.ImportDecl imported : program.imports()) {
+            if (imported.wildcard()) {
+                if (imported.namespace() != null) importedNamespaces.add(imported.namespace());
+                continue;
+            }
+            switch (imported.kind()) {
+                case FUNCTION -> importedFunctions.addAll(imported.names());
+                case CLASS -> importedClasses.addAll(imported.names());
+                case MODULE, ALL -> importedNamespaces.addAll(imported.names());
+            }
+        }
     }
 
     public static Ast.Program check(Ast.Program program) {
@@ -351,7 +369,13 @@ public final class OwnershipChecker {
         }
         if (expr instanceof Ast.NameExpr name) {
             VarState state = scope.lookup(name.name());
-            if (state == null) return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.COPY, null); // function/module/global
+            if (state == null) {
+                if (importedFunctions.contains(name.name())) {
+                    throw error("imported function '" + name.name()
+                            + "' cannot be extracted until the cross-unit linker supplies its ownership contract");
+                }
+                return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.COPY, null); // local function/module/global
+            }
             state.debugName = name.name();
             requireUsable(state, name.name(), false);
             if (consuming && state.kind == ValueKind.MOVE_ONLY) move(state, name.name());
@@ -556,6 +580,13 @@ public final class OwnershipChecker {
     }
 
     private ValueInfo checkCall(Ast.CallExpr call, Scope scope) {
+        if (call.callee() instanceof Ast.NameExpr imported
+                && scope.lookup(imported.name()) == null
+                && importedFunctions.contains(imported.name())) {
+            throw error("imported function '" + imported.name()
+                    + "' cannot be called until the cross-unit linker supplies borrow/mut/take and return-ownership metadata");
+        }
+
         if (call.callee() instanceof Ast.NameExpr intrinsic) {
             if (intrinsic.name().equals("borrow")) {
                 VarState owner = intrinsicOwner(call, scope, "borrow");
@@ -593,7 +624,28 @@ public final class OwnershipChecker {
         }
 
         if (call.callee() instanceof Ast.MemberExpr member) {
+            if (member.receiver() instanceof Ast.NameExpr namespace
+                    && scope.lookup(namespace.name()) == null
+                    && importedNamespaces.contains(namespace.name())) {
+                throw error("imported namespace call '" + namespace.name() + "." + member.member()
+                        + "(...)' requires linked ownership metadata");
+            }
+
+            Ast.TypeRef receiverTypeForImport = ownershipTypeOfExpr(member.receiver(), scope);
+            if (receiverTypeForImport != null) {
+                Ast.TypeRef importBase = receiverTypeForImport;
+                while (importBase.isBorrow()) importBase = importBase.borrowedTarget();
+                if (importedClasses.contains(importBase.name())) {
+                    throw error("method call on imported class '" + importBase.name()
+                            + "' requires linked receiver/parameter ownership metadata");
+                }
+            }
+
             if (member.receiver() instanceof Ast.NameExpr namespace && scope.lookup(namespace.name()) == null) {
+                if (importedClasses.contains(namespace.name())) {
+                    throw error("static call on imported class '" + namespace.name()
+                            + "' requires linked ownership metadata");
+                }
                 Ast.FunctionDecl qualified = findFunction(namespace.name() + "." + member.member());
                 if (qualified != null) {
                     checkArguments(call.arguments(), qualified.parameters(), scope,
