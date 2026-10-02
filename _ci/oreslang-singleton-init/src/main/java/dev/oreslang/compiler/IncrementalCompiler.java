@@ -160,6 +160,14 @@ public final class IncrementalCompiler {
                 abi.append(method.isStatic() ? " static-fnc " : " method ")
                         .append(method.name());
                 appendGenerics(abi, method.genericParameters());
+                if (!method.isStatic()) {
+                    boolean mutableReceiver = method.explicitReceiverType() != null
+                            && method.explicitReceiverType().isBorrow()
+                            && method.explicitReceiverType().mutableBorrow();
+                    abi.append("[self=")
+                            .append(mutableReceiver ? "mut" : "borrow")
+                            .append(']');
+                }
                 appendParams(abi, method.parameters());
                 abi.append("=>").append(typeRef(method.returnType())).append('\n');
             }

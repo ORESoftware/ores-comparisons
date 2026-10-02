@@ -103,6 +103,40 @@ final class IncrementalFunctorStaticTest {
     }
 
     @Test
+    void receiverOwnershipChangesInvalidateImporters() {
+        IncrementalCompiler compiler = new IncrementalCompiler();
+        Map<String, String> first = Map.of(
+                "model.ores", """
+                        define class Counter as
+                          pub read() => int {
+                            return 1;
+                          }
+                        end
+                        """,
+                "consumer.ores", """
+                        import class {Counter} from "./model.ores";
+                        pub fnc use() => void { return; }
+                        """);
+
+        compiler.compile(first);
+
+        Map<String, String> changed = Map.of(
+                "model.ores", """
+                        define class Counter as
+                          pub read(mut self)() => int {
+                            return 1;
+                          }
+                        end
+                        """,
+                "consumer.ores", first.get("consumer.ores"));
+
+        var result = compiler.compile(changed);
+        assertTrue(result.rebuilt("model.ores"));
+        assertTrue(result.rebuilt("consumer.ores"),
+                "receiver ownership is public ABI and must invalidate importers");
+    }
+
+    @Test
     void inferredPublicBindingsParticipateInAbiInvalidation() {
         IncrementalCompiler compiler = new IncrementalCompiler();
         Map<String, String> first = Map.of(
