@@ -596,7 +596,7 @@ public final class TypeChecker {
         if (expr instanceof Ast.NameExpr name) {
             if (locals.contains(name.name()) || name.name().equals("self")
                     || name.name().equals("Some") || name.name().equals("None")) return;
-            if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("print")) {
+            if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("actor") || name.name().equals("print")) {
                 throw processEffectError(where, "ambient caller capability '" + name.name() + "'");
             }
             if (importedNames.contains(name.name())) {
@@ -1297,7 +1297,7 @@ public final class TypeChecker {
         if (expr instanceof Ast.NameExpr name) {
             Env.Binding local = env.lookup(name.name());
             if (local != null) return local.type();
-            if (name.name().equals("stdio") || name.name().equals("process")) return new Named(name.name(), List.of());
+            if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("actor")) return new Named(name.name(), List.of());
             if (name.name().equals("print")) return new Function(List.of(Unknown.INSTANCE), Primitive.VOID);
             if (name.name().equals("None")) return new Named("Option", List.of(Unknown.INSTANCE));
             Ast.ModuleDecl moduleNamespace = modules.get(name.name());
@@ -1391,6 +1391,16 @@ public final class TypeChecker {
             };
         }
         if (expr instanceof Ast.CallExpr call) {
+            if (call.callee() instanceof Ast.MemberExpr runtimeGc
+                    && runtimeGc.receiver() instanceof Ast.NameExpr runtimeName
+                    && env.lookup(runtimeName.name()) == null
+                    && runtimeGc.member().equals("gc")
+                    && (runtimeName.name().equals("process") || runtimeName.name().equals("actor"))) {
+                if (!call.arguments().isEmpty()) {
+                    throw new IllegalArgumentException(runtimeName.name() + ".gc() takes no arguments");
+                }
+                return new Named("GcReport", List.of());
+            }
             if (call.callee() instanceof Ast.NameExpr intrinsic
                     && (intrinsic.name().equals("borrow")
                     || intrinsic.name().equals("copy")
@@ -1543,7 +1553,9 @@ public final class TypeChecker {
             if (receiver instanceof Named named && named.name().equals("stdio.stdout") && member.member().equals("write")) {
                 return new Function(List.of(Unknown.INSTANCE), Primitive.VOID);
             }
-            if (member.receiver() instanceof Ast.NameExpr name && name.name().equals("process")) return Unknown.INSTANCE;
+            if (member.receiver() instanceof Ast.NameExpr name
+                    && env.lookup(name.name()) == null
+                    && (name.name().equals("process") || name.name().equals("actor"))) return Unknown.INSTANCE;
             if (member.receiver() instanceof Ast.NameExpr name && importedValues.contains(name.name())) return Unknown.INSTANCE;
 
             if (receiver instanceof SingletonProxy proxy) {
