@@ -161,7 +161,12 @@ public final class Parser {
         if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE);
         if (match(INTERFACE)) return parseInterface(modifiers.visibility);
         if (match(TYPE)) return parseTypeAlias();
-        if (isBindingKind(peek().type())) return parseModuleBinding(modifiers.visibility);
+        if (isFieldDeclarationStart()) {
+            if (modifiers.async || modifiers.isAbstract) {
+                throw error(peek(), "data members do not accept async or abstract modifiers");
+            }
+            return parseModuleBinding(annotations, modifiers.visibility, modifiers.isStatic);
+        }
         return null;
     }
 
@@ -202,11 +207,20 @@ public final class Parser {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
             if (check(INIT)) {
-                throw error(peek(), "classes cannot declare init routine; use instance field/constructor initialization");
+                throw error(peek(), "classes cannot declare init routine; use constructor(...) for instance initialization");
             }
-            if (isBindingKind(peek().type())) {
-                if (mods.isStatic) throw error(peek(), "static data members are not implemented yet; static class functions use 'static fnc'");
-                fields.add(parseField(mods.visibility));
+            if (match(CONSTRUCTOR)) {
+                if (mods.isStatic || mods.isAbstract || mods.async) {
+                    throw error(previous(), "constructors cannot be static, abstract, or async");
+                }
+                methods.add(parseConstructor(annotations, mods.visibility));
+                continue;
+            }
+            if (isFieldDeclarationStart()) {
+                if (mods.async || mods.isAbstract) {
+                    throw error(peek(), "data members do not accept async or abstract modifiers");
+                }
+                fields.add(parseField(annotations, mods.visibility, mods.isStatic));
                 continue;
             }
             if (mods.isStatic) {
@@ -271,28 +285,71 @@ public final class Parser {
         return refs;
     }
 
-    private Ast.FieldDecl parseField(Ast.Visibility visibility) {
-        Ast.BindingKind kind = parseBindingKind();
-        Ast.TypeRef type = parseTypeRef();
-        String name = consume(IDENT, "expected field name").lexeme();
+    private Ast.FieldDecl parseField(List<Ast.Annotation> annotations, Ast.Visibility visibility, boolean isStatic) {
+        boolean explicitKind = isBindingKind(peek().type());
+        Ast.BindingKind kind = explicitKind ? parseBindingKind() : Ast.BindingKind.LET;
+        Ast.TypeRef type;
+        String name;
+        boolean nameFirst = check(IDENT) && checkNext(COLON);
+
+        if (nameFirst) {
+            name = advance().lexeme();
+            consume(COLON, "expected ':' after field name");
+            type = parseTypeRef();
+        } else {
+            if (!explicitKind) throw error(peek(), "fields use 'name: Type' syntax");
+            type = parseTypeRef();
+            name = consume(IDENT, "expected field name").lexeme();
+        }
+
         Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
-        consumeStatementTerminator("field declaration should end with ';'");
-        return new Ast.FieldDecl(name, visibility, kind, type, initializer);
+        if (nameFirst) consumeDataMemberTerminator();
+        else consumeStatementTerminator("legacy field declaration should end with ';'");
+        return new Ast.FieldDecl(name, visibility, kind, type, annotations, isStatic, initializer);
     }
 
-    private Ast.FieldDecl parseModuleBinding(Ast.Visibility visibility) {
-        Ast.BindingKind kind = parseBindingKind();
+    private Ast.FieldDecl parseModuleBinding(List<Ast.Annotation> annotations, Ast.Visibility visibility, boolean isStatic) {
+        boolean explicitKind = isBindingKind(peek().type());
+        Ast.BindingKind kind = explicitKind ? parseBindingKind() : Ast.BindingKind.LET;
         Ast.TypeRef type = null;
         String name;
-        if (check(IDENT) && checkNext(EQUAL)) name = advance().lexeme();
-        else {
+        boolean nameFirst = check(IDENT) && checkNext(COLON);
+
+        if (nameFirst) {
+            name = advance().lexeme();
+            consume(COLON, "expected ':' after member name");
             type = parseTypeRef();
-            name = consume(IDENT, "expected binding name").lexeme();
+        } else {
+            if (!explicitKind) throw error(peek(), "module members use 'name: Type' syntax");
+            if (check(IDENT) && checkNext(EQUAL)) name = advance().lexeme();
+            else {
+                type = parseTypeRef();
+                name = consume(IDENT, "expected binding name").lexeme();
+            }
         }
-        consume(EQUAL, "module bindings require an initializer");
-        Ast.Expr initializer = parseExpression();
-        consumeStatementTerminator("module binding should end with ';'");
-        return new Ast.FieldDecl(name, visibility, kind, type, initializer);
+
+        Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
+        if (initializer == null && type == null) {
+            throw error(peek(), "an uninitialized module member requires an explicit type");
+        }
+        if (initializer == null && kind != Ast.BindingKind.LET) {
+            throw error(peek(), "uninitialized module members must be mutable 'let' members");
+        }
+        if (nameFirst) consumeDataMemberTerminator();
+        else consumeStatementTerminator("legacy module binding should end with ';'");
+        return new Ast.FieldDecl(name, visibility, kind, type, annotations, isStatic, initializer);
+    }
+
+    private Ast.MethodDecl parseConstructor(List<Ast.Annotation> annotations, Ast.Visibility visibility) {
+        consume(LPAREN, "expected '(' after constructor");
+        List<Ast.Param> params = parseParametersUntil(RPAREN);
+        consume(RPAREN, "expected ')' after constructor parameters");
+        if (check(FAT_ARROW)) {
+            throw error(peek(), "constructors do not declare a return type");
+        }
+        List<Ast.Stmt> body = parseBlock();
+        return new Ast.MethodDecl("constructor", visibility, false, false, false,
+                null, List.of(), params, Ast.TypeRef.simple("void"), annotations, body);
     }
 
     private Ast.MethodDecl parseMethod(List<Ast.Annotation> annotations, Modifiers mods) {
@@ -939,6 +996,16 @@ public final class Parser {
         throw error(peek(), message);
     }
 
+    private void consumeDataMemberTerminator() {
+        if (match(SEMICOLON) || check(END) || check(EOF)) return;
+        if (check(AT) || check(PUB) || check(PRIVATE) || check(STATIC)
+                || check(CONSTRUCTOR) || check(FNC) || check(ROUTINE) || check(DEFINE)
+                || check(INIT) || check(TYPE) || check(INTERFACE) || check(LBRACKET)
+                || (check(IDENT) && checkNext(LPAREN))
+                || isFieldDeclarationStart()) return;
+        throw error(peek(), "expected ';' or the next class/module member");
+    }
+
     private boolean isSafeStatementBoundary() {
         return check(RBRACE) || check(FI) || check(END) || check(ELSE) || check(ELSEIF)
                 || check(CATCH) || check(FINALLY) || check(EOF);
@@ -952,6 +1019,11 @@ public final class Parser {
     }
 
     private boolean isBindingKind(Token.Type type) { return type == CONST || type == VAL || type == LET; }
+
+    private boolean isFieldDeclarationStart() {
+        if (check(IDENT) && checkNext(COLON)) return true;
+        return isBindingKind(peek().type());
+    }
 
     private boolean match(Token.Type... types) {
         for (Token.Type type : types) {
