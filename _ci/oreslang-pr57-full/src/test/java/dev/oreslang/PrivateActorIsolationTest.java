@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -397,6 +398,88 @@ final class PrivateActorIsolationTest {
                 retained = new byte[]{1, 2, 3};
             }
         };
+    }
+
+
+    @Test
+    void privateBehaviorCannotUseMutableStaticJvmState() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var ref = runtime.<String>spawnPrivate(factoryContext -> mutableStaticBehavior());
+
+            ref.send("run");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(ref.failure().isPresent());
+            assertInstanceOf(SecurityException.class, ref.failure().orElseThrow());
+            assertTrue(ref.failure().orElseThrow().getMessage().contains("static JVM state"));
+        }
+    }
+
+    private static ActorRuntime.Behavior<String> mutableStaticBehavior() {
+        return new ActorRuntime.Behavior<>() {
+            private static int sharedCounter;
+
+            @Override
+            public void onMessage(String message, ActorRuntime.ActorContext<String> context) {
+                sharedCounter++;
+            }
+        };
+    }
+
+    @Test
+    void privateBehaviorCannotHideSharedMutableObjectBehindStaticFinal() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var ref = runtime.<String>spawnPrivate(factoryContext -> staticFinalMutableBehavior());
+
+            ref.send("run");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(ref.failure().isPresent());
+            assertInstanceOf(SecurityException.class, ref.failure().orElseThrow());
+            assertTrue(ref.failure().orElseThrow().getMessage().contains("shared static object"));
+        }
+    }
+
+    private static ActorRuntime.Behavior<String> staticFinalMutableBehavior() {
+        return new ActorRuntime.Behavior<>() {
+            private static final AtomicInteger SHARED_COUNTER = new AtomicInteger();
+
+            @Override
+            public void onMessage(String message, ActorRuntime.ActorContext<String> context) {
+                SHARED_COUNTER.incrementAndGet();
+            }
+        };
+    }
+
+
+    @Test
+    void privateFactoryCannotUseMutableStaticJvmState() {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            assertThrows(SecurityException.class, () ->
+                    runtime.<String>spawnPrivate(new ActorRuntime.BehaviorFactory<>() {
+                        private static int SHARED_COUNTER;
+
+                        @Override
+                        public ActorRuntime.Behavior<String> create(ActorRuntime.ActorContext<String> context) {
+                            SHARED_COUNTER++;
+                            return (message, turn) -> { };
+                        }
+                    }));
+        }
+    }
+
+    @Test
+    void privateFactoryCannotHideSharedMutableObjectBehindStaticFinal() {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            assertThrows(SecurityException.class, () ->
+                    runtime.<String>spawnPrivate(new ActorRuntime.BehaviorFactory<>() {
+                        private static final AtomicInteger SHARED_COUNTER = new AtomicInteger();
+
+                        @Override
+                        public ActorRuntime.Behavior<String> create(ActorRuntime.ActorContext<String> context) {
+                            SHARED_COUNTER.incrementAndGet();
+                            return (message, turn) -> { };
+                        }
+                    }));
+        }
     }
 
 
