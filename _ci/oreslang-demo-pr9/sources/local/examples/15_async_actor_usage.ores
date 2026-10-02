@@ -1,0 +1,23 @@
+namespace async_actor_usage_demo;
+
+pub async fnc fetch() => int { return 42; }
+pub async fnc collect() => int {
+  val result = await fetch();
+  return result + 1;
+}
+pub actor fnc private_worker(int value) => int { return value + 1; }
+pub shared actor fnc shared_worker(int value) => int { return value + 2; }
+
+fnc contracts() => void {
+  val Future<int> pending = collect();
+  val ActorHandle<int> private_handle = private_worker(40);
+  val Future<int> private_result = private_handle.result();
+  val ActorHandle<int> shared_handle = shared_worker(40);
+  val Future<int> shared_result = shared_handle.result();
+  return;
+}
+
+pub routine main() => void {
+  stdio.println("async-actor-usage-ok");
+  return;
+}
