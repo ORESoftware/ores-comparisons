@@ -4,11 +4,13 @@ import dev.oreslang.runtime.ActorRuntime;
 import dev.oreslang.runtime.IsolatePolicy;
 import org.junit.jupiter.api.Test;
 
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -43,19 +45,23 @@ final class ActorRuntimeTest {
     @Test
     void actorCarriesItsOwnStricterPolicy() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
-            CountDownLatch received = new CountDownLatch(1);
-            AtomicReference<IsolatePolicy> observed = new AtomicReference<>();
             IsolatePolicy strict = IsolatePolicy.strictFaas();
 
-            var ref = runtime.<String>spawnPrivate(strict, factoryContext -> (message, context) -> {
-                observed.set(context.policy());
-                received.countDown();
+            var ref = runtime.<String>spawnPrivate(strict, factoryContext -> {
+                if (factoryContext.policy().allows(IsolatePolicy.Capability.SHARED_MEMORY)) {
+                    throw new AssertionError("private actor policy retained SHARED_MEMORY");
+                }
+                if (factoryContext.policy().maxMailboxMessages() != IsolatePolicy.strictFaas().maxMailboxMessages()) {
+                    throw new AssertionError("private actor policy did not preserve mailbox limit");
+                }
+                return (message, context) -> context.self().stop();
             });
             ref.send("ping");
 
-            assertTrue(received.await(2, TimeUnit.SECONDS));
-            assertEquals(strict.capabilities(), observed.get().capabilities());
-            assertEquals(strict.maxMailboxMessages(), observed.get().maxMailboxMessages());
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (ref.isAlive() && System.nanoTime() < deadline) Thread.sleep(5);
+            assertFalse(ref.isAlive());
+            assertTrue(ref.failure().isEmpty());
         }
     }
 
@@ -274,7 +280,7 @@ final class ActorRuntimeTest {
             AtomicReference<ActorRuntime.ActorId> constructionOwner = new AtomicReference<>();
             AtomicReference<ActorRuntime.MemoryReservation> state = new AtomicReference<>();
 
-            var ref = runtime.<String>spawnPrivate(context -> {
+            var ref = runtime.<String>spawnPrivateTrusted(context -> {
                 var memory = context.privateMemory().orElseThrow();
                 constructionOwner.set(memory.owner());
                 state.set(memory.reserveHeap(4096));
@@ -330,7 +336,7 @@ final class ActorRuntimeTest {
             CountDownLatch firstReserved = new CountDownLatch(1);
             CountDownLatch holdFirst = new CountDownLatch(1);
 
-            var first = runtime.<String>spawnPrivate(parent, context -> {
+            var first = runtime.<String>spawnPrivateTrusted(parent, context -> {
                 var reservation = context.privateMemory().orElseThrow().reserveHeap(10L * 1024 * 1024);
                 firstReserved.countDown();
                 return (message, turn) -> {
@@ -456,7 +462,7 @@ final class ActorRuntimeTest {
             CountDownLatch reserved = new CountDownLatch(1);
             AtomicReference<ActorRuntime.MemoryReservation> reservation = new AtomicReference<>();
 
-            var ref = runtime.<String>spawnPrivate(factoryContext -> {
+            var ref = runtime.<String>spawnPrivateTrusted(factoryContext -> {
                 reservation.set(factoryContext.privateMemory().orElseThrow().reserveHeap(4096));
                 reserved.countDown();
                 return (message, context) -> { };
@@ -481,11 +487,11 @@ final class ActorRuntimeTest {
     void actorMessageGraphDepthIsBounded() {
         Object nested = "leaf";
         for (int i = 0; i < 300; i++) nested = List.of(nested);
-        Object deeplyNested = nested;
+        Object tooDeep = nested;
 
         IllegalArgumentException failure = assertThrows(
                 IllegalArgumentException.class,
-                () -> ActorRuntime.freeze(deeplyNested));
+                () -> ActorRuntime.freeze(tooDeep));
         assertTrue(failure.getMessage().contains("maximum nesting depth"));
     }
 
@@ -541,7 +547,7 @@ final class ActorRuntimeTest {
 
         try (ActorRuntime runtime = new ActorRuntime(parent)) {
             CountDownLatch reserved = new CountDownLatch(1);
-            var ref = runtime.<String>spawnPrivate(parent, factoryContext -> {
+            var ref = runtime.<String>spawnPrivateTrusted(parent, factoryContext -> {
                 factoryContext.privateMemory().orElseThrow().reserveHeap(10L * 1024 * 1024);
                 reserved.countDown();
                 return (message, context) -> { };
@@ -758,7 +764,7 @@ final class ActorRuntimeTest {
             IllegalStateException failure = assertThrows(
                     IllegalStateException.class,
                     () -> runtime.<String>spawnPrivate(() -> (message, context) -> { }));
-            assertTrue(failure.getMessage().contains("actor limit exceeded"));
+            assertTrue(failure.getMessage().contains("actor runtime limit exceeded"));
 
             first.stop();
             assertEquals(1, runtime.actorCount());
@@ -768,6 +774,501 @@ final class ActorRuntimeTest {
             assertEquals(2, runtime.actorCount());
 
             second.stop();
+        }
+    }
+
+
+    @Test
+    void safePrivateFactoryRejectsCapturedHostStateEvenInDeveloperMode() {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            Object mutableHostState = new StringBuilder("host");
+            SecurityException failure = assertThrows(
+                    SecurityException.class,
+                    () -> runtime.<String>spawnPrivate(factoryContext -> {
+                        mutableHostState.toString();
+                        return (message, context) -> { };
+                    }));
+            assertTrue(failure.getMessage().contains("stateless"));
+        }
+    }
+
+    @Test
+    void isolatedPrivateActorCanUseOwnerCheckedDirectMemory() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var ref = runtime.<Byte>spawnPrivate(factoryContext -> {
+                ActorRuntime.PrivateMemoryBlock block =
+                        factoryContext.privateMemory().orElseThrow().allocatePrivateBytes(64);
+                block.writeByte(0, (byte) 7);
+
+                return (message, context) -> {
+                    if (block.readByte(0) != 7) throw new AssertionError("private block lost actor state");
+                    block.writeByte(1, message);
+                    if (block.readByte(1) != message) throw new AssertionError("private block write mismatch");
+                    context.self().stop();
+                };
+            });
+
+            ref.send((byte) 42);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (ref.isAlive() && System.nanoTime() < deadline) Thread.sleep(5);
+            assertFalse(ref.isAlive());
+            assertTrue(ref.failure().isEmpty());
+            assertEquals(0L, runtime.privateMemoryBytes(), "actor teardown must release its private direct-memory quota");
+        }
+    }
+
+    @Test
+    void leakedPrivateDirectMemoryCannotBeReadOutsideOwnerActor() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            AtomicReference<ActorRuntime.PrivateMemoryBlock> leaked = new AtomicReference<>();
+            CountDownLatch created = new CountDownLatch(1);
+
+            var ref = runtime.<String>spawnPrivateTrusted(factoryContext -> {
+                ActorRuntime.PrivateMemoryBlock block =
+                        factoryContext.privateMemory().orElseThrow().allocatePrivateBytes(8);
+                block.writeByte(0, (byte) 99);
+                leaked.set(block);
+                created.countDown();
+                return (message, context) -> { };
+            });
+
+            ref.send("initialize");
+            assertTrue(created.await(2, TimeUnit.SECONDS));
+            IllegalStateException failure = assertThrows(
+                    IllegalStateException.class,
+                    () -> leaked.get().readByte(0));
+            assertTrue(failure.getMessage().contains("owning actor"));
+            ref.stop();
+            assertTrue(leaked.get().closed());
+        }
+    }
+
+    @Test
+    void privateDirectMemoryHandleCannotCrossMailboxBoundary() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            AtomicReference<ActorRuntime.PrivateMemoryBlock> block = new AtomicReference<>();
+            CountDownLatch created = new CountDownLatch(1);
+
+            var owner = runtime.<String>spawnPrivateTrusted(factoryContext -> {
+                block.set(factoryContext.privateMemory().orElseThrow().allocatePrivateBytes(8));
+                created.countDown();
+                return (message, context) -> { };
+            });
+            owner.send("initialize");
+            assertTrue(created.await(2, TimeUnit.SECONDS));
+
+            var other = runtime.<Object>spawnPrivate(() -> (message, context) -> { });
+            IllegalArgumentException failure = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> other.send(block.get()));
+            assertTrue(failure.getMessage().contains("not Sendable")
+                    || failure.getMessage().contains("actor boundaries"));
+
+            owner.stop();
+            other.stop();
+        }
+    }
+
+
+
+    @Test
+    void actorCannotUseClosureCapturedForeignRuntimeSendOrSpawn() throws Exception {
+        try (ActorRuntime runtimeA = new ActorRuntime();
+             ActorRuntime runtimeB = new ActorRuntime()) {
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> sendFailure = new AtomicReference<>();
+            AtomicReference<Throwable> spawnFailure = new AtomicReference<>();
+
+            var target = runtimeA.<String>spawn(() -> (message, context) -> { });
+            var caller = runtimeB.<String>spawn(() -> (message, context) -> {
+                try {
+                    runtimeA.send(target, "cross-runtime");
+                } catch (Throwable problem) {
+                    sendFailure.set(problem);
+                }
+                try {
+                    runtimeA.<String>spawn(() -> (childMessage, childContext) -> { });
+                } catch (Throwable problem) {
+                    spawnFailure.set(problem);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            caller.send("go");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertInstanceOf(SecurityException.class, sendFailure.get());
+            assertInstanceOf(SecurityException.class, spawnFailure.get());
+        }
+    }
+
+    @Test
+    void actorCannotInvokeClosureCapturedForeignActorRef() throws Exception {
+        try (ActorRuntime runtimeA = new ActorRuntime();
+             ActorRuntime runtimeB = new ActorRuntime()) {
+            CountDownLatch targetReceived = new CountDownLatch(1);
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+
+            var target = runtimeA.<String>spawn(() -> (message, context) -> targetReceived.countDown());
+            var foreignCaller = runtimeB.<String>spawn(() -> (message, context) -> {
+                try {
+                    target.send("cross-runtime");
+                } catch (Throwable problem) {
+                    failure.set(problem);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            foreignCaller.send("go");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertInstanceOf(SecurityException.class, failure.get());
+            assertEquals(1L, targetReceived.getCount());
+        }
+    }
+
+    @Test
+    void actorRuntimeEnforcesConfiguredActorCeiling() {
+        try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(), 1)) {
+            runtime.<String>spawn(() -> (message, context) -> { });
+            IllegalStateException error = assertThrows(
+                    IllegalStateException.class,
+                    () -> runtime.<String>spawn(() -> (message, context) -> { }));
+            assertTrue(error.getMessage().contains("actor runtime limit exceeded"));
+            assertEquals(1, runtime.maxActors());
+        }
+    }
+
+    @Test
+    void actorCodeCannotCloseItsOwnRuntime() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+
+            var ref = runtime.<String>spawn(() -> (message, context) -> {
+                try {
+                    assertThrows(SecurityException.class, context.runtime()::close);
+                } catch (Throwable problem) {
+                    failure.set(problem);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send("check");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertNull(failure.get());
+        }
+    }
+
+    @Test
+    void strictActorCannotBypassReadonlyCapabilityThroughRuntimeHandle() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            IsolatePolicy strict = IsolatePolicy.strictFaas();
+            var ref = runtime.<String>spawnPrivate(
+                    strict,
+                    factoryContext -> (message, context) ->
+                            context.runtime().shareReadonly(List.of("secret")));
+
+            ref.send("check");
+            for (int i = 0; i < 500 && ref.failure().isEmpty(); i++) Thread.yield();
+
+            assertTrue(ref.failure().isPresent());
+            assertInstanceOf(SecurityException.class, ref.failure().orElseThrow());
+        }
+    }
+
+    @Test
+    void closeStopsActorEvenWhenBehaviorClearsInterruptBeforeReturning() throws Exception {
+        ActorRuntime runtime = new ActorRuntime();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch cleared = new CountDownLatch(1);
+
+        var ref = runtime.<String>spawn(() -> (message, context) -> {
+            started.countDown();
+            try {
+                Thread.sleep(30_000);
+            } catch (InterruptedException interrupted) {
+                Thread.interrupted();
+                cleared.countDown();
+            }
+        });
+
+        ref.send("block");
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+
+        assertDoesNotThrow(runtime::close);
+        assertTrue(cleared.await(1, TimeUnit.SECONDS));
+        assertThrows(IllegalStateException.class, () -> ref.send("after-close"));
+    }
+
+    @Test
+    void closeCanBeRetriedAfterInitialTerminationTimeout() throws Exception {
+        ActorRuntime runtime = new ActorRuntime();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        var ref = runtime.<String>spawn(() -> (message, context) -> {
+            started.countDown();
+            while (true) {
+                try {
+                    release.await();
+                    return;
+                } catch (InterruptedException ignored) {
+                    // Deliberately ignore the first shutdown interrupt.
+                }
+            }
+        });
+
+        ref.send("block");
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+
+        IllegalStateException timedOut = assertThrows(IllegalStateException.class, runtime::close);
+        assertTrue(timedOut.getMessage().contains("did not observe full actor termination"));
+
+        release.countDown();
+        assertDoesNotThrow(runtime::close);
+        assertThrows(IllegalStateException.class, () -> ref.send("after-close"));
+    }
+
+    @Test
+    void privateActorCannotCreateReadonlySharedMemory() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> observed = new AtomicReference<>();
+
+            var ref = runtime.<String>spawnPrivate(() -> (message, context) -> {
+                try {
+                    context.runtime().shareReadonly(List.of("private"));
+                } catch (Throwable failure) {
+                    observed.set(failure);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send("check");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertNotNull(observed.get());
+            assertTrue(observed.get().getMessage().contains("private actors cannot access synchronized shared memory")
+                    || observed.get().getMessage().contains("shareReadonly")
+                    || observed.get() instanceof SecurityException);
+        }
+    }
+
+    @Test
+    void privateActorCannotDereferenceCapturedReadonlySharedHandle() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorRuntime.Shared<List<String>> shared = runtime.shareReadonly(List.of("shared"));
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> observed = new AtomicReference<>();
+
+            var ref = runtime.<String>spawnPrivate(() -> (message, context) -> {
+                try {
+                    shared.value();
+                } catch (Throwable failure) {
+                    observed.set(failure);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send("check");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertInstanceOf(IllegalStateException.class, observed.get());
+            assertTrue(observed.get().getMessage().contains("private actors cannot access"));
+        }
+    }
+
+
+
+    @Test
+    void fullMailboxRejectsBeforeTraversingAnotherMessage() throws Exception {
+        IsolatePolicy oneQueuedMessage = new IsolatePolicy(
+                IsolatePolicy.developer().capabilities(),
+                IsolatePolicy.developer().maxHeapBytes(),
+                1,
+                IsolatePolicy.developer().maxWallTime(),
+                false);
+
+        try (ActorRuntime runtime = new ActorRuntime(oneQueuedMessage)) {
+            CountDownLatch processing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+
+            var ref = runtime.<Object>spawn(oneQueuedMessage, () -> (message, context) -> {
+                if ("first".equals(message)) {
+                    processing.countDown();
+                    release.await();
+                }
+            });
+
+            ref.send("first");
+            assertTrue(processing.await(2, TimeUnit.SECONDS));
+            ref.send("queued");
+
+            AtomicBoolean traversed = new AtomicBoolean();
+            List<Object> shouldNotTraverse = new AbstractList<>() {
+                @Override
+                public Object get(int index) {
+                    traversed.set(true);
+                    throw new AssertionError("message graph must not be traversed after mailbox admission fails");
+                }
+
+                @Override
+                public int size() {
+                    return 1;
+                }
+            };
+
+            IllegalStateException error = assertThrows(
+                    IllegalStateException.class,
+                    () -> ref.send(shouldNotTraverse));
+            assertTrue(error.getMessage().contains("mailbox limit exceeded"));
+            assertFalse(traversed.get());
+
+            release.countDown();
+        }
+    }
+
+    @Test
+    void concurrentSendersReserveMailboxBeforeTransportTraversal() throws Exception {
+        IsolatePolicy oneQueuedMessage = new IsolatePolicy(
+                IsolatePolicy.developer().capabilities(),
+                IsolatePolicy.developer().maxHeapBytes(),
+                1,
+                IsolatePolicy.developer().maxWallTime(),
+                false);
+
+        try (ActorRuntime runtime = new ActorRuntime(oneQueuedMessage)) {
+            CountDownLatch processing = new CountDownLatch(1);
+            CountDownLatch releaseActor = new CountDownLatch(1);
+            CountDownLatch firstTraversalEntered = new CountDownLatch(1);
+            CountDownLatch releaseFirstTraversal = new CountDownLatch(1);
+            AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+            AtomicBoolean secondTraversalRan = new AtomicBoolean();
+
+            var ref = runtime.<Object>spawn(oneQueuedMessage, () -> (message, context) -> {
+                if ("processing".equals(message)) {
+                    processing.countDown();
+                    releaseActor.await();
+                }
+            });
+
+            ref.send("processing");
+            assertTrue(processing.await(2, TimeUnit.SECONDS));
+
+            List<Object> first = new AbstractList<>() {
+                private final AtomicBoolean blocked = new AtomicBoolean();
+
+                @Override
+                public Object get(int index) {
+                    if (index != 0) throw new IndexOutOfBoundsException(index);
+                    if (blocked.compareAndSet(false, true)) {
+                        firstTraversalEntered.countDown();
+                        try {
+                            if (!releaseFirstTraversal.await(2, TimeUnit.SECONDS)) {
+                                throw new IllegalStateException("timed out waiting to finish first traversal");
+                            }
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new java.util.concurrent.CancellationException();
+                        }
+                    }
+                    return "first-queued";
+                }
+
+                @Override
+                public int size() {
+                    return 1;
+                }
+            };
+
+            Thread sender = Thread.ofPlatform().start(() -> {
+                try {
+                    ref.send(first);
+                } catch (Throwable failure) {
+                    firstFailure.set(failure);
+                }
+            });
+
+            assertTrue(firstTraversalEntered.await(2, TimeUnit.SECONDS));
+
+            List<Object> second = new AbstractList<>() {
+                @Override
+                public Object get(int index) {
+                    secondTraversalRan.set(true);
+                    return "second-queued";
+                }
+
+                @Override
+                public int size() {
+                    return 1;
+                }
+            };
+
+            IllegalStateException rejected = assertThrows(
+                    IllegalStateException.class,
+                    () -> ref.send(second));
+            assertTrue(rejected.getMessage().contains("mailbox limit exceeded"));
+            assertFalse(secondTraversalRan.get());
+
+            releaseFirstTraversal.countDown();
+            sender.join();
+            assertNull(firstFailure.get());
+
+            releaseActor.countDown();
+        }
+    }
+
+
+
+    @Test
+    void sharedActorBehaviorFactoryMustBeCaptureFree() {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            List<String> captured = new ArrayList<>();
+
+            SecurityException failure = assertThrows(
+                    SecurityException.class,
+                    () -> runtime.<String>spawnShared(factoryContext -> {
+                        captured.add("captured");
+                        return (message, context) -> { };
+                    }));
+
+            assertTrue(failure.getMessage().contains("stateless")
+                    || failure.getMessage().contains("captured host state"));
+            assertTrue(captured.isEmpty(), "rejected factory must never execute");
+        }
+    }
+
+    @Test
+    void trustedSharedFactoryIsSupervisorOnlyAndNonAdversarial() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            List<String> captured = new ArrayList<>();
+            CountDownLatch delivered = new CountDownLatch(1);
+
+            var ref = runtime.<String>spawnSharedTrusted(factoryContext -> {
+                captured.add("factory");
+                return (message, context) -> {
+                    captured.add(message);
+                    delivered.countDown();
+                };
+            });
+
+            ref.send("message");
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals(List.of("factory", "message"), captured);
+        }
+
+        IsolatePolicy adversarialShared = IsolatePolicy.strictFaas()
+                .withCapabilities(IsolatePolicy.Capability.SHARED_MEMORY);
+        try (ActorRuntime runtime = new ActorRuntime(adversarialShared)) {
+            SecurityException failure = assertThrows(
+                    SecurityException.class,
+                    () -> runtime.<String>spawnSharedTrusted(
+                            adversarialShared,
+                            factoryContext -> (message, context) -> { }));
+            assertTrue(failure.getMessage().contains("adversarial"));
         }
     }
 
