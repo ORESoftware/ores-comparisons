@@ -1045,6 +1045,20 @@ public final class OresEvalRootNode extends RootNode {
 
         private Ast.ClassDecl runtimeDispatchClass(OresObject receiver, SingletonState singletonState) {
             if (singletonState == null) return receiver.klass;
+
+            // Callable-local structs are lexically scoped declarations, not
+            // global class-table entries. During the currently authorized code
+            // generation their AST identity is the dispatch identity.
+            String localOwner = localClassOwners.get(receiver.klass);
+            if (localOwner != null) {
+                Ast.ModuleDecl owner = modules.get(localOwner);
+                if (owner == null || !owner.singleton()) {
+                    throw new IllegalStateException("local singleton dispatch owner disappeared for " + receiver.klass.name());
+                }
+                authorizeSingletonCodeGeneration(singletonState, owner);
+                return receiver.klass;
+            }
+
             Ast.ClassDecl current = findClass(receiver.klass.name());
             if (current == null) {
                 throw new IllegalStateException("singleton-owned class '" + receiver.klass.name()

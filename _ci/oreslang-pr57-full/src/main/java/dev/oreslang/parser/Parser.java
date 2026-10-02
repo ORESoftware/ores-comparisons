@@ -281,7 +281,7 @@ public final class Parser {
             if (isBindingKind(peek().type()) || looksLikeStructField()) {
                 if (mods.isStatic || mods.async || mods.isAbstract) throw error(peek(), "struct fields do not accept static/async/abstract modifiers");
                 fields.add(isBindingKind(peek().type())
-                        ? parseField(structFieldVisibility)
+                        ? parseExplicitStructField(structFieldVisibility, terminator)
                         : parseImplicitValStructField(structFieldVisibility));
                 continue;
             }
@@ -309,6 +309,27 @@ public final class Parser {
         } finally {
             current = saved;
         }
+    }
+
+    private Ast.FieldDecl parseExplicitStructField(
+            Ast.Visibility visibility,
+            Token.Type terminator) {
+        Ast.BindingKind kind = parseBindingKind();
+
+        if (check(IDENT) && checkNext(COLON)) {
+            String name = advance().lexeme();
+            consume(COLON, "expected ':' after struct field name");
+            Ast.TypeRef type = parseTypeRef();
+            Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
+            consumeStructFieldTerminator(terminator);
+            return new Ast.FieldDecl(name, visibility, kind, type, initializer);
+        }
+
+        Ast.TypeRef type = parseTypeRef();
+        String name = consume(IDENT, "expected struct field name").lexeme();
+        Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
+        consumeStatementTerminator("struct field declaration should end with ';'");
+        return new Ast.FieldDecl(name, visibility, kind, type, initializer);
     }
 
     private Ast.FieldDecl parseImplicitValStructField(Ast.Visibility visibility) {
