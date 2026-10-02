@@ -333,11 +333,13 @@ public final class Parser {
         List<String> generics = parseGenericParameters();
         List<Ast.TypeRef> interfaces = match(IS, IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
         List<Ast.TypeRef> traits = match(WITH) ? parseTypeRefList() : List.of();
-        consume(AS, "trait declarations require 'as' before the body");
+        boolean braceStyle = match(LBRACE);
+        if (!braceStyle) consume(AS, "trait declarations require 'as' before the body");
+        Token.Type terminator = braceStyle ? RBRACE : END;
 
         List<Ast.FieldDecl> fields = new ArrayList<>();
         List<Ast.MethodDecl> methods = new ArrayList<>();
-        while (!check(END) && !check(EOF)) {
+        while (!check(terminator) && !check(EOF)) {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
             if (check(INIT)) throw error(peek(), "traits cannot declare init routines; trait state initializes as part of the host object");
@@ -350,7 +352,7 @@ public final class Parser {
             if (check(FNC)) throw error(peek(), "trait instance methods omit 'fnc', like class instance methods");
             methods.add(parseMethod(annotations, mods));
         }
-        consume(END, "expected 'end' to close trait " + name);
+        consume(terminator, braceStyle ? "expected '}' to close trait " + name : "expected 'end' to close trait " + name);
         return new Ast.TraitDecl(name, generics, interfaces, traits, fields, methods);
     }
 
@@ -694,12 +696,14 @@ public final class Parser {
 
     private Ast.Stmt parseStatement() {
         if (match(STRUCT)) return new Ast.TypeDeclStmt(parseStruct(true));
+        if (match(TRAIT)) return new Ast.TypeDeclStmt(parseTrait());
         if (match(INTERFACE)) return new Ast.TypeDeclStmt(parseInterface(Ast.Visibility.PRIVATE));
         if (match(TYPE)) return new Ast.TypeDeclStmt(parseTypeAlias());
         if (match(DEFINE)) {
             if (match(STRUCT)) return new Ast.TypeDeclStmt(parseStruct(false));
+            if (match(TRAIT)) return new Ast.TypeDeclStmt(parseTrait());
             if (match(INTERFACE)) return new Ast.TypeDeclStmt(parseInterface(Ast.Visibility.PRIVATE));
-            throw error(previous(), "callable-local 'define' only supports struct or interface declarations; type aliases use 'type Name = ...'");
+            throw error(previous(), "callable-local 'define' only supports struct, trait, or interface declarations; type aliases use 'type Name = ...'");
         }
         if (isBindingKind(peek().type())) return parseBindingStatement();
         if (check(LBRACKET) && looksLikeDestructure()) return parseDestructure();

@@ -266,8 +266,9 @@ public final class Ast {
         public TypeDeclStmt {
             if (!(declaration instanceof ClassDecl klass && klass.isStruct())
                     && !(declaration instanceof InterfaceDecl)
+                    && !(declaration instanceof TraitDecl)
                     && !(declaration instanceof TypeAliasDecl)) {
-                throw new IllegalArgumentException("callable-local type declarations are limited to struct/interface/type");
+                throw new IllegalArgumentException("callable-local type declarations are limited to struct/interface/trait/type");
             }
         }
     }
