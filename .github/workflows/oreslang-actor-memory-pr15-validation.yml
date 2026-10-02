@@ -46,6 +46,6 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
-      - name: Compile full actor-memory integration source tree
+      - name: Verify full Oreslang source tree including GC regressions
         working-directory: _ci/oreslang-pr19-full
-        run: mvn -B -ntp -DskipTests compile
+        run: mvn -B -ntp verify
