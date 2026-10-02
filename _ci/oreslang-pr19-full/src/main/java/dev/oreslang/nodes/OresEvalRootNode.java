@@ -104,10 +104,43 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private Object callFunction(Ast.FunctionDecl fn, List<?> args) {
-            if (args.size() != fn.parameters().size()) {
-                if (fn.parameters().isEmpty() && args.size() == 1 && args.getFirst() instanceof Object[] array && array.length == 0) args = List.of();
-                else throw new IllegalArgumentException("function " + fn.name() + " expects " + fn.parameters().size() + " arguments, got " + args.size());
+            List<?> normalizedArgs = normalizeFunctionArguments(fn, args);
+            if (fn.actorKind() == Ast.ActorKind.NONE) {
+                return callFunctionBody(fn, normalizedArgs);
             }
+
+            ActorRuntime.MemoryPolicy memoryPolicy = switch (fn.actorKind()) {
+                case NONE -> throw new AssertionError("unreachable non-actor callable");
+                case SHARED -> ActorRuntime.MemoryPolicy.sharedHeap();
+                case ISOLATED -> ActorRuntime.MemoryPolicy.privateArena(defaultIsoActorInitialBytes());
+            };
+
+            return context.actors().invoke(
+                    normalizedArgs,
+                    memoryPolicy,
+                    (deliveredArgs, actorContext) -> callFunctionBody(fn, deliveredArgs));
+        }
+
+        private List<?> normalizeFunctionArguments(Ast.FunctionDecl fn, List<?> args) {
+            if (args.size() != fn.parameters().size()) {
+                if (fn.parameters().isEmpty()
+                        && args.size() == 1
+                        && args.getFirst() instanceof Object[] array
+                        && array.length == 0) {
+                    return List.of();
+                }
+                throw new IllegalArgumentException(
+                        "function " + fn.name() + " expects " + fn.parameters().size()
+                                + " arguments, got " + args.size());
+            }
+            return args;
+        }
+
+        private long defaultIsoActorInitialBytes() {
+            return Math.min(1024L * 1024L, context.isolatePolicy().maxHeapBytes());
+        }
+
+        private Object callFunctionBody(Ast.FunctionDecl fn, List<?> args) {
             Env env = new Env(null);
             for (int i = 0; i < fn.parameters().size(); i++) {
                 Ast.Param param = fn.parameters().get(i);
@@ -116,7 +149,12 @@ public final class OresEvalRootNode extends RootNode {
             try {
                 executeBlock(fn.body(), env);
                 return null;
-            } catch (ReturnSignal signal) { return shapeReturnedValue(fn.returnType(), signal.value, "function " + fn.name()); }
+            } catch (ReturnSignal signal) {
+                return shapeReturnedValue(
+                        fn.returnType(),
+                        signal.value,
+                        "function " + fn.name());
+            }
         }
 
         private Object callMethod(OresObject receiver, Ast.MethodDecl method, List<?> args) {
@@ -816,8 +854,7 @@ public final class OresEvalRootNode extends RootNode {
                 if (option.present()) releaseMutexGuardsInValue(option.value(), failed, seen);
                 return;
             }
-            if (value instanceof CompletionStage<?> stage) {
-                var future = stage.toCompletableFuture();
+            if (value instanceof OresMutex.GuardFuture<?> future) {
                 if (!future.isDone()) {
                     future.cancel(true);
                     return;
@@ -827,18 +864,8 @@ public final class OresEvalRootNode extends RootNode {
                 }
                 return;
             }
-            if (value instanceof OresObject object) {
-                for (Object field : object.fields.values()) {
-                    releaseMutexGuardsInValue(field, failed, seen);
-                }
-                return;
-            }
             if (value instanceof List<?> list) {
                 for (Object item : list) releaseMutexGuardsInValue(item, failed, seen);
-                return;
-            }
-            if (value instanceof Set<?> set) {
-                for (Object item : set) releaseMutexGuardsInValue(item, failed, seen);
                 return;
             }
             if (value instanceof Map<?, ?> map) {
