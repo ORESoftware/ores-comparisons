@@ -1447,7 +1447,8 @@ public final class TypeChecker {
                     if (field.bindingKind() != Ast.BindingKind.LET
                             && !canInitializeValField(member, klass, field, env)) {
                         throw new IllegalArgumentException("cannot reassign " + field.bindingKind().name().toLowerCase()
-                                + " field '" + klass.name() + "." + field.name() + "'");
+                                + " field '" + klass.name() + "." + field.name()
+                                + "'; field '" + klass.name() + "." + field.name() + "' is immutable");
                     }
                     return resolve(field.type(), Set.copyOf(klass.genericParameters()), named);
                 }
