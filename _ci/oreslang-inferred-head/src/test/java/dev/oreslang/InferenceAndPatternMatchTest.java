@@ -519,6 +519,26 @@ final class InferenceAndPatternMatchTest {
     }
 
     @Test
+    void strAliasAndSingletonStringListsWidenToStableStringTypes() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                fnc accepts_str(str value) => void {
+                  return;
+                }
+
+                fnc accepts_list(Array<String> values) => void {
+                  return;
+                }
+
+                fnc use() => void {
+                  accepts_str("hello");
+                  val values = arr["shared"];
+                  accepts_list(values);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void rangeAndOrPatternsComposeWithCatchAll() throws Exception {
         String output = run("""
                 fnc bucket(int value) {

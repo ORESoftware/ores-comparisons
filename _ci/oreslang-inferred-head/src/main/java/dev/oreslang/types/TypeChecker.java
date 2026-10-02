@@ -876,8 +876,12 @@ public final class TypeChecker {
         }
         if (expr instanceof Ast.ListExpr list) {
             if (list.elements().isEmpty()) return new ListType(Unknown.INSTANCE);
-            Type element = typeOf(list.elements().getFirst(), env, generics, self);
-            for (int i = 1; i < list.elements().size(); i++) element = commonType(element, typeOf(list.elements().get(i), env, generics, self));
+            // Mutable/homogeneous list inference should infer the stable value
+            // type, not a singleton literal type such as List<"hello">.
+            Type element = widenLiteralType(typeOf(list.elements().getFirst(), env, generics, self));
+            for (int i = 1; i < list.elements().size(); i++) {
+                element = commonType(element, widenLiteralType(typeOf(list.elements().get(i), env, generics, self)));
+            }
             return new ListType(element);
         }
         if (expr instanceof Ast.TupleExpr tuple) {
@@ -1305,6 +1309,11 @@ public final class TypeChecker {
         return result;
     }
 
+    private Type widenLiteralType(Type type) {
+        if (type instanceof StringLiteral) return Primitive.STRING;
+        return type;
+    }
+
     private boolean isStringLike(Type type) {
         return type == Primitive.STRING || type instanceof StringLiteral;
     }
@@ -1725,7 +1734,7 @@ public final class TypeChecker {
             case "decimal" -> Primitive.DECIMAL;
             case "complex64", "complex128", "complex" -> Primitive.COMPLEX;
             case "bool", "Bool" -> Primitive.BOOL;
-            case "string", "String" -> Primitive.STRING;
+            case "str", "string", "String" -> Primitive.STRING;
             case "void" -> Primitive.VOID;
             case "any" -> Any.INSTANCE;
             case "unknown" -> Unknown.INSTANCE;
