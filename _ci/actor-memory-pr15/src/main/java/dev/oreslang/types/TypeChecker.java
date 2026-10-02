@@ -922,7 +922,7 @@ public final class TypeChecker {
         if (assignable(b, a) && assignable(a, b)) return a;
         if (Types.isNumeric(a) && Types.isNumeric(b)) return Types.numericJoin(a, b);
         if (isStringLike(a) && isStringLike(b)) return Primitive.STRING;
-        return Types.unionOf(a, b);
+        return Unknown.INSTANCE;
     }
 
     private Type numericJoin(Type left, Type right, String op) {
