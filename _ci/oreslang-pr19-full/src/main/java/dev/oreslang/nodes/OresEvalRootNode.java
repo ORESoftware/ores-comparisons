@@ -1301,10 +1301,9 @@ public final class OresEvalRootNode extends RootNode {
                 return false;
             }
 
-            // A nested SharedMutex has already crossed the same explicit
-            // SHARED_MEMORY admission boundary; do not acquire it just to
-            // inspect its protected state.
-            if (value instanceof OresMutex.Shared<?>) return true;
+            // Nested shared locks require recursive publication and lock-order
+            // semantics that are intentionally not part of the current model.
+            if (value instanceof OresMutex.Shared<?>) return false;
 
             if (!seen.add(value)) return true;
 

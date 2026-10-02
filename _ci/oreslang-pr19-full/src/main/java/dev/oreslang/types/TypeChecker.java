@@ -1058,9 +1058,10 @@ public final class TypeChecker {
         }
         if (!(type instanceof Named named)) return false;
 
-        if (named.name().equals("Mutex") || named.name().equals("MutexGuard") || named.name().equals("Future")) return false;
+        if (named.name().equals("Mutex") || named.name().equals("MutexGuard")
+                || named.name().equals("Future") || named.name().equals("SharedMutex")) return false;
         if (named.name().equals("OptionUnwrapError")) return named.arguments().isEmpty();
-        if (named.name().equals("Option") || named.name().equals("SharedMutex")) {
+        if (named.name().equals("Option")) {
             return named.arguments().size() == 1 && isSharedSafe(named.arguments().getFirst(), seen, genericBindings);
         }
         if (named.name().equals("Result")) {

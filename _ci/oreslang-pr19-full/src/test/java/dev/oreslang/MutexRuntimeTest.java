@@ -991,28 +991,39 @@ final class MutexRuntimeTest {
 
 
     @Test
-    void nestedSharedMutexesBindToTheSameRuntimeTransactionally() throws Exception {
+    void nestedSharedMutexPayloadsAreRejectedUntilRecursiveLockOrderingExists() {
         record Box(OresMutex.Shared<int[]> inner) implements OresMutex.SharedState {
             @Override public Iterable<?> sharedStateChildren() { return List.of(inner); }
         }
 
-        var inner = OresMutex.shared(new int[]{3});
-        var outer = OresMutex.shared(new Box(inner));
+        var outer = OresMutex.shared(new Box(OresMutex.shared(new int[]{3})));
 
-        try (ActorRuntime runtimeA = new ActorRuntime();
-             ActorRuntime runtimeB = new ActorRuntime()) {
-            CountDownLatch delivered = new CountDownLatch(1);
-            var first = runtimeA.<OresMutex.Shared<Box>>spawnShared(
-                    () -> (message, context) -> delivered.countDown());
-            first.send(outer);
-            assertTrue(delivered.await(2, TimeUnit.SECONDS));
-
-            var foreign = runtimeB.<OresMutex.Shared<int[]>>spawnShared(
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var receiver = runtime.<OresMutex.Shared<Box>>spawnShared(
                     () -> (message, context) -> { });
             IllegalArgumentException error = assertThrows(
                     IllegalArgumentException.class,
-                    () -> foreign.send(inner));
-            assertTrue(error.getMessage().contains("ActorRuntime"));
+                    () -> receiver.send(outer));
+            assertTrue(error.getMessage().contains("cannot contain another SharedMutex"));
+        }
+    }
+
+    @Test
+    void transportInspectionNeverBlocksOnALockedSharedMutex() {
+        var shared = OresMutex.shared(new int[]{1});
+        var guard = shared.lock();
+
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var receiver = runtime.<OresMutex.Shared<int[]>>spawnShared(
+                    () -> (message, context) -> { });
+
+            IllegalStateException busy = assertThrows(
+                    IllegalStateException.class,
+                    () -> receiver.send(shared));
+            assertTrue(busy.getMessage().contains("cannot be published while locked or contended"));
+
+            guard.release();
+            assertDoesNotThrow(() -> receiver.send(shared));
         }
     }
 

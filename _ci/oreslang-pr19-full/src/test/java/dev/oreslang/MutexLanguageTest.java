@@ -15,6 +15,21 @@ import static org.junit.jupiter.api.Assertions.*;
 
 final class MutexLanguageTest {
     @Test
+    void nestedSharedMutexTypesAreRejectedConservatively() {
+        var program = Parser.parse("""
+                define module app
+                  fnc bad(SharedMutex<SharedMutex<int>> value) => void {
+                    return;
+                  }
+                end
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class, () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains("shared-safe"));
+    }
+
+    @Test
     void sharedActorFunctionsRejectBlockingSharedMutexLock() {
         var program = Parser.parse("""
                 pub shared actor fnc worker(SharedMutex<int> mutex) => void {

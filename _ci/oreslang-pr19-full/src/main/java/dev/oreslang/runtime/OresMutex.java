@@ -385,6 +385,27 @@ public final class OresMutex {
             }
         }
 
+        void inspectForTransport(java.util.function.Consumer<? super T> inspection) {
+            Objects.requireNonNull(inspection, "inspection");
+            final boolean acquired;
+            try {
+                acquired = permit.tryAcquire(0L, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CancellationException(
+                        "SharedMutex transport inspection interrupted");
+            }
+            if (!acquired) {
+                throw new IllegalStateException(
+                        "SharedMutex cannot be published while locked or contended; retry after the current critical section completes");
+            }
+            try {
+                inspection.accept(value);
+            } finally {
+                releasePermitOrHandoff();
+            }
+        }
+
         private void requireActorAccess() {
             if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.PRIVATE) {
                 throw new SecurityException("private actors cannot access SharedMutex<T>");
