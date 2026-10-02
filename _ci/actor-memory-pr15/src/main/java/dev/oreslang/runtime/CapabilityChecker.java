@@ -19,8 +19,12 @@ import java.util.Set;
 public final class CapabilityChecker {
     private final Map<String, Ast.TypeAliasDecl> aliases = new HashMap<>();
     private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
+    private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
     private final Set<String> ambiguousAliases = new HashSet<>();
     private final Set<String> ambiguousClasses = new HashSet<>();
+    private final Set<String> ambiguousFunctions = new HashSet<>();
+    private final Set<Ast.FunctionDecl> callableStack =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     private CapabilityChecker(Ast.Program program) {
         for (Ast.ModuleDecl module : program.modules()) {
@@ -29,6 +33,8 @@ public final class CapabilityChecker {
                     index(aliases, ambiguousAliases, module.name(), alias.name(), alias);
                 } else if (declaration instanceof Ast.ClassDecl klass) {
                     index(classes, ambiguousClasses, module.name(), klass.name(), klass);
+                } else if (declaration instanceof Ast.FunctionDecl fn) {
+                    index(functions, ambiguousFunctions, module.name(), fn.name(), fn);
                 }
             }
         }
@@ -58,6 +64,24 @@ public final class CapabilityChecker {
 
     private Ast.ClassDecl findClass(String name) {
         return ambiguousClasses.contains(name) ? null : classes.get(name);
+    }
+
+    private Ast.FunctionDecl findFunction(String name) {
+        return ambiguousFunctions.contains(name) ? null : functions.get(name);
+    }
+
+    private void checkReferencedFunction(Ast.FunctionDecl fn, IsolatePolicy policy) {
+        if (!callableStack.add(fn)) return;
+        try {
+            IsolatePolicy effective = actorPolicy(fn.actorKind(), policy);
+            if (fn.actorKind() == Ast.ActorKind.SHARED) {
+                require(effective, IsolatePolicy.Capability.SHARED_MEMORY, "shared actor fnc " + fn.name());
+            }
+            checkCallableTypes(fn.parameters(), fn.returnType(), effective);
+            checkStatements(fn.body(), effective);
+        } finally {
+            callableStack.remove(fn);
+        }
     }
 
     private void checkProgram(Ast.Program program, IsolatePolicy policy) {
@@ -151,6 +175,16 @@ public final class CapabilityChecker {
                     checkType(field.type(), policy, visiting);
                     if (field.initializer() != null) checkExpr(field.initializer(), policy);
                 }
+                // An object stored in a private actor is itself an authority
+                // carrier. Its instance methods must therefore be admissible
+                // under the actor's policy; otherwise an ordinary class could
+                // hide a SharedMutex/process.share_readonly call behind a method.
+                for (Ast.MethodDecl method : klass.methods()) {
+                    if (method.isStatic()) continue;
+                    checkType(method.explicitReceiverType(), policy);
+                    checkCallableTypes(method.parameters(), method.returnType(), policy);
+                    checkStatements(method.body(), policy);
+                }
             } finally {
                 visiting.remove(klass);
             }
@@ -196,6 +230,11 @@ public final class CapabilityChecker {
             require(policy, IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex");
         }
         else if (expr instanceof Ast.CallExpr c) {
+            String target = memberPath(c.callee());
+            if (target != null) {
+                Ast.FunctionDecl fn = findFunction(target);
+                if (fn != null) checkReferencedFunction(fn, policy);
+            }
             checkExpr(c.callee(), policy);
             for (Ast.Expr arg : c.arguments()) checkExpr(arg, policy);
         } else if (expr instanceof Ast.MemberExpr m) {
