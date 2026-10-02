@@ -1,2 +1,2 @@
-ores-truffle-oreslang/oreslang-source.java PR #19 merged integration
-917ba1b3f24a125826629a54eb1c16b3acf030c5
+ores-truffle-oreslang/oreslang-source.java integration/actor-memory-keywords
+87b65ba8dee277ed2942c09417cb860ad1aec0c8
