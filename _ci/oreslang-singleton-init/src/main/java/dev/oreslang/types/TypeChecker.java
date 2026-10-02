@@ -687,10 +687,15 @@ public final class TypeChecker {
             }
         }
 
+        Ast.ModuleDecl lexicalOwner = modules.get(module);
+        Env classModuleEnv = lexicalOwner == null
+                ? new Env(null, module)
+                : lexicalOwner.singleton() ? singletonModuleEnv(lexicalOwner) : moduleBindingEnv(lexicalOwner);
+
         for (Ast.FieldDecl field : klass.fields()) {
             Type fieldType = resolve(field.type(), classGenerics, self);
             if (field.initializer() != null) {
-                Type actual = typeOf(field.initializer(), new Env(null), classGenerics, self);
+                Type actual = typeOf(field.initializer(), new Env(classModuleEnv), classGenerics, self);
                 requireAssignable(actual, fieldType, "field initializer " + klass.name() + "." + field.name());
             }
             if (field.bindingKind() == Ast.BindingKind.CONST && field.initializer() != null && !constant(field.initializer())) {
@@ -714,7 +719,7 @@ public final class TypeChecker {
             }
 
             Type callableSelf = method.isStatic() ? null : self;
-            Env env = new Env(null, module);
+            Env env = new Env(classModuleEnv);
             if (!method.isStatic()) env.define("self", self, Ast.BindingKind.VAL);
             for (Ast.Param param : method.parameters()) env.define(param.name(), resolveParam(param, generics, callableSelf), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
             Type returns = resolve(method.returnType(), generics, callableSelf);
