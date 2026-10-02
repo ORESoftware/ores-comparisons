@@ -315,8 +315,23 @@ public final class Ast {
     public record AssignExpr(Expr target, Expr value) implements Expr { }
     public record ConditionalExpr(Expr condition, Expr whenTrue, Expr whenFalse) implements Expr { }
 
-    public record CallExpr(Expr callee, List<Expr> arguments) implements Expr {
-        public CallExpr { arguments = List.copyOf(arguments); }
+    public record CallExpr(
+            Expr callee,
+            List<TypeRef> typeArguments,
+            List<Expr> arguments,
+            boolean typeArgumentsPresent) implements Expr {
+        public CallExpr {
+            typeArguments = List.copyOf(typeArguments);
+            arguments = List.copyOf(arguments);
+        }
+
+        public CallExpr(Expr callee, List<Expr> arguments) {
+            this(callee, List.of(), arguments, false);
+        }
+
+        public CallExpr(Expr callee, List<TypeRef> typeArguments, List<Expr> arguments) {
+            this(callee, typeArguments, arguments, true);
+        }
     }
 
     public record MemberExpr(Expr receiver, String member) implements Expr { }
