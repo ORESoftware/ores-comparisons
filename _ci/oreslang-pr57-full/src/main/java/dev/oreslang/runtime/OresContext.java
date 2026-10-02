@@ -101,17 +101,18 @@ public final class OresContext implements AutoCloseable {
 
 
     public Map<String, Object> processDescriptor() {
-        return Map.of(
-                "context_id", contextId.toString(),
-                "runtime", "graalvm-truffle",
-                "language", "oreslang",
-                "execution_mode", executionProfile.mode().name(),
-                "platform", executionProfile.platform().name(),
-                "scheduler_safepoints", schedulerSafepoints.get(),
-                "actor_gc_requests", actors.gcStats().actorRequests(),
-                "process_gc_requests", actors.gcStats().processRequests(),
-                "actor_gc_collections", actors.gcStats().actorCollections(),
-                "process_gc_collections", actors.gcStats().processCollections());
+        return Map.ofEntries(
+                Map.entry("context_id", contextId.toString()),
+                Map.entry("runtime", "graalvm-truffle"),
+                Map.entry("language", "oreslang"),
+                Map.entry("execution_mode", executionProfile.mode().name()),
+                Map.entry("platform", executionProfile.platform().name()),
+                Map.entry("scheduler_safepoints", schedulerSafepoints.get()),
+                Map.entry("actor_gc_requests", actors.gcStats().actorRequests()),
+                Map.entry("process_gc_requests", actors.gcStats().processRequests()),
+                Map.entry("process_gc_suppressed", actors.gcStats().suppressedProcessRequests()),
+                Map.entry("actor_gc_collections", actors.gcStats().actorCollections()),
+                Map.entry("process_gc_collections", actors.gcStats().processCollections()));
     }
 
     @Override
