@@ -21,8 +21,7 @@ public final class CapabilityChecker {
                 if (declaration instanceof Ast.FunctionDecl fn) checkStatements(fn.body(), policy);
                 else if (declaration instanceof Ast.InitDecl init) checkStatements(init.body(), policy);
                 else if (declaration instanceof Ast.ClassDecl klass) {
-                    for (Ast.FieldDecl field : klass.fields()) if (field.initializer() != null) checkExpr(field.initializer(), policy);
-                    for (Ast.MethodDecl method : klass.methods()) checkStatements(method.body(), policy);
+                    checkAggregate(klass, policy);
                 } else if (declaration instanceof Ast.FieldDecl field && field.initializer() != null) {
                     checkExpr(field.initializer(), policy);
                 }
@@ -32,7 +31,9 @@ public final class CapabilityChecker {
 
     private static void checkStatements(List<Ast.Stmt> statements, IsolatePolicy policy) {
         for (Ast.Stmt stmt : statements) {
-            if (stmt instanceof Ast.BindingStmt s) checkExpr(s.initializer(), policy);
+            if (stmt instanceof Ast.TypeDeclStmt local) {
+                if (local.declaration() instanceof Ast.ClassDecl klass) checkAggregate(klass, policy);
+            } else if (stmt instanceof Ast.BindingStmt s) checkExpr(s.initializer(), policy);
             else if (stmt instanceof Ast.DestructureStmt s) checkExpr(s.initializer(), policy);
             else if (stmt instanceof Ast.ReturnStmt s && s.value() != null) checkExpr(s.value(), policy);
             else if (stmt instanceof Ast.ExprStmt s) checkExpr(s.expression(), policy);
@@ -57,6 +58,13 @@ public final class CapabilityChecker {
                 checkStatements(s.body(), policy);
             }
         }
+    }
+
+    private static void checkAggregate(Ast.ClassDecl klass, IsolatePolicy policy) {
+        for (Ast.FieldDecl field : klass.fields()) {
+            if (field.initializer() != null) checkExpr(field.initializer(), policy);
+        }
+        for (Ast.MethodDecl method : klass.methods()) checkStatements(method.body(), policy);
     }
 
     private static void checkExpr(Ast.Expr expr, IsolatePolicy policy) {
@@ -86,6 +94,7 @@ public final class CapabilityChecker {
         else if (expr instanceof Ast.ConditionalExpr e) { checkExpr(e.condition(), policy); checkExpr(e.whenTrue(), policy); checkExpr(e.whenFalse(), policy); }
         else if (expr instanceof Ast.IndexExpr e) { checkExpr(e.receiver(), policy); checkExpr(e.index(), policy); }
         else if (expr instanceof Ast.NewExpr e) for (Ast.Expr a : e.arguments()) checkExpr(a, policy);
+        else if (expr instanceof Ast.StructInitExpr e) for (Ast.ObjectField f : e.fields()) checkExpr(f.value(), policy);
         else if (expr instanceof Ast.AwaitExpr e) checkExpr(e.expression(), policy);
         else if (expr instanceof Ast.ListExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy);
         else if (expr instanceof Ast.TupleExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy);
