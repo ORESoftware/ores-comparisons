@@ -430,7 +430,7 @@ final class GpuKeywordTest {
         try (Context context = Context.newBuilder(OresLanguage.ID)
                 .allowAllAccess(false)
                 .arguments(OresLanguage.ID,
-                        "--ores-capabilities=STDOUT,GPU")
+                        new String[]{"--ores-capabilities=STDOUT,GPU"})
                 .out(output)
                 .build()) {
             context.eval(source);
