@@ -1,9 +1,6 @@
 package dev.oreslang.runtime;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -12,7 +9,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.Semaphore;
 import java.util.function.Function;
 
@@ -27,65 +23,13 @@ import java.util.function.Function;
  * acquire/release ordering.</p>
  */
 public final class OresMutex {
-    /**
-     * Serializes first-runtime publication of SharedMutex handles. Publication
-     * has to be transactional with mailbox admission: a failed send must not
-     * permanently bind a handle to a runtime that never received it.
-     */
-    private static final Object RUNTIME_PUBLICATION_LOCK = new Object();
-
     private OresMutex() { }
 
     private static long saturatedNanos(Duration timeout) {
         try {
             return timeout.toNanos();
         } catch (ArithmeticException overflow) {
-            // Positive Durations can exceed the representable nanosecond
-            // range. Treat them as effectively unbounded.
             return Long.MAX_VALUE;
-        }
-    }
-
-    static boolean publishToRuntime(
-            ActorRuntime runtime,
-            Iterable<Shared<?>> handles,
-            Runnable publication) {
-        Objects.requireNonNull(runtime, "runtime");
-        Objects.requireNonNull(handles, "handles");
-        Objects.requireNonNull(publication, "publication");
-
-        synchronized (RUNTIME_PUBLICATION_LOCK) {
-            Set<Shared<?>> unique =
-                    Collections.newSetFromMap(new IdentityHashMap<>());
-            for (Shared<?> handle : handles) {
-                if (handle == null || !unique.add(handle)) continue;
-                ActorRuntime existing = handle.owningRuntime.get();
-                if (existing != null && existing != runtime) return false;
-            }
-
-            ArrayList<Shared<?>> newlyBound = new ArrayList<>(unique.size());
-            try {
-                for (Shared<?> handle : unique) {
-                    if (handle.owningRuntime.get() == null) {
-                        // Record rollback intent before mutating ownership so an
-                        // allocation failure cannot strand a partially bound handle.
-                        newlyBound.add(handle);
-                        handle.owningRuntime.set(runtime);
-                    }
-                }
-
-                publication.run();
-                return true;
-            } catch (RuntimeException | Error failure) {
-                for (Shared<?> handle : newlyBound) {
-                    if (!handle.owningRuntime.compareAndSet(runtime, null)) {
-                        throw new IllegalStateException(
-                                "SharedMutex publication rollback lost runtime ownership",
-                                failure);
-                    }
-                }
-                throw failure;
-            }
         }
     }
 
@@ -274,21 +218,61 @@ public final class OresMutex {
         private final Semaphore permit = new Semaphore(1, true);
         private final AtomicBoolean poisoned = new AtomicBoolean();
         private final AtomicInteger asyncWaiters = new AtomicInteger();
-        private final AtomicReference<ActorRuntime> owningRuntime = new AtomicReference<>();
+        /*
+         * Runtime ownership is publication-aware. A send may need to reserve
+         * ownership before mailbox admission so a receiver can never observe an
+         * unbound SharedMutex, but a failed admission must not permanently bind
+         * the handle. pendingPublications + publishedToRuntime provide that
+         * two-phase contract.
+         */
+        private ActorRuntime owningRuntime;
+        private int pendingPublications;
+        private boolean publishedToRuntime;
         private final Set<Object> activeDomains = ConcurrentHashMap.newKeySet();
 
         private Shared(T value) {
             this.value = value;
         }
 
-        boolean bindToRuntime(ActorRuntime runtime) {
+        synchronized boolean bindToRuntime(ActorRuntime runtime) {
             Objects.requireNonNull(runtime, "runtime");
-            synchronized (RUNTIME_PUBLICATION_LOCK) {
-                ActorRuntime existing = owningRuntime.get();
-                if (existing == runtime) return true;
-                if (existing != null) return false;
-                owningRuntime.set(runtime);
-                return true;
+            if (owningRuntime == null) {
+                owningRuntime = runtime;
+            } else if (owningRuntime != runtime) {
+                return false;
+            }
+            publishedToRuntime = true;
+            return true;
+        }
+
+        synchronized boolean reserveRuntimePublication(ActorRuntime runtime) {
+            Objects.requireNonNull(runtime, "runtime");
+            if (owningRuntime == null) {
+                owningRuntime = runtime;
+            } else if (owningRuntime != runtime) {
+                return false;
+            }
+            pendingPublications++;
+            return true;
+        }
+
+        synchronized void commitRuntimePublication(ActorRuntime runtime) {
+            Objects.requireNonNull(runtime, "runtime");
+            if (owningRuntime != runtime || pendingPublications <= 0) {
+                throw new IllegalStateException("SharedMutex publication commit without matching reservation");
+            }
+            pendingPublications--;
+            publishedToRuntime = true;
+        }
+
+        synchronized void abortRuntimePublication(ActorRuntime runtime) {
+            Objects.requireNonNull(runtime, "runtime");
+            if (owningRuntime != runtime || pendingPublications <= 0) {
+                throw new IllegalStateException("SharedMutex publication abort without matching reservation");
+            }
+            pendingPublications--;
+            if (pendingPublications == 0 && !publishedToRuntime) {
+                owningRuntime = null;
             }
         }
 
@@ -395,10 +379,6 @@ public final class OresMutex {
             Object ownerDomain = reserveDomain(true);
             if (ownerDomain == null) return Optional.empty();
             try {
-                // Semaphore.tryAcquire() barges even when the semaphore is fair.
-                // The zero-time timed form honors FIFO fairness while remaining
-                // nonblocking, so try_lock cannot indefinitely starve queued
-                // lock()/lock_async() waiters.
                 if (!permit.tryAcquire(0L, TimeUnit.NANOSECONDS)) {
                     releaseDomain(ownerDomain);
                     return Optional.empty();
