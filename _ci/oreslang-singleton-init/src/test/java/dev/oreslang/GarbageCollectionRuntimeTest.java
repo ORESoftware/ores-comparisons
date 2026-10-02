@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -78,7 +79,7 @@ final class GarbageCollectionRuntimeTest {
             var shared = runtime.shareReadonly(List.of(1, 2, 3));
             var privateRef = runtime.<Object>spawn(() -> (message, context) -> { });
             IllegalArgumentException denied = assertThrows(IllegalArgumentException.class,
-                    () -> privateRef.send(shared));
+                    () -> privateRef.send(List.of(Map.of("nested", shared))));
             assertTrue(denied.getMessage().contains("private actor"));
 
             CountDownLatch delivered = new CountDownLatch(1);
@@ -90,6 +91,32 @@ final class GarbageCollectionRuntimeTest {
             sharedRef.send(shared);
             assertTrue(delivered.await(2, TimeUnit.SECONDS));
             assertEquals(ActorRuntime.ActorKind.SHARED, kind.get());
+        }
+    }
+
+    @Test
+    void processGcSignalsActorsToScavengeTheirOwnRootsAtNextTurn() throws Exception {
+        GcRuntime gc = new GcRuntime(1000, Duration.ofHours(1), () -> { }, System::nanoTime);
+        Cache cache = new Cache();
+        CountDownLatch seeded = new CountDownLatch(1);
+        CountDownLatch afterSignal = new CountDownLatch(1);
+        AtomicInteger turns = new AtomicInteger();
+
+        try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(), gc)) {
+            var ref = runtime.<String>spawn(() -> (message, context) -> {
+                context.runtime().currentActorLocal("cache", () -> cache);
+                if (turns.getAndIncrement() == 0) seeded.countDown();
+                else afterSignal.countDown();
+            });
+
+            ref.send("seed");
+            assertTrue(seeded.await(2, TimeUnit.SECONDS));
+            assertEquals(0, cache.scavenges.get());
+
+            runtime.requestProcessGc();
+            ref.send("safe-point");
+            assertTrue(afterSignal.await(2, TimeUnit.SECONDS));
+            assertEquals(1, cache.scavenges.get());
         }
     }
 
