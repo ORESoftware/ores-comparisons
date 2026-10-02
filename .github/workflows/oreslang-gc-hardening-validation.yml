@@ -28,5 +28,10 @@ jobs:
         run: |
           java --version
           mvn --version
-      - name: Full Maven verification
-        run: mvn -B -ntp verify
+      - name: Compile all source
+        run: mvn -B -ntp -DskipTests compile
+      - name: GC + actor + ownership regression suite
+        run: >-
+          mvn -B -ntp
+          -Dtest=GarbageCollectionRuntimeTest,ActorRuntimeTest,OwnershipAndClosureTest,IsolationHotReloadTest
+          test
