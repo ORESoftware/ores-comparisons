@@ -1438,7 +1438,10 @@ public final class ActorRuntime implements AutoCloseable {
                 policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex host send");
             }
             target.policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor receive");
-            requireOwnedActorRefs(sharedMutex.transportValue(), new IdentityHashMap<>(), depth + 1);
+            requireSharedMutexPayloadSafe(
+                    sharedMutex.transportValue(),
+                    new IdentityHashMap<>(),
+                    depth + 1);
             return;
         }
         if (value instanceof Shared<?> shared) {
@@ -1465,6 +1468,92 @@ public final class ActorRuntime implements AutoCloseable {
                     requireMutexTransport(target, Array.get(value, i), visiting, depth + 1);
                 }
             }
+        } finally {
+            visiting.remove(value);
+        }
+    }
+
+    private void requireSharedMutexPayloadSafe(
+            Object value,
+            IdentityHashMap<Object, Boolean> visiting,
+            int depth) {
+        requireGraphDepth(depth);
+        if (value == null || isScalar(value)) return;
+
+        if (value instanceof ActorRuntime.ActorRef<?> ref) {
+            if (!ref.ownedBy(this)) {
+                throw new IllegalArgumentException(
+                        "SharedMutex payload contains ActorRef from another ActorRuntime");
+            }
+            return;
+        }
+        if (value instanceof Shared<?> shared) {
+            if (!shared.ownedBy(this)) {
+                throw new IllegalArgumentException(
+                        "SharedMutex payload contains Shared value from another ActorRuntime");
+            }
+            requireSharedMutexPayloadSafe(shared.value(), visiting, depth + 1);
+            return;
+        }
+        if (value instanceof OresMutex.Shared<?> nested) {
+            if (visiting.put(value, Boolean.TRUE) != null) {
+                throw new IllegalArgumentException("cyclic SharedMutex payload is not runtime-shared-safe");
+            }
+            try {
+                requireSharedMutexPayloadSafe(nested.transportValue(), visiting, depth + 1);
+            } finally {
+                visiting.remove(value);
+            }
+            return;
+        }
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException(
+                    "SharedMutex payload cannot contain actor-local mutex state");
+        }
+        if (value instanceof SyncCell<?>) {
+            throw new IllegalArgumentException(
+                    "SharedMutex payload cannot contain SyncCell writable shared state");
+        }
+        if (value instanceof java.util.concurrent.CompletionStage<?>) {
+            throw new IllegalArgumentException(
+                    "SharedMutex payload cannot contain pending/asynchronous computation state");
+        }
+
+        if (visiting.put(value, Boolean.TRUE) != null) {
+            throw new IllegalArgumentException("cyclic SharedMutex payload is not runtime-shared-safe");
+        }
+        try {
+            if (value instanceof OresMutex.SharedState aggregate) {
+                for (Object child : aggregate.sharedStateChildren()) {
+                    requireSharedMutexPayloadSafe(child, visiting, depth + 1);
+                }
+                return;
+            }
+            if (value instanceof List<?> list) {
+                for (Object item : list) requireSharedMutexPayloadSafe(item, visiting, depth + 1);
+                return;
+            }
+            if (value instanceof Set<?> set) {
+                for (Object item : set) requireSharedMutexPayloadSafe(item, visiting, depth + 1);
+                return;
+            }
+            if (value instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    requireSharedMutexPayloadSafe(entry.getKey(), visiting, depth + 1);
+                    requireSharedMutexPayloadSafe(entry.getValue(), visiting, depth + 1);
+                }
+                return;
+            }
+            if (value.getClass().isArray()) {
+                int length = Array.getLength(value);
+                for (int i = 0; i < length; i++) {
+                    requireSharedMutexPayloadSafe(Array.get(value, i), visiting, depth + 1);
+                }
+                return;
+            }
+            throw new IllegalArgumentException(
+                    "SharedMutex payload contains opaque host value of type "
+                            + value.getClass().getName());
         } finally {
             visiting.remove(value);
         }
@@ -1609,11 +1698,32 @@ public final class ActorRuntime implements AutoCloseable {
                 || value instanceof ActorRuntime.ActorRef<?>
                 || value instanceof SyncCell<?>) return;
         if (value instanceof OresMutex.Shared<?> sharedMutex) {
-            out.add(sharedMutex);
+            if (!out.add(sharedMutex)) return;
+            if (visiting.put(value, Boolean.TRUE) != null) return;
+            try {
+                collectSharedMutexes(
+                        sharedMutex.transportValue(),
+                        out,
+                        visiting,
+                        depth + 1);
+            } finally {
+                visiting.remove(value);
+            }
             return;
         }
         if (value instanceof Shared<?> shared) {
             collectSharedMutexes(shared.value(), out, visiting, depth + 1);
+            return;
+        }
+        if (value instanceof OresMutex.SharedState aggregate) {
+            if (visiting.put(value, Boolean.TRUE) != null) return;
+            try {
+                for (Object child : aggregate.sharedStateChildren()) {
+                    collectSharedMutexes(child, out, visiting, depth + 1);
+                }
+            } finally {
+                visiting.remove(value);
+            }
             return;
         }
         if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) return;

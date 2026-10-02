@@ -5,12 +5,14 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
 import dev.oreslang.OresLanguage;
 import dev.oreslang.ast.Ast;
+import dev.oreslang.parser.Parser;
 import dev.oreslang.runtime.OresContext;
 import dev.oreslang.runtime.CapabilityChecker;
 import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.OresMutex;
 import dev.oreslang.runtime.ActorRuntime;
 
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,11 +26,22 @@ import java.util.concurrent.CompletionStage;
 
 /** Executable Truffle root. Parsing and static checks happen before this node is created. */
 public final class OresEvalRootNode extends RootNode {
+    public static final String LINK_ONLY_COMMAND = "__ores_internal_link_only__";
+    public static final String INIT_ONLY_COMMAND = "__ores_internal_init_only__";
+    public static final String MAIN_ONLY_COMMAND = "__ores_internal_main_only__";
+
     private final Ast.Program program;
+    private final String codeUnitId;
+    private volatile Evaluator evaluator;
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program) {
+        this(language, program, "<anonymous>");
+    }
+
+    public OresEvalRootNode(OresLanguage language, Ast.Program program, String codeUnitId) {
         super(language);
         this.program = program;
+        this.codeUnitId = codeUnitId;
     }
 
     @Override public String getName() { return "ores-eval"; }
@@ -42,24 +55,72 @@ public final class OresEvalRootNode extends RootNode {
     @TruffleBoundary
     private Object executeBoundary(OresContext context, Object[] arguments) {
         CapabilityChecker.check(program, context.isolatePolicy());
-        return new Evaluator(program, context).execute(arguments);
+        Evaluator current = evaluator(context);
+        if (isControl(arguments, LINK_ONLY_COMMAND)) {
+            current.link();
+            return null;
+        }
+        if (isControl(arguments, INIT_ONLY_COMMAND)) {
+            current.link();
+            return current.initialize();
+        }
+        if (isControl(arguments, MAIN_ONLY_COMMAND)) {
+            current.link();
+            return current.executeMain(new Object[0]);
+        }
+
+        // Backward-compatible single-source execution. Multi-file hosts use
+        // link/init/main commands to install a full import graph before init.
+        current.link();
+        current.initialize();
+        return current.executeMain(arguments);
+    }
+
+    private Evaluator evaluator(OresContext context) {
+        Evaluator current = evaluator;
+        if (current != null) return current;
+        synchronized (this) {
+            current = evaluator;
+            if (current == null) evaluator = current = new Evaluator(program, context, codeUnitId);
+            return current;
+        }
+    }
+
+    private static boolean isControl(Object[] arguments, String command) {
+        return arguments.length == 1 && command.equals(arguments[0]);
     }
 
     private static final class Evaluator {
         private final Ast.Program program;
         private final OresContext context;
+        private final String codeUnitId;
         private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
         private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
         private final Map<String, Ast.TypeAliasDecl> typeAliases = new HashMap<>();
         private final Map<String, Ast.ModuleDecl> modules = new HashMap<>();
+        private final Map<String, Ast.ImportDecl> namedImports = new HashMap<>();
+        private final Map<String, Ast.ImportDecl> namespaceImports = new HashMap<>();
         private final Set<String> ambiguousFunctions = new LinkedHashSet<>();
         private final Set<String> ambiguousClasses = new LinkedHashSet<>();
         private final Set<String> ambiguousTypeAliases = new LinkedHashSet<>();
+        private boolean initialized;
 
-        private Evaluator(Ast.Program program, OresContext context) {
+        private Evaluator(Ast.Program program, OresContext context, String codeUnitId) {
             this.program = program;
             this.context = context;
+            this.codeUnitId = normalizeUnitId(codeUnitId);
+            indexImports();
             indexDeclarations();
+        }
+
+        private void indexImports() {
+            for (Ast.ImportDecl imported : program.imports()) {
+                if (imported.wildcard()) {
+                    namespaceImports.put(imported.namespace(), imported);
+                } else {
+                    for (String name : imported.names()) namedImports.put(name, imported);
+                }
+            }
         }
 
         private void indexDeclarations() {
@@ -97,8 +158,22 @@ public final class OresEvalRootNode extends RootNode {
             return typeAliases.get(name);
         }
 
-        private Object execute(Object[] arguments) {
-            Ast.FunctionDecl main = findFunction("main");
+        private synchronized void link() {
+            context.registerLinkedCodeUnit(codeUnitId, this);
+        }
+
+        private synchronized Object initialize() {
+            if (initialized) return null;
+            // Mark before invocation so a recursive path cannot run init twice.
+            initialized = true;
+            Ast.FunctionDecl init = functions.get(Parser.ROOT_MODULE + ".init");
+            if (init == null) return null;
+            return callFunction(init, List.of());
+        }
+
+        private Object executeMain(Object[] arguments) {
+            Ast.FunctionDecl main = functions.get(Parser.ROOT_MODULE + ".main");
+            if (main == null) main = findFunction("main");
             if (main == null) return null;
             return callFunction(main, List.of(arguments));
         }
@@ -266,9 +341,11 @@ public final class OresEvalRootNode extends RootNode {
                     return new ResultValue(false, args.getFirst());
                 };
                 Ast.ModuleDecl module = modules.get(name.name());
-                if (module != null) return new ModuleFacade(module);
+                if (module != null) return new ModuleFacade(this, module);
                 Ast.ClassDecl klass = findClass(name.name());
-                if (klass != null) return new ClassFacade(klass);
+                if (klass != null) return new ClassFacade(this, klass);
+                Object imported = importedValue(name.name());
+                if (imported != Env.MISSING) return imported;
                 Ast.FunctionDecl fn = findFunction(name.name());
                 if (fn != null) return (Invokable) args -> callFunction(fn, args);
                 throw new IllegalArgumentException("unknown name " + name.name());
@@ -353,10 +430,10 @@ public final class OresEvalRootNode extends RootNode {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
                     if (receiver instanceof OresObject object) {
-                        return invokeMethod(object, methodCall.member(), args);
+                        return object.owner.invokeMethod(object, methodCall.member(), args);
                     }
                     if (receiver instanceof ClassFacade klass) {
-                        return invokeStaticFunction(klass.klass(), methodCall.member(), args);
+                        return klass.owner().invokeStaticFunction(klass.klass(), methodCall.member(), args);
                     }
                     Object callee = member(receiver, methodCall.member());
                     if (!(callee instanceof Invokable invokable)) throw new IllegalArgumentException("value is not callable: " + callee);
@@ -379,24 +456,17 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (expr instanceof Ast.NewExpr created) {
                 Ast.ClassDecl klass = findClass(created.type().name());
+                Evaluator owner = this;
+                if (klass == null) {
+                    Object imported = importedValue(created.type().name());
+                    if (imported instanceof ClassFacade externalClass) {
+                        owner = externalClass.owner();
+                        klass = externalClass.klass();
+                    }
+                }
                 if (klass == null) throw new IllegalArgumentException("unknown class " + created.type().name());
-                if (klass.actorKind() != Ast.ActorKind.NONE) {
-                    throw new IllegalStateException("actor '" + klass.name()
-                            + "' cannot be constructed with new; actor state must be initialized inside ActorRuntime");
-                }
                 List<Object> args = created.arguments().stream().map(arg -> eval(arg, env)).toList();
-                List<Ast.FieldDecl> classFields = effectiveFields(klass, new LinkedHashSet<>());
-                if (args.size() > classFields.size()) throw new IllegalArgumentException("too many constructor arguments for " + klass.name());
-                LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
-                for (int i = 0; i < classFields.size(); i++) {
-                    Ast.FieldDecl field = classFields.get(i);
-                    Object value;
-                    if (i < args.size()) value = args.get(i);
-                    else if (field.initializer() != null) value = eval(field.initializer(), env);
-                    else throw new IllegalArgumentException("missing constructor field " + klass.name() + "." + field.name());
-                    fields.put(field.name(), value);
-                }
-                return new OresObject(klass, fields);
+                return owner.instantiate(klass, args);
             }
             if (expr instanceof Ast.AwaitExpr awaited) {
                 Object value = eval(awaited.expression(), env);
@@ -486,19 +556,20 @@ public final class OresEvalRootNode extends RootNode {
                     default -> member(guard.value(), name);
                 };
             }
-            if (receiver instanceof ModuleFacade namespace) return moduleMember(namespace.module, name);
+            if (receiver instanceof ImportedNamespace namespace) return namespace.owner().exportValue(namespace.kind(), name);
+            if (receiver instanceof ModuleFacade namespace) return namespace.owner().moduleMember(namespace.module(), name);
             if (receiver instanceof ClassFacade klass) {
-                List<Ast.MethodDecl> functions = findStaticFunctionsByName(klass.klass(), name, new LinkedHashSet<>());
+                List<Ast.MethodDecl> functions = klass.owner().findStaticFunctionsByName(klass.klass(), name, new LinkedHashSet<>());
                 if (functions.size() == 1) {
                     Ast.MethodDecl fn = functions.getFirst();
-                    return (Invokable) args -> callStaticFunction(klass.klass(), fn, args);
+                    return (Invokable) args -> klass.owner().callStaticFunction(klass.klass(), fn, args);
                 }
                 if (functions.size() > 1) throw new IllegalArgumentException("overloaded static function " + klass.klass().name() + "." + name + " must be called so arity can select it");
                 throw new IllegalArgumentException("unknown static member " + klass.klass().name() + "." + name);
             }
             if (receiver instanceof OresObject object) {
                 if (object.fields.containsKey(name)) return object.fields.get(name);
-                return new BoundMethod(object, name);
+                return new BoundMethod(object.owner, object, name);
             }
             if (receiver instanceof Map<?, ?> map) {
                 if (!map.containsKey(name)) throw new IllegalArgumentException("unknown obj member " + name);
@@ -648,24 +719,128 @@ public final class OresEvalRootNode extends RootNode {
          * a first-class callback. Direct receiver.method(...) calls allocate no
          * bound-method object.
          */
-        private final class BoundMethod implements Invokable {
+        private static final class BoundMethod implements Invokable {
+            private final Evaluator owner;
             private final OresObject receiver;
             private final String methodName;
 
-            private BoundMethod(OresObject receiver, String methodName) {
+            private BoundMethod(Evaluator owner, OresObject receiver, String methodName) {
+                this.owner = owner;
                 this.receiver = receiver;
                 this.methodName = methodName;
             }
 
             @Override public Object call(List<Object> arguments) {
-                return invokeMethod(receiver, methodName, arguments);
+                return owner.invokeMethod(receiver, methodName, arguments);
             }
+        }
+
+        private Object importedValue(String name) {
+            Ast.ImportDecl direct = namedImports.get(name);
+            if (direct != null) return importedTarget(direct).exportValue(direct.kind(), name);
+            Ast.ImportDecl namespace = namespaceImports.get(name);
+            if (namespace != null) return new ImportedNamespace(importedTarget(namespace), namespace.kind());
+            return Env.MISSING;
+        }
+
+        private Evaluator importedTarget(Ast.ImportDecl imported) {
+            String targetId = resolveImportUnitId(imported.path());
+            Object target = context.linkedCodeUnit(targetId);
+            if (!(target instanceof Evaluator evaluator)) {
+                throw new IllegalStateException(
+                        "import target '" + imported.path() + "' for '" + codeUnitId
+                                + "' is not linked yet; all members of an import cycle must be linked before init");
+            }
+            return evaluator;
+        }
+
+        private String resolveImportUnitId(String rawPath) {
+            String raw = rawPath.replace('\\', '/');
+            Path parent = Path.of(codeUnitId).getParent();
+            Path candidatePath = raw.startsWith(".")
+                    ? (parent == null ? Path.of(raw) : parent.resolve(raw)).normalize()
+                    : Path.of(raw).normalize();
+            String candidate = normalizeUnitId(candidatePath.toString());
+            if (!context.hasLinkedCodeUnit(candidate)
+                    && !candidate.endsWith(".ores")
+                    && context.hasLinkedCodeUnit(candidate + ".ores")) {
+                candidate += ".ores";
+            }
+            return candidate;
+        }
+
+        private Object exportValue(Ast.ImportKind kind, String name) {
+            return switch (kind) {
+                case FUNCTION -> {
+                    Ast.FunctionDecl fn = findFunction(name);
+                    if (fn == null || fn.visibility() != Ast.Visibility.PUBLIC) {
+                        throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export function '" + name + "'");
+                    }
+                    yield (Invokable) args -> callFunction(fn, args);
+                }
+                case CLASS -> {
+                    Ast.ClassDecl klass = findClass(name);
+                    if (klass == null) throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export class '" + name + "'");
+                    yield new ClassFacade(this, klass);
+                }
+                case MODULE -> {
+                    Ast.ModuleDecl module = modules.get(name);
+                    if (module == null) throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export module '" + name + "'");
+                    yield new ModuleFacade(this, module);
+                }
+                case ALL -> exportAny(name);
+            };
+        }
+
+        private Object exportAny(String name) {
+            Ast.ModuleDecl module = modules.get(name);
+            if (module != null && !module.name().equals(Parser.ROOT_MODULE)) return new ModuleFacade(this, module);
+            Ast.ClassDecl klass = findClass(name);
+            if (klass != null) return new ClassFacade(this, klass);
+            Ast.FunctionDecl fn = findFunction(name);
+            if (fn != null && fn.visibility() == Ast.Visibility.PUBLIC) return (Invokable) args -> callFunction(fn, args);
+            for (Ast.ModuleDecl candidate : program.modules()) {
+                for (Ast.Decl decl : candidate.declarations()) {
+                    if (decl instanceof Ast.FieldDecl field
+                            && field.visibility() == Ast.Visibility.PUBLIC
+                            && field.name().equals(name)) {
+                        if (field.initializer() == null) throw new IllegalArgumentException("exported binding has no initializer: " + name);
+                        return eval(field.initializer(), new Env(null));
+                    }
+                }
+            }
+            throw new IllegalArgumentException("code unit '" + codeUnitId + "' does not export '" + name + "'");
+        }
+
+        private OresObject instantiate(Ast.ClassDecl klass, List<Object> args) {
+            if (klass.actorKind() != Ast.ActorKind.NONE) {
+                throw new IllegalStateException("actor '" + klass.name()
+                        + "' cannot be constructed with new; actor state must be initialized inside ActorRuntime");
+            }
+            List<Ast.FieldDecl> classFields = effectiveFields(klass, new LinkedHashSet<>());
+            if (args.size() > classFields.size()) throw new IllegalArgumentException("too many constructor arguments for " + klass.name());
+            LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+            Env env = new Env(null);
+            for (int i = 0; i < classFields.size(); i++) {
+                Ast.FieldDecl field = classFields.get(i);
+                Object value;
+                if (i < args.size()) value = args.get(i);
+                else if (field.initializer() != null) value = eval(field.initializer(), env);
+                else throw new IllegalArgumentException("missing constructor field " + klass.name() + "." + field.name());
+                fields.put(field.name(), value);
+            }
+            return new OresObject(this, klass, fields);
+        }
+
+        private static String normalizeUnitId(String id) {
+            if (id == null || id.isBlank()) throw new IllegalArgumentException("code unit id cannot be blank");
+            return Path.of(id).normalize().toString().replace('\\', '/');
         }
 
         private Object moduleMember(Ast.ModuleDecl module, String name) {
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.ClassDecl klass && klass.name().equals(name)) {
-                    return new ClassFacade(klass);
+                    return new ClassFacade(this, klass);
                 }
                 if (decl instanceof Ast.FunctionDecl fn && fn.name().equals(name) && fn.visibility() == Ast.Visibility.PUBLIC) {
                     return (Invokable) args -> callFunction(fn, args);
@@ -1072,7 +1247,8 @@ public final class OresEvalRootNode extends RootNode {
         private ReturnSignal(Object value) { super(null,null,false,false); this.value=value; }
     }
 
-    private record Complex(double real, double imaginary) {
+    private record Complex(double real, double imaginary) implements OresMutex.SharedState {
+        @Override public Iterable<?> sharedStateChildren(){return List.of();}
         private Complex add(Complex o){return new Complex(real+o.real,imaginary+o.imaginary);}
         private Complex sub(Complex o){return new Complex(real-o.real,imaginary-o.imaginary);}
         private Complex mul(Complex o){return new Complex(real*o.real-imaginary*o.imaginary,real*o.imaginary+imaginary*o.real);}
@@ -1080,14 +1256,22 @@ public final class OresEvalRootNode extends RootNode {
         @Override public String toString(){return real+(imaginary<0?"":"+")+imaginary+"i";}
     }
 
-    private static final class OresObject {
-        private final Ast.ClassDecl klass; private final Map<String,Object> fields;
-        private OresObject(Ast.ClassDecl klass, Map<String,Object> fields){this.klass=klass;this.fields=fields;}
+    private static final class OresObject implements OresMutex.SharedState {
+        private final Evaluator owner;
+        private final Ast.ClassDecl klass;
+        private final Map<String,Object> fields;
+        private OresObject(Evaluator owner, Ast.ClassDecl klass, Map<String,Object> fields) {
+            this.owner = owner;
+            this.klass = klass;
+            this.fields = fields;
+        }
+        @Override public Iterable<?> sharedStateChildren(){return fields.values();}
         @Override public String toString(){return klass.name()+fields;}
     }
 
-    private record ModuleFacade(Ast.ModuleDecl module) { }
-    private record ClassFacade(Ast.ClassDecl klass) { }
+    private record ImportedNamespace(Evaluator owner, Ast.ImportKind kind) { }
+    private record ModuleFacade(Evaluator owner, Ast.ModuleDecl module) { }
+    private record ClassFacade(Evaluator owner, Ast.ClassDecl klass) { }
     private record MutexFactory(boolean shared, OresContext context) {
         private Object create(List<Object> args) {
             requireOne(args, shared ? "SharedMutex.new" : "Mutex.new");
@@ -1161,10 +1345,12 @@ public final class OresEvalRootNode extends RootNode {
             return false;
         }
     }
-    private record OptionValue(boolean present, Object value) {
+    private record OptionValue(boolean present, Object value) implements OresMutex.SharedState {
+        @Override public Iterable<?> sharedStateChildren(){return present ? List.of(value) : List.of();}
         @Override public String toString(){return present ? "Some(" + value + ")" : "None";}
     }
-    private record ResultValue(boolean ok, Object value) {
+    private record ResultValue(boolean ok, Object value) implements OresMutex.SharedState {
+        @Override public Iterable<?> sharedStateChildren(){return List.of(value);}
         @Override public String toString(){return ok ? "Ok(" + value + ")" : "Err(" + value + ")";}
     }
     private record OptionUnwrapError(String reason) {

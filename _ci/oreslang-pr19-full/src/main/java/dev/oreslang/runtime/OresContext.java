@@ -9,6 +9,7 @@ import dev.oreslang.OresLanguage;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -28,6 +29,7 @@ public final class OresContext implements AutoCloseable {
     private final IsolatePolicy isolatePolicy;
     private final ExecutionProfile executionProfile;
     private final ReentrantLock adversarialActorTurnLock = new ReentrantLock(true);
+    private final Map<String, Object> linkedCodeUnits = new HashMap<>();
 
     public OresContext(OresLanguage language, TruffleLanguage.Env env) {
         this.language = language;
@@ -93,6 +95,29 @@ public final class OresContext implements AutoCloseable {
 
     public long schedulerSafepoints() { return schedulerSafepoints.get(); }
 
+    /**
+     * Host-managed cross-file link registry. Guest imports may only observe
+     * units that the host has explicitly loaded into this context; import
+     * syntax never grants filesystem access.
+     */
+    public synchronized void registerLinkedCodeUnit(String codeUnitId, Object unit) {
+        if (codeUnitId == null || codeUnitId.isBlank()) {
+            throw new IllegalArgumentException("linked code unit id cannot be blank");
+        }
+        Object previous = linkedCodeUnits.putIfAbsent(codeUnitId, unit);
+        if (previous != null && previous != unit) {
+            throw new IllegalStateException("code unit already linked in this context: " + codeUnitId);
+        }
+    }
+
+    public synchronized Object linkedCodeUnit(String codeUnitId) {
+        return linkedCodeUnits.get(codeUnitId);
+    }
+
+    public synchronized boolean hasLinkedCodeUnit(String codeUnitId) {
+        return linkedCodeUnits.containsKey(codeUnitId);
+    }
+
     private void executeActorTurn(Runnable turn) {
         boolean serialize = isolatePolicy.adversarial();
         if (serialize) adversarialActorTurnLock.lock();
@@ -125,6 +150,9 @@ public final class OresContext implements AutoCloseable {
         try {
             actors.close();
         } finally {
+            synchronized (this) {
+                linkedCodeUnits.clear();
+            }
             garbageCollector.close();
             output.flush();
         }
