@@ -108,6 +108,21 @@ public final class CapabilityChecker {
         return found;
     }
 
+    private Ast.MethodDecl findUniqueStaticMethodValue(Ast.MemberExpr member) {
+        String ownerName = memberPath(member.receiver());
+        if (ownerName == null) return null;
+        Ast.ClassDecl owner = findClass(ownerName);
+        if (owner == null) return null;
+
+        Ast.MethodDecl found = null;
+        for (Ast.MethodDecl method : owner.methods()) {
+            if (!method.isStatic() || !method.name().equals(member.member())) continue;
+            if (found != null) return null;
+            found = method;
+        }
+        return found;
+    }
+
     private void checkReferencedMethod(Ast.MethodDecl method, IsolatePolicy policy) {
         if (!methodStack.add(method)) return;
         try {
@@ -283,6 +298,8 @@ public final class CapabilityChecker {
                 // risk as unqualified function values.
                 Ast.FunctionDecl referenced = findFunction(path);
                 if (referenced != null) checkReferencedFunction(referenced, policy);
+                Ast.MethodDecl staticValue = findUniqueStaticMethodValue(m);
+                if (staticValue != null) checkReferencedMethod(staticValue, policy);
                 if (path.startsWith("stdio.") || path.equals("stdio")) require(policy, IsolatePolicy.Capability.STDOUT, path);
                 if (path.startsWith("process.descriptor") || path.equals("process.context_id")) require(policy, IsolatePolicy.Capability.PROCESS_INFO, path);
                 if (path.startsWith("process.share_readonly")) require(policy, IsolatePolicy.Capability.ACTOR_SHARE_READONLY, path);
