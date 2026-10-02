@@ -285,6 +285,77 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void processSingletonCodeCannotReenterCallerLocalHelpersOrAmbientApis() {
+        IllegalArgumentException ordinaryHelper = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc caller_local_helper() => int {
+                          return 7;
+                        }
+
+                        define singleton module process_effect_guard as
+                          pub fnc read() => int {
+                            return caller_local_helper();
+                          }
+                        end
+                        """)));
+        assertTrue(ordinaryHelper.getMessage().contains("ordinary helper function"));
+
+        IllegalArgumentException ambient = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module ambient_effect_guard as
+                          pub fnc read_context() => String {
+                            return process.context_id;
+                          }
+                        end
+                        """)));
+        assertTrue(ambient.getMessage().contains("ambient capability"));
+    }
+
+    @Test
+    void exportedProcessObjectMethodsCannotUseCallerAmbientEffects() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class AmbientFoo as
+                          pub context_id() => String {
+                            return process.context_id;
+                          }
+                        end
+
+                        define singleton module ambient_object_owner as
+                          pub val AmbientFoo foo = new AmbientFoo();
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("ambient capability"));
+    }
+
+    @Test
+    void singletonServicesMayCallOtherSingletonServicesWhenImmediatelyAwaited() throws Exception {
+        String output = eval("""
+                define singleton module service_a as
+                  pub fnc read() => int {
+                    return 40;
+                  }
+                end
+
+                define singleton module service_b as
+                  pub fnc read() => int {
+                    return await service_a.read() + 2;
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    stdio.println(await service_b.read());
+                    return;
+                  }
+                end
+                """, "singleton-service-dependency.ores");
+
+        assertTrue(output.contains("42"), output);
+    }
+
+    @Test
     void crossSingletonCallsMustBeImmediatelyAwaited() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
@@ -617,6 +688,83 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void processSingletonCodeCannotUseCallerAmbientCapabilities() {
+        IllegalArgumentException process = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module ambient_process_guard as
+                          pub fnc context() => String {
+                            return process.context_id;
+                          }
+                        end
+                        """)));
+        assertTrue(process.getMessage().contains("ambient caller capability"));
+
+        IllegalArgumentException stdio = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module ambient_stdio_guard as
+                          pub fnc write() => void {
+                            stdio.println("no");
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(stdio.getMessage().contains("ambient caller capability"));
+    }
+
+    @Test
+    void processSingletonCodeCannotCallActorLocalHelpers() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module local_helper as
+                          pub fnc read() => int { return 7; }
+                        end
+
+                        define singleton module process_helper_guard as
+                          pub fnc read() => int {
+                            return local_helper.read();
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("actor/context-local module"));
+    }
+
+    @Test
+    void exportedProcessObjectCannotCallActorLocalFreeFunctions() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc local_value() => int { return 7; }
+
+                        define class ProcessReader as
+                          pub read() => int {
+                            return local_value();
+                          }
+                        end
+
+                        define singleton module process_reader_owner as
+                          pub val ProcessReader reader = new ProcessReader();
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("actor/context-local function"));
+    }
+
+    @Test
+    void processSingletonsMayAwaitOtherProcessSingletons() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define singleton module service_a as
+                  pub fnc read() => int { return 7; }
+                end
+
+                define singleton module service_b as
+                  pub fnc read() => int {
+                    return await service_a.read();
+                  }
+                end
+                """)));
+    }
+
+    @Test
     void singletonServiceFunctionValuesCannotBeExtracted() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
@@ -737,6 +885,79 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void failedSingletonRequestRollsBackAllProcessStateMutation() throws Exception {
+        String output = eval("""
+                define singleton module transactional_failure_guard as
+                  let int count = 0;
+
+                  pub fnc mutate_then_fail() => int {
+                    count = count + 1;
+                    val Array<int> values = arr[1];
+                    return values[99];
+                  }
+
+                  pub fnc read() => int {
+                    return count;
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    try {
+                      val int ignored = await transactional_failure_guard.mutate_then_fail();
+                    } catch (err) {
+                    }
+                    stdio.println(await transactional_failure_guard.read());
+                    return;
+                  }
+                end
+                """, "singleton-transaction-failure.ores");
+
+        assertTrue(output.contains("0"), output);
+    }
+
+    @Test
+    void timedOutSingletonRequestCannotCommitPartialState() throws Exception {
+        IsolatePolicy shortBudget = new IsolatePolicy(
+                Set.of(
+                        IsolatePolicy.Capability.STDOUT,
+                        IsolatePolicy.Capability.PROCESS_SINGLETON),
+                64L * 1024 * 1024,
+                64,
+                Duration.ofMillis(30));
+
+        String output = evalWithPolicy("""
+                define singleton module transactional_timeout_guard as
+                  let int count = 0;
+
+                  pub routine mutate_then_spin() => void {
+                    count = count + 1;
+                    for (;;) {
+                    }
+                    return;
+                  }
+
+                  pub fnc read() => int {
+                    return count;
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    try {
+                      await transactional_timeout_guard.mutate_then_spin();
+                    } catch (err) {
+                    }
+                    stdio.println(await transactional_timeout_guard.read());
+                    return;
+                  }
+                end
+                """, "singleton-transaction-timeout.ores", shortBudget);
+
+        assertTrue(output.contains("0"), output);
+    }
+
+    @Test
     void registryRejectsCrossSingletonWaitCyclesBeforeDeadlock() {
         String aKey = "cycle-a:" + UUID.randomUUID();
         String bKey = "cycle-b:" + UUID.randomUUID();
@@ -759,6 +980,41 @@ final class SingletonModuleTest {
 
         RuntimeException failure = assertThrows(RuntimeException.class, call::join);
         assertTrue(causeChainContains(failure, "wait cycle"), String.valueOf(failure));
+    }
+
+    @Test
+    void queuedSingletonTimeoutRemovesRequestWithoutExecutingItLater() throws Exception {
+        String key = "queued-timeout:" + UUID.randomUUID();
+        ProcessSingletonRegistry.Handle<AtomicInteger> handle =
+                ProcessSingletonRegistry.getOrCreate(key, AtomicInteger::new);
+
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        CompletableFuture<Object> active = handle.call(
+                List.of(), 8, Duration.ofSeconds(2),
+                (state, ignored) -> {
+                    entered.countDown();
+                    release.await(1, TimeUnit.SECONDS);
+                    return state.incrementAndGet();
+                }).toCompletableFuture();
+
+        assertTrue(entered.await(1, TimeUnit.SECONDS));
+
+        CompletableFuture<Object> queued = handle.call(
+                List.of(), 8, Duration.ofMillis(40),
+                (state, ignored) -> state.incrementAndGet()).toCompletableFuture();
+
+        RuntimeException timeout = assertThrows(RuntimeException.class, queued::join);
+        assertTrue(causeChainContains(timeout, "expired in mailbox"), String.valueOf(timeout));
+
+        release.countDown();
+        assertEquals(1L, ((Number) active.join()).longValue());
+
+        Object value = handle.call(
+                List.of(), 8, Duration.ofSeconds(1),
+                (state, ignored) -> state.get()).toCompletableFuture().join();
+        assertEquals(1L, ((Number) value).longValue());
     }
 
     @Test
