@@ -1,6 +1,8 @@
 source_repo=ores-truffle-oreslang/oreslang-source.java
-source_branch=rebase/untrusted-actor-sandbox-20261002
-source_head=97f4c3b631e5d98dde8ca07982cfdd0ce37a4bf7
+source_branch=hardening/shared-private-actor-isolation-20261002
+source_head=6eef7b97e1c69f2375fba08c7bdb7cf7ca588c9a
 base_branch=feat/akka-style-shared-actors
+base_head=69af4506ea7a61a2029625c7ba35a0131911d847
 validation=full mvn test
+note=PR75-only added files are neutralized because Git tree deletion is unavailable in this connector
 purpose=validation-only mirror; do not merge
