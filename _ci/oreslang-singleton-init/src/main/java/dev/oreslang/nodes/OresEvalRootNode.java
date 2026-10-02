@@ -32,15 +32,37 @@ import java.util.concurrent.CompletionStage;
 public final class OresEvalRootNode extends RootNode {
     private final Ast.Program program;
     private final String codeUnitId;
+    private final String codeUnitDigest;
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program) {
-        this(language, program, "<anonymous>");
+        this(language, program, "<anonymous>", digestText(program.toString()));
     }
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program, String codeUnitId) {
+        this(language, program, codeUnitId, digestText(program.toString()));
+    }
+
+    public OresEvalRootNode(
+            OresLanguage language,
+            Ast.Program program,
+            String codeUnitId,
+            String codeUnitDigest) {
         super(language);
         this.program = program;
         this.codeUnitId = codeUnitId == null || codeUnitId.isBlank() ? "<anonymous>" : codeUnitId;
+        this.codeUnitDigest = codeUnitDigest == null || codeUnitDigest.isBlank()
+                ? digestText(program.toString())
+                : codeUnitDigest;
+    }
+
+    private static String digestText(String text) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     @Override public String getName() { return "ores-eval"; }
@@ -54,7 +76,7 @@ public final class OresEvalRootNode extends RootNode {
     @TruffleBoundary
     private Object executeBoundary(OresContext context, Object[] arguments) {
         CapabilityChecker.check(program, context.isolatePolicy());
-        return new Evaluator(program, context, codeUnitId).execute(arguments);
+        return new Evaluator(program, context, codeUnitId, codeUnitDigest).execute(arguments);
     }
 
     private static final class Evaluator {
@@ -72,11 +94,15 @@ public final class OresEvalRootNode extends RootNode {
         private final Set<String> ambiguousFunctions = new LinkedHashSet<>();
         private final Set<String> ambiguousClasses = new LinkedHashSet<>();
 
-        private Evaluator(Ast.Program program, OresContext context, String codeUnitId) {
+        private Evaluator(
+                Ast.Program program,
+                OresContext context,
+                String codeUnitId,
+                String codeUnitDigest) {
             this.program = program;
             this.context = context;
             this.codeUnitId = codeUnitId;
-            this.codeUnitDigest = digestText(program.toString());
+            this.codeUnitDigest = codeUnitDigest;
             indexDeclarations();
         }
 
@@ -256,7 +282,22 @@ public final class OresEvalRootNode extends RootNode {
                     args,
                     context.isolatePolicy().maxMailboxMessages(),
                     context.isolatePolicy().maxWallTime(),
-                    (state, frozenArgs) -> callSingletonFunction(state, fn, frozenArgs));
+                    (state, frozenArgs) -> transactionalSingletonCall(
+                            state,
+                            working -> callSingletonFunction(working, fn, frozenArgs)));
+        }
+
+        private Object transactionalSingletonCall(
+                SingletonState canonical,
+                SingletonWork work) {
+            SingletonState working = canonical.transactionalCopy();
+            Object result = work.apply(working);
+            // The commit itself is the linearization point. If the caller's
+            // deadline elapsed while executing, discard the working state.
+            ProcessSingletonRegistry.checkExecutionBudget();
+            working.validateStorageGraph();
+            canonical.commitFrom(working);
+            return result;
         }
 
         private ProcessSingletonRegistry.Handle<SingletonState> singletonHandle(Ast.ModuleDecl module) {
@@ -333,16 +374,6 @@ public final class OresEvalRootNode extends RootNode {
             // The whole checked code unit is the behavior provenance boundary:
             // singleton code may call helpers declared outside the module.
             return codeUnitDigest;
-        }
-
-        private static String digestText(String text) {
-            try {
-                byte[] digest = MessageDigest.getInstance("SHA-256")
-                        .digest(text.getBytes(StandardCharsets.UTF_8));
-                return HexFormat.of().formatHex(digest);
-            } catch (Exception impossible) {
-                throw new IllegalStateException(impossible);
-            }
         }
 
         private void authorizeSingletonCodeGeneration(SingletonState state, Ast.ModuleDecl module) {
@@ -840,15 +871,15 @@ public final class OresEvalRootNode extends RootNode {
                     args,
                     context.isolatePolicy().maxMailboxMessages(),
                     context.isolatePolicy().maxWallTime(),
-                    (state, frozenArgs) -> {
+                    (state, frozenArgs) -> transactionalSingletonCall(state, working -> {
                         String currentSchema = singletonSchema(proxy.module());
-                        if (!state.schema.equals(currentSchema)) {
+                        if (!working.schema.equals(currentSchema)) {
                             throw new IllegalStateException("singleton module state schema changed for "
                                     + proxy.module().name()
                                     + "; process-lifetime state cannot be reinterpreted without an explicit migration");
                         }
-                        authorizeSingletonCodeGeneration(state, proxy.module());
-                        Object value = state.fields.lookup(proxy.fieldName());
+                        authorizeSingletonCodeGeneration(working, proxy.module());
+                        Object value = working.fields.lookup(proxy.fieldName());
                         if (!(value instanceof OresObject object)
                                 || !object.klass.name().equals(proxy.klass().name())) {
                             throw new IllegalStateException("singleton object proxy target changed for "
@@ -862,8 +893,8 @@ public final class OresEvalRootNode extends RootNode {
                             throw new IllegalArgumentException("no public singleton proxy method "
                                     + proxy.klass().name() + "." + methodName + " with arity " + frozenArgs.size());
                         }
-                        return callMethod(object, proxy.klass(), method, frozenArgs, state);
-                    });
+                        return callMethod(object, proxy.klass(), method, frozenArgs, working);
+                    }));
         }
 
         private Env classLexicalModuleState(Ast.ClassDecl klass, SingletonState singletonState) {
@@ -1162,6 +1193,7 @@ public final class OresEvalRootNode extends RootNode {
     }
 
     @FunctionalInterface private interface Invokable { Object call(List<Object> arguments); }
+    @FunctionalInterface private interface SingletonWork { Object apply(SingletonState state); }
 
     private static final class SingletonState {
         private final String key;
@@ -1178,6 +1210,31 @@ public final class OresEvalRootNode extends RootNode {
             this.fields = new Env(null, this, true);
         }
 
+        private SingletonState transactionalCopy() {
+            SingletonState copy = new SingletonState(
+                    key, schema, activeCodeDigest, activeGeneration);
+            IdentityHashMap<Object, Object> copied = new IdentityHashMap<>();
+            for (Map.Entry<String, Slot> entry : fields.slots.entrySet()) {
+                Slot slot = entry.getValue();
+                Object value = slot.value == Env.MISSING
+                        ? Env.MISSING
+                        : copySingletonValue(slot.value, copied);
+                copy.fields.slots.put(entry.getKey(), new Slot(value, slot.kind));
+            }
+            return copy;
+        }
+
+        private void commitFrom(SingletonState working) {
+            if (!key.equals(working.key) || !schema.equals(working.schema)) {
+                throw new IllegalStateException("cannot commit singleton transaction across identity/schema boundary");
+            }
+            working.validateStorageGraph();
+            fields.slots.clear();
+            fields.slots.putAll(working.fields.slots);
+            activeCodeDigest = working.activeCodeDigest;
+            activeGeneration = working.activeGeneration;
+        }
+
         private void validateStorageGraph() {
             LinkedHashMap<String, Object> graph = new LinkedHashMap<>();
             IdentityHashMap<Object, Boolean> path = new IdentityHashMap<>();
@@ -1187,6 +1244,68 @@ public final class OresEvalRootNode extends RootNode {
             }
             ActorRuntime.freeze(graph);
         }
+    }
+
+    private static Object copySingletonValue(
+            Object value,
+            IdentityHashMap<Object, Object> copies) {
+        if (value == null
+                || value instanceof String
+                || value instanceof Number
+                || value instanceof Boolean
+                || value instanceof Character
+                || value instanceof Complex) {
+            return value;
+        }
+        Object existing = copies.get(value);
+        if (existing != null) return existing;
+
+        if (value instanceof OresObject object) {
+            LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+            OresObject copy = new OresObject(object.klass, fields);
+            copies.put(value, copy);
+            for (Map.Entry<String, Object> entry : object.fields.entrySet()) {
+                fields.put(entry.getKey(), copySingletonValue(entry.getValue(), copies));
+            }
+            return copy;
+        }
+        if (value instanceof OptionValue option) {
+            return option.present()
+                    ? new OptionValue(true, copySingletonValue(option.value(), copies))
+                    : option;
+        }
+        if (value instanceof List<?> list) {
+            ArrayList<Object> copy = new ArrayList<>(list.size());
+            copies.put(value, copy);
+            for (Object item : list) copy.add(copySingletonValue(item, copies));
+            return copy;
+        }
+        if (value instanceof Set<?> set) {
+            LinkedHashSet<Object> copy = new LinkedHashSet<>();
+            copies.put(value, copy);
+            for (Object item : set) copy.add(copySingletonValue(item, copies));
+            return copy;
+        }
+        if (value instanceof Map<?, ?> map) {
+            LinkedHashMap<Object, Object> copy = new LinkedHashMap<>();
+            copies.put(value, copy);
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                copy.put(
+                        copySingletonValue(entry.getKey(), copies),
+                        copySingletonValue(entry.getValue(), copies));
+            }
+            return copy;
+        }
+        if (value instanceof Object[] array) {
+            Object[] copy = new Object[array.length];
+            copies.put(value, copy);
+            for (int i = 0; i < array.length; i++) {
+                copy[i] = copySingletonValue(array[i], copies);
+            }
+            return copy;
+        }
+        // Validation will reject unsupported host values before commit.
+        return value;
     }
 
     private static Object singletonValidationValue(
@@ -1273,7 +1392,7 @@ public final class OresEvalRootNode extends RootNode {
         private final SingletonState singletonState;
         private final boolean singletonStorage;
         private final OresObject constructorTarget;
-        private final Map<String, Slot> slots = new HashMap<>();
+        private final Map<String, Slot> slots = new LinkedHashMap<>();
 
         private Env(Env parent) {
             this(
