@@ -55,6 +55,16 @@ public final class OresEvalRootNode extends RootNode {
                 : codeUnitDigest;
     }
 
+    private static String digestText(String text) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
     @Override public String getName() { return "ores-eval"; }
     @Override public boolean isInternal() { return true; }
 
@@ -332,16 +342,6 @@ public final class OresEvalRootNode extends RootNode {
             // The whole checked code unit is the behavior provenance boundary:
             // singleton code may call helpers declared outside the module.
             return codeUnitDigest;
-        }
-
-        private static String digestText(String text) {
-            try {
-                byte[] digest = MessageDigest.getInstance("SHA-256")
-                        .digest(text.getBytes(StandardCharsets.UTF_8));
-                return HexFormat.of().formatHex(digest);
-            } catch (Exception impossible) {
-                throw new IllegalStateException(impossible);
-            }
         }
 
         private void authorizeSingletonCodeGeneration(SingletonState state, Ast.ModuleDecl module) {

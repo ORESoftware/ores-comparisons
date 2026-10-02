@@ -152,6 +152,36 @@ final class TraitCompositionTest {
     }
 
     @Test
+    void mutableTraitMethodsCannotBeExtractedAsBoundValues() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Counter as
+                            private let int count = 0;
+
+                            pub bump(self &mut self)() => int {
+                              self.count = self.count + 1;
+                              return self.count;
+                            }
+                          end
+
+                          define class Box with Counter as
+                          end
+
+                          pub fnc bad() => void {
+                            let box = new Box();
+                            val callback = box.bump;
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("cannot be extracted"));
+        assertTrue(error.getMessage().contains("persistent &mut"));
+    }
+
+    @Test
     void multipleConcreteTraitMethodsRequireExplicitClassResolution() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

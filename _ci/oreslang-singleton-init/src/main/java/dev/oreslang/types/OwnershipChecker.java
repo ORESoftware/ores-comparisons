@@ -335,6 +335,14 @@ public final class OwnershipChecker {
         }
         if (expr instanceof Ast.MemberExpr member) {
             checkExpr(member.receiver(), scope, false);
+            Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
+            if (klass != null
+                    && findField(klass, member.member(), new LinkedHashSet<>()) == null
+                    && hasMutableReceiverMethod(klass, member.member(), new LinkedHashSet<>())) {
+                throw error("mutable-receiver method value '" + member.member()
+                        + "' cannot be extracted; call it directly through a mutable owner"
+                        + " until persistent &mut bound-method lifetimes are modeled");
+            }
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.IndexExpr indexed) {
@@ -659,6 +667,31 @@ public final class OwnershipChecker {
         }
         seen.remove(klass);
         return null;
+    }
+
+    private boolean hasMutableReceiverMethod(
+            Ast.ClassDecl klass,
+            String name,
+            Set<Ast.ClassDecl> seen) {
+        if (!seen.add(klass)) return false;
+        for (Ast.MethodDecl method : klass.methods()) {
+            if (!method.isStatic()
+                    && method.name().equals(name)
+                    && requiresMutableReceiver(method)) {
+                seen.remove(klass);
+                return true;
+            }
+        }
+        for (Ast.TypeRef parent : klass.parents()) {
+            Ast.ClassDecl parentClass = findClass(parent.name());
+            if (parentClass != null
+                    && hasMutableReceiverMethod(parentClass, name, seen)) {
+                seen.remove(klass);
+                return true;
+            }
+        }
+        seen.remove(klass);
+        return false;
     }
 
     private Ast.MethodDecl findMethod(Ast.ClassDecl klass, String name, int arity, Set<Ast.ClassDecl> seen) {
