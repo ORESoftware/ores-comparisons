@@ -1,4 +1,4 @@
 ores-truffle-oreslang/oreslang-source.java
 proof branch test/shared-private-isolation-proof-20261002
-head c5fcf52e003a3b7c81cfd3cfc77008f7b1d0a826
+head e4cc638c0fa4fcd276f30c4f566d584c3e4f3cdc
 base actor branch feat/akka-style-shared-actors @ 159d545ea6591b4fe200990b6d33b26e4ee3eac8
