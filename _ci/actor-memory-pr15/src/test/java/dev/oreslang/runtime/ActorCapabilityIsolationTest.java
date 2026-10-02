@@ -212,7 +212,7 @@ final class ActorCapabilityIsolationTest {
                 context.self().stop();
             });
 
-            var shared = runtime.<String>spawnShared(factoryContext -> (message, context) -> {
+            var shared = runtime.<String>spawnSharedTrusted(factoryContext -> (message, context) -> {
                 try {
                     OresContext.requireEffectiveCapability(
                             developer,
