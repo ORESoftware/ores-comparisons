@@ -32,27 +32,15 @@ import java.util.concurrent.CompletionStage;
 public final class OresEvalRootNode extends RootNode {
     private final Ast.Program program;
     private final String codeUnitId;
-    private final String codeUnitDigest;
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program) {
-        this(language, program, "<anonymous>", digestText(program.toString()));
+        this(language, program, "<anonymous>");
     }
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program, String codeUnitId) {
-        this(language, program, codeUnitId, digestText(program.toString()));
-    }
-
-    public OresEvalRootNode(
-            OresLanguage language,
-            Ast.Program program,
-            String codeUnitId,
-            String codeUnitDigest) {
         super(language);
         this.program = program;
         this.codeUnitId = codeUnitId == null || codeUnitId.isBlank() ? "<anonymous>" : codeUnitId;
-        this.codeUnitDigest = codeUnitDigest == null || codeUnitDigest.isBlank()
-                ? digestText(program.toString())
-                : codeUnitDigest;
     }
 
     @Override public String getName() { return "ores-eval"; }
@@ -66,7 +54,7 @@ public final class OresEvalRootNode extends RootNode {
     @TruffleBoundary
     private Object executeBoundary(OresContext context, Object[] arguments) {
         CapabilityChecker.check(program, context.isolatePolicy());
-        return new Evaluator(program, context, codeUnitId, codeUnitDigest).execute(arguments);
+        return new Evaluator(program, context, codeUnitId).execute(arguments);
     }
 
     private static final class Evaluator {
@@ -80,18 +68,15 @@ public final class OresEvalRootNode extends RootNode {
         private final IdentityHashMap<Ast.FunctionDecl, String> functionOwners = new IdentityHashMap<>();
         private final IdentityHashMap<Ast.ClassDecl, String> classOwners = new IdentityHashMap<>();
         private final IdentityHashMap<Ast.ModuleDecl, String> singletonSchemas = new IdentityHashMap<>();
+        private final Map<ActorModuleStateKey, Env> initializingModuleStates = new HashMap<>();
         private final Set<String> ambiguousFunctions = new LinkedHashSet<>();
         private final Set<String> ambiguousClasses = new LinkedHashSet<>();
 
-        private Evaluator(
-                Ast.Program program,
-                OresContext context,
-                String codeUnitId,
-                String codeUnitDigest) {
+        private Evaluator(Ast.Program program, OresContext context, String codeUnitId) {
             this.program = program;
             this.context = context;
             this.codeUnitId = codeUnitId;
-            this.codeUnitDigest = codeUnitDigest;
+            this.codeUnitDigest = digestText(program.toString());
             indexDeclarations();
         }
 
@@ -166,11 +151,10 @@ public final class OresEvalRootNode extends RootNode {
         private Env actorModuleState(Ast.ModuleDecl module) {
             if (module.singleton()) throw new IllegalArgumentException("singleton modules use process-owned state");
 
-            ActorModuleStateKey actorKey = new ActorModuleStateKey(
-                    codeUnitId,
-                    program.namespace() == null ? "<default>" : program.namespace(),
-                    module.name(),
-                    codeUnitDigest);
+            ActorModuleStateKey actorKey = moduleStateKey(module);
+            Env initializing = initializingModuleStates.get(actorKey);
+            if (initializing != null) return initializing;
+
             Env actorState = context.actors().currentActorLocal(
                     actorKey,
                     () -> initializeOrdinaryModuleState(module));
@@ -181,18 +165,39 @@ public final class OresEvalRootNode extends RootNode {
             return context.contextLocal(actorKey, () -> initializeOrdinaryModuleState(module));
         }
 
+        private ActorModuleStateKey moduleStateKey(Ast.ModuleDecl module) {
+            return new ActorModuleStateKey(
+                    codeUnitId,
+                    program.namespace() == null ? "<default>" : program.namespace(),
+                    module.name(),
+                    codeUnitDigest);
+        }
+
         private Env initializeOrdinaryModuleState(Ast.ModuleDecl module) {
             Env state = new Env(null);
+            ActorModuleStateKey key = moduleStateKey(module);
+            if (initializingModuleStates.putIfAbsent(key, state) != null) {
+                throw new IllegalStateException("ordinary module initialization cycle involving " + module.name());
+            }
+            try {
+                initializeOrdinaryModuleState(module, state);
+                return state;
+            } finally {
+                initializingModuleStates.remove(key, state);
+            }
+        }
+
+        private void initializeOrdinaryModuleState(Ast.ModuleDecl module, Env state) {
             for (Ast.Decl decl : module.declarations()) {
-                if (!(decl instanceof Ast.FieldDecl field)) continue;
-                if (field.initializer() == null) {
-                    throw new IllegalArgumentException("module field has no initializer: " + module.name() + "." + field.name());
+                if (decl instanceof Ast.FieldDecl field) {
+                    if (field.initializer() == null) state.reserve(field.name(), field.bindingKind());
+                    else state.define(field.name(), eval(field.initializer(), state), field.bindingKind());
+                } else if (decl instanceof Ast.ClassDecl klass) {
+                    initializeStaticFields(klass, state);
                 }
-                state.define(field.name(), eval(field.initializer(), state), field.bindingKind());
             }
             Ast.InitDecl init = findInit(module);
             if (init != null) executeInitializer(init, state);
-            return state;
         }
 
         private Ast.InitDecl findInit(Ast.ModuleDecl module) {
@@ -257,9 +262,8 @@ public final class OresEvalRootNode extends RootNode {
         private ProcessSingletonRegistry.Handle<SingletonState> singletonHandle(Ast.ModuleDecl module) {
             ProcessSingletonRegistry.requireBackendFor(context.graalIsolated());
             String key = singletonKey(module);
-            // Do not cache handles per evaluator. A retryable initialization
-            // failure replaces the registry cell; every access must resolve the
-            // current process cell rather than pinning a stale failed handle.
+            // Initialization failures are retryable registry cells. Always
+            // resolve the current process handle instead of pinning a failed one.
             return ProcessSingletonRegistry.getOrCreate(key, () -> initializeSingleton(module));
         }
 
@@ -270,12 +274,12 @@ public final class OresEvalRootNode extends RootNode {
                     singletonCodeDigest(module),
                     context.codeGeneration());
             for (Ast.Decl decl : module.declarations()) {
-                if (!(decl instanceof Ast.FieldDecl field)) continue;
-                if (field.initializer() == null) {
-                    throw new IllegalArgumentException("singleton field has no initializer: " + module.name() + "." + field.name());
+                if (decl instanceof Ast.FieldDecl field) {
+                    if (field.initializer() == null) state.fields.reserve(field.name(), field.bindingKind());
+                    else state.fields.define(field.name(), eval(field.initializer(), state.fields), field.bindingKind());
+                } else if (decl instanceof Ast.ClassDecl klass) {
+                    initializeStaticFields(klass, state.fields);
                 }
-                Object value = eval(field.initializer(), state.fields);
-                state.fields.define(field.name(), value, field.bindingKind());
             }
             Ast.InitDecl init = findInit(module);
             if (init != null) executeInitializer(init, state.fields);
@@ -295,6 +299,7 @@ public final class OresEvalRootNode extends RootNode {
                     if (!(decl instanceof Ast.FieldDecl field)) continue;
                     schema.append(field.name())
                             .append(':').append(field.bindingKind())
+                            .append(':').append(field.isStatic())
                             .append(':').append(field.type());
                     Ast.ClassDecl stateClass = field.type() == null ? null : findClass(field.type().name());
                     if (stateClass != null) {
@@ -308,6 +313,17 @@ public final class OresEvalRootNode extends RootNode {
                         schema.append('}');
                     }
                     schema.append(';');
+                }
+                for (Ast.Decl decl : module.declarations()) {
+                    if (!(decl instanceof Ast.ClassDecl klass)) continue;
+                    for (Ast.FieldDecl field : klass.fields()) {
+                        if (!field.isStatic()) continue;
+                        schema.append("static:")
+                                .append(klass.name()).append('.').append(field.name())
+                                .append(':').append(field.bindingKind())
+                                .append(':').append(field.type())
+                                .append(';');
+                    }
                 }
                 return schema.toString();
             });
@@ -380,7 +396,11 @@ public final class OresEvalRootNode extends RootNode {
             if (singletonState != null) ProcessSingletonRegistry.checkExecutionBudget();
             if (args.size() != method.parameters().size()) throw new IllegalArgumentException("method " + method.name() + " arity mismatch");
             Env lexical = classLexicalModuleState(dispatchClass, singletonState);
-            Env env = new Env(lexical, singletonState);
+            Env env = new Env(
+                    lexical,
+                    singletonState,
+                    false,
+                    isConstructor(method) ? receiver : null);
             if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
             for (int i = 0; i < method.parameters().size(); i++) {
                 Ast.Param param = method.parameters().get(i);
@@ -532,11 +552,16 @@ public final class OresEvalRootNode extends RootNode {
                         if (field == null || !object.fields.containsKey(target.member())) {
                             throw new IllegalArgumentException("unknown field " + target.member());
                         }
-                        if (field.bindingKind() != Ast.BindingKind.LET) {
-                            throw new IllegalArgumentException("field '" + object.klass.name() + "."
-                                    + target.member() + "' is immutable");
-                        }
                         Object previous = object.fields.get(target.member());
+                        boolean initializingVal = field.bindingKind() == Ast.BindingKind.VAL
+                                && field.initializer() == null
+                                && previous == Env.MISSING
+                                && env.constructorTarget == object;
+                        if (field.bindingKind() != Ast.BindingKind.LET && !initializingVal) {
+                            throw new IllegalArgumentException("field '" + object.klass.name() + "."
+                                    + target.member()
+                                    + "' is immutable; val fields may be initialized only once by their constructor");
+                        }
                         object.fields.put(target.member(), value);
                         try {
                             if (env.singletonState != null) env.singletonState.validateStorageGraph();
@@ -546,7 +571,15 @@ public final class OresEvalRootNode extends RootNode {
                         }
                         return value;
                     }
-                    throw new IllegalArgumentException("member assignment requires a class instance");
+                    if (receiver instanceof ClassFacade klass) {
+                        Ast.FieldDecl field = findStaticField(klass.klass(), target.member());
+                        if (field == null) throw new IllegalArgumentException("unknown static field " + klass.klass().name() + "." + target.member());
+                        Env lexical = classLexicalModuleState(klass.klass(), klass.localState());
+                        if (lexical == null) throw new IllegalArgumentException("static field has no owning module state");
+                        lexical.assign(staticStorageKey(klass.klass(), field), value);
+                        return value;
+                    }
+                    throw new IllegalArgumentException("member assignment requires a class instance or mutable static field");
                 }
                 if (assignment.target() instanceof Ast.IndexExpr target) {
                     Object receiver = eval(target.receiver(), env);
@@ -643,17 +676,45 @@ public final class OresEvalRootNode extends RootNode {
                 }
                 List<Object> args = created.arguments().stream().map(arg -> eval(arg, env)).toList();
                 List<Ast.FieldDecl> classFields = effectiveFields(klass, new LinkedHashSet<>());
-                if (args.size() > classFields.size()) throw new IllegalArgumentException("too many constructor arguments for " + klass.name());
                 LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+                for (Ast.FieldDecl field : classFields) fields.put(field.name(), Env.MISSING);
+                OresObject object = new OresObject(klass, fields);
+
+                Env fieldEnv = new Env(classLexicalModuleState(klass, env.singletonState), env.singletonState);
+                fieldEnv.define("self", object, Ast.BindingKind.VAL);
+                for (Ast.FieldDecl field : classFields) {
+                    if (field.initializer() != null) {
+                        object.fields.put(field.name(), eval(field.initializer(), fieldEnv));
+                    }
+                }
+
+                boolean hasExplicitConstructors = klass.methods().stream().anyMatch(this::isConstructor);
+                if (hasExplicitConstructors) {
+                    Ast.MethodDecl constructor = findConstructor(klass, args.size());
+                    if (constructor == null) {
+                        throw new IllegalArgumentException("no constructor for " + klass.name() + " with arity " + args.size());
+                    }
+                    callMethod(object, klass, constructor, args, env.singletonState);
+                    for (Ast.FieldDecl field : classFields) {
+                        if (object.fields.get(field.name()) == Env.MISSING) {
+                            throw new IllegalArgumentException("constructor for " + klass.name()
+                                    + " did not initialize field '" + field.name() + "'");
+                        }
+                    }
+                    return object;
+                }
+
+                // Compatibility path: before explicit constructors existed,
+                // positional new(...) arguments initialized instance fields.
+                if (args.size() > classFields.size()) throw new IllegalArgumentException("too many constructor arguments for " + klass.name());
                 for (int i = 0; i < classFields.size(); i++) {
                     Ast.FieldDecl field = classFields.get(i);
-                    Object value;
-                    if (i < args.size()) value = args.get(i);
-                    else if (field.initializer() != null) value = eval(field.initializer(), env);
-                    else throw new IllegalArgumentException("missing constructor field " + klass.name() + "." + field.name());
-                    fields.put(field.name(), value);
+                    if (i < args.size()) object.fields.put(field.name(), args.get(i));
+                    else if (object.fields.get(field.name()) == Env.MISSING) {
+                        throw new IllegalArgumentException("missing constructor field " + klass.name() + "." + field.name());
+                    }
                 }
-                return new OresObject(klass, fields);
+                return object;
             }
             if (expr instanceof Ast.AwaitExpr awaited) {
                 Object value = eval(awaited.expression(), env);
@@ -716,6 +777,16 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (receiver instanceof ModuleFacade namespace) return moduleMember(namespace, name);
             if (receiver instanceof ClassFacade klass) {
+                Ast.FieldDecl staticField = findStaticField(klass.klass(), name);
+                if (staticField != null) {
+                    Env lexical = classLexicalModuleState(klass.klass(), klass.localState());
+                    if (lexical == null) throw new IllegalArgumentException("static field has no owning module state");
+                    Object value = lexical.lookup(staticStorageKey(klass.klass(), staticField));
+                    if (value == Env.MISSING) {
+                        throw new IllegalStateException("static field is uninitialized: " + klass.klass().name() + "." + name);
+                    }
+                    return value;
+                }
                 List<Ast.MethodDecl> functions = findStaticFunctionsByName(klass.klass(), name, new LinkedHashSet<>());
                 if (functions.size() == 1) {
                     Ast.MethodDecl fn = functions.getFirst();
@@ -729,7 +800,11 @@ public final class OresEvalRootNode extends RootNode {
                         + proxy.module().name() + "." + proxy.fieldName() + "." + name + "(...)");
             }
             if (receiver instanceof OresObject object) {
-                if (object.fields.containsKey(name)) return object.fields.get(name);
+                if (object.fields.containsKey(name)) {
+                    Object value = object.fields.get(name);
+                    if (value == Env.MISSING) throw new IllegalStateException("field is uninitialized: " + object.klass.name() + "." + name);
+                    return value;
+                }
                 return new BoundMethod(object, name, singletonState);
             }
             if (receiver instanceof Map<?, ?> map) {
@@ -914,6 +989,37 @@ public final class OresEvalRootNode extends RootNode {
             throw new IllegalArgumentException("module '" + module.name() + "' does not export '" + name + "'");
         }
 
+        private void initializeStaticFields(Ast.ClassDecl klass, Env state) {
+            for (Ast.FieldDecl field : klass.fields()) {
+                if (!field.isStatic()) continue;
+                String key = staticStorageKey(klass, field);
+                if (field.initializer() == null) state.reserve(key, field.bindingKind());
+                else state.define(key, eval(field.initializer(), state), field.bindingKind());
+            }
+        }
+
+        private String staticStorageKey(Ast.ClassDecl klass, Ast.FieldDecl field) {
+            return "$static$" + klass.name() + "." + field.name();
+        }
+
+        private Ast.FieldDecl findStaticField(Ast.ClassDecl klass, String name) {
+            for (Ast.FieldDecl field : klass.fields()) {
+                if (field.isStatic() && field.name().equals(name)) return field;
+            }
+            return null;
+        }
+
+        private boolean isConstructor(Ast.MethodDecl method) {
+            return !method.isStatic() && method.name().equals("constructor");
+        }
+
+        private Ast.MethodDecl findConstructor(Ast.ClassDecl klass, int arity) {
+            for (Ast.MethodDecl method : klass.methods()) {
+                if (isConstructor(method) && method.arity() == arity) return method;
+            }
+            return null;
+        }
+
         private List<Ast.FieldDecl> effectiveFields(Ast.ClassDecl klass, Set<Ast.ClassDecl> seen) {
             if (!seen.add(klass)) throw new IllegalArgumentException("inheritance cycle involving " + klass.name());
             LinkedHashMap<String, Ast.FieldDecl> result = new LinkedHashMap<>();
@@ -923,7 +1029,7 @@ public final class OresEvalRootNode extends RootNode {
                 if (parent == null) throw new IllegalArgumentException("unknown parent class " + parentRef.name());
                 for (Ast.FieldDecl field : effectiveFields(parent, seen)) result.putIfAbsent(field.name(), field);
             }
-            for (Ast.FieldDecl field : klass.fields()) result.put(field.name(), field);
+            for (Ast.FieldDecl field : klass.fields()) if (!field.isStatic()) result.put(field.name(), field);
             seen.remove(klass);
             return List.copyOf(result.values());
         }
@@ -931,7 +1037,7 @@ public final class OresEvalRootNode extends RootNode {
         private Ast.MethodDecl findMethod(Ast.ClassDecl klass, String name, int arity, Set<Ast.ClassDecl> seen) {
             if (!seen.add(klass)) throw new IllegalArgumentException("inheritance cycle involving " + klass.name());
             for (Ast.MethodDecl method : klass.methods()) {
-                if (!method.isStatic() && method.name().equals(name) && method.parameters().size() == arity) {
+                if (!method.isStatic() && !isConstructor(method) && method.name().equals(name) && method.parameters().size() == arity) {
                     seen.remove(klass);
                     return method;
                 }
@@ -1079,7 +1185,6 @@ public final class OresEvalRootNode extends RootNode {
                 if (entry.getValue().value == Env.MISSING) continue;
                 graph.put(entry.getKey(), singletonValidationValue(entry.getValue().value, path));
             }
-            // One freeze budget applies to the whole process-owned state cell.
             ActorRuntime.freeze(graph);
         }
     }
@@ -1167,20 +1272,42 @@ public final class OresEvalRootNode extends RootNode {
         private final Env parent;
         private final SingletonState singletonState;
         private final boolean singletonStorage;
+        private final OresObject constructorTarget;
         private final Map<String, Slot> slots = new HashMap<>();
 
         private Env(Env parent) {
-            this(parent, parent == null ? null : parent.singletonState, false);
+            this(
+                    parent,
+                    parent == null ? null : parent.singletonState,
+                    false,
+                    parent == null ? null : parent.constructorTarget);
         }
 
         private Env(Env parent, SingletonState singletonState) {
-            this(parent, singletonState, false);
+            this(
+                    parent,
+                    singletonState,
+                    false,
+                    parent == null ? null : parent.constructorTarget);
         }
 
         private Env(Env parent, SingletonState singletonState, boolean singletonStorage) {
+            this(
+                    parent,
+                    singletonState,
+                    singletonStorage,
+                    parent == null ? null : parent.constructorTarget);
+        }
+
+        private Env(
+                Env parent,
+                SingletonState singletonState,
+                boolean singletonStorage,
+                OresObject constructorTarget) {
             this.parent = parent;
             this.singletonState = singletonState;
             this.singletonStorage = singletonStorage;
+            this.constructorTarget = constructorTarget;
         }
 
         private void define(String name, Object value, Ast.BindingKind kind) {
@@ -1243,7 +1370,14 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private Env snapshot() {
-            Env cp = new Env(parent == null ? null : parent.snapshot(), singletonState, singletonStorage);
+            // Closures never retain constructor-only initialization authority.
+            // They can capture self as a value, but a later callback cannot
+            // initialize or reinitialize a val field.
+            Env cp = new Env(
+                    parent == null ? null : parent.snapshot(),
+                    singletonState,
+                    singletonStorage,
+                    null);
             cp.slots.putAll(slots);
             return cp;
         }
