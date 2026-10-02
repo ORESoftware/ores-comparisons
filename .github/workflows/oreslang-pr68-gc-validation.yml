@@ -31,7 +31,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
       - name: Verify exact mirrored source
-        run: grep -Fq "head 3ec80a0006e93509ca90d89a93bc83763a0ce469" SOURCE_HEAD.txt
+        run: grep -Fq "head b92d32849e2bbe7923154f41f457a79c6bf08e3f" SOURCE_HEAD.txt
       - name: GC and actor-isolation focused tests
         run: >-
           mvn -B -ntp
@@ -51,6 +51,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
       - name: Verify exact mirrored source
-        run: grep -Fq "head 3ec80a0006e93509ca90d89a93bc83763a0ce469" SOURCE_HEAD.txt
+        run: grep -Fq "head b92d32849e2bbe7923154f41f457a79c6bf08e3f" SOURCE_HEAD.txt
       - name: Full Maven test suite
         run: mvn -B -ntp test
