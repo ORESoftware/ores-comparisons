@@ -1452,9 +1452,14 @@ public final class ActorRuntime implements AutoCloseable {
 
     private void rejectPrivateActorSharedMemoryAccess(String operation) {
         ActorCell<?> current = currentActor.get();
-        if (current != null && current.kind.memoryIsolated()) {
+        if (current == null) return;
+        if (current.kind == ActorKind.PRIVATE) {
             throw new IllegalStateException(
-                    "memory-isolated actors cannot access synchronized shared memory via " + operation);
+                    "private actors cannot access synchronized shared memory via " + operation);
+        }
+        if (current.kind == ActorKind.UNTRUSTED) {
+            throw new IllegalStateException(
+                    "untrusted actors cannot access synchronized shared memory via " + operation);
         }
     }
 
