@@ -407,7 +407,7 @@ final class TraitCompositionTest {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 define module model as
                   define trait Echo<T> as
-                    pub echo(T value) => T {
+                    pub echo(take T value) => T {
                       val T copied_value = value;
                       return copied_value;
                     }
