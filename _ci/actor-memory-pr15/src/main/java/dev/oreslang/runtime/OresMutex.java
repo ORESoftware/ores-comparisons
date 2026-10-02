@@ -31,6 +31,12 @@ public final class OresMutex {
     }
 
     public static <T> Shared<T> shared(T value) {
+        IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
+        if (actorPolicy != null) {
+            actorPolicy.require(
+                    IsolatePolicy.Capability.SHARED_MEMORY,
+                    "SharedMutex.new");
+        }
         return new Shared<>(value);
     }
 
@@ -212,7 +218,14 @@ public final class OresMutex {
             return owningRuntime.get() == runtime;
         }
 
-        private void requireActorRuntimeAffinity() {
+        private void requireActorAccess() {
+            IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
+            if (actorPolicy != null) {
+                actorPolicy.require(
+                        IsolatePolicy.Capability.SHARED_MEMORY,
+                        "SharedMutex operation");
+            }
+
             ActorRuntime current = ActorRuntime.currentActorRuntime();
             if (current != null && !bindToRuntime(current)) {
                 throw new WrongMutexDomainException(
@@ -221,6 +234,7 @@ public final class OresMutex {
         }
 
         private void rejectBlockingActorAcquisition() {
+            requireActorAccess();
             if (ActorRuntime.inActorExecution()) {
                 throw new WrongMutexDomainException(
                         "blocking SharedMutex.lock()/lock_for()/with_lock() is forbidden during actor execution; use try_lock() or await lock_async()");
@@ -233,7 +247,7 @@ public final class OresMutex {
          * deadlocking, even when the actor migrates JVM workers.
          */
         private Object reserveDomain(boolean tryOnly) {
-            requireActorRuntimeAffinity();
+            requireActorAccess();
             Object domain = ActorRuntime.currentExecutionDomain();
             if (activeDomains.add(domain)) return domain;
             if (tryOnly) return null;
@@ -436,7 +450,7 @@ public final class OresMutex {
 
         @Override
         public boolean isPoisoned() {
-            requireActorRuntimeAffinity();
+            requireActorAccess();
             return poisoned.get();
         }
 
