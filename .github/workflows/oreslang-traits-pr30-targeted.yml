@@ -1,0 +1,28 @@
+name: oreslang-traits-pr30-targeted
+
+on:
+  push:
+    branches: ["ci/oreslang-traits-pr30-targeted"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-singleton-init
+
+jobs:
+  trait-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Compile and run trait tests
+        run: mvn -B -ntp -Dtest=TraitCompositionTest test
