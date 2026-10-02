@@ -5,6 +5,7 @@ import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.OresMutex;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -406,6 +407,206 @@ final class MutexRuntimeTest {
             ref.send("check");
             assertTrue(checked.await(2, TimeUnit.SECONDS));
             assertInstanceOf(SecurityException.class, observed.get());
+        }
+    }
+
+
+    @Test
+    void failedActorAdmissionDoesNotPermanentlyBindSharedMutex() throws Exception {
+        var shared = OresMutex.shared(new int[]{0});
+
+        try (ActorRuntime runtimeA = new ActorRuntime();
+             ActorRuntime runtimeB = new ActorRuntime()) {
+            CountDownLatch enteredBehavior = new CountDownLatch(1);
+            CountDownLatch allowFailure = new CountDownLatch(1);
+            CountDownLatch freezeEntered = new CountDownLatch(1);
+            CountDownLatch releaseFreeze = new CountDownLatch(1);
+            AtomicReference<Throwable> senderFailure = new AtomicReference<>();
+
+            var doomed = runtimeA.<Object>spawn(() -> (message, context) -> {
+                if ("die".equals(message)) {
+                    enteredBehavior.countDown();
+                    allowFailure.await();
+                    throw new IllegalStateException("intentional actor failure");
+                }
+            });
+
+            doomed.send("die");
+            assertTrue(enteredBehavior.await(2, TimeUnit.SECONDS));
+
+            ActorRuntime.Sendable blocking = () -> {
+                freezeEntered.countDown();
+                try {
+                    if (!releaseFreeze.await(2, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("timed out waiting to release freeze");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+                return shared;
+            };
+
+            Thread sender = Thread.ofPlatform().start(() -> {
+                try {
+                    doomed.send(blocking);
+                } catch (Throwable failure) {
+                    senderFailure.set(failure);
+                }
+            });
+
+            assertTrue(freezeEntered.await(2, TimeUnit.SECONDS));
+            allowFailure.countDown();
+
+            IllegalStateException unknown = null;
+            for (int i = 0; i < 500 && unknown == null; i++) {
+                try {
+                    doomed.send("probe");
+                    Thread.yield();
+                } catch (IllegalStateException failure) {
+                    if (failure.getMessage().contains("unknown actor")) unknown = failure;
+                }
+            }
+            assertNotNull(unknown, "actor should terminate before the blocked send is admitted");
+
+            releaseFreeze.countDown();
+            sender.join();
+
+            assertInstanceOf(IllegalStateException.class, senderFailure.get());
+            assertTrue(senderFailure.get().getMessage().contains("terminated before message admission"));
+
+            CountDownLatch delivered = new CountDownLatch(1);
+            var receiver = runtimeB.<OresMutex.Shared<int[]>>spawn(() -> (mutex, context) -> {
+                var guard = mutex.tryLock().orElseThrow();
+                guard.value()[0] = 42;
+                guard.release();
+                delivered.countDown();
+            });
+
+            assertDoesNotThrow(() -> receiver.send(shared));
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals(42, shared.withLock(value -> value[0]).intValue());
+        }
+    }
+
+    @Test
+    void sharedTimedLockSaturatesHugePositiveDurations() {
+        var mutex = OresMutex.shared(new int[]{1});
+
+        var guard = mutex.lockFor(Duration.ofSeconds(Long.MAX_VALUE)).orElseThrow();
+        assertEquals(1, guard.value()[0]);
+        guard.release();
+    }
+
+    @Test
+    void failedRecoveryKeepsMutexPoisoned() {
+        var mutex = OresMutex.shared(new int[]{0});
+
+        assertThrows(IllegalStateException.class, () -> mutex.withLock(value -> {
+            value[0] = 9;
+            throw new IllegalStateException("poison");
+        }));
+
+        assertThrows(IllegalStateException.class, () -> mutex.recover(value -> {
+            value[0] = 3;
+            throw new IllegalStateException("repair failed");
+        }));
+
+        assertTrue(mutex.isPoisoned());
+        assertThrows(OresMutex.PoisonedMutexException.class, mutex::tryLock);
+
+        mutex.recover(value -> {
+            value[0] = 0;
+            return null;
+        });
+        assertFalse(mutex.isPoisoned());
+    }
+
+    @Test
+    void normalReleaseFollowedByFailDoesNotPoisonMutex() {
+        var mutex = OresMutex.shared(new int[]{0});
+        var guard = mutex.lock();
+
+        guard.release();
+        guard.fail();
+
+        assertFalse(mutex.isPoisoned());
+        var next = mutex.lock();
+        next.release();
+    }
+
+    @Test
+    void actorCannotUseBlockingSharedMutexApis() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+
+            var ref = runtime.<OresMutex.Shared<int[]>>spawn(() -> (mutex, context) -> {
+                try {
+                    assertThrows(OresMutex.WrongMutexDomainException.class, mutex::lock);
+                    assertThrows(
+                            OresMutex.WrongMutexDomainException.class,
+                            () -> mutex.lockFor(Duration.ZERO));
+                    assertThrows(
+                            OresMutex.WrongMutexDomainException.class,
+                            () -> mutex.withLock(value -> null));
+
+                    var guard = mutex.tryLock().orElseThrow();
+                    guard.release();
+                } catch (Throwable problem) {
+                    failure.set(problem);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send(OresMutex.shared(new int[]{0}));
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertNull(failure.get());
+        }
+    }
+
+    @Test
+    void sharedGuardCannotBeReleasedFromAnotherActorDomain() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var shared = OresMutex.shared(new int[]{0});
+            AtomicReference<OresMutex.Guard<int[]>> guardRef = new AtomicReference<>();
+            AtomicReference<Throwable> observed = new AtomicReference<>();
+            CountDownLatch acquired = new CountDownLatch(1);
+            CountDownLatch attempted = new CountDownLatch(1);
+            CountDownLatch ownerCanRelease = new CountDownLatch(1);
+            CountDownLatch done = new CountDownLatch(1);
+
+            var owner = runtime.<OresMutex.Shared<int[]>>spawn(() -> (mutex, context) -> {
+                var guard = mutex.lockAsync().join();
+                guardRef.set(guard);
+                acquired.countDown();
+                ownerCanRelease.await();
+                guard.release();
+                done.countDown();
+            });
+
+            var intruder = runtime.<String>spawn(() -> (message, context) -> {
+                assertTrue(acquired.await(2, TimeUnit.SECONDS));
+                try {
+                    guardRef.get().release();
+                } catch (Throwable failure) {
+                    observed.set(failure);
+                } finally {
+                    attempted.countDown();
+                    ownerCanRelease.countDown();
+                }
+            });
+
+            owner.send(shared);
+            intruder.send("try");
+
+            assertTrue(attempted.await(2, TimeUnit.SECONDS));
+            assertInstanceOf(OresMutex.WrongMutexDomainException.class, observed.get());
+            assertTrue(done.await(2, TimeUnit.SECONDS));
+
+            var next = shared.lock();
+            next.release();
         }
     }
 
