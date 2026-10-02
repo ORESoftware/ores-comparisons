@@ -312,9 +312,13 @@ public final class OwnershipChecker {
             Map<VarState, StateSnapshot> rightExit = stateSnapshot(scope);
 
             mergeBranchState(base, List.of(leftExit, rightExit));
-            return left.kind == ValueKind.COPY && right.kind == ValueKind.COPY
-                    ? left
-                    : new ValueInfo(left.type, ValueKind.MOVE_ONLY, null);
+            Ast.TypeRef joinedType = joinConditionalType(left.type, right.type);
+            return new ValueInfo(
+                    joinedType,
+                    left.kind == ValueKind.COPY && right.kind == ValueKind.COPY
+                            ? ValueKind.COPY
+                            : ValueKind.MOVE_ONLY,
+                    null);
         }
         if (expr instanceof Ast.CallExpr call) {
             return checkCall(call, scope);
@@ -918,6 +922,15 @@ public final class OwnershipChecker {
             if (member != null) return member;
         }
         return Ast.TypeRef.inferred();
+    }
+
+    private Ast.TypeRef joinConditionalType(Ast.TypeRef left, Ast.TypeRef right) {
+        if (left == null) return right == null ? Ast.TypeRef.inferred() : right;
+        if (right == null) return left;
+        if (left.equals(right)) return left;
+        if (left.name().equals("$infer$")) return right;
+        if (right.name().equals("$infer$")) return left;
+        return Ast.TypeRef.union(List.of(left, right));
     }
 
     private ValueKind kindOfType(Ast.TypeRef type) {
