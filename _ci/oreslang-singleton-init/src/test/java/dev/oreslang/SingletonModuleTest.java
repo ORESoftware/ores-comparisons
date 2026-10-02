@@ -892,7 +892,8 @@ final class SingletonModuleTest {
 
                   pub fnc mutate_then_fail() => int {
                     count = count + 1;
-                    return 1 / 0;
+                    val Array<int> values = arr[1];
+                    return values[99];
                   }
 
                   pub fnc read() => int {

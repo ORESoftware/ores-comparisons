@@ -16,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,6 +47,7 @@ public final class ProcessSingletonRegistry {
     private static final int MAX_PROCESS_SINGLETONS = 4_096;
     private static final int MAX_KEY_CHARS = 2_048;
     private static final Duration DEFAULT_WALL_TIME = Duration.ofMinutes(10);
+    private static final ScheduledThreadPoolExecutor TIMEOUTS = timeoutExecutor();
 
     private static final Map<String, Cell> CELLS = new ConcurrentHashMap<>();
     private static final Object REGISTRY_LOCK = new Object();
@@ -61,6 +64,17 @@ public final class ProcessSingletonRegistry {
     private static final ThreadLocal<Long> CURRENT_DEADLINE_NANOS = new ThreadLocal<>();
 
     private ProcessSingletonRegistry() { }
+
+    private static ScheduledThreadPoolExecutor timeoutExecutor() {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, runnable -> {
+            Thread thread = new Thread(runnable, "ores-process-singleton-timeouts");
+            thread.setDaemon(true);
+            return thread;
+        });
+        executor.setRemoveOnCancelPolicy(true);
+        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return executor;
+    }
 
     @FunctionalInterface
     public interface Operation<S> {
@@ -215,10 +229,12 @@ public final class ProcessSingletonRegistry {
             } catch (ArithmeticException overflow) {
                 timeoutMillis = Long.MAX_VALUE;
             }
-            CompletableFuture.delayedExecutor(timeoutMillis, TimeUnit.MILLISECONDS).execute(() -> {
+            ScheduledFuture<?> timeoutTask = TIMEOUTS.schedule(() -> {
                 if (!request.expireQueued(cell.diagnosticId)) return;
                 if (cell.mailbox.remove(request)) cell.releaseQueuedSlot();
-            });
+            }, timeoutMillis, TimeUnit.MILLISECONDS);
+            request.timeoutTask(timeoutTask);
+            reply.whenComplete((ignored, failure) -> request.cancelTimeoutTask());
             return reply;
         }
 
@@ -244,6 +260,7 @@ public final class ProcessSingletonRegistry {
         private final CompletableFuture<Object> reply;
         private final long deadlineNanos;
         private final AtomicInteger phase = new AtomicInteger(QUEUED);
+        private volatile ScheduledFuture<?> timeoutTask;
 
         private Request(
                 List<Object> arguments,
@@ -275,6 +292,15 @@ public final class ProcessSingletonRegistry {
             if (phase.compareAndSet(QUEUED, DONE)) {
                 reply.completeExceptionally(failure);
             }
+        }
+
+        private void timeoutTask(ScheduledFuture<?> task) {
+            this.timeoutTask = task;
+        }
+
+        private void cancelTimeoutTask() {
+            ScheduledFuture<?> task = timeoutTask;
+            if (task != null) task.cancel(false);
         }
     }
 
