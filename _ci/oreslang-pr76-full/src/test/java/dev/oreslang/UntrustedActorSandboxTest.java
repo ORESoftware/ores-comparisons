@@ -16,6 +16,35 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class UntrustedActorSandboxTest {
+    private static final class RecordingRequestTransport implements ActorRuntime.HttpRequestTransport {
+        private final ByteBuffer body;
+
+        private RecordingRequestTransport(String body) {
+            this.body = ByteBuffer.wrap(body.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override public String method() { return "POST"; }
+        @Override public String path() { return "/sandbox"; }
+
+        @Override
+        public java.util.Optional<String> header(String name) {
+            return name.equalsIgnoreCase("content-type")
+                    ? java.util.Optional.of("text/plain")
+                    : java.util.Optional.empty();
+        }
+
+        @Override
+        public int read(ByteBuffer target) {
+            if (!body.hasRemaining()) return -1;
+            int count = Math.min(body.remaining(), target.remaining());
+            ByteBuffer window = body.duplicate();
+            window.limit(body.position() + count);
+            target.put(window);
+            body.position(body.position() + count);
+            return count;
+        }
+    }
+
     private static final class RecordingTransport implements ActorRuntime.HttpResponseTransport {
         private final ByteArrayOutputStream body = new ByteArrayOutputStream();
         private volatile boolean completed;
@@ -201,6 +230,56 @@ final class UntrustedActorSandboxTest {
             assertEquals("hello", transport.bodyUtf8());
             assertTrue(transport.completed);
             assertNull(transport.aborted);
+        }
+    }
+
+    @Test
+    void directHttpRequestBodyCanStreamWithoutMailboxCopiesAndIsBounded() throws Exception {
+        RecordingRequestTransport request = new RecordingRequestTransport("ping-extra");
+        RecordingTransport responseTransport = new RecordingTransport();
+
+        try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer())) {
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    new ActorRuntime.UntrustedActorLimits(
+                            Duration.ofSeconds(5),
+                            100,
+                            1024,
+                            4,
+                            16),
+                    request,
+                    responseTransport,
+                    context -> (message, turn) -> {
+                        ActorRuntime.HttpRequestCapability httpRequest =
+                                turn.httpRequest().orElseThrow();
+                        ActorRuntime.HttpResponseCapability httpResponse =
+                                turn.httpResponse().orElseThrow();
+
+                        assertEquals("POST", httpRequest.method());
+                        assertEquals("/sandbox", httpRequest.path());
+                        assertEquals(
+                                "text/plain",
+                                httpRequest.header("content-type").orElseThrow());
+
+                        ByteBuffer chunk = ByteBuffer.allocate(8);
+                        assertEquals(4, httpRequest.read(chunk));
+                        chunk.flip();
+                        assertEquals("ping", StandardCharsets.UTF_8.decode(chunk).toString());
+
+                        assertThrows(
+                                ActorRuntime.HttpRequestLimitExceededException.class,
+                                () -> httpRequest.read(ByteBuffer.allocate(1)));
+
+                        httpResponse.write(ByteBuffer.wrap("ping".getBytes(StandardCharsets.UTF_8)));
+                        httpResponse.complete();
+                        turn.self().stop();
+                    });
+
+            ref.send("handle-request");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertEquals("ping", responseTransport.bodyUtf8());
+            assertTrue(responseTransport.completed);
+            assertNull(responseTransport.aborted);
         }
     }
 
