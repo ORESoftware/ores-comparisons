@@ -262,19 +262,27 @@ public final class ActorRuntime implements AutoCloseable {
         }
         ActorCell<M> cell = (ActorCell<M>) actors.get(ref.id());
         if (cell == null) throw new IllegalStateException("unknown actor " + ref.id());
-        if (cell.mailbox.remainingCapacity() == 0) {
+        if (!cell.reserveMailboxSlot()) {
             throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
         }
-        Object frozen = freezeForThisRuntime(message);
-        if (containsSharedMutex(frozen)) {
-            IsolatePolicy sender = CURRENT_ACTOR_POLICY.get();
-            if (sender != null) sender.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor send");
-            else policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex host send");
-            cell.policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor receive");
-            bindSharedMutexes(frozen);
-        }
-        if (!cell.mailbox.offer(frozen)) {
-            throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
+
+        boolean enqueued = false;
+        try {
+            Object frozen = freezeForThisRuntime(message);
+            if (containsSharedMutex(frozen)) {
+                IsolatePolicy sender = CURRENT_ACTOR_POLICY.get();
+                if (sender != null) sender.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor send");
+                else policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex host send");
+                cell.policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor receive");
+                bindSharedMutexes(frozen);
+            }
+            if (!cell.mailbox.offer(frozen)) {
+                throw new IllegalStateException(
+                        "actor mailbox physical capacity unexpectedly exhausted for " + ref.id());
+            }
+            enqueued = true;
+        } finally {
+            if (!enqueued) cell.releaseMailboxSlot();
         }
     }
 
@@ -623,6 +631,7 @@ public final class ActorRuntime implements AutoCloseable {
         private final IsolatePolicy policy;
         private final Supplier<? extends Behavior<M>> behaviorFactory;
         private final BlockingQueue<Object> mailbox;
+        private final AtomicInteger queuedMessages = new AtomicInteger();
         private volatile Thread thread;
 
         private ActorCell(ActorRef<M> ref, IsolatePolicy policy, Supplier<? extends Behavior<M>> behaviorFactory) {
@@ -630,6 +639,23 @@ public final class ActorRuntime implements AutoCloseable {
             this.policy = policy;
             this.behaviorFactory = behaviorFactory;
             this.mailbox = new LinkedBlockingQueue<>(policy.maxMailboxMessages());
+        }
+
+        private boolean reserveMailboxSlot() {
+            while (true) {
+                int current = queuedMessages.get();
+                if (current >= policy.maxMailboxMessages()) return false;
+                if (queuedMessages.compareAndSet(current, current + 1)) return true;
+            }
+        }
+
+        private void releaseMailboxSlot() {
+            int remaining = queuedMessages.decrementAndGet();
+            if (remaining < 0) {
+                queuedMessages.incrementAndGet();
+                throw new IllegalStateException(
+                        "actor mailbox accounting underflow for " + ref.id());
+            }
         }
 
         private void start() {
@@ -651,7 +677,9 @@ public final class ActorRuntime implements AutoCloseable {
                 };
                 while (!closed.get()) {
                     Object message = mailbox.take();
-                    if (message == STOP || closed.get()) return;
+                    if (message == STOP) return;
+                    releaseMailboxSlot();
+                    if (closed.get()) return;
                     behavior.onMessage((M) message, context);
                 }
             } catch (InterruptedException interrupted) {
