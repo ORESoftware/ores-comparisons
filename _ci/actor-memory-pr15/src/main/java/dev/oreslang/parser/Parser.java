@@ -448,11 +448,56 @@ public final class Parser {
     }
 
     private Ast.TypeRef parseTypeRef() {
+        Ast.TypeRef first = parseTypeAtom();
+        if (!match(PIPE)) return first;
+
+        List<Ast.TypeRef> options = new ArrayList<>();
+        options.add(first);
+        do options.add(parseTypeAtom()); while (match(PIPE));
+        return Ast.TypeRef.union(options);
+    }
+
+    private Ast.TypeRef parseTypeAtom() {
+        if (match(TYPE)) {
+            Ast.TypeRef marked = parseTypeAtom();
+            if (marked.name().startsWith("$")) {
+                throw error(previous(), "'type' alias marker must prefix a named type");
+            }
+            return marked;
+        }
+
         if (match(AMP)) {
             boolean mutable = match(MUT);
-            return Ast.TypeRef.borrowed(parseTypeRef(), mutable);
+            return Ast.TypeRef.borrowed(parseTypeAtom(), mutable);
         }
         if (match(STRING)) return Ast.TypeRef.stringLiteral(previous().lexeme());
+
+        if (match(LBRACKET)) {
+            List<Ast.TypeRef> elements = new ArrayList<>();
+            if (!check(RBRACKET)) {
+                do elements.add(parseTypeRef()); while (match(COMMA));
+            }
+            consume(RBRACKET, "expected ']' after finite tuple type");
+            return Ast.TypeRef.tupleType(elements);
+        }
+
+        if (match(LBRACE)) {
+            java.util.LinkedHashMap<String, Ast.TypeRef> members = new java.util.LinkedHashMap<>();
+            if (!check(RBRACE)) {
+                do {
+                    String field;
+                    if (match(IDENT, STRING)) field = previous().lexeme();
+                    else throw error(peek(), "expected record type field name");
+                    consume(COLON, "expected ':' after record type field name");
+                    Ast.TypeRef fieldType = parseTypeRef();
+                    if (members.putIfAbsent(field, fieldType) != null) {
+                        throw error(previous(), "duplicate record type field '" + field + "'");
+                    }
+                } while (match(COMMA));
+            }
+            consume(RBRACE, "expected '}' after record type");
+            return Ast.TypeRef.recordType(members);
+        }
 
         if (match(TYPEOF)) {
             consume(FNC, "typeof function types use 'typeof fnc(...) -> ReturnType'");
@@ -528,8 +573,13 @@ public final class Parser {
     }
 
     private Ast.Stmt parseStatement() {
+        if (isBindingKind(peek().type()) && looksLikePrefixedDestructure()) {
+            Ast.BindingKind inherited = parseBindingKind();
+            return parseDestructure(check(LBRACKET) ? Ast.DestructureKind.SEQUENCE : Ast.DestructureKind.OBJECT, inherited);
+        }
         if (isBindingKind(peek().type())) return parseBindingStatement();
-        if (check(LBRACKET) && looksLikeDestructure()) return parseDestructure();
+        if (check(LBRACKET) && looksLikeDestructure()) return parseDestructure(Ast.DestructureKind.SEQUENCE, null);
+        if (check(LBRACE) && looksLikeDestructure()) return parseDestructure(Ast.DestructureKind.OBJECT, null);
         if (match(RETURN)) {
             Ast.Expr value = check(SEMICOLON) || isSafeStatementBoundary() ? null : parseExpression();
             consumeStatementTerminator("return statement should end with ';'");
@@ -613,23 +663,73 @@ public final class Parser {
         return new Ast.BindingStmt(kind, type, name, initializer);
     }
 
-    private Ast.DestructureStmt parseDestructure() {
-        consume(LBRACKET, "expected '['");
+    private Ast.DestructureStmt parseDestructure(Ast.DestructureKind kind, Ast.BindingKind inheritedKind) {
+        Token.Type close;
+        if (kind == Ast.DestructureKind.SEQUENCE) {
+            consume(LBRACKET, "expected '['");
+            close = RBRACKET;
+        } else {
+            consume(LBRACE, "expected '{'");
+            close = RBRACE;
+        }
+
+        if (check(close)) throw error(peek(), "destructure pattern cannot be empty");
+
         List<Ast.DestructureBinding> bindings = new ArrayList<>();
+        Ast.BindingKind currentKind = inheritedKind;
         do {
-            Ast.BindingKind kind = parseBindingKind();
+            if (isBindingKind(peek().type())) currentKind = parseBindingKind();
+
+            if (isDiscardToken(peek())) {
+                advance();
+                bindings.add(Ast.DestructureBinding.discard());
+                continue;
+            }
+
+            if (currentKind == null) {
+                throw error(peek(), "destructure binding kind must be declared before the first binding");
+            }
             String name = consume(IDENT, "expected binding name in destructure").lexeme();
-            bindings.add(new Ast.DestructureBinding(kind, name));
+            bindings.add(new Ast.DestructureBinding(currentKind, name));
         } while (match(COMMA));
-        consume(RBRACKET, "expected ']'");
+
+        consume(close, kind == Ast.DestructureKind.SEQUENCE ? "expected ']'" : "expected '}'");
         consume(EQUAL, "expected '=' after destructure pattern");
         Ast.Expr initializer = parseExpression();
         consumeStatementTerminator("destructure should end with ';'");
-        return new Ast.DestructureStmt(bindings, initializer);
+        return new Ast.DestructureStmt(kind, bindings, initializer);
     }
 
     private boolean looksLikeDestructure() {
-        return current + 1 < tokens.size() && isBindingKind(tokens.get(current + 1).type());
+        if (current + 1 >= tokens.size()) return false;
+        Token first = tokens.get(current + 1);
+        return isBindingKind(first.type()) || isDiscardToken(first);
+    }
+
+    private boolean looksLikePrefixedDestructure() {
+        if (current + 2 >= tokens.size()) return false;
+        Token.Type open = tokens.get(current + 1).type();
+        Token.Type close;
+        if (open == LBRACKET) close = RBRACKET;
+        else if (open == LBRACE) close = RBRACE;
+        else return false;
+
+        int depth = 0;
+        for (int i = current + 1; i < tokens.size(); i++) {
+            Token.Type type = tokens.get(i).type();
+            if (type == open) depth++;
+            else if (type == close) {
+                depth--;
+                if (depth == 0) {
+                    return i + 1 < tokens.size() && tokens.get(i + 1).type() == EQUAL;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isDiscardToken(Token token) {
+        return token.type() == IDENT && token.lexeme().equals("_");
     }
 
     private Ast.IfStmt parseIf() {
