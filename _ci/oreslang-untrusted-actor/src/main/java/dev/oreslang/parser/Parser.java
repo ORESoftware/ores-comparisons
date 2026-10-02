@@ -323,9 +323,18 @@ public final class Parser {
 
     private Ast.FieldDecl parseField(Ast.Visibility visibility) {
         Ast.BindingKind kind = parseBindingKind();
-        Ast.TypeRef type = parseTypeRef();
-        String name = consumeIdentifier("expected field name").lexeme();
+        Ast.TypeRef type = null;
+        String name;
+        if (checkIdentifier() && checkNext(EQUAL)) {
+            name = advance().lexeme();
+        } else {
+            type = parseTypeRef();
+            name = consumeIdentifier("expected field name").lexeme();
+        }
         Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
+        if (type == null && initializer == null) {
+            throw error(previous(), "inferred field requires an initializer");
+        }
         consumeStatementTerminator("field declaration should end with ';'");
         return new Ast.FieldDecl(name, visibility, kind, type, initializer);
     }
@@ -879,10 +888,43 @@ public final class Parser {
     }
 
     private Ast.Expr parseCondition() {
-        Ast.Expr expression = parseLogicalOr();
-        // Legacy condition-only comma means logical AND. Prefer && in new code.
-        while (match(COMMA)) expression = new Ast.BinaryExpr("&&", expression, parseLogicalOr());
+        return parseConditionOr();
+    }
+
+    /*
+     * Condition syntax intentionally preserves the original Oreslang
+     * comma/pipe shorthand: comma is logical AND and a single | is logical OR.
+     * Outside condition position, | remains bitwise OR. Parentheses can be used
+     * inside a condition when an actual bitwise-OR subexpression is desired.
+     */
+    private Ast.Expr parseConditionOr() {
+        Ast.Expr expression = parseConditionXor();
+        while (true) {
+            if (matchAdjacentPair(PIPE) || matchSingleOperator(PIPE)) {
+                expression = new Ast.BinaryExpr("||", expression, parseConditionXor());
+            } else {
+                return expression;
+            }
+        }
+    }
+
+    private Ast.Expr parseConditionXor() {
+        Ast.Expr expression = parseConditionAnd();
+        while (matchAdjacentPair(CARET)) {
+            expression = new Ast.BinaryExpr("^^", expression, parseConditionAnd());
+        }
         return expression;
+    }
+
+    private Ast.Expr parseConditionAnd() {
+        Ast.Expr expression = parseBitwiseXor();
+        while (true) {
+            if (match(COMMA) || matchAdjacentPair(AMP)) {
+                expression = new Ast.BinaryExpr("&&", expression, parseBitwiseXor());
+            } else {
+                return expression;
+            }
+        }
     }
 
     private Ast.TryStmt parseTry() {

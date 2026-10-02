@@ -54,7 +54,11 @@ public final class Types {
         Objects.requireNonNull(from);
         Objects.requireNonNull(to);
         if (from == Unknown.INSTANCE || to == Unknown.INSTANCE) return true;
-        if (to instanceof Generic || from instanceof Generic) return true;
+        // An unconstrained generic is not "any". During declaration checking,
+        // concrete values cannot be smuggled into T and T cannot be assumed to
+        // be a concrete type. Call-site specialization substitutes generics
+        // before ordinary assignability is evaluated.
+        if (to instanceof Generic || from instanceof Generic) return from.equals(to);
         if (from.equals(to)) return true;
         if (from instanceof StringLiteral && to == Primitive.STRING) return true;
 
