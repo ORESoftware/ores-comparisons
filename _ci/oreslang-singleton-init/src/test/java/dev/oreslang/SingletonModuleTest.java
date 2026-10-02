@@ -885,6 +885,78 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void failedSingletonRequestRollsBackAllProcessStateMutation() throws Exception {
+        String output = eval("""
+                define singleton module transactional_failure_guard as
+                  let int count = 0;
+
+                  pub fnc mutate_then_fail() => int {
+                    count = count + 1;
+                    return 1 / 0;
+                  }
+
+                  pub fnc read() => int {
+                    return count;
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    try {
+                      val int ignored = await transactional_failure_guard.mutate_then_fail();
+                    } catch (err) {
+                    }
+                    stdio.println(await transactional_failure_guard.read());
+                    return;
+                  }
+                end
+                """, "singleton-transaction-failure.ores");
+
+        assertTrue(output.contains("0"), output);
+    }
+
+    @Test
+    void timedOutSingletonRequestCannotCommitPartialState() throws Exception {
+        IsolatePolicy shortBudget = new IsolatePolicy(
+                Set.of(
+                        IsolatePolicy.Capability.STDOUT,
+                        IsolatePolicy.Capability.PROCESS_SINGLETON),
+                64L * 1024 * 1024,
+                64,
+                Duration.ofMillis(30));
+
+        String output = evalWithPolicy("""
+                define singleton module transactional_timeout_guard as
+                  let int count = 0;
+
+                  pub routine mutate_then_spin() => void {
+                    count = count + 1;
+                    for (;;) {
+                    }
+                    return;
+                  }
+
+                  pub fnc read() => int {
+                    return count;
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    try {
+                      await transactional_timeout_guard.mutate_then_spin();
+                    } catch (err) {
+                    }
+                    stdio.println(await transactional_timeout_guard.read());
+                    return;
+                  }
+                end
+                """, "singleton-transaction-timeout.ores", shortBudget);
+
+        assertTrue(output.contains("0"), output);
+    }
+
+    @Test
     void registryRejectsCrossSingletonWaitCyclesBeforeDeadlock() {
         String aKey = "cycle-a:" + UUID.randomUUID();
         String bKey = "cycle-b:" + UUID.randomUUID();
@@ -907,6 +979,41 @@ final class SingletonModuleTest {
 
         RuntimeException failure = assertThrows(RuntimeException.class, call::join);
         assertTrue(causeChainContains(failure, "wait cycle"), String.valueOf(failure));
+    }
+
+    @Test
+    void queuedSingletonTimeoutRemovesRequestWithoutExecutingItLater() throws Exception {
+        String key = "queued-timeout:" + UUID.randomUUID();
+        ProcessSingletonRegistry.Handle<AtomicInteger> handle =
+                ProcessSingletonRegistry.getOrCreate(key, AtomicInteger::new);
+
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        CompletableFuture<Object> active = handle.call(
+                List.of(), 8, Duration.ofSeconds(2),
+                (state, ignored) -> {
+                    entered.countDown();
+                    release.await(1, TimeUnit.SECONDS);
+                    return state.incrementAndGet();
+                }).toCompletableFuture();
+
+        assertTrue(entered.await(1, TimeUnit.SECONDS));
+
+        CompletableFuture<Object> queued = handle.call(
+                List.of(), 8, Duration.ofMillis(40),
+                (state, ignored) -> state.incrementAndGet()).toCompletableFuture();
+
+        RuntimeException timeout = assertThrows(RuntimeException.class, queued::join);
+        assertTrue(causeChainContains(timeout, "expired in mailbox"), String.valueOf(timeout));
+
+        release.countDown();
+        assertEquals(1L, ((Number) active.join()).longValue());
+
+        Object value = handle.call(
+                List.of(), 8, Duration.ofSeconds(1),
+                (state, ignored) -> state.get()).toCompletableFuture().join();
+        assertEquals(1L, ((Number) value).longValue());
     }
 
     @Test
