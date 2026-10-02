@@ -1,0 +1,8 @@
+namespace share_boundary_demo;
+
+pub routine main() => void {
+  let int value = 1;
+  val shared = share(value);
+  stdio.println(shared);
+  return;
+}
