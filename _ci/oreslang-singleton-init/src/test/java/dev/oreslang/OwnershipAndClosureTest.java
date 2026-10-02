@@ -47,19 +47,20 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("immutable parameter/binding"));
+        assertTrue(error.getMessage().contains("immutable binding/read borrow"));
     }
 
     @Test
-    void ownedMutParameterMayMutateAndReturnOwnership() throws Exception {
+    void takeParameterTransfersOwnershipAndCanMoveIntoMutableLocal() throws Exception {
         String output = run("""
                 define class Bar as
                   pub let String foo = "start";
                 end
 
-                fnc change(Bar mut b) => Bar {
-                  b.foo = "foobar";
-                  return b;
+                fnc change(take Bar b) => Bar {
+                  let Bar owned = b;
+                  owned.foo = "foobar";
+                  return owned;
                 }
 
                 pub routine main() => void {
@@ -73,20 +74,32 @@ final class OwnershipAndClosureTest {
     }
 
     @Test
+    void pointerStyleBorrowSyntaxIsRejected() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        fnc bad(&mut String value) => void {
+                          return;
+                        }
+                        """));
+        assertTrue(error.getMessage().contains("pointer-style '&'"));
+    }
+
+    @Test
     void mutableBorrowAllowsMutationWithoutMovingOwner() throws Exception {
         String output = run("""
                 define class Bar as
                   pub let String foo = "start";
                 end
 
-                fnc change(&mut Bar b) => void {
+                fnc change(mut Bar b) => void {
                   b.foo = "borrowed";
                   return;
                 }
 
                 pub routine main() => void {
                   let Bar b = new Bar();
-                  change(&mut b);
+                  change(b);
                   stdio.stdout.write(b.foo);
                   return;
                 }
@@ -102,15 +115,15 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
-                        fnc mutate(&mut Bar b) => void {
+                        fnc mutate(mut Bar b) => void {
                           b.foo = "changed";
                           return;
                         }
 
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          val &Bar read = &b;
-                          mutate(&mut b);
+                          val read = borrow(b);
+                          mutate(b);
                           stdio.println(read.foo);
                           return;
                         }
@@ -126,7 +139,7 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
-                        fnc consume(Bar b) => void {
+                        fnc consume(take Bar b) => void {
                           return;
                         }
 
@@ -148,23 +161,31 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
-                        fnc bad() => &Bar {
+                        fnc bad() => Bar {
                           let Bar b = new Bar();
-                          return &b;
+                          return borrow(b);
                         }
                         """)));
-        assertTrue(error.getMessage().contains("outlive its owner"));
+        assertTrue(error.getMessage().toLowerCase().contains("borrow")
+                || error.getMessage().contains("return"));
     }
 
     @Test
-    void borrowedParameterCanBeReturned() {
+    void normalParameterBorrowDoesNotMoveCaller() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 define class Bar as
                   pub let String foo = "start";
                 end
 
-                fnc identity(&Bar b) => &Bar {
-                  return b;
+                fnc read(Bar b) => String {
+                  return b.foo;
+                }
+
+                fnc ok() => void {
+                  let Bar b = new Bar();
+                  stdio.println(read(b));
+                  stdio.println(b.foo);
+                  return;
                 }
                 """)));
     }
@@ -179,8 +200,8 @@ final class OwnershipAndClosureTest {
 
                 fnc ok() => void {
                   let Bar b = new Bar();
-                  val &Bar first = &b;
-                  val &Bar second = &b;
+                  val first = borrow(b);
+                  val second = borrow(b);
                   stdio.println(first.foo);
                   stdio.println(second.foo);
                   return;
@@ -196,12 +217,15 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
+                        fnc mutateBoth(mut Bar first, mut Bar second) => void {
+                          first.foo = "first";
+                          second.foo = "second";
+                          return;
+                        }
+
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          val &mut Bar first = &mut b;
-                          val &mut Bar second = &mut b;
-                          stdio.println(first.foo);
-                          stdio.println(second.foo);
+                          mutateBoth(b, b);
                           return;
                         }
                         """)));
@@ -216,11 +240,11 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
-                        fnc consume(Bar b) => void { return; }
+                        fnc consume(take Bar b) => void { return; }
 
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          val &Bar read = &b;
+                          val read = borrow(b);
                           consume(b);
                           stdio.println(read.foo);
                           return;
@@ -236,7 +260,7 @@ final class OwnershipAndClosureTest {
                   pub let String foo = "start";
                 end
 
-                fnc mutate(&mut Bar b) => void {
+                fnc mutate(mut Bar b) => void {
                   b.foo = "changed";
                   return;
                 }
@@ -244,10 +268,10 @@ final class OwnershipAndClosureTest {
                 fnc ok() => void {
                   let Bar b = new Bar();
                   if true; do
-                    val &Bar read = &b;
+                    val read = borrow(b);
                     stdio.println(read.foo);
                   fi
-                  mutate(&mut b);
+                  mutate(b);
                   return;
                 }
                 """)));
@@ -261,7 +285,7 @@ final class OwnershipAndClosureTest {
                   pub let String foo = "start";
                 end
 
-                fnc consume(Bar b) => void { return; }
+                fnc consume(take Bar b) => void { return; }
 
                 fnc ok(bool flag) => void {
                   let Bar b = new Bar();
@@ -280,7 +304,7 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
-                        fnc consume(Bar b) => void { return; }
+                        fnc consume(take Bar b) => void { return; }
 
                         fnc bad(bool flag) => void {
                           let Bar b = new Bar();
@@ -304,7 +328,7 @@ final class OwnershipAndClosureTest {
                           pub val String foo = "start";
                         end
 
-                        fnc bad(Bar mut b) => void {
+                        fnc bad(mut Bar b) => void {
                           b.foo = "changed";
                           return;
                         }

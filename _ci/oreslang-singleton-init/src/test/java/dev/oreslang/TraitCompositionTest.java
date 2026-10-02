@@ -46,7 +46,7 @@ final class TraitCompositionTest {
                   define trait Counter is CounterApi as
                     private let int count = 10;
 
-                    pub bump(self &mut self)() => int {
+                    pub bump(mut self)() => int {
                       self.count = self.count + 1;
                       return self.count;
                     }
@@ -84,7 +84,7 @@ final class TraitCompositionTest {
                   define trait Counter as
                     private let int count = 10;
 
-                    pub bump(self &mut self)() => int {
+                    pub bump(mut self)() => int {
                       self.count = self.count + 1;
                       return self.count;
                     }
@@ -131,7 +131,7 @@ final class TraitCompositionTest {
                           define trait Counter as
                             private let int count = 0;
 
-                            pub bump(self &mut self)() => int {
+                            pub bump(mut self)() => int {
                               self.count = self.count + 1;
                               return self.count;
                             }
@@ -160,7 +160,7 @@ final class TraitCompositionTest {
                           define trait Counter as
                             private let int count = 0;
 
-                            pub bump(self &mut self)() => int {
+                            pub bump(mut self)() => int {
                               self.count = self.count + 1;
                               return self.count;
                             }
@@ -178,7 +178,7 @@ final class TraitCompositionTest {
                         """)));
 
         assertTrue(error.getMessage().contains("cannot be extracted"));
-        assertTrue(error.getMessage().contains("persistent &mut"));
+        assertTrue(error.getMessage().contains("persistent exclusive"));
     }
 
     @Test
