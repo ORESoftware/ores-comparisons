@@ -145,8 +145,17 @@
       "artifact_target": "graal",
       "server_extension": ".rb",
       "default_branch": "main",
-      "visibility": "public",
-      "transport": "git-submodule"
+      "visibility": "private",
+      "transport": "git-submodule",
+      "framework": "roda",
+      "framework_choices": [
+        "rails",
+        "roda",
+        "sinatra",
+        "rack",
+        "ruby"
+      ],
+      "generation_contract": "ores-graal-ruby-manifest/v3"
     },
     {
       "stack": "iso-lattes",
