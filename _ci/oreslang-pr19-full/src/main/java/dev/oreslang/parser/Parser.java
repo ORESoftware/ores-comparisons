@@ -42,17 +42,23 @@ public final class Parser {
             if (match(DEFINE)) {
                 boolean afterDefineAbstract = match(ABSTRACT);
                 if (match(MODULE)) {
-                    if (modifiers.visibility != Ast.Visibility.PRIVATE || modifiers.async || modifiers.isStatic || modifiers.isAbstract) {
+                    if (modifiers.visibility != Ast.Visibility.PRIVATE
+                            || modifiers.async
+                            || modifiers.isStatic
+                            || modifiers.isAbstract
+                            || modifiers.actorKind != Ast.ActorKind.NONE) {
                         throw error(previous(), "modules do not accept function/class modifiers");
                     }
                     modules.add(parseModule(annotations));
                     continue;
                 }
                 if (match(CLASS)) {
+                    rejectActorModifier(modifiers, "classes");
                     rootDeclarations.add(parseClass(modifiers.isAbstract || afterDefineAbstract));
                     continue;
                 }
                 if (match(INTERFACE)) {
+                    rejectActorModifier(modifiers, "interfaces");
                     rootDeclarations.add(parseInterface(modifiers.visibility));
                     continue;
                 }
@@ -123,8 +129,14 @@ public final class Parser {
 
         if (match(DEFINE)) {
             boolean afterDefineAbstract = match(ABSTRACT);
-            if (match(CLASS)) return parseClass(modifiers.isAbstract || afterDefineAbstract);
-            if (match(INTERFACE)) return parseInterface(modifiers.visibility);
+            if (match(CLASS)) {
+                rejectActorModifier(modifiers, "classes");
+                return parseClass(modifiers.isAbstract || afterDefineAbstract);
+            }
+            if (match(INTERFACE)) {
+                rejectActorModifier(modifiers, "interfaces");
+                return parseInterface(modifiers.visibility);
+            }
             throw error(previous(), "expected class or interface after 'define'");
         }
 
@@ -136,13 +148,25 @@ public final class Parser {
     private Ast.Decl parseDeclarationAfterModifiers(List<Ast.Annotation> annotations, Modifiers modifiers) {
         if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC);
         if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE);
-        if (match(INTERFACE)) return parseInterface(modifiers.visibility);
-        if (match(TYPE)) return parseTypeAlias();
-        if (isBindingKind(peek().type())) return parseModuleBinding(modifiers.visibility);
+        if (match(INTERFACE)) {
+            rejectActorModifier(modifiers, "interfaces");
+            return parseInterface(modifiers.visibility);
+        }
+        if (match(TYPE)) {
+            rejectActorModifier(modifiers, "type aliases");
+            return parseTypeAlias();
+        }
+        if (isBindingKind(peek().type())) {
+            rejectActorModifier(modifiers, "bindings");
+            return parseModuleBinding(modifiers.visibility);
+        }
         return null;
     }
 
     private Ast.FunctionDecl parseFunction(List<Ast.Annotation> annotations, Modifiers modifiers, Ast.CallableKind kind) {
+        if (modifiers.actorKind != Ast.ActorKind.NONE && modifiers.async) {
+            throw error(previous(), "'async' cannot yet be combined with actor/isoactor; use an explicit asynchronous actor API instead");
+        }
         if (modifiers.isStatic) throw error(previous(), "'static fnc' is only valid inside a class");
         if (modifiers.isAbstract) throw error(previous(), "top-level/module callables cannot be abstract");
         String name = consume(IDENT, "expected callable name").lexeme();
@@ -153,8 +177,8 @@ public final class Parser {
         consume(RPAREN, "expected ')' after parameters");
         Ast.TypeRef returnType = parseReturnType(annotations);
         List<Ast.Stmt> body = parseBlock();
-        return new Ast.FunctionDecl(name, kind, modifiers.visibility, modifiers.async, generics, params,
-                returnType, annotations, body);
+        return new Ast.FunctionDecl(name, kind, modifiers.visibility, modifiers.async, modifiers.actorKind,
+                generics, params, returnType, annotations, body);
     }
 
     private Ast.ClassDecl parseClass(boolean isAbstract) {
@@ -168,6 +192,7 @@ public final class Parser {
         while (!check(END) && !check(EOF)) {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
+            rejectActorModifier(mods, "class members");
             if (isBindingKind(peek().type())) {
                 if (mods.isStatic) throw error(peek(), "static data members are not implemented yet; static class functions use 'static fnc'");
                 fields.add(parseField(mods.visibility));
@@ -195,7 +220,8 @@ public final class Parser {
         List<Ast.InterfaceMember> members = new ArrayList<>();
         while (!check(terminator) && !check(EOF)) {
             parseAnnotations();
-            parseModifiers();
+            Modifiers interfaceModifiers = parseModifiers();
+            rejectActorModifier(interfaceModifiers, "interface members");
 
             if (match(FNC)) {
                 String memberName = consume(IDENT, "expected interface function name").lexeme();
@@ -331,17 +357,38 @@ public final class Parser {
         boolean async = false;
         boolean isStatic = false;
         boolean isAbstract = false;
+        Ast.ActorKind actorKind = Ast.ActorKind.NONE;
         boolean progress;
         do {
             progress = true;
             if (match(PUB)) visibility = Ast.Visibility.PUBLIC;
             else if (match(PRIVATE)) visibility = Ast.Visibility.PRIVATE;
             else if (match(ASYNC)) async = true;
+            else if (match(ACTOR)) {
+                if (actorKind != Ast.ActorKind.NONE) {
+                    throw error(previous(), "callable cannot combine or repeat actor/isoactor");
+                }
+                actorKind = Ast.ActorKind.SHARED;
+            }
+            else if (match(ISOACTOR)) {
+                if (actorKind != Ast.ActorKind.NONE) {
+                    throw error(previous(), "callable cannot combine or repeat actor/isoactor");
+                }
+                actorKind = Ast.ActorKind.ISOLATED;
+            }
             else if (match(STATIC)) isStatic = true;
             else if (match(ABSTRACT)) isAbstract = true;
             else progress = false;
         } while (progress);
-        return new Modifiers(visibility, async, isStatic, isAbstract);
+        return new Modifiers(visibility, async, isStatic, isAbstract, actorKind);
+    }
+
+    private void rejectActorModifier(Modifiers modifiers, String target) {
+        if (modifiers.actorKind != Ast.ActorKind.NONE) {
+            String keyword = modifiers.actorKind == Ast.ActorKind.SHARED ? "actor" : "isoactor";
+            throw error(peek(), "'" + keyword
+                    + "' is only valid on top-level/module fnc or routine declarations, not " + target);
+        }
     }
 
     private Ast.TypeRef parseReturnType(List<Ast.Annotation> annotations) {
@@ -1069,5 +1116,10 @@ public final class Parser {
         return new IllegalArgumentException("Oreslang parse error at " + token.line() + ":" + token.column() + ": " + message);
     }
 
-    private record Modifiers(Ast.Visibility visibility, boolean async, boolean isStatic, boolean isAbstract) { }
+    private record Modifiers(
+            Ast.Visibility visibility,
+            boolean async,
+            boolean isStatic,
+            boolean isAbstract,
+            Ast.ActorKind actorKind) { }
 }
