@@ -2265,14 +2265,6 @@ public final class TypeChecker {
         return List.copyOf(functions.values());
     }
 
-    private void requireTraitMethodAccessible(Ast.MethodDecl method, String where) {
-        if (!method.composed() || method.visibility() == Ast.Visibility.PUBLIC) return;
-        if (activeTraitOwner != null && activeTraitOwner.equals(method.compositionOwner())) return;
-        throw new IllegalArgumentException(
-                "trait-private method '" + method.compositionOwner() + "." + method.name()
-                        + "' is not accessible from " + where);
-    }
-
     private boolean methodAccessible(Ast.ClassDecl owner, Ast.MethodDecl method) {
         if (method.visibility() == Ast.Visibility.PUBLIC) return true;
         if (method.composed()) {
