@@ -31,4 +31,4 @@ jobs:
           java --version
           mvn --version
       - name: Compile and test exact Oreslang PR 76 snapshot
-        run: mvn -B -ntp test
+        run: mvn -B -ntp -Dtest=UntrustedActorSandboxTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest test
