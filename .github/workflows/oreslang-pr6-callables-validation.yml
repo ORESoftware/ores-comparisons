@@ -1,8 +1,8 @@
-name: oreslang-pr6-callables-validation
+name: oreslang-pr7-nlex-validation
 
 on:
   push:
-    branches: ["ci/oreslang-pr6-callables"]
+    branches: ["ci/oreslang-pr7-nlex"]
   workflow_dispatch:
 
 permissions:
@@ -29,10 +29,12 @@ jobs:
         run: |
           java --version
           mvn --version
-      - name: Verify exact Oreslang PR 6 snapshot
+      - name: Verify effective Oreslang PR 7 merged snapshot
         run: mvn -B -ntp verify
       - name: Run callable examples
         run: |
           mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/showcase.ores"
           mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/together.ores"
           mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/modules-namespaces-callables.ores"
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/callables.ores" | tee /tmp/oreslang-callables.out
+          grep -F "120:9:13" /tmp/oreslang-callables.out
