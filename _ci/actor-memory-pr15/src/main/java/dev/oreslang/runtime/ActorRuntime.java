@@ -3,6 +3,7 @@ package dev.oreslang.runtime;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -16,6 +17,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
 
@@ -31,6 +33,8 @@ public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_FREEZE_DEPTH = 256;
     private static final int MAX_FREEZE_NODES = 100_000;
     private static final long MAX_FREEZE_BYTES = 16L * 1024 * 1024;
+    private static final int DEFAULT_MAX_ACTORS = 16_384;
+    private static final Duration MAX_CLOSE_WAIT = Duration.ofSeconds(2);
 
     private static final ThreadLocal<IsolatePolicy> CURRENT_ACTOR_POLICY = new ThreadLocal<>();
     private static final ThreadLocal<ActorRuntime> CURRENT_ACTOR_RUNTIME = new ThreadLocal<>();
@@ -38,23 +42,59 @@ public final class ActorRuntime implements AutoCloseable {
 
     private final Map<ActorId, ActorCell<?>> actors = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicInteger actorCount = new AtomicInteger();
+    private final Object lifecycleLock = new Object();
     private final IsolatePolicy policyCeiling;
+    private final int maxActors;
 
     public ActorRuntime() {
-        this(IsolatePolicy.developer());
+        this(IsolatePolicy.developer(), DEFAULT_MAX_ACTORS);
     }
 
     public ActorRuntime(IsolatePolicy policyCeiling) {
+        this(policyCeiling, DEFAULT_MAX_ACTORS);
+    }
+
+    public ActorRuntime(IsolatePolicy policyCeiling, int maxActors) {
         this.policyCeiling = java.util.Objects.requireNonNull(policyCeiling);
+        if (maxActors <= 0 || maxActors > DEFAULT_MAX_ACTORS) {
+            throw new IllegalArgumentException(
+                    "maxActors must be between 1 and " + DEFAULT_MAX_ACTORS);
+        }
+        this.maxActors = maxActors;
     }
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
+    public int maxActors() { return maxActors; }
 
     private void requireCallerRuntimeAffinity(String operation) {
         ActorRuntime caller = CURRENT_ACTOR_RUNTIME.get();
         if (caller != null && caller != this) {
             throw new SecurityException(
                     "actor cannot " + operation + " through another ActorRuntime");
+        }
+    }
+
+    private void requireSupervisorContext(String operation) {
+        if (CURRENT_ACTOR_RUNTIME.get() != null) {
+            throw new SecurityException(
+                    "actor code cannot " + operation + "; this operation belongs to the host/supervisor");
+        }
+    }
+
+    private boolean reserveActorSlot() {
+        while (true) {
+            int current = actorCount.get();
+            if (current >= maxActors) return false;
+            if (actorCount.compareAndSet(current, current + 1)) return true;
+        }
+    }
+
+    private void releaseActorSlot() {
+        int remaining = actorCount.decrementAndGet();
+        if (remaining < 0) {
+            actorCount.incrementAndGet();
+            throw new IllegalStateException("actor-count accounting underflow");
         }
     }
 
@@ -167,21 +207,30 @@ public final class ActorRuntime implements AutoCloseable {
 
     public <M> ActorRef<M> spawn(IsolatePolicy policy, Supplier<? extends Behavior<M>> behaviorFactory) {
         requireCallerRuntimeAffinity("spawn actors");
-        if (closed.get()) throw new IllegalStateException("actor runtime is closed");
         java.util.Objects.requireNonNull(policy, "policy");
         java.util.Objects.requireNonNull(behaviorFactory, "behaviorFactory");
         requireWithinCeiling(policy);
-        ActorId id = ActorId.create();
-        ActorRef<M> ref = new ActorRef<>(id);
-        ActorCell<M> cell = new ActorCell<>(ref, policy, behaviorFactory);
-        actors.put(id, cell);
-        try {
-            cell.start();
-        } catch (Throwable startupFailure) {
-            actors.remove(id, cell);
-            throw startupFailure;
+
+        synchronized (lifecycleLock) {
+            if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+            if (!reserveActorSlot()) {
+                throw new IllegalStateException(
+                        "actor runtime limit exceeded: " + maxActors);
+            }
+
+            ActorId id = ActorId.create();
+            ActorRef<M> ref = new ActorRef<>(id);
+            ActorCell<M> cell = new ActorCell<>(ref, policy, behaviorFactory);
+            actors.put(id, cell);
+            try {
+                cell.start();
+                return ref;
+            } catch (Throwable startupFailure) {
+                actors.remove(id, cell);
+                releaseActorSlot();
+                throw startupFailure;
+            }
         }
-        return ref;
     }
 
     private void requireWithinCeiling(IsolatePolicy child) {
@@ -213,6 +262,9 @@ public final class ActorRuntime implements AutoCloseable {
         }
         ActorCell<M> cell = (ActorCell<M>) actors.get(ref.id());
         if (cell == null) throw new IllegalStateException("unknown actor " + ref.id());
+        if (cell.mailbox.remainingCapacity() == 0) {
+            throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
+        }
         Object frozen = freezeForThisRuntime(message);
         if (containsSharedMutex(frozen)) {
             IsolatePolicy sender = CURRENT_ACTOR_POLICY.get();
@@ -243,6 +295,7 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     public Shared<Object> shareReadonly(Object value) {
+        requireCallerRuntimeAffinity("share readonly values");
         return new Shared<>(freezeForThisRuntime(value));
     }
 
@@ -513,9 +566,45 @@ public final class ActorRuntime implements AutoCloseable {
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        for (ActorCell<?> cell : actors.values()) cell.stop();
-        actors.clear();
+        requireSupervisorContext("close an ActorRuntime");
+
+        final List<ActorCell<?>> snapshot;
+        synchronized (lifecycleLock) {
+            if (!closed.compareAndSet(false, true)) return;
+            snapshot = List.copyOf(actors.values());
+        }
+
+        for (ActorCell<?> cell : snapshot) cell.stop();
+
+        long deadline = System.nanoTime() + MAX_CLOSE_WAIT.toNanos();
+        boolean interrupted = false;
+        List<ActorId> stillRunning = new ArrayList<>();
+        for (ActorCell<?> cell : snapshot) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining > 0) {
+                try {
+                    cell.awaitStopped(remaining);
+                } catch (InterruptedException stopWaitInterrupted) {
+                    interrupted = true;
+                    break;
+                }
+            }
+            if (cell.isAlive()) stillRunning.add(cell.ref.id());
+        }
+
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+            for (ActorCell<?> cell : snapshot) {
+                if (cell.isAlive() && !stillRunning.contains(cell.ref.id())) {
+                    stillRunning.add(cell.ref.id());
+                }
+            }
+        }
+        if (!stillRunning.isEmpty()) {
+            throw new IllegalStateException(
+                    "ActorRuntime close did not observe full actor termination: "
+                            + stillRunning.size() + " actor(s) still running");
+        }
     }
 
     private final class ActorCell<M> {
@@ -567,8 +656,24 @@ public final class ActorRuntime implements AutoCloseable {
                 CURRENT_ACTOR_DOMAIN.remove();
                 CURRENT_ACTOR_RUNTIME.remove();
                 CURRENT_ACTOR_POLICY.remove();
-                actors.remove(ref.id(), this);
+                if (actors.remove(ref.id(), this)) {
+                    releaseActorSlot();
+                }
             }
+        }
+
+        private boolean isAlive() {
+            Thread current = thread;
+            return current != null && current.isAlive();
+        }
+
+        private void awaitStopped(long remainingNanos) throws InterruptedException {
+            Thread current = thread;
+            if (current == null || current == Thread.currentThread()) return;
+            long millis = Math.max(1L, Math.min(
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remainingNanos),
+                    MAX_CLOSE_WAIT.toMillis()));
+            current.join(millis);
         }
 
         private void stop() {
