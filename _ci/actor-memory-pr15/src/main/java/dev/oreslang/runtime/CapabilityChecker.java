@@ -25,6 +25,8 @@ public final class CapabilityChecker {
     private final Set<String> ambiguousFunctions = new HashSet<>();
     private final Set<Ast.FunctionDecl> callableStack =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private final Set<Ast.MethodDecl> methodStack =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private final Set<Object> typeExpansionStack =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
@@ -83,6 +85,37 @@ public final class CapabilityChecker {
             checkStatements(fn.body(), effective);
         } finally {
             callableStack.remove(fn);
+        }
+    }
+
+    private Ast.MethodDecl findStaticMethod(Ast.Expr callee, int arity) {
+        if (!(callee instanceof Ast.MemberExpr member)) return null;
+        String ownerName = memberPath(member.receiver());
+        if (ownerName == null) return null;
+        Ast.ClassDecl owner = findClass(ownerName);
+        if (owner == null) return null;
+
+        Ast.MethodDecl found = null;
+        for (Ast.MethodDecl method : owner.methods()) {
+            if (!method.isStatic()
+                    || !method.name().equals(member.member())
+                    || method.parameters().size() != arity) {
+                continue;
+            }
+            if (found != null) return null;
+            found = method;
+        }
+        return found;
+    }
+
+    private void checkReferencedMethod(Ast.MethodDecl method, IsolatePolicy policy) {
+        if (!methodStack.add(method)) return;
+        try {
+            checkType(method.explicitReceiverType(), policy);
+            checkCallableTypes(method.parameters(), method.returnType(), policy);
+            checkStatements(method.body(), policy);
+        } finally {
+            methodStack.remove(method);
         }
     }
 
@@ -233,6 +266,8 @@ public final class CapabilityChecker {
                 Ast.FunctionDecl fn = findFunction(target);
                 if (fn != null) checkReferencedFunction(fn, policy);
             }
+            Ast.MethodDecl staticMethod = findStaticMethod(c.callee(), c.arguments().size());
+            if (staticMethod != null) checkReferencedMethod(staticMethod, policy);
             checkExpr(c.callee(), policy);
             for (Ast.Expr arg : c.arguments()) checkExpr(arg, policy);
         } else if (expr instanceof Ast.MemberExpr m) {
