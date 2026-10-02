@@ -5,4 +5,7 @@ module dev.oreslang {
     requires org.graalvm.truffle;
 
     exports dev.oreslang.launcher;
+
+    provides com.oracle.truffle.api.provider.TruffleLanguageProvider
+        with dev.oreslang.OresLanguageProvider;
 }

@@ -1,0 +1,35 @@
+name: oreslang-pr34-jpms-provider
+
+on:
+  push:
+    branches: ["ci/oreslang-pr34-jpms-provider"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr34-full
+
+jobs:
+  jpms-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - run: java --version
+      - name: Compile and test with real JPMS provider clause
+        run: mvn -B -ntp test
+      - name: Show generated language provider
+        if: always()
+        run: |
+          find target/generated-sources/annotations -type f -maxdepth 8 -print || true
+          if [ -f target/generated-sources/annotations/dev/oreslang/OresLanguageProvider.java ]; then
+            cat target/generated-sources/annotations/dev/oreslang/OresLanguageProvider.java
+          fi
