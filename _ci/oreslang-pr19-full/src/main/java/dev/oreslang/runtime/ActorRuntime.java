@@ -66,7 +66,6 @@ public final class ActorRuntime implements AutoCloseable {
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
     public int maxActors() { return maxActors; }
-    public boolean isClosed() { return closed.get(); }
 
     private void requireCallerRuntimeAffinity(String operation) {
         ActorRuntime caller = CURRENT_ACTOR_RUNTIME.get();
