@@ -36,6 +36,16 @@ public final class OresMutex {
 
     private OresMutex() { }
 
+    private static long saturatedNanos(Duration timeout) {
+        try {
+            return timeout.toNanos();
+        } catch (ArithmeticException overflow) {
+            // Positive Durations can exceed the representable nanosecond
+            // range. Treat them as effectively unbounded.
+            return Long.MAX_VALUE;
+        }
+    }
+
     static boolean publishToRuntime(
             ActorRuntime runtime,
             Iterable<Shared<?>> handles,
@@ -186,17 +196,6 @@ public final class OresMutex {
             Objects.requireNonNull(timeout, "timeout");
             if (timeout.isNegative()) throw new IllegalArgumentException("timeout must not be negative");
             return tryLock();
-        }
-
-        private long saturatedNanos(Duration timeout) {
-            try {
-                return timeout.toNanos();
-            } catch (ArithmeticException overflow) {
-                // Positive Durations can exceed the representable nanosecond
-                // range. Treat them as effectively unbounded rather than
-                // failing before attempting an immediately available lock.
-                return Long.MAX_VALUE;
-            }
         }
 
         @Override
