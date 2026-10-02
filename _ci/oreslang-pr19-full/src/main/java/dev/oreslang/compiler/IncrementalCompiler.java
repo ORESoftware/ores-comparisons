@@ -132,6 +132,8 @@ public final class IncrementalCompiler {
     private static void appendAbi(StringBuilder abi, Ast.Decl decl) {
         if (decl instanceof Ast.FunctionDecl fn) {
             if (fn.visibility() != Ast.Visibility.PUBLIC) return;
+            if (hasAnnotation(fn, "__ActorIsolate")) abi.append("actor-isolate ");
+            else if (hasAnnotation(fn, "__Actor")) abi.append("actor ");
             abi.append(fn.kind()).append(" pub ").append(fn.name());
             appendGenerics(abi, fn.genericParameters());
             appendParams(abi, fn.parameters());
@@ -190,6 +192,10 @@ public final class IncrementalCompiler {
                     .append(field.type() == null ? "<inferred:" + field.initializer() + ">" : typeRef(field.type()))
                     .append(' ').append(field.name()).append('\n');
         }
+    }
+
+    private static boolean hasAnnotation(Ast.FunctionDecl fn, String name) {
+        return fn.annotations().stream().anyMatch(annotation -> annotation.name().equals(name));
     }
 
     private static void appendGenerics(StringBuilder abi, List<String> generics) {
