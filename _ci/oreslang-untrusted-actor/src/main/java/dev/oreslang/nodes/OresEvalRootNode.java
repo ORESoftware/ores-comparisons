@@ -328,6 +328,12 @@ public final class OresEvalRootNode extends RootNode {
                 return binary(binary.operator(), eval(binary.left(), env), eval(binary.right(), env));
             }
             if (expr instanceof Ast.CallExpr call) {
+                if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.UNTRUSTED) {
+                    // Generic call-boundary charging closes recursive lambda,
+                    // static-method and alternate callable paths that may not
+                    // enter callFunction/callMethod directly.
+                    context.schedulerSafepoint();
+                }
                 if (call.callee() instanceof Ast.MemberExpr methodCall) {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
