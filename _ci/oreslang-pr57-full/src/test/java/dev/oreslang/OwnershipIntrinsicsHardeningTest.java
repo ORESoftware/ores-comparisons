@@ -66,7 +66,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("copy() => Self"));
+        assertTrue(error.getMessage().contains("copy() => Self"), error.getMessage());
     }
 
     @Test
@@ -88,7 +88,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("immutable receiver"));
+        assertTrue(error.getMessage().contains("immutable receiver"), error.getMessage());
     }
 
     @Test
@@ -213,7 +213,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         """)));
 
         assertTrue(error.getMessage().contains("immutable self")
-                || error.getMessage().contains("immutable root"));
+                || error.getMessage().contains("immutable root"), error.getMessage());
     }
 
     @Test
@@ -254,7 +254,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("borrow"));
+        assertTrue(error.getMessage().contains("borrow"), error.getMessage());
     }
 
     @Test
@@ -277,7 +277,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("moved value 'b'"));
+        assertTrue(error.getMessage().contains("moved value 'b'"), error.getMessage());
     }
 
     @Test
@@ -294,7 +294,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("take requires an owned value"));
+        assertTrue(error.getMessage().contains("take requires an owned value"), error.getMessage());
     }
 
     @Test
@@ -337,7 +337,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("outlive its owner"));
+        assertTrue(error.getMessage().contains("outlive its owner"), error.getMessage());
     }
 
     @Test
@@ -358,7 +358,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("outlive its owner"));
+        assertTrue(error.getMessage().contains("outlive its owner"), error.getMessage());
     }
 
     @Test
@@ -383,7 +383,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("outlive its owner"));
+        assertTrue(error.getMessage().contains("outlive its owner"), error.getMessage());
     }
 
     @Test
@@ -431,7 +431,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("borrow"));
+        assertTrue(error.getMessage().contains("borrow"), error.getMessage());
     }
 
     @Test
@@ -452,7 +452,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         """)));
 
         assertTrue(error.getMessage().contains("temporary")
-                || error.getMessage().contains("unrooted receiver"));
+                || error.getMessage().contains("unrooted receiver"), error.getMessage());
     }
 
     @Test
@@ -471,7 +471,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("cannot store an ordinary borrow"));
+        assertTrue(error.getMessage().contains("cannot store an ordinary borrow"), error.getMessage());
     }
 
     @Test
@@ -514,7 +514,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("borrow"));
+        assertTrue(error.getMessage().contains("borrow"), error.getMessage());
     }
 
     @Test
@@ -576,7 +576,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         """)));
 
         assertTrue(error.getMessage().contains("immutable borrow")
-                || error.getMessage().contains("immutable root"));
+                || error.getMessage().contains("immutable root"), error.getMessage());
     }
 
     @Test
@@ -600,7 +600,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("declared directly on the class"));
+        assertTrue(error.getMessage().contains("declared directly on the class"), error.getMessage());
     }
 
     @Test
@@ -617,8 +617,8 @@ final class OwnershipIntrinsicsHardeningTest {
                         end
                         """)));
 
-        assertTrue(error.getMessage().contains("cannot move module-owned value"));
-        assertTrue(error.getMessage().contains("copy(...) or share(...)"));
+        assertTrue(error.getMessage().contains("cannot move module-owned value"), error.getMessage());
+        assertTrue(error.getMessage().contains("copy(...) or share(...)"), error.getMessage());
     }
 
     @Test
@@ -638,7 +638,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         end
                         """)));
 
-        assertTrue(error.getMessage().contains("cannot store an ordinary borrow"));
+        assertTrue(error.getMessage().contains("cannot store an ordinary borrow"), error.getMessage());
     }
 
     @Test
@@ -662,7 +662,7 @@ final class OwnershipIntrinsicsHardeningTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("cannot store an ordinary borrow"));
+        assertTrue(error.getMessage().contains("cannot store an ordinary borrow"), error.getMessage());
     }
 
     @Test
