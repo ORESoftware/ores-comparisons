@@ -1,0 +1,35 @@
+name: oreslang-demo-pr9-members
+
+on:
+  push:
+    branches: ["ci/oreslang-demo-pr9-members"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-singleton-init
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify exact mirrored source suite
+        run: mvn -B -ntp verify
+      - name: Run member and static member demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mvn -B -ntp -DskipTests exec:java -Dexec.args='examples/demo-pr9-members.ores' 2>&1)"
+          printf '%s\n' "$out"
+          grep -F 'member-static-ok' <<<"$out"
