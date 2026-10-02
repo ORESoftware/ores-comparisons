@@ -132,14 +132,14 @@ public final class IncrementalCompiler {
     private static void appendAbi(StringBuilder abi, Ast.Decl decl) {
         if (decl instanceof Ast.FunctionDecl fn) {
             if (fn.visibility() != Ast.Visibility.PUBLIC) return;
-            abi.append(fn.kind()).append(" pub ").append(fn.name());
+            abi.append(fn.actorKind()).append(' ').append(fn.kind()).append(" pub ").append(fn.name());
             appendGenerics(abi, fn.genericParameters());
             appendParams(abi, fn.parameters());
             abi.append("=>").append(typeRef(fn.returnType())).append('\n');
             return;
         }
         if (decl instanceof Ast.ClassDecl klass) {
-            abi.append("class ").append(klass.name());
+            abi.append(klass.actorKind()).append(" class ").append(klass.name());
             appendGenerics(abi, klass.genericParameters());
             abi.append(" extends ");
             for (Ast.TypeRef parent : klass.parents()) abi.append(typeRef(parent)).append(',');
@@ -149,7 +149,8 @@ public final class IncrementalCompiler {
             for (Ast.FieldDecl field : klass.fields()) {
                 if (field.visibility() != Ast.Visibility.PUBLIC) continue;
                 abi.append(" field ").append(field.bindingKind()).append(' ')
-                        .append(typeRef(field.type())).append(' ').append(field.name()).append('\n');
+                        .append(field.type() == null ? "<inferred:" + field.initializer() + ">" : typeRef(field.type()))
+                        .append(' ').append(field.name()).append('\n');
             }
             for (Ast.MethodDecl method : klass.methods()) {
                 if (method.visibility() != Ast.Visibility.PUBLIC) continue;
