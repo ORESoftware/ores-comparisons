@@ -30,7 +30,7 @@ jobs:
             echo "compile_exit=$COMPILE_EXIT"
             echo
             echo '=== FOCUSED ==='
-            mvn -B -Dtest=CallableLocalTypeTest test
+            mvn -B -Dtest=CallableLocalTypeTest,IncrementalFunctorStaticTest test
             FOCUSED_EXIT=$?
             echo "focused_exit=$FOCUSED_EXIT"
             echo
