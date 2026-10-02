@@ -62,6 +62,7 @@ final class SharedPrivateActorIsolationProofTest {
             // block readable outside the owning actor execution domain.
             AtomicReference<ActorRuntime.PrivateMemoryBlock> leaked = new AtomicReference<>();
             CountDownLatch allocated = new CountDownLatch(1);
+            CountDownLatch ownerVerified = new CountDownLatch(1);
 
             var memoryOwner = runtime.<String>spawnPrivateTrusted(factoryContext -> {
                 ActorRuntime.PrivateMemoryBlock block =
@@ -74,15 +75,21 @@ final class SharedPrivateActorIsolationProofTest {
                     assertEquals(42, block.readByte(0));
                     block.writeByte(1, (byte) 7);
                     assertEquals(7, block.readByte(1));
-                    context.self().stop();
+                    ownerVerified.countDown();
                 };
             });
 
+            // Private actor construction is lazy: admitting work starts the actor and
+            // creates its private slice.
+            memoryOwner.send("verify-owner-access");
             assertTrue(allocated.await(2, TimeUnit.SECONDS));
             assertNotNull(leaked.get());
-            assertThrows(IllegalStateException.class, () -> leaked.get().readByte(0));
 
-            memoryOwner.send("verify-owner-access");
+            // The same block is usable by its owner but unreadable from the host.
+            assertThrows(IllegalStateException.class, () -> leaked.get().readByte(0));
+            assertTrue(ownerVerified.await(2, TimeUnit.SECONDS));
+
+            memoryOwner.stop();
             assertTrue(memoryOwner.awaitTermination(2, TimeUnit.SECONDS));
             assertTrue(memoryOwner.failure().isEmpty());
             assertTrue(leaked.get().closed());
