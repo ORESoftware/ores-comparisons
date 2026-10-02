@@ -70,6 +70,7 @@ public final class TraitComposer {
         }
 
         private Ast.Program compose() {
+            validateNoTraitInstantiation();
             List<Ast.ModuleDecl> modules = new ArrayList<>();
             for (Ast.ModuleDecl module : program.modules()) {
                 List<Ast.Decl> declarations = new ArrayList<>();
@@ -95,6 +96,119 @@ public final class TraitComposer {
                         declarations));
             }
             return new Ast.Program(program.namespace(), program.imports(), modules);
+        }
+
+        private void validateNoTraitInstantiation() {
+            for (Ast.ModuleDecl module : program.modules()) {
+                for (Ast.Decl declaration : module.declarations()) {
+                    validateNoTraitInstantiation(module.name(), declaration);
+                }
+            }
+        }
+
+        private void validateNoTraitInstantiation(String moduleName, Ast.Decl declaration) {
+            if (declaration instanceof Ast.FunctionDecl function) {
+                validateNoTraitInstantiation(moduleName, function.body());
+            } else if (declaration instanceof Ast.InitDecl init) {
+                validateNoTraitInstantiation(moduleName, init.body());
+            } else if (declaration instanceof Ast.FieldDecl field) {
+                if (field.initializer() != null) validateNoTraitInstantiation(moduleName, field.initializer());
+            } else if (declaration instanceof Ast.ClassDecl klass) {
+                for (Ast.FieldDecl field : klass.fields()) {
+                    if (field.initializer() != null) validateNoTraitInstantiation(moduleName, field.initializer());
+                }
+                for (Ast.MethodDecl method : klass.methods()) {
+                    validateNoTraitInstantiation(moduleName, method.body());
+                }
+            } else if (declaration instanceof Ast.TraitDecl trait) {
+                for (Ast.FieldDecl field : trait.fields()) {
+                    if (field.initializer() != null) validateNoTraitInstantiation(moduleName, field.initializer());
+                }
+                for (Ast.MethodDecl method : trait.methods()) {
+                    validateNoTraitInstantiation(moduleName, method.body());
+                }
+            }
+        }
+
+        private void validateNoTraitInstantiation(String moduleName, List<Ast.Stmt> statements) {
+            for (Ast.Stmt statement : statements) {
+                if (statement instanceof Ast.BindingStmt binding) {
+                    validateNoTraitInstantiation(moduleName, binding.initializer());
+                } else if (statement instanceof Ast.DestructureStmt destructure) {
+                    validateNoTraitInstantiation(moduleName, destructure.initializer());
+                } else if (statement instanceof Ast.ReturnStmt returned && returned.value() != null) {
+                    validateNoTraitInstantiation(moduleName, returned.value());
+                } else if (statement instanceof Ast.ExprStmt expression) {
+                    validateNoTraitInstantiation(moduleName, expression.expression());
+                } else if (statement instanceof Ast.DeferStmt deferred) {
+                    validateNoTraitInstantiation(moduleName, deferred.expression());
+                } else if (statement instanceof Ast.IfStmt conditional) {
+                    for (Ast.IfBranch branch : conditional.branches()) {
+                        validateNoTraitInstantiation(moduleName, branch.condition());
+                        validateNoTraitInstantiation(moduleName, branch.body());
+                    }
+                    validateNoTraitInstantiation(moduleName, conditional.elseBody());
+                } else if (statement instanceof Ast.TryStmt attempted) {
+                    validateNoTraitInstantiation(moduleName, attempted.body());
+                    validateNoTraitInstantiation(moduleName, attempted.catchBody());
+                    validateNoTraitInstantiation(moduleName, attempted.finallyBody());
+                } else if (statement instanceof Ast.ForOfStmt loop) {
+                    validateNoTraitInstantiation(moduleName, loop.iterable());
+                    validateNoTraitInstantiation(moduleName, loop.body());
+                } else if (statement instanceof Ast.ForStmt loop) {
+                    if (loop.initializer() != null) validateNoTraitInstantiation(moduleName, List.of(loop.initializer()));
+                    if (loop.condition() != null) validateNoTraitInstantiation(moduleName, loop.condition());
+                    if (loop.update() != null) validateNoTraitInstantiation(moduleName, loop.update());
+                    validateNoTraitInstantiation(moduleName, loop.body());
+                }
+            }
+        }
+
+        private void validateNoTraitInstantiation(String moduleName, Ast.Expr expression) {
+            if (expression instanceof Ast.NewExpr created) {
+                if (isTraitName(moduleName, created.type().name())) {
+                    throw new IllegalArgumentException(
+                            "trait '" + created.type().name()
+                                    + "' cannot be instantiated; compose it into a class with 'with'");
+                }
+                for (Ast.Expr argument : created.arguments()) validateNoTraitInstantiation(moduleName, argument);
+            } else if (expression instanceof Ast.MemberExpr member) {
+                validateNoTraitInstantiation(moduleName, member.receiver());
+            } else if (expression instanceof Ast.CallExpr call) {
+                validateNoTraitInstantiation(moduleName, call.callee());
+                for (Ast.Expr argument : call.arguments()) validateNoTraitInstantiation(moduleName, argument);
+            } else if (expression instanceof Ast.BinaryExpr binary) {
+                validateNoTraitInstantiation(moduleName, binary.left());
+                validateNoTraitInstantiation(moduleName, binary.right());
+            } else if (expression instanceof Ast.UnaryExpr unary) {
+                validateNoTraitInstantiation(moduleName, unary.operand());
+            } else if (expression instanceof Ast.AssignExpr assignment) {
+                validateNoTraitInstantiation(moduleName, assignment.target());
+                validateNoTraitInstantiation(moduleName, assignment.value());
+            } else if (expression instanceof Ast.ConditionalExpr conditional) {
+                validateNoTraitInstantiation(moduleName, conditional.condition());
+                validateNoTraitInstantiation(moduleName, conditional.whenTrue());
+                validateNoTraitInstantiation(moduleName, conditional.whenFalse());
+            } else if (expression instanceof Ast.IndexExpr indexed) {
+                validateNoTraitInstantiation(moduleName, indexed.receiver());
+                validateNoTraitInstantiation(moduleName, indexed.index());
+            } else if (expression instanceof Ast.AwaitExpr awaited) {
+                validateNoTraitInstantiation(moduleName, awaited.expression());
+            } else if (expression instanceof Ast.ListExpr list) {
+                for (Ast.Expr item : list.elements()) validateNoTraitInstantiation(moduleName, item);
+            } else if (expression instanceof Ast.TupleExpr tuple) {
+                for (Ast.Expr item : tuple.elements()) validateNoTraitInstantiation(moduleName, item);
+            } else if (expression instanceof Ast.ObjectExpr object) {
+                for (Ast.ObjectField field : object.fields()) validateNoTraitInstantiation(moduleName, field.value());
+            } else if (expression instanceof Ast.LambdaExpr lambda) {
+                if (lambda.expressionBody() != null) validateNoTraitInstantiation(moduleName, lambda.expressionBody());
+                if (lambda.blockBody() != null) validateNoTraitInstantiation(moduleName, lambda.blockBody());
+            }
+        }
+
+        private boolean isTraitName(String moduleName, String name) {
+            if (qualifiedTraits.containsKey(moduleName + "." + name)) return true;
+            return name.contains(".") && qualifiedTraits.containsKey(name);
         }
 
         private void indexTraits() {

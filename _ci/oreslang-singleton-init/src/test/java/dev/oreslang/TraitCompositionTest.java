@@ -197,6 +197,27 @@ final class TraitCompositionTest {
     }
 
     @Test
+    void traitsCannotBeInstantiatedDirectly() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Counter as
+                            private val int count = 0;
+                          end
+
+                          pub fnc make() => void {
+                            val counter = new Counter();
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("cannot be instantiated"));
+        assertTrue(error.getMessage().contains("with"));
+    }
+
+    @Test
     void privateTraitStateStaysLexicallyOwnedByTheTrait() {
         IllegalArgumentException leak = assertThrows(
                 IllegalArgumentException.class,
