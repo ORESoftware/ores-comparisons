@@ -1,2 +1,2 @@
-ores-truffle-oreslang/oreslang-source.java PR #19
-7a6a694dad88204734efc38d2d20866b0ec7fde1
+ores-truffle-oreslang/oreslang-source.java PR #19 merged integration
+97b448b6f1bfca1431206ec4e89e53a823bd108f
