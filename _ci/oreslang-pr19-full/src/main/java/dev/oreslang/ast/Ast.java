@@ -37,6 +37,7 @@ public final class Ast {
 
     public enum Visibility { PRIVATE, PUBLIC }
     public enum CallableKind { FNC, ROUTINE }
+    public enum ActorKind { NONE, PRIVATE, SHARED }
 
     public record Annotation(String name, List<TypeRef> arguments) {
         public Annotation { arguments = List.copyOf(arguments); }
@@ -123,6 +124,7 @@ public final class Ast {
             Visibility visibility,
             boolean async,
             boolean nonLexical,
+            ActorKind actorKind,
             List<String> genericParameters,
             List<Param> parameters,
             TypeRef returnType,
@@ -135,19 +137,25 @@ public final class Ast {
             body = List.copyOf(body);
         }
         public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
+                            ActorKind actorKind, List<String> genericParameters, List<Param> parameters,
+                            TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
+            this(name, kind, visibility, async, false, actorKind, genericParameters, parameters, returnType, annotations, body);
+        }
+        public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
                             List<String> genericParameters, List<Param> parameters, TypeRef returnType,
                             List<Annotation> annotations, List<Stmt> body) {
-            this(name, kind, visibility, async, false, genericParameters, parameters, returnType, annotations, body);
+            this(name, kind, visibility, async, false, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
         }
         public FunctionDecl(String name, Visibility visibility, boolean async, List<String> genericParameters,
                             List<Param> parameters, TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
-            this(name, CallableKind.FNC, visibility, async, false, genericParameters, parameters, returnType, annotations, body);
+            this(name, CallableKind.FNC, visibility, async, false, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
         }
     }
 
     public record ClassDecl(
             String name,
             boolean isAbstract,
+            ActorKind actorKind,
             List<String> genericParameters,
             List<TypeRef> parents,
             List<TypeRef> interfaces,
@@ -161,8 +169,13 @@ public final class Ast {
             methods = List.copyOf(methods);
         }
         public ClassDecl(String name, boolean isAbstract, List<String> genericParameters,
+                         List<TypeRef> parents, List<TypeRef> interfaces,
                          List<FieldDecl> fields, List<MethodDecl> methods) {
-            this(name, isAbstract, genericParameters, List.of(), List.of(), fields, methods);
+            this(name, isAbstract, ActorKind.NONE, genericParameters, parents, interfaces, fields, methods);
+        }
+        public ClassDecl(String name, boolean isAbstract, List<String> genericParameters,
+                         List<FieldDecl> fields, List<MethodDecl> methods) {
+            this(name, isAbstract, ActorKind.NONE, genericParameters, List.of(), List.of(), fields, methods);
         }
     }
 
