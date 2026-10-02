@@ -402,14 +402,6 @@
 	path = stacks/graal-show/references/rails-to-lambdas/repos/ores-ror.infra
 	url = https://github.com/ores-ror-to-lambdas-demo/ores-ror.infra.git
 	branch = main
-[submodule "graal-show--rails-to-lambdas--app"]
-	path = stacks/graal-show/references/rails-to-lambdas/repos/ores-ror.rb
-	url = https://github.com/ores-ror-to-lambdas-demo/ores-ror.rb.git
-	branch = main
-[submodule "graal-show--rails-to-lambdas--infra"]
-	path = stacks/graal-show/references/rails-to-lambdas/repos/ores-ror.infra
-	url = https://github.com/ores-ror-to-lambdas-demo/ores-ror.infra.git
-	branch = main
 [submodule "runtime--graal-show--clojure-jvm-1--_github"]
 	path = stacks/graal-show/projects/clojure-jvm-1/repos/.github
 	url = https://github.com/ores-dummy-org-clojure-jvm-1/.github.git
