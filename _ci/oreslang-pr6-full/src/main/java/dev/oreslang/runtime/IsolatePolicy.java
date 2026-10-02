@@ -82,6 +82,14 @@ public record IsolatePolicy(
         return new IsolatePolicy(next, maxHeapBytes, maxMailboxMessages, maxWallTime, adversarial);
     }
 
+    public IsolatePolicy withoutCapabilities(Capability... removed) {
+        EnumSet<Capability> next = capabilities.isEmpty()
+                ? EnumSet.noneOf(Capability.class)
+                : EnumSet.copyOf(capabilities);
+        next.removeAll(Arrays.asList(removed));
+        return new IsolatePolicy(next, maxHeapBytes, maxMailboxMessages, maxWallTime, adversarial);
+    }
+
     public IsolatePolicy asAdversarial() {
         return adversarial ? this : new IsolatePolicy(capabilities, maxHeapBytes, maxMailboxMessages, maxWallTime, true);
     }
