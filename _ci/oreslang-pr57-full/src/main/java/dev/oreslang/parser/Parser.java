@@ -717,6 +717,10 @@ public final class Parser {
         return new Ast.ReceivePatternLoopStmt(mode, cases, defaultBody);
     }
 
+    private boolean isDiscardToken(Token token) {
+        return token.type() == IDENT && token.lexeme().equals("_");
+    }
+
     private Ast.Pattern parsePattern() {
         if (isDiscardToken(peek())) {
             advance();
