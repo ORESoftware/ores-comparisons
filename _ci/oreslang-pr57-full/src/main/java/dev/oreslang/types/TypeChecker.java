@@ -58,8 +58,6 @@ public final class TypeChecker {
     private String activeTraitOwner;
     // Lexical aggregate owner for ordinary private member access.
     private Ast.ClassDecl activeClassOwner;
-    // Method-context bit used to validate nested/projection calls that require &mut self.
-    private boolean activeMutableSelf;
 
     public static Ast.Program check(Ast.Program program) {
         Ast.Program composed = TraitComposer.compose(program);
@@ -135,20 +133,14 @@ public final class TypeChecker {
                 String scope = module.name().equals(Parser.ROOT_MODULE) ? "source file" : "module '" + module.name() + "'";
                 throw new IllegalArgumentException(scope + " may declare at most one init routine");
             }
-            if (module.singleton()) {
-                validateSingletonModule(module);
-            } else {
-                // Validate ordinary module/file fields as one declaration-ordered
-                // environment so later initializers can refer to earlier slots
-                // while forward references remain rejected.
-                moduleBindingEnv(module);
-            }
+            if (module.singleton()) validateSingletonModule(module);
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.FunctionDecl fn) checkFunction(module, fn);
                 else if (decl instanceof Ast.InitDecl init) checkInit(module, init);
                 else if (decl instanceof Ast.ClassDecl klass) checkClass(module.name(), klass);
                 else if (decl instanceof Ast.InterfaceDecl iface) checkInterface(iface);
                 else if (decl instanceof Ast.TypeAliasDecl alias) resolve(alias.target(), Set.copyOf(alias.genericParameters()), null);
+                else if (decl instanceof Ast.FieldDecl field) checkModuleBinding(field);
             }
         }
     }
@@ -999,13 +991,8 @@ public final class TypeChecker {
         for (Ast.MethodDecl method : klass.methods()) {
             String previousTraitOwner = activeTraitOwner;
             Ast.ClassDecl previousClassOwner = activeClassOwner;
-            boolean previousMutableSelf = activeMutableSelf;
             activeTraitOwner = method.compositionOwner();
             activeClassOwner = klass;
-            activeMutableSelf = !method.isStatic()
-                    && method.explicitReceiverType() != null
-                    && method.explicitReceiverType().isBorrow()
-                    && method.explicitReceiverType().mutableBorrow();
             pushLocalTypeScope(method.body());
             try {
                 Set<String> inheritedGenerics = method.isStatic() ? Set.of() : classGenerics;
@@ -1054,7 +1041,6 @@ public final class TypeChecker {
                 popLocalTypeScope();
                 activeTraitOwner = previousTraitOwner;
                 activeClassOwner = previousClassOwner;
-                activeMutableSelf = previousMutableSelf;
             }
         }
 
@@ -1295,35 +1281,6 @@ public final class TypeChecker {
             };
         }
         if (expr instanceof Ast.CallExpr call) {
-            if (isOwnershipIntrinsicCall(call, env)) {
-                Ast.NameExpr intrinsic = (Ast.NameExpr) call.callee();
-                if (call.arguments().size() != 1) {
-                    throw new IllegalArgumentException(intrinsic.name() + " expects exactly one value");
-                }
-                Type operand = typeOf(call.arguments().getFirst(), env, generics, self);
-                return switch (intrinsic.name()) {
-                    case "copy" -> {
-                        Type source = operand instanceof Borrow borrowed ? borrowed.target() : operand;
-                        requireCopyable(source, new LinkedHashSet<>());
-                        yield source;
-                    }
-                    case "take" -> {
-                        if (operand instanceof Borrow) {
-                            throw new IllegalArgumentException("take requires an owned value, not a borrow");
-                        }
-                        yield operand;
-                    }
-                    case "borrow" -> operand instanceof Borrow borrowed
-                            ? new Borrow(borrowed.target(), false)
-                            : new Borrow(operand, false);
-                    case "share" -> {
-                        Type source = operand instanceof Borrow borrowed ? borrowed.target() : operand;
-                        requireCopyable(source, new LinkedHashSet<>());
-                        yield new Borrow(source, false);
-                    }
-                    default -> throw new IllegalStateException("unknown ownership intrinsic " + intrinsic.name());
-                };
-            }
             if (call.callee() instanceof Ast.NameExpr name && name.name().equals("Some")) {
                 if (call.arguments().size() != 1) throw new IllegalArgumentException("Some expects exactly one value");
                 return new Named("Option", List.of(typeOf(call.arguments().getFirst(), env, generics, self)));
@@ -1428,9 +1385,6 @@ public final class TypeChecker {
                     if (klass != null) {
                         Ast.MethodDecl method = findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
                         if (method == null) throw new IllegalArgumentException("no method '" + member.member() + "' with arity " + call.arguments().size() + " on " + named.name());
-                        if (requiresMutableReceiver(method)) {
-                            requireMutableReceiverExpression(member.receiver(), env, "method '" + named.name() + "." + method.name() + "'");
-                        }
                         requireTraitMethodAccessible(method, named.name() + "." + member.member());
                         List<Type> actualTypes = call.arguments().stream()
                                 .map(argument -> typeOf(argument, env, generics, self))
@@ -1997,159 +1951,6 @@ public final class TypeChecker {
         return type == Primitive.STRING || type instanceof StringLiteral;
     }
 
-    private static boolean requiresMutableReceiver(Ast.MethodDecl method) {
-        Ast.TypeRef receiver = method.explicitReceiverType();
-        return receiver != null && receiver.isBorrow() && receiver.mutableBorrow();
-    }
-
-    private void requireMutableReceiverExpression(Ast.Expr receiver, Env env, String where) {
-        if (receiver instanceof Ast.UnaryExpr unary && unary.operator().equals("&mut")) return;
-        if (receiver instanceof Ast.NewExpr || receiver instanceof Ast.StructInitExpr) return;
-        if (receiver instanceof Ast.CallExpr call && isOwnershipIntrinsicCall(call, env)
-                && call.callee() instanceof Ast.NameExpr intrinsic
-                && (intrinsic.name().equals("copy") || intrinsic.name().equals("take"))) {
-            return;
-        }
-
-        Ast.NameExpr root = receiverRootName(receiver);
-        if (root == null) {
-            throw new IllegalArgumentException(where + " requires a mutable receiver rooted in a named mutable owner or &mut borrow");
-        }
-        if (root.name().equals("self")) {
-            if (!activeMutableSelf) {
-                throw new IllegalArgumentException(where + " cannot mutate through immutable self");
-            }
-            return;
-        }
-
-        Env.Binding binding = env.lookup(root.name());
-        if (binding == null) {
-            // Module/class namespace receivers are not local mutable owners.
-            throw new IllegalArgumentException(where + " requires a mutable local/parameter receiver; '" + root.name() + "' is not mutable storage here");
-        }
-        boolean mutableBorrow = binding.type() instanceof Borrow borrow && borrow.mutable();
-        if (binding.kind() != Ast.BindingKind.LET && !mutableBorrow) {
-            throw new IllegalArgumentException(where + " cannot mutate through immutable parameter/binding '" + root.name() + "'");
-        }
-        if (binding.type() instanceof Borrow borrow && !borrow.mutable()) {
-            throw new IllegalArgumentException(where + " cannot mutate through immutable borrow '" + root.name() + "'");
-        }
-    }
-
-    private Ast.NameExpr receiverRootName(Ast.Expr expression) {
-        if (expression instanceof Ast.NameExpr name) return name;
-        if (expression instanceof Ast.MemberExpr member) return receiverRootName(member.receiver());
-        if (expression instanceof Ast.IndexExpr indexed) return receiverRootName(indexed.receiver());
-        if (expression instanceof Ast.UnaryExpr unary
-                && (unary.operator().equals("&") || unary.operator().equals("&mut"))) {
-            return receiverRootName(unary.operand());
-        }
-        return null;
-    }
-
-    private static boolean isOwnershipIntrinsicName(String name) {
-        return name.equals("borrow") || name.equals("copy") || name.equals("take") || name.equals("share");
-    }
-
-    /**
-     * Ownership operators are contextual fallbacks, not lexical keywords.
-     * A local binding, imported value, module, class, or user-defined function
-     * with the same name wins normal name resolution.
-     */
-    private boolean isOwnershipIntrinsicCall(Ast.CallExpr call, Env env) {
-        if (!(call.callee() instanceof Ast.NameExpr name) || !isOwnershipIntrinsicName(name.name())) return false;
-        if (env.lookup(name.name()) != null) return false;
-        if (importedValues.contains(name.name())) return false;
-        if (modules.containsKey(name.name())) return false;
-        if (ambiguousFunctions.contains(name.name()) || functions.containsKey(name.name())) return false;
-        if (ambiguousClasses.contains(name.name()) || classes.containsKey(name.name())) return false;
-        return true;
-    }
-
-    private void requireCopyable(Type type, Set<String> visitingStructs) {
-        if (type instanceof StringLiteral) return;
-        if (type instanceof Primitive primitive) {
-            if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
-                throw new IllegalArgumentException("copy requires a concrete value, got " + primitive);
-            }
-            return;
-        }
-        if (type instanceof Borrow borrowed) {
-            requireCopyable(borrowed.target(), visitingStructs);
-            return;
-        }
-        if (type instanceof Tuple tuple) {
-            for (Type element : tuple.elements()) requireCopyable(element, visitingStructs);
-            return;
-        }
-        if (type instanceof ListType list) {
-            requireCopyable(list.element(), visitingStructs);
-            return;
-        }
-        if (type instanceof Record record) {
-            for (Type member : record.members().values()) requireCopyable(member, visitingStructs);
-            return;
-        }
-        if (type instanceof Named named) {
-            if (named.name().equals("Option") && named.arguments().size() == 1) {
-                requireCopyable(named.arguments().getFirst(), visitingStructs);
-                return;
-            }
-
-            Ast.ClassDecl aggregate = findClass(named.name());
-            if (aggregate == null) {
-                throw new IllegalArgumentException("type '" + named.name()
-                        + "' has no provable copy semantics; interfaces/traits/functions and unresolved types "
-                        + "are not concrete copyable storage");
-            }
-
-            if (aggregate.isStruct()) {
-                String identity = qualifiedClassName(aggregate);
-                // Recursive value types are checked coinductively. Runtime copying
-                // preserves graph topology with an identity map, so revisiting the
-                // same struct through a list/record edge is not itself an error.
-                if (!visitingStructs.add(identity)) return;
-                try {
-                    Map<String, Type> substitutions = classGenericSubstitutions(aggregate, named);
-                    for (Ast.FieldDecl field : effectiveFields(aggregate, new LinkedHashSet<>())) {
-                        Type fieldType = instantiateClassType(field.type(), aggregate, substitutions, named);
-                        requireCopyable(fieldType, visitingStructs);
-                    }
-                } finally {
-                    visitingStructs.remove(identity);
-                }
-                return;
-            }
-
-            Ast.MethodDecl copyMethod = findMethod(aggregate, "copy", 0, new LinkedHashSet<>());
-            boolean immutableReceiver = copyMethod != null
-                    && (copyMethod.explicitReceiverType() == null
-                    || (copyMethod.explicitReceiverType().isBorrow()
-                    && !copyMethod.explicitReceiverType().mutableBorrow()));
-            if (copyMethod == null
-                    || copyMethod.isStatic()
-                    || copyMethod.visibility() != Ast.Visibility.PUBLIC
-                    || copyMethod.isAbstract()
-                    || copyMethod.async()
-                    || copyMethod.composed()
-                    || !aggregate.methods().contains(copyMethod)
-                    || !copyMethod.genericParameters().isEmpty()
-                    || !immutableReceiver) {
-                throw new IllegalArgumentException("class '" + aggregate.name()
-                        + "' is not copyable: define a concrete synchronous non-generic public instance "
-                        + "copy() => Self implementation declared directly on the class with an immutable receiver");
-            }
-            Type copyResult = methodFunctionTypeForReceiver(copyMethod, aggregate, named).result();
-            if (!assignable(copyResult, named) || !assignable(named, copyResult)) {
-                throw new IllegalArgumentException("class '" + aggregate.name()
-                        + "' copy() must return Self/the same concrete class type");
-            }
-            return;
-        }
-
-        throw new IllegalArgumentException("type " + type + " has no provable copy semantics");
-    }
-
     private Record classShape(Ast.ClassDecl klass, Set<Ast.ClassDecl> stack) {
         Record cached = classShapeCache.get(klass);
         if (cached != null) return cached;
@@ -2462,6 +2263,14 @@ public final class TypeChecker {
         }
         seen.remove(klass);
         return List.copyOf(functions.values());
+    }
+
+    private void requireTraitMethodAccessible(Ast.MethodDecl method, String where) {
+        if (!method.composed() || method.visibility() == Ast.Visibility.PUBLIC) return;
+        if (activeTraitOwner != null && activeTraitOwner.equals(method.compositionOwner())) return;
+        throw new IllegalArgumentException(
+                "trait-private method '" + method.compositionOwner() + "." + method.name()
+                        + "' is not accessible from " + where);
     }
 
     private boolean methodAccessible(Ast.ClassDecl owner, Ast.MethodDecl method) {

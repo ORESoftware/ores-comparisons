@@ -47,7 +47,7 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("immutable parameter/binding"), error.getMessage());
+        assertTrue(error.getMessage().contains("immutable parameter/binding"));
     }
 
     @Test
@@ -137,7 +137,7 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("use of moved value 'b'"), error.getMessage());
+        assertTrue(error.getMessage().contains("use of moved value 'b'"));
     }
 
     @Test
@@ -153,7 +153,7 @@ final class OwnershipAndClosureTest {
                           return &b;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("outlive its owner"), error.getMessage());
+        assertTrue(error.getMessage().contains("outlive its owner"));
     }
 
     @Test
@@ -226,7 +226,7 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("cannot move"), error.getMessage());
+        assertTrue(error.getMessage().contains("cannot move"));
     }
 
     @Test
@@ -293,7 +293,7 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("use of moved value 'b'"), error.getMessage());
+        assertTrue(error.getMessage().contains("use of moved value 'b'"));
     }
 
     @Test
@@ -309,7 +309,7 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("field 'Bar.foo' is immutable"), error.getMessage());
+        assertTrue(error.getMessage().contains("field 'Bar.foo' is immutable"));
     }
 
     @Test
@@ -329,7 +329,7 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("use of moved value 'box'"), error.getMessage());
+        assertTrue(error.getMessage().contains("use of moved value 'box'"));
     }
 
     @Test
@@ -353,7 +353,7 @@ final class OwnershipAndClosureTest {
                         }
                         """)));
         assertTrue(immutableOwner.getMessage().contains("cannot mutate method 'bump' receiver")
-                || immutableOwner.getMessage().contains("immutable parameter/binding 'item'"), immutableOwner.getMessage());
+                || immutableOwner.getMessage().contains("immutable parameter/binding 'item'"));
 
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 fnc ok() => void {
@@ -389,7 +389,7 @@ final class OwnershipAndClosureTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("field 'Local.value' is immutable"), error.getMessage());
+        assertTrue(error.getMessage().contains("field 'Local.value' is immutable"));
     }
 
     @Test
@@ -430,7 +430,7 @@ final class OwnershipAndClosureTest {
                         """)));
 
         assertTrue(immutableAliasOwner.getMessage().contains("cannot mutate method 'bump' receiver")
-                || immutableAliasOwner.getMessage().contains("immutable parameter/binding 'item'"), immutableAliasOwner.getMessage());
+                || immutableAliasOwner.getMessage().contains("immutable parameter/binding 'item'"));
     }
 
     private static String run(String program) throws Exception {
@@ -461,6 +461,6 @@ final class OwnershipAndClosureTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("outlive its owner"), error.getMessage());
+        assertTrue(error.getMessage().contains("outlive its owner"));
     }
 }
