@@ -816,8 +816,7 @@ public final class OresEvalRootNode extends RootNode {
                 if (option.present()) releaseMutexGuardsInValue(option.value(), failed, seen);
                 return;
             }
-            if (value instanceof CompletionStage<?> stage) {
-                var future = stage.toCompletableFuture();
+            if (value instanceof OresMutex.GuardFuture<?> future) {
                 if (!future.isDone()) {
                     future.cancel(true);
                     return;
