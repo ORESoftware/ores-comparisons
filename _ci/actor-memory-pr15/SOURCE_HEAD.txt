@@ -1,2 +1,2 @@
 ores-truffle-oreslang/oreslang-source.java PR #19
-1a506606a426b004b9402bbe84c458102981a9ce
+7a6a694dad88204734efc38d2d20866b0ec7fde1
