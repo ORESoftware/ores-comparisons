@@ -37,6 +37,7 @@ public final class Ast {
 
     public enum Visibility { PRIVATE, PUBLIC }
     public enum CallableKind { FNC, ROUTINE }
+    public enum ActorKind { NONE, SHARED, ISOLATED }
 
     public record Annotation(String name, List<TypeRef> arguments) {
         public Annotation { arguments = List.copyOf(arguments); }
@@ -122,20 +123,38 @@ public final class Ast {
             CallableKind kind,
             Visibility visibility,
             boolean async,
+            ActorKind actorKind,
             List<String> genericParameters,
             List<Param> parameters,
             TypeRef returnType,
             List<Annotation> annotations,
             List<Stmt> body) implements Decl {
         public FunctionDecl {
+            actorKind = java.util.Objects.requireNonNull(actorKind, "actorKind");
             genericParameters = List.copyOf(genericParameters);
             parameters = List.copyOf(parameters);
             annotations = List.copyOf(annotations);
             body = List.copyOf(body);
         }
+
+        public FunctionDecl(
+                String name,
+                CallableKind kind,
+                Visibility visibility,
+                boolean async,
+                List<String> genericParameters,
+                List<Param> parameters,
+                TypeRef returnType,
+                List<Annotation> annotations,
+                List<Stmt> body) {
+            this(name, kind, visibility, async, ActorKind.NONE,
+                    genericParameters, parameters, returnType, annotations, body);
+        }
+
         public FunctionDecl(String name, Visibility visibility, boolean async, List<String> genericParameters,
                             List<Param> parameters, TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
-            this(name, CallableKind.FNC, visibility, async, genericParameters, parameters, returnType, annotations, body);
+            this(name, CallableKind.FNC, visibility, async, ActorKind.NONE,
+                    genericParameters, parameters, returnType, annotations, body);
         }
     }
 
