@@ -1,0 +1,35 @@
+namespace local_interface_demo;
+
+define module app as
+  fnc make_reader() => Reader {
+    interface Readable {
+      fnc read() => string;
+    }
+
+    struct Reader is Readable {
+      value: string;
+
+      pub read() => string {
+        return self.value;
+      }
+    }
+
+    return obj{value: "local"};
+  }
+
+  fnc nested_contract() => void {
+    if true; do
+      interface NestedApi {
+        fnc ping() => int;
+      }
+    fi
+    return;
+  }
+
+  pub fnc main() => void {
+    val reader = make_reader();
+    stdio.println(reader.read());
+    stdio.println("local-interface-ok");
+    return;
+  }
+end
