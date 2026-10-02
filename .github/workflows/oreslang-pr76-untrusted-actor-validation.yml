@@ -1,1 +1,34 @@
-name: oreslang-pr76-untrusted-actor-validation\n\non:\n  push:\n    branches: ["ci/oreslang-pr76-untrusted-actor"]\n  pull_request:\n    branches: ["main"]\n\npermissions:\n  contents: read\n\ndefaults:\n  run:\n    working-directory: _ci/oreslang-pr76-full\n\njobs:\n  full-test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - name: Set up GraalVM\n        uses: graalvm/setup-graalvm@v1\n        with:\n          version: '25.3'\n          java-version: '25'\n          distribution: 'graalvm'\n          github-token: ${{ secrets.GITHUB_TOKEN }}\n          cache: maven\n      - name: Runtime diagnostics\n        run: |\n          java --version\n          mvn --version\n      - name: Compile and test exact Oreslang PR 76 snapshot\n        run: mvn -B -ntp test\n
+name: oreslang-pr76-untrusted-actor-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-pr76-untrusted-actor"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr76-full
+
+jobs:
+  full-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Runtime diagnostics
+        run: |
+          java --version
+          mvn --version
+      - name: Compile and test exact Oreslang PR 76 snapshot
+        run: mvn -B -ntp test
