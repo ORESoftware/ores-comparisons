@@ -261,16 +261,15 @@ final class UntrustedActorSandboxTest {
                                 "text/plain",
                                 httpRequest.header("content-type").orElseThrow());
 
-                        ByteBuffer chunk = ByteBuffer.allocate(8);
-                        assertEquals(4, httpRequest.read(chunk));
-                        chunk.flip();
-                        assertEquals("ping", StandardCharsets.UTF_8.decode(chunk).toString());
+                        ActorRuntime.PrivateMemoryBlock chunk =
+                                turn.privateMemory().orElseThrow().allocatePrivateBytes(4);
+                        assertEquals(4, chunk.readFrom(httpRequest, 0, 4));
 
                         assertThrows(
                                 ActorRuntime.HttpRequestLimitExceededException.class,
                                 () -> httpRequest.read(ByteBuffer.allocate(1)));
 
-                        httpResponse.write(ByteBuffer.wrap("ping".getBytes(StandardCharsets.UTF_8)));
+                        assertEquals(4, chunk.writeTo(httpResponse, 0, 4));
                         httpResponse.complete();
                         turn.self().stop();
                     });
