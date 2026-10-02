@@ -297,4 +297,32 @@ final class ActorCapabilityIsolationTest {
     }
 
 
+    @Test
+    void privateActorCannotLaunderSharedMemoryThroughStaticMethodValue() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                define class Helpers
+                  pub static fnc build_shared() => void {
+                    val shared = SharedMutex.new(1);
+                    stdio.println(shared);
+                    return;
+                  }
+                end
+
+                actor PrivateWorker {
+                  pub fnc run() => void {
+                    val callback = Helpers.build_shared;
+                    callback();
+                    return;
+                  }
+                }
+                """));
+
+        SecurityException error = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+
+        assertTrue(error.getMessage().contains("SHARED_MEMORY"));
+    }
+
+
 }
