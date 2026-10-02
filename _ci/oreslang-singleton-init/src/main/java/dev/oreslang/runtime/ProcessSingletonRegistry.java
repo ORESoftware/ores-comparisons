@@ -16,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,6 +47,7 @@ public final class ProcessSingletonRegistry {
     private static final int MAX_PROCESS_SINGLETONS = 4_096;
     private static final int MAX_KEY_CHARS = 2_048;
     private static final Duration DEFAULT_WALL_TIME = Duration.ofMinutes(10);
+    private static final ScheduledThreadPoolExecutor TIMEOUTS = timeoutExecutor();
 
     private static final Map<String, Cell> CELLS = new ConcurrentHashMap<>();
     private static final Object REGISTRY_LOCK = new Object();
@@ -61,6 +64,17 @@ public final class ProcessSingletonRegistry {
     private static final ThreadLocal<Long> CURRENT_DEADLINE_NANOS = new ThreadLocal<>();
 
     private ProcessSingletonRegistry() { }
+
+    private static ScheduledThreadPoolExecutor timeoutExecutor() {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, runnable -> {
+            Thread thread = new Thread(runnable, "ores-process-singleton-timeouts");
+            thread.setDaemon(true);
+            return thread;
+        });
+        executor.setRemoveOnCancelPolicy(true);
+        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return executor;
+    }
 
     @FunctionalInterface
     public interface Operation<S> {
@@ -203,13 +217,24 @@ public final class ProcessSingletonRegistry {
                 return reply;
             }
 
+            /*
+             * A queued request may time out promptly, but a running request is
+             * never completed by the timer thread. Once RUNNING, deadline
+             * enforcement belongs exclusively to the serial actor and its
+             * cooperative safepoints/transaction commit.
+             */
             long timeoutMillis;
             try {
                 timeoutMillis = Math.max(1L, callerWallTime.toMillis());
             } catch (ArithmeticException overflow) {
                 timeoutMillis = Long.MAX_VALUE;
             }
-            reply.orTimeout(timeoutMillis, TimeUnit.MILLISECONDS);
+            ScheduledFuture<?> timeoutTask = TIMEOUTS.schedule(() -> {
+                if (!request.expireQueued(cell.diagnosticId)) return;
+                if (cell.mailbox.remove(request)) cell.releaseQueuedSlot();
+            }, timeoutMillis, TimeUnit.MILLISECONDS);
+            request.timeoutTask(timeoutTask);
+            reply.whenComplete((ignored, failure) -> request.cancelTimeoutTask());
             return reply;
         }
 
@@ -224,11 +249,60 @@ public final class ProcessSingletonRegistry {
         Object apply(Object state, List<Object> arguments) throws Exception;
     }
 
-    private record Request(
-            List<Object> arguments,
-            ErasedOperation operation,
-            CompletableFuture<Object> reply,
-            long deadlineNanos) { }
+    private static final class Request {
+        private static final int QUEUED = 0;
+        private static final int RUNNING = 1;
+        private static final int TIMED_OUT = 2;
+        private static final int DONE = 3;
+
+        private final List<Object> arguments;
+        private final ErasedOperation operation;
+        private final CompletableFuture<Object> reply;
+        private final long deadlineNanos;
+        private final AtomicInteger phase = new AtomicInteger(QUEUED);
+        private volatile ScheduledFuture<?> timeoutTask;
+
+        private Request(
+                List<Object> arguments,
+                ErasedOperation operation,
+                CompletableFuture<Object> reply,
+                long deadlineNanos) {
+            this.arguments = arguments;
+            this.operation = operation;
+            this.reply = reply;
+            this.deadlineNanos = deadlineNanos;
+        }
+
+        private boolean begin() {
+            return phase.compareAndSet(QUEUED, RUNNING);
+        }
+
+        private boolean expireQueued(String diagnosticId) {
+            if (!phase.compareAndSet(QUEUED, TIMED_OUT)) return false;
+            reply.completeExceptionally(
+                    new TimeoutException("singleton call expired in mailbox for " + diagnosticId));
+            return true;
+        }
+
+        private void finish() {
+            phase.compareAndSet(RUNNING, DONE);
+        }
+
+        private void failBeforeRun(Throwable failure) {
+            if (phase.compareAndSet(QUEUED, DONE)) {
+                reply.completeExceptionally(failure);
+            }
+        }
+
+        private void timeoutTask(ScheduledFuture<?> task) {
+            this.timeoutTask = task;
+        }
+
+        private void cancelTimeoutTask() {
+            ScheduledFuture<?> task = timeoutTask;
+            if (task != null) task.cancel(false);
+        }
+    }
 
     private static final class Cell {
         private final String key;
@@ -301,15 +375,21 @@ public final class ProcessSingletonRegistry {
                     return;
                 }
 
-                if (request.reply.isDone()) continue;
+                if (!request.begin()) continue;
+                if (request.reply.isDone()) {
+                    request.finish();
+                    continue;
+                }
                 Throwable failure = terminalFailure;
                 if (failure != null) {
                     request.reply.completeExceptionally(failure);
+                    request.finish();
                     continue;
                 }
                 if (expired(request.deadlineNanos)) {
                     request.reply.completeExceptionally(
                             new TimeoutException("singleton call expired in mailbox for " + diagnosticId));
+                    request.finish();
                     continue;
                 }
 
@@ -329,6 +409,7 @@ public final class ProcessSingletonRegistry {
                 } catch (Throwable operationFailure) {
                     request.reply.completeExceptionally(operationFailure);
                 } finally {
+                    request.finish();
                     restoreThreadLocal(CURRENT_CELL, previousCell);
                     restoreThreadLocal(CURRENT_DEADLINE_NANOS, previousDeadline);
                 }
@@ -340,7 +421,7 @@ public final class ProcessSingletonRegistry {
             Request queued;
             while ((queued = mailbox.poll()) != null) {
                 releaseQueuedSlot();
-                queued.reply.completeExceptionally(failure);
+                queued.failBeforeRun(failure);
             }
         }
     }
