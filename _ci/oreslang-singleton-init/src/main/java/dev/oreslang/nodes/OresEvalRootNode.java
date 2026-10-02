@@ -32,15 +32,27 @@ import java.util.concurrent.CompletionStage;
 public final class OresEvalRootNode extends RootNode {
     private final Ast.Program program;
     private final String codeUnitId;
+    private final String codeUnitDigest;
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program) {
-        this(language, program, "<anonymous>");
+        this(language, program, "<anonymous>", digestText(program.toString()));
     }
 
     public OresEvalRootNode(OresLanguage language, Ast.Program program, String codeUnitId) {
+        this(language, program, codeUnitId, digestText(program.toString()));
+    }
+
+    public OresEvalRootNode(
+            OresLanguage language,
+            Ast.Program program,
+            String codeUnitId,
+            String codeUnitDigest) {
         super(language);
         this.program = program;
         this.codeUnitId = codeUnitId == null || codeUnitId.isBlank() ? "<anonymous>" : codeUnitId;
+        this.codeUnitDigest = codeUnitDigest == null || codeUnitDigest.isBlank()
+                ? digestText(program.toString())
+                : codeUnitDigest;
     }
 
     @Override public String getName() { return "ores-eval"; }
@@ -54,7 +66,7 @@ public final class OresEvalRootNode extends RootNode {
     @TruffleBoundary
     private Object executeBoundary(OresContext context, Object[] arguments) {
         CapabilityChecker.check(program, context.isolatePolicy());
-        return new Evaluator(program, context, codeUnitId).execute(arguments);
+        return new Evaluator(program, context, codeUnitId, codeUnitDigest).execute(arguments);
     }
 
     private static final class Evaluator {
@@ -71,11 +83,15 @@ public final class OresEvalRootNode extends RootNode {
         private final Set<String> ambiguousFunctions = new LinkedHashSet<>();
         private final Set<String> ambiguousClasses = new LinkedHashSet<>();
 
-        private Evaluator(Ast.Program program, OresContext context, String codeUnitId) {
+        private Evaluator(
+                Ast.Program program,
+                OresContext context,
+                String codeUnitId,
+                String codeUnitDigest) {
             this.program = program;
             this.context = context;
             this.codeUnitId = codeUnitId;
-            this.codeUnitDigest = digestText(program.toString());
+            this.codeUnitDigest = codeUnitDigest;
             indexDeclarations();
         }
 

@@ -688,6 +688,83 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void processSingletonCodeCannotUseCallerAmbientCapabilities() {
+        IllegalArgumentException process = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module ambient_process_guard as
+                          pub fnc context() => String {
+                            return process.context_id;
+                          }
+                        end
+                        """)));
+        assertTrue(process.getMessage().contains("ambient caller capability"));
+
+        IllegalArgumentException stdio = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module ambient_stdio_guard as
+                          pub fnc write() => void {
+                            stdio.println("no");
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(stdio.getMessage().contains("ambient caller capability"));
+    }
+
+    @Test
+    void processSingletonCodeCannotCallActorLocalHelpers() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module local_helper as
+                          pub fnc read() => int { return 7; }
+                        end
+
+                        define singleton module process_helper_guard as
+                          pub fnc read() => int {
+                            return local_helper.read();
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("actor/context-local module"));
+    }
+
+    @Test
+    void exportedProcessObjectCannotCallActorLocalFreeFunctions() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc local_value() => int { return 7; }
+
+                        define class ProcessReader as
+                          pub read() => int {
+                            return local_value();
+                          }
+                        end
+
+                        define singleton module process_reader_owner as
+                          pub val ProcessReader reader = new ProcessReader();
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("actor/context-local function"));
+    }
+
+    @Test
+    void processSingletonsMayAwaitOtherProcessSingletons() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define singleton module service_a as
+                  pub fnc read() => int { return 7; }
+                end
+
+                define singleton module service_b as
+                  pub fnc read() => int {
+                    return await service_a.read();
+                  }
+                end
+                """)));
+    }
+
+    @Test
     void singletonServiceFunctionValuesCannotBeExtracted() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
