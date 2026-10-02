@@ -345,4 +345,21 @@ final class OwnershipAndClosureTest {
         }
         return output.toString(StandardCharsets.UTF_8);
     }
+    @Test
+    void ownershipCheckerInspectsMethodsInsideCallableLocalStructs() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc make() => T {
+                          struct T {
+                            pub bad() => &int {
+                              let int local = 7;
+                              return &local;
+                            }
+                          }
+                          return T {};
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("outlive its owner"));
+    }
 }

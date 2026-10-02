@@ -261,4 +261,23 @@ final class IsolationHotReloadTest {
         }
         return output.toString(StandardCharsets.UTF_8);
     }
+    @Test
+    void capabilityAdmissionInspectsMethodsInsideCallableLocalStructs() {
+        var program = TypeChecker.check(Parser.parse("""
+                define module app as
+                  fnc make() => T {
+                    struct T {
+                      pub context() => string {
+                        return process.context_id;
+                      }
+                    }
+                    return T {};
+                  }
+                end
+                """));
+
+        SecurityException denied = assertThrows(SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.strictFaas()));
+        assertTrue(denied.getMessage().contains("PROCESS_INFO"));
+    }
 }

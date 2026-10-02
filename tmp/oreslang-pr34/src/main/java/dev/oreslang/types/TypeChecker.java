@@ -40,6 +40,7 @@ public final class TypeChecker {
     private final IdentityHashMap<Ast.ClassDecl, Record> classShapeCache = new IdentityHashMap<>();
     private final java.util.ArrayDeque<Map<String, Ast.ClassDecl>> localClassScopes = new java.util.ArrayDeque<>();
     private final java.util.ArrayDeque<Map<String, Ast.InterfaceDecl>> localInterfaceScopes = new java.util.ArrayDeque<>();
+    private final java.util.ArrayDeque<Map<String, Ast.TypeAliasDecl>> localTypeAliasScopes = new java.util.ArrayDeque<>();
     private final IdentityHashMap<Ast.ClassDecl, String> localClassIdentities = new IdentityHashMap<>();
     private final Map<String, Ast.ClassDecl> escapedLocalClasses = new HashMap<>();
     private int nextLocalTypeIdentity = 1;
@@ -52,6 +53,8 @@ public final class TypeChecker {
     private final Set<Ast.TypeAliasDecl> resolvingAliases = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
     // Set only while checking a method expanded from a trait.
     private String activeTraitOwner;
+    // Lexical aggregate owner for ordinary private member access.
+    private Ast.ClassDecl activeClassOwner;
 
     public static Ast.Program check(Ast.Program program) {
         Ast.Program composed = TraitComposer.compose(program);
@@ -145,7 +148,7 @@ public final class TypeChecker {
             for (Ast.TypeRef ref : annotation.arguments()) {
                 Ast.InterfaceDecl iface = findInterface(ref.name());
                 if (iface == null) throw new IllegalArgumentException("unknown module interface '" + ref.name() + "'");
-                Record expected = interfaceShape(iface, Set.copyOf(iface.genericParameters()), new LinkedHashSet<>());
+                Record expected = interfaceShapeForUse(iface, ref, Set.of(), null);
                 if (!assignable(actual, expected)) {
                     throw new IllegalArgumentException("module '" + module.name() + "' does not adhere to interface '" + ref.name() + "': expected " + expected + " but got " + actual);
                 }
@@ -426,18 +429,20 @@ public final class TypeChecker {
                 throw new IllegalArgumentException("singleton proxy method '" + klass.name() + "." + method.name()
                         + "' cannot be generic until proxy Send constraints are explicit");
             }
-            for (Ast.Param param : method.parameters()) {
+            Function signature = methodFunctionType(method, klass, nominalClassType(klass));
+            for (int i = 0; i < method.parameters().size(); i++) {
+                Ast.Param param = method.parameters().get(i);
                 if (param.mutable() || param.structural()) {
                     throw new IllegalArgumentException("singleton proxy method '" + klass.name() + "." + method.name()
                             + "' cannot use mut or structural transported parameters");
                 }
-                Type parameter = resolveParam(param, Set.of(), nominalClassType(klass));
+                Type parameter = signature.parameters().get(i);
                 if (!isActorSendableType(parameter, false)) {
                     throw new IllegalArgumentException("singleton proxy method '" + klass.name() + "." + method.name()
                             + "' parameter '" + param.name() + "' is not statically Sendable");
                 }
             }
-            Type result = resolve(method.returnType(), Set.of(), nominalClassType(klass));
+            Type result = signature.result();
             if (!isActorSendableType(result, true)) {
                 throw new IllegalArgumentException("singleton proxy method '" + klass.name() + "." + method.name()
                         + "' result is not statically Sendable");
@@ -719,7 +724,10 @@ public final class TypeChecker {
         }
 
         for (Ast.MethodDecl method : klass.methods()) {
+            String previousTraitOwner = activeTraitOwner;
+            Ast.ClassDecl previousClassOwner = activeClassOwner;
             activeTraitOwner = method.compositionOwner();
+            activeClassOwner = klass;
             pushLocalTypeScope(method.body());
             try {
                 Set<String> generics = new HashSet<>(classGenerics);
@@ -754,7 +762,8 @@ public final class TypeChecker {
                 }
             } finally {
                 popLocalTypeScope();
-                activeTraitOwner = null;
+                activeTraitOwner = previousTraitOwner;
+                activeClassOwner = previousClassOwner;
             }
         }
 
@@ -763,7 +772,7 @@ public final class TypeChecker {
             if (!implemented.add(interfaceRef.name())) throw new IllegalArgumentException("duplicate implemented interface '" + interfaceRef.name() + "' on " + klass.name());
             Ast.InterfaceDecl iface = findInterface(interfaceRef.name());
             if (iface == null) throw new IllegalArgumentException("unknown interface '" + interfaceRef.name() + "' implemented by " + klass.name());
-            Record expected = interfaceShape(iface, Set.copyOf(iface.genericParameters()), new LinkedHashSet<>());
+            Record expected = interfaceShapeForUse(iface, interfaceRef, classGenerics, self);
             Record actual = publicClassShape(klass, new LinkedHashSet<>());
             if (!assignable(actual, expected)) {
                 throw new IllegalArgumentException((klass.isStruct() ? "struct '" : "class '") + klass.name()
@@ -797,6 +806,8 @@ public final class TypeChecker {
                 checkClass(env.moduleName, struct);
             } else if (localType.declaration() instanceof Ast.InterfaceDecl iface) {
                 checkInterface(iface);
+            } else if (localType.declaration() instanceof Ast.TypeAliasDecl alias) {
+                resolve(alias.target(), Set.copyOf(alias.genericParameters()), self);
             }
             return;
         }
@@ -999,14 +1010,13 @@ public final class TypeChecker {
                     if (klass == null) throw new IllegalArgumentException("unknown class namespace '" + classNamespace.className() + "'");
                     Ast.MethodDecl fn = findStaticFunction(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
                     if (fn == null) throw new IllegalArgumentException("no static function '" + member.member() + "' with arity " + call.arguments().size() + " on " + klass.name());
-                    Set<String> fnGenerics = new HashSet<>(klass.genericParameters());
-                    fnGenerics.addAll(fn.genericParameters());
+                    Function signature = methodFunctionType(fn, klass, null);
                     for (int i = 0; i < call.arguments().size(); i++) {
-                        Type expected = resolveParam(fn.parameters().get(i), fnGenerics, null);
+                        Type expected = signature.parameters().get(i);
                         validateLambdaArgument(call.arguments().get(i), expected, env, generics, self);
                         requireAssignable(typeOf(call.arguments().get(i), env, generics, self), expected, "argument " + (i + 1));
                     }
-                    return resolve(fn.returnType(), fnGenerics, null);
+                    return signature.result();
                 }
                 if (receiver instanceof SingletonProxy proxy) {
                     Ast.ClassDecl klass = findClass(proxy.target().name());
@@ -1016,16 +1026,14 @@ public final class TypeChecker {
                         throw new IllegalArgumentException("no public singleton proxy method '" + member.member()
                                 + "' with arity " + call.arguments().size() + " on " + proxy.target().name());
                     }
-                    Set<String> methodGenerics = new HashSet<>(klass.genericParameters());
-                    methodGenerics.addAll(method.genericParameters());
+                    Function signature = methodFunctionType(method, klass, proxy.target());
                     for (int i = 0; i < call.arguments().size(); i++) {
-                        Type expected = resolveParam(method.parameters().get(i), methodGenerics, proxy.target());
+                        Type expected = signature.parameters().get(i);
                         validateLambdaArgument(call.arguments().get(i), expected, env, generics, self);
                         requireAssignable(typeOf(call.arguments().get(i), env, generics, self), expected,
                                 "singleton proxy argument " + (i + 1));
                     }
-                    Type result = resolve(method.returnType(), methodGenerics, proxy.target());
-                    return new Named("Future", List.of(result));
+                    return new Named("Future", List.of(signature.result()));
                 }
                 if (receiver instanceof Record record) {
                     Type candidate = record.members().get(methodKey(member.member(), call.arguments().size()));
@@ -1045,14 +1053,13 @@ public final class TypeChecker {
                     if (klass != null) {
                         Ast.MethodDecl method = findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
                         if (method == null) throw new IllegalArgumentException("no method '" + member.member() + "' with arity " + call.arguments().size() + " on " + named.name());
-                        Set<String> methodGenerics = new HashSet<>(klass.genericParameters());
-                        methodGenerics.addAll(method.genericParameters());
+                        Function signature = methodFunctionType(method, klass, named);
                         for (int i = 0; i < call.arguments().size(); i++) {
-                            Type expected = resolveParam(method.parameters().get(i), methodGenerics, named);
+                            Type expected = signature.parameters().get(i);
                             validateLambdaArgument(call.arguments().get(i), expected, env, generics, self);
                             requireAssignable(typeOf(call.arguments().get(i), env, generics, self), expected, "argument " + (i + 1));
                         }
-                        return resolve(method.returnType(), methodGenerics, named);
+                        return signature.result();
                     }
                 }
             }
@@ -1114,7 +1121,7 @@ public final class TypeChecker {
             if (receiver instanceof SingletonProxy proxy) {
                 Ast.ClassDecl klass = findClass(proxy.target().name());
                 if (klass == null) throw new IllegalArgumentException("unknown singleton proxy class '" + proxy.target().name() + "'");
-                if (findFieldType(klass, member.member(), new LinkedHashSet<>()) != null) {
+                if (findFieldType(klass, member.member(), proxy.target(), new LinkedHashSet<>()) != null) {
                     throw new IllegalArgumentException("singleton object fields are actor-private; invoke a public method on "
                             + proxy.moduleName() + "." + proxy.fieldName());
                 }
@@ -1131,7 +1138,7 @@ public final class TypeChecker {
                 List<Ast.MethodDecl> functions = findStaticFunctionsByName(klass, member.member(), new LinkedHashSet<>());
                 if (functions.size() == 1) {
                     Ast.MethodDecl fn = functions.getFirst();
-                    return functionType(fn.parameters(), fn.returnType(), Set.copyOf(fn.genericParameters()), null);
+                    return methodFunctionType(fn, klass, null);
                 }
                 if (functions.size() > 1) throw new IllegalArgumentException("overloaded static function '" + member.member() + "' must be called so arity can select the overload");
                 throw new IllegalArgumentException("unknown static member '" + member.member() + "' on " + klass.name());
@@ -1145,12 +1152,12 @@ public final class TypeChecker {
             if (receiver instanceof Named named) {
                 Ast.ClassDecl klass = findClass(named.name());
                 if (klass != null) {
-                    Type field = findFieldType(klass, member.member(), new LinkedHashSet<>());
+                    Type field = findFieldType(klass, member.member(), named, new LinkedHashSet<>());
                     if (field != null) return field;
                     List<Ast.MethodDecl> methods = findMethodsByName(klass, member.member(), new LinkedHashSet<>());
                     if (methods.size() == 1) {
                         Ast.MethodDecl method = methods.getFirst();
-                        return functionType(method.parameters(), method.returnType(), Set.copyOf(method.genericParameters()), named);
+                        return methodFunctionType(method, klass, named);
                     }
                     if (methods.size() > 1) throw new IllegalArgumentException("overloaded method '" + member.member() + "' must be called so arity can select the overload");
                 }
@@ -1178,12 +1185,25 @@ public final class TypeChecker {
             List<Ast.FieldDecl> fields = effectiveFields(klass, new LinkedHashSet<>());
             List<Ast.FieldDecl> constructorFields = fields.stream().filter(field -> !field.composed()).toList();
             if (created.arguments().size() > constructorFields.size()) throw new IllegalArgumentException("constructor for " + klass.name() + " received too many positional fields");
-            Type nominal = concreteClassType(klass, created.type(), generics, self);
+
+            List<Type> argumentTypes = created.arguments().stream()
+                    .map(argument -> typeOf(argument, env, generics, self))
+                    .toList();
+            Type nominal;
+            if (created.type().inferArguments()) {
+                List<Ast.TypeRef> declaredInputs = constructorFields.subList(0, argumentTypes.size()).stream()
+                        .map(Ast.FieldDecl::type)
+                        .toList();
+                nominal = inferClassType(klass, declaredInputs, argumentTypes, "constructor for " + klass.name());
+            } else {
+                nominal = concreteClassType(klass, created.type(), generics, self);
+            }
+
             Map<String, Type> substitutions = classGenericSubstitutions(klass, nominal);
             int argumentIndex = 0;
             for (Ast.FieldDecl field : fields) {
-                if (!field.composed() && argumentIndex < created.arguments().size()) {
-                    requireAssignable(typeOf(created.arguments().get(argumentIndex++), env, generics, self),
+                if (!field.composed() && argumentIndex < argumentTypes.size()) {
+                    requireAssignable(argumentTypes.get(argumentIndex++),
                             instantiateClassType(field.type(), klass, substitutions, nominal), "constructor field " + field.name());
                 } else if (field.initializer() == null) {
                     throw new IllegalArgumentException("constructor for " + klass.name() + " is missing field '" + field.name() + "'");
@@ -1222,7 +1242,24 @@ public final class TypeChecker {
                 }
             }
 
-            Type nominal = concreteClassType(struct, created.type(), generics, self);
+            LinkedHashMap<String, Type> suppliedTypes = new LinkedHashMap<>();
+            for (Map.Entry<String, Ast.Expr> entry : supplied.entrySet()) {
+                suppliedTypes.put(entry.getKey(), typeOf(entry.getValue(), env, generics, self));
+            }
+
+            Type nominal;
+            if (created.type().inferArguments()) {
+                List<Ast.TypeRef> declaredInputs = new ArrayList<>();
+                List<Type> actualInputs = new ArrayList<>();
+                for (Map.Entry<String, Type> entry : suppliedTypes.entrySet()) {
+                    declaredInputs.add(callerFields.get(entry.getKey()).type());
+                    actualInputs.add(entry.getValue());
+                }
+                nominal = inferClassType(struct, declaredInputs, actualInputs, "struct initializer for " + struct.name());
+            } else {
+                nominal = concreteClassType(struct, created.type(), generics, self);
+            }
+
             Map<String, Type> substitutions = classGenericSubstitutions(struct, nominal);
             for (Ast.FieldDecl field : struct.fields()) {
                 if (field.composed()) {
@@ -1231,9 +1268,9 @@ public final class TypeChecker {
                     }
                     continue;
                 }
-                Ast.Expr value = supplied.get(field.name());
+                Type value = suppliedTypes.get(field.name());
                 if (value != null) {
-                    requireAssignable(typeOf(value, env, generics, self),
+                    requireAssignable(value,
                             instantiateClassType(field.type(), struct, substitutions, nominal),
                             "struct field " + struct.name() + "." + field.name());
                 } else if (field.initializer() == null) {
@@ -1444,7 +1481,7 @@ public final class TypeChecker {
         if (receiver instanceof Named named) {
             Ast.ClassDecl klass = findClass(named.name());
             if (klass != null) {
-                Type field = findFieldType(klass, member.member(), new LinkedHashSet<>());
+                Type field = findFieldType(klass, member.member(), named, new LinkedHashSet<>());
                 if (field != null) return field;
             }
         }
@@ -1509,7 +1546,7 @@ public final class TypeChecker {
         for (Ast.MethodDecl method : klass.methods()) {
             if (method.isStatic()) continue;
             mergeMember(members, methodKey(method.name(), method.arity()),
-                    functionType(method.parameters(), method.returnType(), generics, self), "class " + klass.name());
+                    methodFunctionType(method, klass, self), "class " + klass.name());
         }
         stack.remove(klass);
         Record result = new Record(members);
@@ -1536,11 +1573,31 @@ public final class TypeChecker {
         for (Ast.MethodDecl method : klass.methods()) {
             if (!method.isStatic() && method.visibility() == Ast.Visibility.PUBLIC) {
                 mergeMember(members, methodKey(method.name(), method.arity()),
-                        functionType(method.parameters(), method.returnType(), generics, self), "class " + klass.name());
+                        methodFunctionType(method, klass, self), "class " + klass.name());
             }
         }
         stack.remove(klass);
         return new Record(members);
+    }
+
+    private Record interfaceShapeForUse(
+            Ast.InterfaceDecl iface,
+            Ast.TypeRef use,
+            Set<String> surroundingGenerics,
+            Type self) {
+        if (use.inferArguments() || use.arguments().size() != iface.genericParameters().size()) {
+            throw new IllegalArgumentException("interface '" + iface.name() + "' expects "
+                    + iface.genericParameters().size() + " type argument(s), got " + use.arguments().size());
+        }
+        Record raw = interfaceShape(iface, Set.copyOf(iface.genericParameters()), new LinkedHashSet<>());
+        if (iface.genericParameters().isEmpty()) return raw;
+
+        LinkedHashMap<String, Type> substitutions = new LinkedHashMap<>();
+        for (int i = 0; i < iface.genericParameters().size(); i++) {
+            substitutions.put(iface.genericParameters().get(i),
+                    resolve(use.arguments().get(i), surroundingGenerics, self));
+        }
+        return (Record) substituteGenerics(raw, substitutions);
     }
 
     private Record interfaceShape(Ast.InterfaceDecl iface, Set<String> generics, Set<Ast.InterfaceDecl> stack) {
@@ -1549,7 +1606,19 @@ public final class TypeChecker {
         for (Ast.TypeRef parentRef : iface.parents()) {
             Ast.InterfaceDecl parent = findInterface(parentRef.name());
             if (parent == null) throw new IllegalArgumentException("unknown parent interface '" + parentRef.name() + "' for " + iface.name());
-            for (Map.Entry<String, Type> inherited : interfaceShape(parent, Set.copyOf(parent.genericParameters()), stack).members().entrySet()) {
+            if (parentRef.inferArguments() || parentRef.arguments().size() != parent.genericParameters().size()) {
+                throw new IllegalArgumentException("interface '" + parent.name() + "' expects "
+                        + parent.genericParameters().size() + " type argument(s), got " + parentRef.arguments().size());
+            }
+            Record inheritedShape = interfaceShape(parent, Set.copyOf(parent.genericParameters()), stack);
+            if (!parent.genericParameters().isEmpty()) {
+                LinkedHashMap<String, Type> substitutions = new LinkedHashMap<>();
+                for (int i = 0; i < parent.genericParameters().size(); i++) {
+                    substitutions.put(parent.genericParameters().get(i), resolve(parentRef.arguments().get(i), generics, null));
+                }
+                inheritedShape = (Record) substituteGenerics(inheritedShape, substitutions);
+            }
+            for (Map.Entry<String, Type> inherited : inheritedShape.members().entrySet()) {
                 mergeMember(members, inherited.getKey(), inherited.getValue(), "interface inheritance of " + iface.name());
             }
         }
@@ -1577,9 +1646,18 @@ public final class TypeChecker {
         return List.copyOf(fields.values());
     }
 
-    private Type findFieldType(Ast.ClassDecl klass, String name, Set<Ast.ClassDecl> seen) {
+    private Type findFieldType(
+            Ast.ClassDecl klass,
+            String name,
+            Type receiverType,
+            Set<Ast.ClassDecl> seen) {
         if (!seen.add(klass)) return null;
-        Type self = nominalClassType(klass);
+        Type self = receiverType == null ? nominalClassType(klass) : receiverType;
+        Map<String, Type> substitutions = self instanceof Named named
+                && named.arguments().size() == klass.genericParameters().size()
+                ? classGenericSubstitutions(klass, named)
+                : Map.of();
+
         for (Ast.FieldDecl field : klass.fields()) {
             if (field.name().equals(name)) {
                 if (activeTraitOwner != null) {
@@ -1591,15 +1669,23 @@ public final class TypeChecker {
                     throw new IllegalArgumentException(
                             "trait state field '" + field.compositionOwner() + "." + name
                                     + "' is private to that trait");
+                } else if (field.visibility() == Ast.Visibility.PRIVATE && activeClassOwner != klass) {
+                    throw new IllegalArgumentException(
+                            "field '" + klass.name() + "." + name + "' is private to " + klass.name());
                 }
                 seen.remove(klass);
-                return resolve(field.type(), Set.copyOf(klass.genericParameters()), self);
+                Type unresolved = resolve(field.type(), Set.copyOf(klass.genericParameters()), self);
+                return substitutions.isEmpty() ? unresolved : substituteGenerics(unresolved, substitutions);
             }
         }
+
         for (Ast.TypeRef parentRef : klass.parents()) {
             Ast.ClassDecl parent = resolveClassParent(parentRef, klass);
             if (parent == null) continue;
-            Type result = findFieldType(parent, name, seen);
+
+            Type parentType = resolve(parentRef, Set.copyOf(klass.genericParameters()), self);
+            if (!substitutions.isEmpty()) parentType = substituteGenerics(parentType, substitutions);
+            Type result = findFieldType(parent, name, parentType, seen);
             if (result != null) {
                 seen.remove(klass);
                 return result;
@@ -1613,6 +1699,10 @@ public final class TypeChecker {
         if (!seen.add(klass)) return null;
         for (Ast.MethodDecl method : klass.methods()) {
             if (!method.isStatic() && method.name().equals(name) && method.arity() == arity) {
+                if (!methodAccessible(klass, method)) {
+                    seen.remove(klass);
+                    throw inaccessibleMethod(klass, method);
+                }
                 seen.remove(klass);
                 return method;
             }
@@ -1633,7 +1723,11 @@ public final class TypeChecker {
     private List<Ast.MethodDecl> findMethodsByName(Ast.ClassDecl klass, String name, Set<Ast.ClassDecl> seen) {
         if (!seen.add(klass)) return List.of();
         LinkedHashMap<Integer, Ast.MethodDecl> methods = new LinkedHashMap<>();
-        for (Ast.MethodDecl method : klass.methods()) if (!method.isStatic() && method.name().equals(name)) methods.put(method.arity(), method);
+        for (Ast.MethodDecl method : klass.methods()) {
+            if (!method.isStatic() && method.name().equals(name) && methodAccessible(klass, method)) {
+                methods.put(method.arity(), method);
+            }
+        }
         for (Ast.TypeRef parentRef : klass.parents()) {
             Ast.ClassDecl parent = resolveClassParent(parentRef, klass);
             if (parent == null) continue;
@@ -1647,6 +1741,10 @@ public final class TypeChecker {
         if (!seen.add(klass)) return null;
         for (Ast.MethodDecl method : klass.methods()) {
             if (method.isStatic() && method.name().equals(name) && method.arity() == arity) {
+                if (!methodAccessible(klass, method)) {
+                    seen.remove(klass);
+                    throw inaccessibleMethod(klass, method);
+                }
                 seen.remove(klass);
                 return method;
             }
@@ -1667,7 +1765,11 @@ public final class TypeChecker {
     private List<Ast.MethodDecl> findStaticFunctionsByName(Ast.ClassDecl klass, String name, Set<Ast.ClassDecl> seen) {
         if (!seen.add(klass)) return List.of();
         LinkedHashMap<Integer, Ast.MethodDecl> functions = new LinkedHashMap<>();
-        for (Ast.MethodDecl method : klass.methods()) if (method.isStatic() && method.name().equals(name)) functions.put(method.arity(), method);
+        for (Ast.MethodDecl method : klass.methods()) {
+            if (method.isStatic() && method.name().equals(name) && methodAccessible(klass, method)) {
+                functions.put(method.arity(), method);
+            }
+        }
         for (Ast.TypeRef parentRef : klass.parents()) {
             Ast.ClassDecl parent = resolveClassParent(parentRef, klass);
             if (parent == null) continue;
@@ -1675,6 +1777,25 @@ public final class TypeChecker {
         }
         seen.remove(klass);
         return List.copyOf(functions.values());
+    }
+
+    private boolean methodAccessible(Ast.ClassDecl owner, Ast.MethodDecl method) {
+        if (method.visibility() == Ast.Visibility.PUBLIC) return true;
+        if (method.composed()) {
+            return activeTraitOwner != null && activeTraitOwner.equals(method.compositionOwner());
+        }
+        return activeClassOwner == owner;
+    }
+
+    private IllegalArgumentException inaccessibleMethod(Ast.ClassDecl owner, Ast.MethodDecl method) {
+        if (method.composed()) {
+            return new IllegalArgumentException(
+                    "trait method '" + method.compositionOwner() + "." + method.name()
+                            + "' is private to that trait");
+        }
+        String label = method.isStatic() ? "static function" : "method";
+        return new IllegalArgumentException(
+                label + " '" + owner.name() + "." + method.name() + "' is private to " + owner.name());
     }
 
     private Ast.ClassDecl resolveClassParent(Ast.TypeRef parentRef, Ast.ClassDecl child) {
@@ -1709,10 +1830,25 @@ public final class TypeChecker {
         return new Function(params.stream().map(p -> resolveParam(p, generics, self)).toList(), resolve(returns, generics, self));
     }
 
+    private Function methodFunctionType(Ast.MethodDecl method, Ast.ClassDecl klass, Type self) {
+        pushLocalTypeScope(method.body());
+        try {
+            Set<String> generics = new HashSet<>(klass.genericParameters());
+            generics.addAll(method.genericParameters());
+            Function signature = functionType(method.parameters(), method.returnType(), generics, self);
+            if (self instanceof Named named && named.arguments().size() == klass.genericParameters().size()) {
+                signature = (Function) substituteGenerics(signature, classGenericSubstitutions(klass, named));
+            }
+            return signature;
+        } finally {
+            popLocalTypeScope();
+        }
+    }
+
     private Type resolveParam(Ast.Param param, Set<String> generics, Type self) {
         if (!param.structural()) return resolve(param.type(), generics, self);
         Ast.InterfaceDecl iface = findInterface(param.type().name());
-        if (iface != null) return interfaceShape(iface, Set.copyOf(iface.genericParameters()), new LinkedHashSet<>());
+        if (iface != null) return interfaceShapeForUse(iface, param.type(), generics, self);
         Ast.ClassDecl klass = findClass(param.type().name());
         if (klass != null) return publicClassShape(klass, new LinkedHashSet<>());
         throw new IllegalArgumentException("@Structural requires a known class or interface type, got '" + param.type().name() + "'");
@@ -1739,10 +1875,7 @@ public final class TypeChecker {
 
         Ast.InterfaceDecl lexicalInterface = findLexicalInterface(ref.name());
         if (lexicalInterface != null) {
-            if (!lexicalInterface.genericParameters().isEmpty() || !ref.arguments().isEmpty() || ref.inferArguments()) {
-                throw new IllegalArgumentException("generic callable-local interfaces are not supported yet");
-            }
-            return interfaceShape(lexicalInterface, Set.of(), new LinkedHashSet<>());
+            return interfaceShapeForUse(lexicalInterface, ref, generics, self);
         }
 
         Ast.TypeAliasDecl alias = findTypeAlias(ref.name());
@@ -1808,18 +1941,112 @@ public final class TypeChecker {
             Ast.TypeRef use,
             Set<String> surroundingGenerics,
             Type self) {
-        List<Type> arguments;
         if (use.inferArguments()) {
-            arguments = klass.genericParameters().stream().map(ignored -> (Type) Unknown.INSTANCE).toList();
-        } else {
-            if (use.arguments().size() != klass.genericParameters().size()) {
-                throw new IllegalArgumentException((klass.isStruct() ? "struct '" : "class '") + klass.name()
-                        + "' expects " + klass.genericParameters().size() + " type argument(s), got "
-                        + use.arguments().size() + "; use <> for inference");
+            throw new IllegalArgumentException("internal error: inferred aggregate type must be resolved from constructor inputs");
+        }
+        if (use.arguments().size() != klass.genericParameters().size()) {
+            throw new IllegalArgumentException((klass.isStruct() ? "struct '" : "class '") + klass.name()
+                    + "' expects " + klass.genericParameters().size() + " type argument(s), got "
+                    + use.arguments().size() + "; use <> for inference");
+        }
+        List<Type> arguments = use.arguments().stream()
+                .map(arg -> resolve(arg, surroundingGenerics, self))
+                .toList();
+        return new Named(qualifiedClassName(klass), arguments);
+    }
+
+    private Type inferClassType(
+            Ast.ClassDecl klass,
+            List<Ast.TypeRef> declaredInputs,
+            List<Type> actualInputs,
+            String where) {
+        if (declaredInputs.size() != actualInputs.size()) {
+            throw new IllegalArgumentException("internal generic inference arity mismatch in " + where);
+        }
+        if (klass.genericParameters().isEmpty()) {
+            throw new IllegalArgumentException((klass.isStruct() ? "struct '" : "class '") + klass.name()
+                    + "' is not generic; omit <>");
+        }
+
+        LinkedHashMap<String, Type> inferred = new LinkedHashMap<>();
+        Set<String> genericNames = Set.copyOf(klass.genericParameters());
+        Type genericSelf = nominalClassType(klass);
+        for (int i = 0; i < declaredInputs.size(); i++) {
+            Type pattern = resolve(declaredInputs.get(i), genericNames, genericSelf);
+            inferGenericBindings(pattern, actualInputs.get(i), inferred, where);
+        }
+
+        List<Type> arguments = new ArrayList<>(klass.genericParameters().size());
+        for (String generic : klass.genericParameters()) {
+            Type inferredType = inferred.get(generic);
+            if (inferredType == null || inferredType == Unknown.INSTANCE) {
+                throw new IllegalArgumentException(where + " cannot infer generic '" + generic
+                        + "'; provide explicit type arguments");
             }
-            arguments = use.arguments().stream().map(arg -> resolve(arg, surroundingGenerics, self)).toList();
+            arguments.add(inferredType);
         }
         return new Named(qualifiedClassName(klass), arguments);
+    }
+
+    private void inferGenericBindings(
+            Type pattern,
+            Type actual,
+            Map<String, Type> inferred,
+            String where) {
+        actual = widenInferenceType(actual);
+        if (actual == Unknown.INSTANCE) return;
+
+        if (pattern instanceof Generic generic) {
+            Type previous = inferred.get(generic.name());
+            if (previous == null) {
+                inferred.put(generic.name(), actual);
+                return;
+            }
+            Type merged = commonType(previous, actual);
+            if (merged == Unknown.INSTANCE && !previous.equals(actual)) {
+                throw new IllegalArgumentException(where + " infers incompatible types for generic '"
+                        + generic.name() + "': " + previous + " and " + actual);
+            }
+            inferred.put(generic.name(), merged == Unknown.INSTANCE ? actual : merged);
+            return;
+        }
+
+        if (pattern instanceof Borrow expectedBorrow && actual instanceof Borrow actualBorrow) {
+            if (expectedBorrow.mutable() != actualBorrow.mutable()) return;
+            inferGenericBindings(expectedBorrow.target(), actualBorrow.target(), inferred, where);
+            return;
+        }
+        if (pattern instanceof ListType expectedList && actual instanceof ListType actualList) {
+            inferGenericBindings(expectedList.element(), actualList.element(), inferred, where);
+            return;
+        }
+        if (pattern instanceof Tuple expectedTuple && actual instanceof Tuple actualTuple
+                && expectedTuple.elements().size() == actualTuple.elements().size()) {
+            for (int i = 0; i < expectedTuple.elements().size(); i++) {
+                inferGenericBindings(expectedTuple.elements().get(i), actualTuple.elements().get(i), inferred, where);
+            }
+            return;
+        }
+        if (pattern instanceof Named expectedNamed && actual instanceof Named actualNamed
+                && expectedNamed.name().equals(actualNamed.name())
+                && expectedNamed.arguments().size() == actualNamed.arguments().size()) {
+            for (int i = 0; i < expectedNamed.arguments().size(); i++) {
+                inferGenericBindings(expectedNamed.arguments().get(i), actualNamed.arguments().get(i), inferred, where);
+            }
+            return;
+        }
+        if (pattern instanceof Function expectedFunction && actual instanceof Function actualFunction
+                && expectedFunction.parameters().size() == actualFunction.parameters().size()) {
+            for (int i = 0; i < expectedFunction.parameters().size(); i++) {
+                inferGenericBindings(expectedFunction.parameters().get(i), actualFunction.parameters().get(i), inferred, where);
+            }
+            inferGenericBindings(expectedFunction.result(), actualFunction.result(), inferred, where);
+        }
+    }
+
+    private Type widenInferenceType(Type type) {
+        if (type instanceof StringLiteral) return Primitive.STRING;
+        return type;
     }
 
     private Map<String, Type> classGenericSubstitutions(Ast.ClassDecl klass, Type nominal) {
@@ -1978,13 +2205,25 @@ public final class TypeChecker {
     }
 
     private Ast.TypeAliasDecl findTypeAlias(String name) {
+        Ast.TypeAliasDecl lexical = findLexicalTypeAlias(name);
+        if (lexical != null) return lexical;
         if (ambiguousTypeAliases.contains(name)) throw new IllegalArgumentException("ambiguous type alias '" + name + "'; qualify it with its module");
         return typeAliases.get(name);
+    }
+
+    private Ast.TypeAliasDecl findLexicalTypeAlias(String name) {
+        if (name.contains(".")) return null;
+        for (Map<String, Ast.TypeAliasDecl> scope : localTypeAliasScopes) {
+            Ast.TypeAliasDecl local = scope.get(name);
+            if (local != null) return local;
+        }
+        return null;
     }
 
     private void pushLocalTypeScope(List<Ast.Stmt> body) {
         Map<String, Ast.ClassDecl> classesHere = new LinkedHashMap<>();
         Map<String, Ast.InterfaceDecl> interfacesHere = new LinkedHashMap<>();
+        Map<String, Ast.TypeAliasDecl> aliasesHere = new LinkedHashMap<>();
         Set<String> names = new HashSet<>();
 
         for (Ast.Stmt stmt : body) {
@@ -1998,16 +2237,21 @@ public final class TypeChecker {
             } else if (local.declaration() instanceof Ast.InterfaceDecl iface) {
                 if (!names.add(iface.name())) throw new IllegalArgumentException("duplicate callable-local type '" + iface.name() + "'");
                 interfacesHere.put(iface.name(), iface);
+            } else if (local.declaration() instanceof Ast.TypeAliasDecl alias) {
+                if (!names.add(alias.name())) throw new IllegalArgumentException("duplicate callable-local type '" + alias.name() + "'");
+                aliasesHere.put(alias.name(), alias);
             }
         }
 
         localClassScopes.push(classesHere);
         localInterfaceScopes.push(interfacesHere);
+        localTypeAliasScopes.push(aliasesHere);
     }
 
     private void popLocalTypeScope() {
         localClassScopes.pop();
         localInterfaceScopes.pop();
+        localTypeAliasScopes.pop();
     }
 
     private Function declaredFunctionType(Ast.FunctionDecl fn) {

@@ -2,6 +2,7 @@ package dev.oreslang.compiler;
 
 import dev.oreslang.ast.Ast;
 import dev.oreslang.parser.Parser;
+import dev.oreslang.types.TraitComposer;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -46,7 +47,8 @@ public final class IncrementalCompiler {
             hashes.put(entry.getKey(), digest(entry.getValue()));
             Ast.Program program = Parser.parse(entry.getValue());
             parsed.put(entry.getKey(), program);
-            abiHashes.put(entry.getKey(), abiDigest(program));
+            Ast.Program composedForAbi = TraitComposer.compose(program);
+            abiHashes.put(entry.getKey(), abiDigest(composedForAbi));
             dependencies.put(entry.getKey(), resolveDependencies(entry.getKey(), program, normalized.keySet()));
         }
 
@@ -112,7 +114,7 @@ public final class IncrementalCompiler {
     }
 
     private static String abiDigest(Ast.Program program) {
-        StringBuilder abi = new StringBuilder("ores-abi-v1\n");
+        StringBuilder abi = new StringBuilder("ores-abi-v2\n");
         abi.append("namespace=").append(program.namespace() == null ? "" : program.namespace()).append('\n');
 
         for (Ast.ModuleDecl module : program.modules()) {
@@ -165,6 +167,7 @@ public final class IncrementalCompiler {
                 appendGenerics(abi, method.genericParameters());
                 appendParams(abi, method.parameters());
                 abi.append("=>").append(typeRef(method.returnType())).append('\n');
+                appendCallableLocalTypes(abi, method.body());
             }
             return;
         }
@@ -216,6 +219,7 @@ public final class IncrementalCompiler {
                     appendGenerics(abi, method.genericParameters());
                     appendParams(abi, method.parameters());
                     abi.append("=>").append(typeRef(method.returnType())).append('\n');
+                    appendCallableLocalTypes(abi, method.body());
                 }
             } else if (local.declaration() instanceof Ast.InterfaceDecl iface) {
                 abi.append(" local-interface ").append(iface.name());
@@ -228,6 +232,10 @@ public final class IncrementalCompiler {
                     appendParams(abi, method.parameters());
                     abi.append("=>").append(typeRef(method.returnType())).append('\n');
                 }
+            } else if (local.declaration() instanceof Ast.TypeAliasDecl alias) {
+                abi.append(" local-type ").append(alias.name());
+                appendGenerics(abi, alias.genericParameters());
+                abi.append('=').append(typeRef(alias.target())).append('\n');
             }
         }
     }

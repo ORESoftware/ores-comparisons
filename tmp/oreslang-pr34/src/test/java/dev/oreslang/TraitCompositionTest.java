@@ -224,4 +224,154 @@ final class TraitCompositionTest {
 
         assertTrue(hiddenDependency.getMessage().contains("undeclared self member"));
     }
+    @Test
+    void callableLocalStructsComposeTraitsAndInitializeTraitOwnedState() throws Exception {
+        String program = """
+                define module app as
+                  define trait Answering as
+                    private val int seed = 41;
+
+                    pub answer() => int {
+                      return self.seed + 1;
+                    }
+                  end
+
+                  fnc make() => T {
+                    struct T with Answering {
+                      pub name: string;
+                    }
+                    return obj{name: "local"};
+                  }
+
+                  pub fnc main() => void {
+                    val value = make();
+                    stdio.stdout.write(value.answer());
+                    return;
+                  }
+                end
+                """;
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(OresLanguage.ID, program, "local-traits.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        assertTrue(output.toString(StandardCharsets.UTF_8).contains("42"));
+    }
+
+    @Test
+    void callersCannotInjectComposedTraitStateIntoStructLiterals() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          define trait Secret as
+                            private val int hidden = 7;
+                          end
+
+                          fnc bad() => T {
+                            struct T with Secret {
+                              pub name: string;
+                            }
+                            return T { name = "x", hidden = 99 };
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("trait-owned struct field"));
+    }
+
+    @Test
+    void traitsCannotMasqueradeAsRuntimeValueTypes() {
+        IllegalArgumentException parameter = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          define trait Stateful as
+                            private val int state = 1;
+                          end
+
+                          fnc bad(Stateful value) => void {
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(parameter.getMessage().contains("no runtime/value type identity"));
+
+        IllegalArgumentException allocation = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          define trait Stateful as
+                            private val int state = 1;
+                          end
+
+                          fnc bad() => void {
+                            val value = new Stateful();
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(allocation.getMessage().contains("no runtime/value type identity"));
+    }
+
+    @Test
+    void aggregateContractTraitAndAliasNamesShareOneTypeNamespace() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          define trait Thing as
+                            private val int state = 1;
+                          end
+
+                          struct Thing {
+                            value: int;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("share one namespace"));
+    }
+    @Test
+    void privateTraitMethodsRemainOwnedByTheirTraitAfterComposition() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module app as
+                  define trait SecretMath as
+                    private helper() => int {
+                      return 41;
+                    }
+
+                    pub answer() => int {
+                      return self.helper() + 1;
+                    }
+                  end
+
+                  define class Good with SecretMath as
+                  end
+                end
+                """)));
+
+        IllegalArgumentException leak = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          define trait SecretMath as
+                            private helper() => int {
+                              return 41;
+                            }
+                          end
+
+                          define class Bad with SecretMath as
+                            pub leak() => int {
+                              return self.helper();
+                            }
+                          end
+                        end
+                        """)));
+
+        assertTrue(leak.getMessage().contains("private to that trait"));
+    }
 }

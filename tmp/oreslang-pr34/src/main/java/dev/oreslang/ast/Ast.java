@@ -259,8 +259,9 @@ public final class Ast {
     public record TypeDeclStmt(Decl declaration) implements Stmt {
         public TypeDeclStmt {
             if (!(declaration instanceof ClassDecl klass && klass.isStruct())
-                    && !(declaration instanceof InterfaceDecl)) {
-                throw new IllegalArgumentException("callable-local type declarations are limited to struct/interface");
+                    && !(declaration instanceof InterfaceDecl)
+                    && !(declaration instanceof TypeAliasDecl)) {
+                throw new IllegalArgumentException("callable-local type declarations are limited to struct/interface/type");
             }
         }
     }

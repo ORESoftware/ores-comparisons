@@ -266,20 +266,23 @@ public final class Parser {
         while (!check(terminator) && !check(EOF)) {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
+            Ast.Visibility structFieldVisibility = mods.visibilityExplicit
+                    ? mods.visibility
+                    : Ast.Visibility.PUBLIC;
 
             if (check(IDENT) && checkNext(COLON)) {
                 if (!annotations.isEmpty() || mods.isStatic || mods.async || mods.isAbstract) {
                     throw error(peek(), "name-first struct fields do not accept annotations/static/async/abstract modifiers");
                 }
-                fields.add(parseNameFirstStructField(mods.visibility, terminator));
+                fields.add(parseNameFirstStructField(structFieldVisibility, terminator));
                 continue;
             }
 
             if (isBindingKind(peek().type()) || looksLikeStructField()) {
                 if (mods.isStatic || mods.async || mods.isAbstract) throw error(peek(), "struct fields do not accept static/async/abstract modifiers");
                 fields.add(isBindingKind(peek().type())
-                        ? parseField(mods.visibility)
-                        : parseImplicitValStructField(mods.visibility));
+                        ? parseField(structFieldVisibility)
+                        : parseImplicitValStructField(structFieldVisibility));
                 continue;
             }
 
@@ -485,20 +488,25 @@ public final class Parser {
 
     private Modifiers parseModifiers() {
         Ast.Visibility visibility = Ast.Visibility.PRIVATE;
+        boolean visibilityExplicit = false;
         boolean async = false;
         boolean isStatic = false;
         boolean isAbstract = false;
         boolean progress;
         do {
             progress = true;
-            if (match(PUB)) visibility = Ast.Visibility.PUBLIC;
-            else if (match(PRIVATE)) visibility = Ast.Visibility.PRIVATE;
-            else if (match(ASYNC)) async = true;
+            if (match(PUB)) {
+                visibility = Ast.Visibility.PUBLIC;
+                visibilityExplicit = true;
+            } else if (match(PRIVATE)) {
+                visibility = Ast.Visibility.PRIVATE;
+                visibilityExplicit = true;
+            } else if (match(ASYNC)) async = true;
             else if (match(STATIC)) isStatic = true;
             else if (match(ABSTRACT)) isAbstract = true;
             else progress = false;
         } while (progress);
-        return new Modifiers(visibility, async, isStatic, isAbstract);
+        return new Modifiers(visibility, visibilityExplicit, async, isStatic, isAbstract);
     }
 
     private Ast.TypeRef parseReturnType(List<Ast.Annotation> annotations) {
@@ -687,10 +695,11 @@ public final class Parser {
     private Ast.Stmt parseStatement() {
         if (match(STRUCT)) return new Ast.TypeDeclStmt(parseStruct(true));
         if (match(INTERFACE)) return new Ast.TypeDeclStmt(parseInterface(Ast.Visibility.PRIVATE));
+        if (match(TYPE)) return new Ast.TypeDeclStmt(parseTypeAlias());
         if (match(DEFINE)) {
             if (match(STRUCT)) return new Ast.TypeDeclStmt(parseStruct(false));
             if (match(INTERFACE)) return new Ast.TypeDeclStmt(parseInterface(Ast.Visibility.PRIVATE));
-            throw error(previous(), "callable-local 'define' only supports struct or interface declarations");
+            throw error(previous(), "callable-local 'define' only supports struct or interface declarations; type aliases use 'type Name = ...'");
         }
         if (isBindingKind(peek().type())) return parseBindingStatement();
         if (check(LBRACKET) && looksLikeDestructure()) return parseDestructure();
@@ -1144,5 +1153,10 @@ public final class Parser {
         return new IllegalArgumentException("Oreslang parse error at " + token.line() + ":" + token.column() + ": " + message);
     }
 
-    private record Modifiers(Ast.Visibility visibility, boolean async, boolean isStatic, boolean isAbstract) { }
+    private record Modifiers(
+            Ast.Visibility visibility,
+            boolean visibilityExplicit,
+            boolean async,
+            boolean isStatic,
+            boolean isAbstract) { }
 }

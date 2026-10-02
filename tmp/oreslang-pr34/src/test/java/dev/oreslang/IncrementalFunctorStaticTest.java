@@ -293,4 +293,60 @@ final class IncrementalFunctorStaticTest {
         }
         return output.toString(StandardCharsets.UTF_8);
     }
+    @Test
+    void traitCompositionParticipatesInExportedAbiInvalidation() {
+        IncrementalCompiler compiler = new IncrementalCompiler();
+
+        Map<String, String> first = Map.of(
+                "model.ores", """
+                        define module model as
+                          define trait Behavior as
+                            pub value() => int { return 1; }
+                          end
+
+                          define class Box with Behavior as
+                          end
+                        end
+                        """,
+                "consumer.ores", """
+                        import class {Box} from "./model.ores";
+                        pub fnc accept(Box value) => void { return; }
+                        """);
+        compiler.compile(first);
+
+        Map<String, String> implementationOnly = Map.of(
+                "model.ores", """
+                        define module model as
+                          define trait Behavior as
+                            pub value() => int { return 2; }
+                          end
+
+                          define class Box with Behavior as
+                          end
+                        end
+                        """,
+                "consumer.ores", first.get("consumer.ores"));
+        var second = compiler.compile(implementationOnly);
+        assertTrue(second.rebuilt("model.ores"));
+        assertTrue(second.reused("consumer.ores"),
+                "trait method body changes must not invalidate importers when composed ABI is unchanged");
+
+        Map<String, String> publicShapeChange = Map.of(
+                "model.ores", """
+                        define module model as
+                          define trait Behavior as
+                            pub value() => int { return 2; }
+                            pub label() => String { return "box"; }
+                          end
+
+                          define class Box with Behavior as
+                          end
+                        end
+                        """,
+                "consumer.ores", first.get("consumer.ores"));
+        var third = compiler.compile(publicShapeChange);
+        assertTrue(third.rebuilt("model.ores"));
+        assertTrue(third.rebuilt("consumer.ores"),
+                "trait changes that alter a composed public class shape must invalidate importers");
+    }
 }
