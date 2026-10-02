@@ -271,6 +271,10 @@ public final class OwnershipChecker {
             mergeBranchState(base, exits);
             return;
         }
+        if (stmt instanceof Ast.MatchStmt matched) {
+            checkOptionMatch(matched, scope, returnType);
+            return;
+        }
         if (stmt instanceof Ast.TryStmt attempted) {
             checkBlock(attempted.body(), scope, returnType);
             Scope caught = new Scope(scope);
@@ -588,6 +592,19 @@ public final class OwnershipChecker {
         }
 
         if (call.callee() instanceof Ast.NameExpr intrinsic) {
+            if (intrinsic.name().equals("Some")) {
+                requireIntrinsicArity(call, "Some", 1);
+                ValueInfo payload = checkExpr(call.arguments().getFirst(), scope, true);
+                if (payload.kind == ValueKind.IMM_BORROW || payload.kind == ValueKind.MUT_BORROW) {
+                    throw error("Some(...) cannot store a borrow until container borrow provenance is modeled; "
+                            + "store an owned value or match the borrow directly");
+                }
+                Ast.TypeRef optionType = new Ast.TypeRef("Option", List.of(payload.type), false);
+                return new ValueInfo(
+                        optionType,
+                        payload.kind == ValueKind.COPY ? ValueKind.COPY : ValueKind.MOVE_ONLY,
+                        null);
+            }
             if (intrinsic.name().equals("borrow")) {
                 VarState owner = intrinsicOwner(call, scope, "borrow");
                 validateBorrow(owner, false);
@@ -857,6 +874,64 @@ public final class OwnershipChecker {
         else temporary.owner().immutableBorrows--;
     }
 
+    private void checkOptionMatch(Ast.MatchStmt matched, Scope scope, Ast.TypeRef returnType) {
+        boolean explicitTake = isIntrinsicCall(matched.value(), "take");
+        boolean explicitCopy = isIntrinsicCall(matched.value(), "copy");
+        boolean explicitBorrow = isIntrinsicCall(matched.value(), "borrow");
+
+        ValueInfo source = checkExpr(matched.value(), scope, explicitTake);
+        Ast.TypeRef optionType = source.type.isBorrow() ? source.type.borrowedTarget() : source.type;
+        Ast.TypeRef payloadType = optionType.name().equals("Option") && optionType.arguments().size() == 1
+                ? optionType.arguments().getFirst()
+                : Ast.TypeRef.inferred();
+
+        VarState reservedOwner = null;
+        if (!explicitTake && !explicitCopy) {
+            if (explicitBorrow) {
+                reservedOwner = intrinsicOwner((Ast.CallExpr) matched.value(), scope, "borrow");
+            } else if (matched.value() instanceof Ast.NameExpr name) {
+                VarState candidate = requireState(scope, name.name());
+                if (candidate.kind != ValueKind.COPY) reservedOwner = candidate;
+            }
+            if (reservedOwner != null) beginPersistentBorrow(reservedOwner, false);
+        }
+
+        Map<VarState, StateSnapshot> base = stateSnapshot(scope);
+        List<Map<VarState, StateSnapshot>> exits = new ArrayList<>();
+        boolean seenSome = false;
+        boolean seenNone = false;
+        try {
+            for (Ast.MatchArm arm : matched.arms()) {
+                restoreState(base);
+                Scope armScope = new Scope(scope);
+                if (arm.pattern() instanceof Ast.SomePattern some) {
+                    if (seenSome) throw error("duplicate Some arm in Option match");
+                    seenSome = true;
+                    ValueKind payloadKind = isCopyType(payloadType)
+                            ? ValueKind.COPY
+                            : explicitTake ? ValueKind.MOVE_ONLY : ValueKind.IMM_BORROW;
+                    armScope.define(
+                            some.bindingName(),
+                            new VarState(payloadType, false, payloadKind, Origin.LOCAL));
+                } else if (arm.pattern() instanceof Ast.NonePattern) {
+                    if (seenNone) throw error("duplicate None arm in Option match");
+                    seenNone = true;
+                } else {
+                    throw error("unsupported Option match pattern " + arm.pattern());
+                }
+                checkBlock(arm.body(), armScope, returnType);
+                exits.add(stateSnapshot(scope));
+                armScope.close();
+            }
+            if (!seenSome || !seenNone || matched.arms().size() != 2) {
+                throw error("Option match must be exhaustive with exactly one Some(...) arm and one None arm");
+            }
+            mergeBranchState(base, exits);
+        } finally {
+            if (reservedOwner != null) reservedOwner.immutableBorrows--;
+        }
+    }
+
     private void checkAssignmentTarget(Ast.Expr target, Scope scope) {
         if (target instanceof Ast.NameExpr name) {
             VarState state = requireState(scope, name.name());
@@ -1020,6 +1095,13 @@ public final class OwnershipChecker {
                     scanStatements(b.body(), blockLocals, outer, recursiveBinding, captures);
                 }
                 scanStatements(s.elseBody(), blockLocals, outer, recursiveBinding, captures);
+            } else if (stmt instanceof Ast.MatchStmt s) {
+                scanExpr(s.value(), blockLocals, outer, recursiveBinding, captures, false);
+                for (Ast.MatchArm arm : s.arms()) {
+                    Set<String> armLocals = new HashSet<>(blockLocals);
+                    if (arm.pattern() instanceof Ast.SomePattern some) armLocals.add(some.bindingName());
+                    scanStatements(arm.body(), armLocals, outer, recursiveBinding, captures);
+                }
             } else if (stmt instanceof Ast.TryStmt s) {
                 scanStatements(s.body(), blockLocals, outer, recursiveBinding, captures);
                 Set<String> caught = new HashSet<>(blockLocals);

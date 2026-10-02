@@ -185,6 +185,9 @@ public final class TraitComposer {
                         validateNoTraitRuntimeTypes(moduleName, branch.body(), generics);
                     }
                     validateNoTraitRuntimeTypes(moduleName, conditional.elseBody(), generics);
+                } else if (statement instanceof Ast.MatchStmt matched) {
+                    validateNoTraitRuntimeTypes(moduleName, matched.value(), generics);
+                    for (Ast.MatchArm arm : matched.arms()) validateNoTraitRuntimeTypes(moduleName, arm.body(), generics);
                 } else if (statement instanceof Ast.TryStmt attempted) {
                     validateNoTraitRuntimeTypes(moduleName, attempted.body(), generics);
                     validateNoTraitRuntimeTypes(moduleName, attempted.catchBody(), generics);
@@ -325,6 +328,9 @@ public final class TraitComposer {
                         validateNoTraitInstantiation(moduleName, branch.body());
                     }
                     validateNoTraitInstantiation(moduleName, conditional.elseBody());
+                } else if (statement instanceof Ast.MatchStmt matched) {
+                    validateNoTraitInstantiation(moduleName, matched.value());
+                    for (Ast.MatchArm arm : matched.arms()) validateNoTraitInstantiation(moduleName, arm.body());
                 } else if (statement instanceof Ast.TryStmt attempted) {
                     validateNoTraitInstantiation(moduleName, attempted.body());
                     validateNoTraitInstantiation(moduleName, attempted.catchBody());
@@ -399,6 +405,9 @@ public final class TraitComposer {
 
                 for (Ast.Decl declaration : module.declarations()) {
                     if (!(declaration instanceof Ast.TraitDecl trait)) continue;
+                    if (trait.name().equals("Option")) {
+                        throw new IllegalArgumentException("trait cannot redefine built-in type 'Option'");
+                    }
                     if (occupiedTypeNames.contains(trait.name())) {
                         throw new IllegalArgumentException(
                                 "trait '" + module.name() + "." + trait.name()
@@ -920,6 +929,15 @@ public final class TraitComposer {
                         branches,
                         substituteStatements(conditional.elseBody(), substitutions));
             }
+            if (statement instanceof Ast.MatchStmt matched) {
+                return new Ast.MatchStmt(
+                        substitute(matched.value(), substitutions),
+                        matched.arms().stream()
+                                .map(arm -> new Ast.MatchArm(
+                                        arm.pattern(),
+                                        substituteStatements(arm.body(), substitutions)))
+                                .toList());
+            }
             if (statement instanceof Ast.TryStmt attempted) {
                 return new Ast.TryStmt(
                         substituteStatements(attempted.body(), substitutions),
@@ -1115,6 +1133,9 @@ public final class TraitComposer {
                         validateTraitSelfAccess(traitName, branch.body(), fields, methods);
                     }
                     validateTraitSelfAccess(traitName, conditional.elseBody(), fields, methods);
+                } else if (statement instanceof Ast.MatchStmt matched) {
+                    validateTraitSelfAccess(traitName, matched.value(), fields, methods);
+                    for (Ast.MatchArm arm : matched.arms()) validateTraitSelfAccess(traitName, arm.body(), fields, methods);
                 } else if (statement instanceof Ast.TryStmt attempted) {
                     validateTraitSelfAccess(traitName, attempted.body(), fields, methods);
                     validateTraitSelfAccess(traitName, attempted.catchBody(), fields, methods);

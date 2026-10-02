@@ -659,6 +659,7 @@ public final class Parser {
             return new Ast.DeferStmt(expression);
         }
         if (match(IF)) return parseIf();
+        if (match(MATCH)) return parseMatch();
         if (match(TRY)) return parseTry();
         if (match(FOR)) return parseFor();
 
@@ -770,6 +771,44 @@ public final class Parser {
         if (match(ELSE)) elseBody = parseUntil(FI);
         consume(FI, "expected 'fi' to close if");
         return new Ast.IfStmt(branches, elseBody);
+    }
+
+    private Ast.MatchStmt parseMatch() {
+        Ast.Expr value = parseExpression();
+        consume(LBRACE, "expected '{' after match value");
+
+        List<Ast.MatchArm> arms = new ArrayList<>();
+        boolean seenSome = false;
+        boolean seenNone = false;
+
+        while (!check(RBRACE) && !check(EOF)) {
+            Token constructor = consume(IDENT, "Option match arms must be Some(name) or None");
+            Ast.OptionPattern pattern;
+            if (constructor.lexeme().equals("Some")) {
+                if (seenSome) throw error(constructor, "duplicate Some arm in Option match");
+                seenSome = true;
+                consume(LPAREN, "Some pattern requires '('");
+                String binding = consume(IDENT, "Some pattern requires a payload binding").lexeme();
+                consume(RPAREN, "Some pattern requires ')'");
+                pattern = new Ast.SomePattern(binding);
+            } else if (constructor.lexeme().equals("None")) {
+                if (seenNone) throw error(constructor, "duplicate None arm in Option match");
+                seenNone = true;
+                pattern = new Ast.NonePattern();
+            } else {
+                throw error(constructor, "Option match arms must be Some(name) or None");
+            }
+
+            consume(FAT_ARROW, "match arm requires '=>'");
+            arms.add(new Ast.MatchArm(pattern, parseBlock()));
+            match(COMMA);
+        }
+
+        consume(RBRACE, "expected '}' after match arms");
+        if (!seenSome || !seenNone) {
+            throw error(previous(), "Option match must be exhaustive with exactly one Some(...) arm and one None arm");
+        }
+        return new Ast.MatchStmt(value, arms);
     }
 
     private Ast.Expr parseCondition() {

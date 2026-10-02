@@ -92,12 +92,15 @@ public final class TypeChecker {
                     putQualified(functions, ambiguousFunctions, module.name(), fn.name(), fn, fn.kind() == Ast.CallableKind.ROUTINE ? "routine" : "function");
                     functionOwners.put(fn, module.name());
                 } else if (decl instanceof Ast.ClassDecl klass) {
+                    requireNotBuiltinTypeName(klass.name(), "class");
                     putQualified(classes, ambiguousClasses, module.name(), klass.name(), klass, "class");
                     classOwners.put(klass, module.name());
                 } else if (decl instanceof Ast.InterfaceDecl iface) {
+                    requireNotBuiltinTypeName(iface.name(), "interface");
                     putQualified(interfaces, ambiguousInterfaces, module.name(), iface.name(), iface, "interface");
                     interfaceOwners.put(iface, module.name());
                 } else if (decl instanceof Ast.TypeAliasDecl alias) {
+                    requireNotBuiltinTypeName(alias.name(), "type alias");
                     putQualified(typeAliases, ambiguousTypeAliases, module.name(), alias.name(), alias, "type alias");
                 }
             }
@@ -254,6 +257,17 @@ public final class TypeChecker {
                     validatePureSingletonInitStatements(module, branch.body(), names);
                 }
                 validatePureSingletonInitStatements(module, conditional.elseBody(), names);
+                continue;
+            }
+            if (stmt instanceof Ast.MatchStmt matched) {
+                if (!isPureSingletonInitializer(matched.value(), names)) {
+                    throw impureSingletonInit(module, "match value");
+                }
+                for (Ast.MatchArm arm : matched.arms()) {
+                    Set<String> armNames = new LinkedHashSet<>(names);
+                    if (arm.pattern() instanceof Ast.SomePattern some) armNames.add(some.bindingName());
+                    validatePureSingletonInitStatements(module, arm.body(), armNames);
+                }
                 continue;
             }
             throw impureSingletonInit(module, stmt.getClass().getSimpleName());
@@ -554,6 +568,13 @@ public final class TypeChecker {
                 }
                 validateProcessOwnedStatements(processOwner, processClass, conditional.elseBody(),
                         new LinkedHashSet<>(locals), where);
+            } else if (stmt instanceof Ast.MatchStmt matched) {
+                validateProcessOwnedExpr(processOwner, processClass, matched.value(), locals, where);
+                for (Ast.MatchArm arm : matched.arms()) {
+                    Set<String> armLocals = new LinkedHashSet<>(locals);
+                    if (arm.pattern() instanceof Ast.SomePattern some) armLocals.add(some.bindingName());
+                    validateProcessOwnedStatements(processOwner, processClass, arm.body(), armLocals, where);
+                }
             } else if (stmt instanceof Ast.TryStmt attempted) {
                 validateProcessOwnedStatements(processOwner, processClass, attempted.body(),
                         new LinkedHashSet<>(locals), where);
@@ -737,6 +758,13 @@ public final class TypeChecker {
                             || referencesActorModuleBinding(branch.body(), actorBindings, shadowed)) return true;
                 }
                 if (referencesActorModuleBinding(conditional.elseBody(), actorBindings, shadowed)) return true;
+            } else if (stmt instanceof Ast.MatchStmt matched) {
+                if (referencesActorModuleBinding(matched.value(), actorBindings, shadowed)) return true;
+                for (Ast.MatchArm arm : matched.arms()) {
+                    Set<String> armShadowed = new LinkedHashSet<>(shadowed);
+                    if (arm.pattern() instanceof Ast.SomePattern some) armShadowed.add(some.bindingName());
+                    if (referencesActorModuleBinding(arm.body(), actorBindings, armShadowed)) return true;
+                }
             } else if (stmt instanceof Ast.TryStmt attempted) {
                 if (referencesActorModuleBinding(attempted.body(), actorBindings, shadowed)) return true;
                 Set<String> caught = new LinkedHashSet<>(shadowed);
@@ -1258,6 +1286,38 @@ public final class TypeChecker {
             checkBlock(conditional.elseBody(), env, generics, expectedReturn, self);
             return;
         }
+        if (stmt instanceof Ast.MatchStmt matched) {
+            Type matchedType = typeOf(matched.value(), env, generics, self);
+            Type optionType = matchedType instanceof Borrow borrow ? borrow.target() : matchedType;
+            if (!(optionType instanceof Named option)
+                    || !option.name().equals("Option")
+                    || option.arguments().size() != 1) {
+                throw new IllegalArgumentException("match Some/None requires Option<T>, got " + matchedType);
+            }
+            boolean seenSome = false;
+            boolean seenNone = false;
+            Type payload = option.arguments().getFirst();
+            for (Ast.MatchArm arm : matched.arms()) {
+                Env armEnv = new Env(env);
+                if (arm.pattern() instanceof Ast.SomePattern some) {
+                    if (seenSome) throw new IllegalArgumentException("duplicate Some arm in Option match");
+                    seenSome = true;
+                    requireNotOwnershipIntrinsicBinding(some.bindingName(), "Some pattern binding");
+                    armEnv.define(some.bindingName(), payload, Ast.BindingKind.VAL);
+                } else if (arm.pattern() instanceof Ast.NonePattern) {
+                    if (seenNone) throw new IllegalArgumentException("duplicate None arm in Option match");
+                    seenNone = true;
+                } else {
+                    throw new IllegalArgumentException("unsupported Option match pattern " + arm.pattern());
+                }
+                checkBlock(arm.body(), armEnv, generics, expectedReturn, self);
+            }
+            if (!seenSome || !seenNone || matched.arms().size() != 2) {
+                throw new IllegalArgumentException(
+                        "Option match must be exhaustive with exactly one Some(...) arm and one None arm");
+            }
+            return;
+        }
         if (stmt instanceof Ast.TryStmt attempted) {
             checkBlock(attempted.body(), env, generics, expectedReturn, self);
             Env caught = new Env(env);
@@ -1575,6 +1635,11 @@ public final class TypeChecker {
                 throw new IllegalArgumentException("unknown static member '" + member.member() + "' on " + klass.name());
             }
 
+            if (receiver instanceof Named namedOption && namedOption.name().equals("Option")) {
+                throw new IllegalArgumentException(
+                        "Option<T> payload is nullable until proven Some(...); use exhaustive match before accessing '"
+                                + member.member() + "'");
+            }
             if (receiver instanceof Record record) {
                 Type result = record.members().get(member.member());
                 if (result == null) throw new IllegalArgumentException("unknown structural member '" + member.member() + "'");
@@ -1714,6 +1779,9 @@ public final class TypeChecker {
                     validateSingletonTransportStatements(branch.body(), currentModule);
                 }
                 validateSingletonTransportStatements(conditional.elseBody(), currentModule);
+            } else if (stmt instanceof Ast.MatchStmt matched) {
+                validateSingletonTransportExpr(matched.value(), currentModule);
+                for (Ast.MatchArm arm : matched.arms()) validateSingletonTransportStatements(arm.body(), currentModule);
             } else if (stmt instanceof Ast.TryStmt attempted) {
                 validateSingletonTransportStatements(attempted.body(), currentModule);
                 validateSingletonTransportStatements(attempted.catchBody(), currentModule);
@@ -2191,6 +2259,16 @@ public final class TypeChecker {
             throw new IllegalArgumentException(
                     where + " cannot bind reserved ownership intrinsic name '" + name + "'");
         }
+        if (name.equals("Some") || name.equals("None")) {
+            throw new IllegalArgumentException(
+                    where + " cannot bind built-in Option constructor '" + name + "'");
+        }
+    }
+
+    private void requireNotBuiltinTypeName(String name, String kind) {
+        if (name.equals("Option")) {
+            throw new IllegalArgumentException(kind + " cannot redefine built-in type 'Option'");
+        }
     }
 
     private void requireExtractableOwnership(List<Ast.Param> params, String callable) {
@@ -2408,6 +2486,10 @@ public final class TypeChecker {
                         && definitelyReturns(conditional.elseBody());
                 if (allBranches) return true;
             }
+            if (stmt instanceof Ast.MatchStmt matched) {
+                if (matched.arms().size() == 2
+                        && matched.arms().stream().allMatch(arm -> definitelyReturns(arm.body()))) return true;
+            }
             if (stmt instanceof Ast.TryStmt attempted) {
                 if (definitelyReturns(attempted.finallyBody())) return true;
                 if (definitelyReturns(attempted.body()) && definitelyReturns(attempted.catchBody())) return true;
@@ -2467,6 +2549,11 @@ public final class TypeChecker {
                 for (Ast.Stmt nested : b.body()) collectCalls(nested, module, out);
             }
             for (Ast.Stmt nested : s.elseBody()) collectCalls(nested, module, out);
+        } else if (stmt instanceof Ast.MatchStmt s) {
+            collectCalls(s.value(), module, out);
+            for (Ast.MatchArm arm : s.arms()) {
+                for (Ast.Stmt nested : arm.body()) collectCalls(nested, module, out);
+            }
         } else if (stmt instanceof Ast.TryStmt s) {
             for (Ast.Stmt nested : s.body()) collectCalls(nested, module, out);
             for (Ast.Stmt nested : s.catchBody()) collectCalls(nested, module, out);

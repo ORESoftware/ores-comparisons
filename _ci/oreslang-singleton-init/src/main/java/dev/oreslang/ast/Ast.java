@@ -277,7 +277,7 @@ public final class Ast {
     public enum BindingKind { CONST, VAL, LET }
 
     public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, ExprStmt, DeferStmt,
-            IfStmt, TryStmt, ForOfStmt, ForStmt { }
+            IfStmt, MatchStmt, TryStmt, ForOfStmt, ForStmt { }
 
     public record BindingStmt(BindingKind kind, TypeRef declaredType, String name, Expr initializer) implements Stmt { }
     public record DestructureBinding(BindingKind kind, String name) { }
@@ -299,6 +299,18 @@ public final class Ast {
             branches = List.copyOf(branches);
             elseBody = List.copyOf(elseBody);
         }
+    }
+
+    public sealed interface OptionPattern permits SomePattern, NonePattern { }
+    public record SomePattern(String bindingName) implements OptionPattern { }
+    public record NonePattern() implements OptionPattern { }
+
+    public record MatchArm(OptionPattern pattern, List<Stmt> body) {
+        public MatchArm { body = List.copyOf(body); }
+    }
+
+    public record MatchStmt(Expr value, List<MatchArm> arms) implements Stmt {
+        public MatchStmt { arms = List.copyOf(arms); }
     }
 
     public record TryStmt(List<Stmt> body, String errorName, List<Stmt> catchBody, List<Stmt> finallyBody) implements Stmt {

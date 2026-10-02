@@ -447,6 +447,25 @@ public final class OresEvalRootNode extends RootNode {
                 executeBlock(ifStmt.elseBody(), env);
                 return;
             }
+            if (stmt instanceof Ast.MatchStmt matched) {
+                Object raw = eval(matched.value(), env);
+                if (!(raw instanceof OptionValue option)) {
+                    throw new IllegalArgumentException("match Some/None requires an Option value");
+                }
+                Ast.MatchArm selected = null;
+                for (Ast.MatchArm arm : matched.arms()) {
+                    if (option.present() && arm.pattern() instanceof Ast.SomePattern) { selected = arm; break; }
+                    if (!option.present() && arm.pattern() instanceof Ast.NonePattern) { selected = arm; break; }
+                }
+                if (selected == null) throw new IllegalStateException("non-exhaustive Option match survived static checking");
+
+                Env armEnv = new Env(env);
+                if (selected.pattern() instanceof Ast.SomePattern some) {
+                    armEnv.define(some.bindingName(), option.value(), Ast.BindingKind.VAL);
+                }
+                executeBlock(selected.body(), armEnv);
+                return;
+            }
             if (stmt instanceof Ast.TryStmt tried) {
                 try { executeBlock(tried.body(), env); }
                 catch (ReturnSignal signal) { throw signal; }
