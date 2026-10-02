@@ -25,6 +25,8 @@ public final class CapabilityChecker {
     private final Set<String> ambiguousFunctions = new HashSet<>();
     private final Set<Ast.FunctionDecl> callableStack =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private final Set<Object> typeExpansionStack =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     private CapabilityChecker(Ast.Program program) {
         for (Ast.ModuleDecl module : program.modules()) {
@@ -145,34 +147,30 @@ public final class CapabilityChecker {
     }
 
     private void checkType(Ast.TypeRef type, IsolatePolicy policy) {
-        checkType(type, policy, new HashSet<>());
-    }
-
-    private void checkType(Ast.TypeRef type, IsolatePolicy policy, Set<Object> visiting) {
         if (type == null) return;
 
         if (type.name().equals("SharedMutex")) {
             require(policy, IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex<T>");
         }
-        for (Ast.TypeRef argument : type.arguments()) checkType(argument, policy, visiting);
-        if (type.isBorrow()) checkType(type.borrowedTarget(), policy, visiting);
+        for (Ast.TypeRef argument : type.arguments()) checkType(argument, policy);
+        if (type.isBorrow()) checkType(type.borrowedTarget(), policy);
 
         Ast.TypeAliasDecl alias = findAlias(type.name());
-        if (alias != null && visiting.add(alias)) {
+        if (alias != null && typeExpansionStack.add(alias)) {
             try {
-                checkType(alias.target(), policy, visiting);
+                checkType(alias.target(), policy);
             } finally {
-                visiting.remove(alias);
+                typeExpansionStack.remove(alias);
             }
         }
 
         Ast.ClassDecl klass = findClass(type.name());
-        if (klass != null && visiting.add(klass)) {
+        if (klass != null && typeExpansionStack.add(klass)) {
             try {
-                for (Ast.TypeRef parent : klass.parents()) checkType(parent, policy, visiting);
-                for (Ast.TypeRef iface : klass.interfaces()) checkType(iface, policy, visiting);
+                for (Ast.TypeRef parent : klass.parents()) checkType(parent, policy);
+                for (Ast.TypeRef iface : klass.interfaces()) checkType(iface, policy);
                 for (Ast.FieldDecl field : klass.fields()) {
-                    checkType(field.type(), policy, visiting);
+                    checkType(field.type(), policy);
                     if (field.initializer() != null) checkExpr(field.initializer(), policy);
                 }
                 // An object stored in a private actor is itself an authority
@@ -186,7 +184,7 @@ public final class CapabilityChecker {
                     checkStatements(method.body(), policy);
                 }
             } finally {
-                visiting.remove(klass);
+                typeExpansionStack.remove(klass);
             }
         }
     }
