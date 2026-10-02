@@ -265,4 +265,74 @@ final class ActorRuntimeTest {
         assertThrows(IllegalStateException.class, () -> ref.send("after-close"));
     }
 
+
+    @Test
+    void concurrentSendersReserveMailboxBeforeFreezing() throws Exception {
+        IsolatePolicy oneQueuedMessage = new IsolatePolicy(
+                IsolatePolicy.developer().capabilities(),
+                IsolatePolicy.developer().maxHeapBytes(),
+                1,
+                IsolatePolicy.developer().maxWallTime(),
+                false);
+
+        try (ActorRuntime runtime = new ActorRuntime(oneQueuedMessage)) {
+            CountDownLatch processing = new CountDownLatch(1);
+            CountDownLatch releaseActor = new CountDownLatch(1);
+            CountDownLatch firstFreezeEntered = new CountDownLatch(1);
+            CountDownLatch releaseFirstFreeze = new CountDownLatch(1);
+            AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+            AtomicReference<Boolean> secondFreezeRan = new AtomicReference<>(false);
+
+            var ref = runtime.<Object>spawn(oneQueuedMessage, () -> (message, context) -> {
+                if ("processing".equals(message)) {
+                    processing.countDown();
+                    releaseActor.await();
+                }
+            });
+
+            ref.send("processing");
+            assertTrue(processing.await(2, TimeUnit.SECONDS));
+
+            ActorRuntime.Sendable first = () -> {
+                firstFreezeEntered.countDown();
+                try {
+                    if (!releaseFirstFreeze.await(2, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("timed out waiting to finish first freeze");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+                return "first-queued";
+            };
+
+            Thread sender = Thread.ofPlatform().start(() -> {
+                try {
+                    ref.send(first);
+                } catch (Throwable failure) {
+                    firstFailure.set(failure);
+                }
+            });
+
+            assertTrue(firstFreezeEntered.await(2, TimeUnit.SECONDS));
+
+            ActorRuntime.Sendable second = () -> {
+                secondFreezeRan.set(true);
+                return "second-queued";
+            };
+
+            IllegalStateException rejected = assertThrows(
+                    IllegalStateException.class,
+                    () -> ref.send(second));
+            assertTrue(rejected.getMessage().contains("mailbox limit exceeded"));
+            assertFalse(secondFreezeRan.get());
+
+            releaseFirstFreeze.countDown();
+            sender.join();
+            assertNull(firstFailure.get());
+
+            releaseActor.countDown();
+        }
+    }
+
 }
