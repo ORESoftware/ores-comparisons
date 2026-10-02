@@ -69,6 +69,53 @@ final class ActorCapabilityIsolationTest {
     }
 
     @Test
+    void privateActorCannotLaunderSharedMemoryThroughOrdinaryHelperFunction() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                fnc build_shared() => void {
+                  val shared = SharedMutex.new(1);
+                  stdio.println(shared);
+                  return;
+                }
+
+                actor PrivateWorker {
+                  pub fnc run() => void {
+                    build_shared();
+                    return;
+                  }
+                }
+                """));
+
+        SecurityException error = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+
+        assertTrue(error.getMessage().contains("SHARED_MEMORY"));
+    }
+
+    @Test
+    void privateActorCannotCarryObjectWhoseInstanceMethodUsesSharedAuthority() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                define class Helper
+                  pub use_shared() => void {
+                    val shared = process.share_readonly(arr[1, 2, 3]);
+                    stdio.println(shared);
+                    return;
+                  }
+                end
+
+                actor PrivateWorker {
+                  let Helper helper;
+                }
+                """));
+
+        SecurityException error = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+
+        assertTrue(error.getMessage().contains("ACTOR_SHARE_READONLY"));
+    }
+
+    @Test
     void sharedActorMayUseTransitiveSharedStateWhenParentPolicyAllowsIt() {
         Ast.Program program = TypeChecker.check(Parser.parse("""
                 type SharedInt = SharedMutex<int>;
