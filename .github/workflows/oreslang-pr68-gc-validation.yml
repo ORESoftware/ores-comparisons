@@ -31,7 +31,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
       - name: Verify exact mirrored source
-        run: grep -Fq "head b92d32849e2bbe7923154f41f457a79c6bf08e3f" SOURCE_HEAD.txt
+        run: grep -Fq "head 0c97f6b39b290b1b92c7979eb41006a77894c1d6" SOURCE_HEAD.txt
       - name: GC and actor-isolation focused tests
         run: >-
           mvn -B -ntp
@@ -51,7 +51,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
       - name: Verify exact mirrored source
-        run: grep -Fq "head b92d32849e2bbe7923154f41f457a79c6bf08e3f" SOURCE_HEAD.txt
+        run: grep -Fq "head 0c97f6b39b290b1b92c7979eb41006a77894c1d6" SOURCE_HEAD.txt
       - name: Compile mirrored Oreslang
         run: mvn -B -ntp -q -DskipTests compile
       - name: Run GC language contract example
@@ -80,6 +80,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
       - name: Verify exact mirrored source
-        run: grep -Fq "head b92d32849e2bbe7923154f41f457a79c6bf08e3f" SOURCE_HEAD.txt
+        run: grep -Fq "head 0c97f6b39b290b1b92c7979eb41006a77894c1d6" SOURCE_HEAD.txt
       - name: Full Maven test suite
         run: mvn -B -ntp test
