@@ -1,0 +1,28 @@
+name: oreslang-demo-pr15-features
+
+on:
+  push:
+    branches:
+      - ci/oreslang-demo-pr15-features-20261002
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Verify all-feature compiler mirror
+        run: |
+          docker run --rm -v "$PWD/_ci/oreslang-demo-pr9/sources/local:/work" -w /work maven:3.9.11-eclipse-temurin-21 mvn -B -ntp verify
+      - name: Run demo PR 15 feature examples
+        run: |
+          docker run --rm -v "$PWD/_ci/oreslang-demo-pr9/sources/local:/work" -w /work maven:3.9.11-eclipse-temurin-21 bash -lc '
+            set -euo pipefail
+            for f in examples/*.ores; do
+              echo "==> $f"
+              mvn -B -ntp -DskipTests compile exec:java -Dexec.args="$f"
+            done
+          '
