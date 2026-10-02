@@ -1,6 +1,5 @@
 package dev.oreslang.runtime;
 
-import com.oracle.truffle.api.TruffleContext;
 import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.TruffleLanguage.ContextReference;
 import com.oracle.truffle.api.nodes.Node;
@@ -12,7 +11,6 @@ import java.io.PrintWriter;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
 
 public final class OresContext implements AutoCloseable {
     private static final ContextReference<OresContext> REFERENCE = ContextReference.create(OresLanguage.class);
@@ -26,7 +24,8 @@ public final class OresContext implements AutoCloseable {
     private final AtomicLong schedulerSafepoints = new AtomicLong();
     private final IsolatePolicy isolatePolicy;
     private final ExecutionProfile executionProfile;
-    private final ReentrantLock adversarialActorTurnLock = new ReentrantLock(true);
+    private final boolean graalIsolated;
+    private final long codeGeneration;
 
     public OresContext(OresLanguage language, TruffleLanguage.Env env) {
         this.language = language;
@@ -35,10 +34,9 @@ public final class OresContext implements AutoCloseable {
         this.output = new PrintWriter(env.out(), true);
         this.isolatePolicy = IsolatePolicy.fromApplicationArguments(env.getApplicationArguments());
         this.executionProfile = IsolatePolicy.executionProfileFromApplicationArguments(env.getApplicationArguments());
-        this.actors = new ActorRuntime(
-                isolatePolicy,
-                ActorRuntime.DispatcherConfig.defaults(),
-                this::executeActorTurn);
+        this.graalIsolated = IsolatePolicy.graalIsolatedFromApplicationArguments(env.getApplicationArguments());
+        this.codeGeneration = codeGenerationFromApplicationArguments(env.getApplicationArguments());
+        this.actors = new ActorRuntime(isolatePolicy);
     }
 
     public static OresContext get(Node node) {
@@ -53,6 +51,8 @@ public final class OresContext implements AutoCloseable {
     public UUID contextId() { return contextId; }
     public IsolatePolicy isolatePolicy() { return isolatePolicy; }
     public ExecutionProfile executionProfile() { return executionProfile; }
+    public boolean graalIsolated() { return graalIsolated; }
+    public long codeGeneration() { return codeGeneration; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
         isolatePolicy.require(capability, api);
@@ -65,27 +65,21 @@ public final class OresContext implements AutoCloseable {
      */
     public void schedulerSafepoint() {
         schedulerSafepoints.incrementAndGet();
+        ProcessSingletonRegistry.checkExecutionBudget();
         actors.schedulerSafepoint();
     }
 
     public long schedulerSafepoints() { return schedulerSafepoints.get(); }
 
-    private void executeActorTurn(Runnable turn) {
-        boolean serialize = isolatePolicy.adversarial();
-        if (serialize) adversarialActorTurnLock.lock();
-        TruffleContext truffleContext = env.getContext();
-        Object previous = null;
-        boolean entered = false;
-        try {
-            previous = truffleContext.enter(null);
-            entered = true;
-            turn.run();
-        } finally {
-            if (entered) truffleContext.leave(null, previous);
-            if (serialize) adversarialActorTurnLock.unlock();
+    private static long codeGenerationFromApplicationArguments(String[] args) {
+        for (String arg : args) {
+            if (!arg.startsWith("--ores-code-generation=")) continue;
+            long generation = Long.parseLong(arg.substring("--ores-code-generation=".length()));
+            if (generation < 0) throw new IllegalArgumentException("ores code generation cannot be negative");
+            return generation;
         }
+        return 0L;
     }
-
 
     public Map<String, Object> processDescriptor() {
         return Map.of(
@@ -94,6 +88,7 @@ public final class OresContext implements AutoCloseable {
                 "language", "oreslang",
                 "execution_mode", executionProfile.mode().name(),
                 "platform", executionProfile.platform().name(),
+                "graal_isolated", graalIsolated,
                 "scheduler_safepoints", schedulerSafepoints.get());
     }
 
