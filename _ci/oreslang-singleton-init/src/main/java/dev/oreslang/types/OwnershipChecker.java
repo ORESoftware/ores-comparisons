@@ -33,8 +33,10 @@ import java.util.Set;
 public final class OwnershipChecker {
     private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
     private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
+    private final Map<String, Ast.InterfaceDecl> interfaces = new HashMap<>();
     private final Set<String> ambiguousFunctions = new HashSet<>();
     private final Set<String> ambiguousClasses = new HashSet<>();
+    private final Set<String> ambiguousInterfaces = new HashSet<>();
 
     private OwnershipChecker(Ast.Program program) {
         index(program);
@@ -51,6 +53,7 @@ public final class OwnershipChecker {
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.FunctionDecl fn) index(functions, ambiguousFunctions, module.name(), fn.name(), fn);
                 else if (decl instanceof Ast.ClassDecl klass) index(classes, ambiguousClasses, module.name(), klass.name(), klass);
+                else if (decl instanceof Ast.InterfaceDecl iface) index(interfaces, ambiguousInterfaces, module.name(), iface.name(), iface);
             }
         }
     }
@@ -369,6 +372,22 @@ public final class OwnershipChecker {
                             + "' cannot be extracted; call it directly through a mutable owner"
                             + " until persistent exclusive bound-method lifetimes are modeled");
                 }
+            } else {
+                Ast.InterfaceDecl iface = interfaceOfReceiver(member.receiver(), scope);
+                Ast.InterfaceFieldDecl field = iface == null
+                        ? null
+                        : findInterfaceField(iface, member.member(), new LinkedHashSet<>());
+                if (field != null) {
+                    Ast.TypeRef fieldType = field.type();
+                    if (isCopyType(fieldType)) return new ValueInfo(fieldType, ValueKind.COPY, null);
+                    VarState owner = receiver.borrowSource != null
+                            ? receiver.borrowSource
+                            : projectionOwner(member.receiver(), scope);
+                    if (owner == null && consuming && receiver.kind == ValueKind.MOVE_ONLY) {
+                        return new ValueInfo(fieldType, ValueKind.MOVE_ONLY, null);
+                    }
+                    return new ValueInfo(Ast.TypeRef.borrowed(fieldType, false), ValueKind.IMM_BORROW, owner);
+                }
             }
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
@@ -528,6 +547,41 @@ public final class OwnershipChecker {
                 }
                 return new ValueInfo(method.returnType(), kindOfType(method.returnType()), null);
             }
+
+            Ast.InterfaceDecl iface = interfaceOfReceiver(member.receiver(), scope);
+            Ast.InterfaceFunctionDecl interfaceMethod = iface == null
+                    ? null
+                    : findInterfaceMethod(iface, member.member(), call.arguments().size(), new LinkedHashSet<>());
+            if (interfaceMethod != null) {
+                ValueInfo receiver = checkExpr(member.receiver(), scope, false);
+                VarState receiverOwner = receiver.borrowSource != null
+                        ? receiver.borrowSource
+                        : projectionOwner(member.receiver(), scope);
+                TemporaryBorrow receiverBorrow = null;
+                if (receiverOwner != null && receiverOwner.kind != ValueKind.COPY) {
+                    beginTemporaryBorrow(
+                            receiverOwner,
+                            false,
+                            "interface method '" + interfaceMethod.name() + "' receiver",
+                            0,
+                            receiverOwner.debugName);
+                    receiverBorrow = new TemporaryBorrow(receiverOwner, false);
+                }
+                try {
+                    checkArguments(
+                            call.arguments(),
+                            interfaceMethod.parameters(),
+                            scope,
+                            "interface method " + interfaceMethod.name());
+                } finally {
+                    if (receiverBorrow != null) endTemporaryBorrow(receiverBorrow);
+                }
+                return new ValueInfo(
+                        interfaceMethod.returnType(),
+                        kindOfType(interfaceMethod.returnType()),
+                        null);
+            }
+
             checkExpr(member.receiver(), scope, false);
         } else {
             checkExpr(call.callee(), scope, false);
@@ -911,16 +965,32 @@ public final class OwnershipChecker {
         if (expression instanceof Ast.AwaitExpr awaited) return ownershipTypeOfExpr(awaited.expression(), scope);
         if (expression instanceof Ast.MemberExpr member) {
             Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
-            if (klass == null) return null;
-            Ast.FieldDecl field = findField(klass, member.member(), new LinkedHashSet<>());
-            if (field != null) return field.type();
+            if (klass != null) {
+                Ast.FieldDecl field = findField(klass, member.member(), new LinkedHashSet<>());
+                if (field != null) return field.type();
 
-            Ast.MethodDecl method = findMethod(klass, member.member(), 0, new LinkedHashSet<>());
-            return method == null ? null : normalizeSelfReturn(method.returnType(), klass);
+                Ast.MethodDecl method = findMethod(klass, member.member(), 0, new LinkedHashSet<>());
+                if (method != null) return normalizeSelfReturn(method.returnType(), klass);
+            }
+
+            Ast.InterfaceDecl iface = interfaceOfReceiver(member.receiver(), scope);
+            if (iface != null) {
+                Ast.InterfaceFieldDecl field = findInterfaceField(iface, member.member(), new LinkedHashSet<>());
+                if (field != null) return field.type();
+                Ast.InterfaceFunctionDecl method = findInterfaceMethod(iface, member.member(), 0, new LinkedHashSet<>());
+                if (method != null) return method.returnType();
+            }
+            return null;
         }
         if (expression instanceof Ast.IndexExpr indexed) return indexedElementType(indexed, scope);
         if (expression instanceof Ast.CallExpr call) {
             if (call.callee() instanceof Ast.NameExpr name) {
+                if ((name.name().equals("borrow") || name.name().equals("take") || name.name().equals("copy"))
+                        && call.arguments().size() == 1) {
+                    Ast.TypeRef target = ownershipTypeOfExpr(call.arguments().getFirst(), scope);
+                    if (target == null) return null;
+                    return name.name().equals("borrow") ? Ast.TypeRef.borrowed(target, false) : target;
+                }
                 Ast.FunctionDecl fn = findFunction(name.name());
                 return fn == null ? null : fn.returnType();
             }
@@ -939,6 +1009,12 @@ public final class OwnershipChecker {
                         ? null
                         : findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
                 if (method != null) return normalizeSelfReturn(method.returnType(), klass);
+
+                Ast.InterfaceDecl iface = interfaceOfReceiver(member.receiver(), scope);
+                Ast.InterfaceFunctionDecl interfaceMethod = iface == null
+                        ? null
+                        : findInterfaceMethod(iface, member.member(), call.arguments().size(), new LinkedHashSet<>());
+                if (interfaceMethod != null) return interfaceMethod.returnType();
             }
         }
         if (expression instanceof Ast.ConditionalExpr conditional) {
@@ -953,6 +1029,64 @@ public final class OwnershipChecker {
         return returnType != null && returnType.name().equals("self")
                 ? Ast.TypeRef.simple(klass.name())
                 : returnType;
+    }
+
+    private Ast.InterfaceDecl interfaceOfReceiver(Ast.Expr receiver, Scope scope) {
+        Ast.TypeRef type = ownershipTypeOfExpr(receiver, scope);
+        if (type == null) return null;
+        while (type.isBorrow()) type = type.borrowedTarget();
+        return findInterface(type.name());
+    }
+
+    private Ast.InterfaceFunctionDecl findInterfaceMethod(
+            Ast.InterfaceDecl iface,
+            String name,
+            int arity,
+            Set<Ast.InterfaceDecl> seen) {
+        if (!seen.add(iface)) return null;
+        for (Ast.InterfaceMember member : iface.members()) {
+            if (member instanceof Ast.InterfaceFunctionDecl fn
+                    && fn.name().equals(name)
+                    && fn.parameters().size() == arity) {
+                seen.remove(iface);
+                return fn;
+            }
+        }
+        for (Ast.TypeRef parentRef : iface.parents()) {
+            Ast.InterfaceDecl parent = findInterface(parentRef.name());
+            if (parent == null) continue;
+            Ast.InterfaceFunctionDecl found = findInterfaceMethod(parent, name, arity, seen);
+            if (found != null) {
+                seen.remove(iface);
+                return found;
+            }
+        }
+        seen.remove(iface);
+        return null;
+    }
+
+    private Ast.InterfaceFieldDecl findInterfaceField(
+            Ast.InterfaceDecl iface,
+            String name,
+            Set<Ast.InterfaceDecl> seen) {
+        if (!seen.add(iface)) return null;
+        for (Ast.InterfaceMember member : iface.members()) {
+            if (member instanceof Ast.InterfaceFieldDecl field && field.name().equals(name)) {
+                seen.remove(iface);
+                return field;
+            }
+        }
+        for (Ast.TypeRef parentRef : iface.parents()) {
+            Ast.InterfaceDecl parent = findInterface(parentRef.name());
+            if (parent == null) continue;
+            Ast.InterfaceFieldDecl found = findInterfaceField(parent, name, seen);
+            if (found != null) {
+                seen.remove(iface);
+                return found;
+            }
+        }
+        seen.remove(iface);
+        return null;
     }
 
     private Ast.FieldDecl findField(Ast.ClassDecl klass, String name, Set<Ast.ClassDecl> seen) {
@@ -1055,6 +1189,11 @@ public final class OwnershipChecker {
     private Ast.ClassDecl findClass(String name) {
         if (ambiguousClasses.contains(name)) return null;
         return classes.get(name);
+    }
+
+    private Ast.InterfaceDecl findInterface(String name) {
+        if (ambiguousInterfaces.contains(name)) return null;
+        return interfaces.get(name);
     }
 
     private void requireUsable(VarState state, String name, boolean write) {
