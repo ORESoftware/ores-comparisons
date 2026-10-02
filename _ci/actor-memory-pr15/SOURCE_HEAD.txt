@@ -1,4 +1,5 @@
 ores-truffle-oreslang/oreslang-source.java
-PR #72
-head 690a170dffce2c9c7dbc4bbeb023cc169c31cac9
-base feat/akka-style-shared-actors @ 4a37061185baed9fc6503537cf8cde401c5f7949
+PR #93
+head 163e0e1f1f96cc0ed58d720270d6fe79a8cfba35
+base main @ 347a9757883d6a9f75a6ccbe26a22998c2be5df4
+purpose require `as` after Oreslang class headers
