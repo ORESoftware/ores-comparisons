@@ -216,7 +216,7 @@ final class GarbageCollectionHardeningTest {
                 ActorRuntime.TurnExecutor.direct(),
                 new ActorRuntime.GcConfig(0, 0, 0),
                 collector)) {
-            var ref = runtime.<String>spawnPrivate(factory -> (message, context) -> {
+            var ref = runtime.<String>spawnPrivateTrusted(factory -> (message, context) -> {
                 context.gc();
                 context.gc();
 
