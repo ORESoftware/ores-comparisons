@@ -1,0 +1,15 @@
+define module math
+  pub fnc add(int a, int b) => int {
+    return a + b;
+  }
+end
+
+define class Widget
+  pub value() => int {
+    return 7;
+  }
+end
+
+pub fnc answer() => int {
+  return 42;
+}
