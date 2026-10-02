@@ -1,0 +1,32 @@
+// Ownership-first GC contract.
+//
+// Ordinary values are reclaimed by ownership/lifetime semantics. actor.gc()
+// requests collection only for the current semantic actor domain; process.gc()
+// is a separately capability-gated whole-runtime hint.
+
+actor PrivateCache {
+  let int hits = 0;
+
+  pub fnc compact() => void {
+    actor.gc();
+    return;
+  }
+}
+
+shared actor SharedIndex {
+  let int generations = 0;
+
+  pub fnc compact() => void {
+    actor.gc();
+    return;
+  }
+}
+
+pub routine main() => void {
+  val temporary = arr["ownership", "first"];
+  stdio.println(temporary[0]);
+
+  process.gc();
+  stdio.println("gc-contract-ok");
+  return;
+}
