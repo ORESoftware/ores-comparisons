@@ -26,11 +26,15 @@ final class GarbageCollectionHardeningTest {
                 new ActorRuntime.GcConfig(1, 0),
                 collector)) {
             var ref = runtime.<String>spawnPrivate(factory -> (message, context) -> {
-                context.gc();
+                if (message.equals("collect")) {
+                    context.gc();
+                    return;
+                }
                 context.self().stop();
             });
 
             ref.send("collect");
+            ref.send("stop");
             assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
             assertTrue(ref.failure().isEmpty());
 
@@ -69,6 +73,25 @@ final class GarbageCollectionHardeningTest {
             assertEquals(ActorRuntime.ActorKind.SHARED, event.kind());
             assertEquals(ActorRuntime.GcReason.EXPLICIT, event.reason());
             assertTrue(collector.processCollections.isEmpty());
+        }
+    }
+
+    @Test
+    void stoppingActorSkipsPeriodicActorCollectionBecauseTeardownOwnsReclamation() throws Exception {
+        RecordingCollector collector = new RecordingCollector();
+        try (ActorRuntime runtime = new ActorRuntime(
+                IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8),
+                ActorRuntime.TurnExecutor.direct(),
+                new ActorRuntime.GcConfig(1, 0),
+                collector)) {
+            var ref = runtime.<String>spawnPrivate(factory -> (message, context) -> context.self().stop());
+
+            ref.send("stop");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(ref.failure().isEmpty());
+            assertTrue(collector.actorCollections.isEmpty(),
+                    "deterministic actor teardown should replace periodic tracing after stop");
         }
     }
 
