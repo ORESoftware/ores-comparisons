@@ -589,14 +589,14 @@ public final class TypeChecker {
             if (locals.contains(name.name()) || name.name().equals("self")
                     || name.name().equals("Some") || name.name().equals("None")) return;
             if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("print")) {
-                throw processEffectError(where, "ambient caller capability '" + name.name() + "'");
+                throw processEffectError(where, "ambient caller capability '" + name.name() + "' (ambient capability)");
             }
             if (importedNames.contains(name.name())) {
                 throw processEffectError(where, "imported dependency '" + name.name() + "'");
             }
             Ast.ModuleDecl referencedModule = modules.get(name.name());
             if (referencedModule != null && !referencedModule.singleton()) {
-                throw processEffectError(where, "actor/context-local module '" + referencedModule.name() + "'");
+                throw processEffectError(where, "actor/context-local module '" + referencedModule.name() + "' (caller/context-local module)");
             }
             return;
         }
@@ -608,7 +608,7 @@ public final class TypeChecker {
                     String targetOwnerName = functionOwners.get(target);
                     Ast.ModuleDecl targetOwner = targetOwnerName == null ? null : modules.get(targetOwnerName);
                     if (targetOwner == null || !targetOwner.singleton()) {
-                        throw processEffectError(where, "actor/context-local function '" + name.name() + "'");
+                        throw processEffectError(where, "actor/context-local function '" + name.name() + "' (ordinary helper function)");
                     }
                 }
             }
@@ -617,7 +617,7 @@ public final class TypeChecker {
                     && !locals.contains(receiver.name())) {
                 Ast.ModuleDecl targetModule = modules.get(receiver.name());
                 if (targetModule != null && !targetModule.singleton()) {
-                    throw processEffectError(where, "actor/context-local module '" + targetModule.name() + "'");
+                    throw processEffectError(where, "actor/context-local module '" + targetModule.name() + "' (caller/context-local module)");
                 }
                 Ast.ClassDecl targetClass = findClass(receiver.name());
                 if (targetClass != null && targetClass != processClass) {
