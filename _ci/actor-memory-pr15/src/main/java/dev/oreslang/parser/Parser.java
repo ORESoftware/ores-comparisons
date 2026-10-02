@@ -799,6 +799,9 @@ public final class Parser {
             if (isBindingKind(peek().type())) currentKind = parseBindingKind();
 
             if (isDiscardToken(peek())) {
+                if (kind == Ast.DestructureKind.OBJECT) {
+                    throw error(peek(), "bare '_' discard is only valid in sequence destructuring");
+                }
                 advance();
                 bindings.add(Ast.DestructureBinding.discard());
                 continue;
