@@ -32,6 +32,8 @@ import java.util.Set;
  */
 public final class OwnershipChecker {
     private Ast.ModuleDecl activeModule;
+    private Ast.ClassDecl activeClass;
+    private Ast.MethodDecl activeMethod;
     private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
     private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
     private final Map<String, Ast.TypeAliasDecl> typeAliases = new HashMap<>();
@@ -99,18 +101,36 @@ public final class OwnershipChecker {
 
     private void checkModuleFieldInitializers(Ast.ModuleDecl module) {
         Scope scope = new Scope(null);
-        seedModuleState(module, scope);
         try {
             for (Ast.Decl decl : module.declarations()) {
                 if (!(decl instanceof Ast.FieldDecl field) || field.initializer() == null) continue;
+
+                // Module/file initialization is declaration-ordered. Do not pre-seed
+                // later slots: doing so can hide an aliasing move from an earlier
+                // module-owned slot and contradict runtime initialization order.
                 ValueInfo stored = checkExpr(field.initializer(), scope, true);
-                rejectStoredBorrow(stored, "module field '" + module.name() + "." + field.name() + "'");
-                requireDetachedStoredBorrow(field.type(), stored,
-                        "module field '" + module.name() + "." + field.name() + "'");
+                String where = "module field '" + module.name() + "." + field.name() + "'";
+                rejectStoredBorrow(stored, where);
+                requireDetachedStoredBorrow(field.type(), stored, where);
+                if (field.type() != null) {
+                    requireBindingOwnershipCompatibility(field.type(), stored, where);
+                }
+
+                Ast.TypeRef type = field.type() == null
+                        ? (stored.type == null ? inferFieldType(field.initializer()) : stored.type)
+                        : field.type();
+                ValueKind kind = stored.kind == ValueKind.SHARED
+                        ? ValueKind.SHARED
+                        : kindOfType(type);
+                VarState state = new VarState(
+                        type,
+                        field.bindingKind() == Ast.BindingKind.LET,
+                        kind,
+                        Origin.MODULE);
+                scope.define(field.name(), state);
+
                 if (stored.kind == ValueKind.SHARED) {
                     detachedSharedModuleFields.add(field);
-                    VarState state = scope.lookup(field.name());
-                    if (state != null) state.kind = ValueKind.SHARED;
                 }
             }
         } finally {
@@ -180,27 +200,37 @@ public final class OwnershipChecker {
         }
 
         for (Ast.MethodDecl method : klass.methods()) {
+            Ast.ClassDecl previousClass = activeClass;
+            Ast.MethodDecl previousMethod = activeMethod;
+            activeClass = klass;
+            activeMethod = method;
+
             Scope moduleScope = new Scope(null);
             seedModuleState(module, moduleScope);
             Scope scope = new Scope(moduleScope);
-            if (!method.isStatic()) {
-                Ast.TypeRef explicit = method.explicitReceiverType();
-                boolean mutableReceiver = explicit != null
-                        && explicit.isBorrow()
-                        && explicit.mutableBorrow();
-                Ast.TypeRef selfType = Ast.TypeRef.simple(klass.name());
-                scope.define(
-                        "self",
-                        new VarState(
-                                selfType,
-                                false,
-                                mutableReceiver ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW,
-                                Origin.PARAM));
+            try {
+                if (!method.isStatic()) {
+                    Ast.TypeRef explicit = method.explicitReceiverType();
+                    boolean mutableReceiver = explicit != null
+                            && explicit.isBorrow()
+                            && explicit.mutableBorrow();
+                    Ast.TypeRef selfType = Ast.TypeRef.simple(klass.name());
+                    scope.define(
+                            "self",
+                            new VarState(
+                                    selfType,
+                                    false,
+                                    mutableReceiver ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW,
+                                    Origin.PARAM));
+                }
+                for (Ast.Param param : method.parameters()) scope.define(param.name(), stateForParam(param));
+                checkBlock(method.body(), scope, method.returnType());
+            } finally {
+                scope.close();
+                moduleScope.close();
+                activeClass = previousClass;
+                activeMethod = previousMethod;
             }
-            for (Ast.Param param : method.parameters()) scope.define(param.name(), stateForParam(param));
-            checkBlock(method.body(), scope, method.returnType());
-            scope.close();
-            moduleScope.close();
         }
     }
 
@@ -825,7 +855,7 @@ public final class OwnershipChecker {
         boolean mutableBorrow = state.kind == ValueKind.MUT_BORROW
                 || (state.type != null && state.type.isBorrow() && state.type.mutableBorrow());
         if (!state.mutable && !mutableBorrow) {
-            throw error("cannot mutate " + what + " through immutable root '" + state.debugName
+            throw error("cannot mutate " + what + " through immutable parameter/binding '" + state.debugName
                     + "'; declare the owned parameter/binding as mutable or pass &mut");
         }
         if (state.kind == ValueKind.IMM_BORROW
@@ -893,6 +923,10 @@ public final class OwnershipChecker {
 
         if (value.kind == ValueKind.IMM_BORROW || value.kind == ValueKind.MUT_BORROW
                 || value.kind == ValueKind.SHARED) {
+            if (insideClassCopyContract()) {
+                throw error("Copy contract for class '" + activeClass.name()
+                        + "' must return a fresh owned value; returning self or borrowed/shared source storage is forbidden");
+            }
             throw error(where + " expects ownership but received a borrowed/shared view; use copy(...) for a new owner");
         }
     }
@@ -916,9 +950,22 @@ public final class OwnershipChecker {
 
     private void rejectStoredBorrow(ValueInfo value, String where) {
         if (value.kind == ValueKind.IMM_BORROW || value.kind == ValueKind.MUT_BORROW) {
+            if (insideClassCopyContract()) {
+                throw error("Copy contract violated by retaining mutable storage from the source in " + where
+                        + "; explicitly copy(...) nested mutable state");
+            }
             throw error(where + " cannot store an ordinary borrow without explicit lifetime support; "
                     + "use copy(...) for new ownership or share(...) for a detached read-only snapshot");
         }
+    }
+
+    private boolean insideClassCopyContract() {
+        return activeClass != null
+                && activeMethod != null
+                && !activeClass.isStruct()
+                && !activeMethod.isStatic()
+                && activeMethod.name().equals("copy")
+                && activeMethod.parameters().isEmpty();
     }
 
     private boolean borrowMayEscape(VarState source) {

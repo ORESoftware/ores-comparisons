@@ -2023,7 +2023,7 @@ public final class TypeChecker {
         }
         boolean mutableBorrow = binding.type() instanceof Borrow borrow && borrow.mutable();
         if (binding.kind() != Ast.BindingKind.LET && !mutableBorrow) {
-            throw new IllegalArgumentException(where + " cannot mutate through immutable root '" + root.name() + "'");
+            throw new IllegalArgumentException(where + " cannot mutate through immutable parameter/binding '" + root.name() + "'");
         }
         if (binding.type() instanceof Borrow borrow && !borrow.mutable()) {
             throw new IllegalArgumentException(where + " cannot mutate through immutable borrow '" + root.name() + "'");
