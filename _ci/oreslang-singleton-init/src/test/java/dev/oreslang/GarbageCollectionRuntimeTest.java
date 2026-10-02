@@ -20,8 +20,12 @@ import static org.junit.jupiter.api.Assertions.*;
 final class GarbageCollectionRuntimeTest {
     private static final class Cache implements GcRuntime.Scavengeable, AutoCloseable {
         private final AtomicInteger scavenges = new AtomicInteger();
+        private final CountDownLatch scavenged = new CountDownLatch(1);
         private final CountDownLatch closed = new CountDownLatch(1);
-        @Override public void scavenge() { scavenges.incrementAndGet(); }
+        @Override public void scavenge() {
+            scavenges.incrementAndGet();
+            scavenged.countDown();
+        }
         @Override public void close() { closed.countDown(); }
     }
 
@@ -95,18 +99,15 @@ final class GarbageCollectionRuntimeTest {
     }
 
     @Test
-    void processGcSignalsActorsToScavengeTheirOwnRootsAtNextTurn() throws Exception {
+    void processGcWakesIdleActorsButEachActorScavengesItsOwnRoots() throws Exception {
         GcRuntime gc = new GcRuntime(1000, Duration.ofHours(1), () -> { }, System::nanoTime);
         Cache cache = new Cache();
         CountDownLatch seeded = new CountDownLatch(1);
-        CountDownLatch afterSignal = new CountDownLatch(1);
-        AtomicInteger turns = new AtomicInteger();
 
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(), gc)) {
             var ref = runtime.<String>spawn(() -> (message, context) -> {
                 context.runtime().currentActorLocal("cache", () -> cache);
-                if (turns.getAndIncrement() == 0) seeded.countDown();
-                else afterSignal.countDown();
+                seeded.countDown();
             });
 
             ref.send("seed");
@@ -114,8 +115,7 @@ final class GarbageCollectionRuntimeTest {
             assertEquals(0, cache.scavenges.get());
 
             runtime.requestProcessGc();
-            ref.send("safe-point");
-            assertTrue(afterSignal.await(2, TimeUnit.SECONDS));
+            assertTrue(cache.scavenged.await(2, TimeUnit.SECONDS));
             assertEquals(1, cache.scavenges.get());
         }
     }
