@@ -51,7 +51,6 @@ public final class TraitComposer {
             this.program = program;
             indexTraits();
             validateTypeNamespaces();
-            validateTraitTypeBarriers();
         }
 
         private void validateTypeNamespaces() {
@@ -358,7 +357,7 @@ public final class TraitComposer {
                 String previous = names.putIfAbsent(name, kind);
                 if (previous != null) {
                     throw new IllegalArgumentException(
-                            "callable-local type name '" + name + "' is declared as both "
+                            "duplicate callable-local type '" + name + "': declared as both "
                                     + previous + " and " + kind + " in the same lexical block");
                 }
 
@@ -752,7 +751,8 @@ public final class TraitComposer {
                     if (occupiedTypeNames.contains(trait.name())) {
                         throw new IllegalArgumentException(
                                 "trait '" + module.name() + "." + trait.name()
-                                        + "' collides with an existing class/interface/type alias in the same type namespace");
+                                        + "' collides with an existing class/interface/type alias; "
+                                        + "class/struct/interface/trait/type names share one namespace");
                     }
 
                     String qualified = module.name() + "." + trait.name();
