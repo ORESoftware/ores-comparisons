@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ci/oreslang-pr94-fairness
+      - ci/oreslang-actor-blocking-static-v2
 
 permissions:
   contents: read
