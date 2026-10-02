@@ -123,6 +123,7 @@ public final class Ast {
             CallableKind kind,
             Visibility visibility,
             boolean async,
+            boolean nonLexical,
             ActorKind actorKind,
             List<String> genericParameters,
             List<Param> parameters,
@@ -136,13 +137,18 @@ public final class Ast {
             body = List.copyOf(body);
         }
         public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
+                            ActorKind actorKind, List<String> genericParameters, List<Param> parameters,
+                            TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
+            this(name, kind, visibility, async, false, actorKind, genericParameters, parameters, returnType, annotations, body);
+        }
+        public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
                             List<String> genericParameters, List<Param> parameters, TypeRef returnType,
                             List<Annotation> annotations, List<Stmt> body) {
-            this(name, kind, visibility, async, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
+            this(name, kind, visibility, async, false, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
         }
         public FunctionDecl(String name, Visibility visibility, boolean async, List<String> genericParameters,
                             List<Param> parameters, TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
-            this(name, CallableKind.FNC, visibility, async, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
+            this(name, CallableKind.FNC, visibility, async, false, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
         }
     }
 
@@ -309,8 +315,24 @@ public final class Ast {
     public record AssignExpr(Expr target, Expr value) implements Expr { }
     public record ConditionalExpr(Expr condition, Expr whenTrue, Expr whenFalse) implements Expr { }
 
-    public record CallExpr(Expr callee, List<Expr> arguments) implements Expr {
-        public CallExpr { arguments = List.copyOf(arguments); }
+    public record CallExpr(
+            Expr callee,
+            List<TypeRef> typeArguments,
+            boolean typeArgumentsPresent,
+            List<Expr> arguments) implements Expr {
+        public CallExpr {
+            typeArguments = List.copyOf(typeArguments);
+            arguments = List.copyOf(arguments);
+            if (!typeArgumentsPresent && !typeArguments.isEmpty()) {
+                throw new IllegalArgumentException("call type arguments require an explicit <...> marker");
+            }
+        }
+        public CallExpr(Expr callee, List<Expr> arguments) {
+            this(callee, List.of(), false, arguments);
+        }
+        public CallExpr(Expr callee, List<TypeRef> typeArguments, List<Expr> arguments) {
+            this(callee, typeArguments, true, arguments);
+        }
     }
 
     public record MemberExpr(Expr receiver, String member) implements Expr { }
@@ -336,10 +358,13 @@ public final class Ast {
         public ObjectExpr { fields = List.copyOf(fields); }
     }
 
-    public record LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody) implements Expr {
+    public record LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody, boolean nonLexical) implements Expr {
         public LambdaExpr {
             parameters = List.copyOf(parameters);
             blockBody = blockBody == null ? null : List.copyOf(blockBody);
+        }
+        public LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody) {
+            this(parameters, expressionBody, blockBody, false);
         }
     }
 }
