@@ -55,11 +55,7 @@ public final class OresContext implements AutoCloseable {
     public ExecutionProfile executionProfile() { return executionProfile; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
-        // Capability checks inside an actor turn must use that actor's effective
-        // policy, not merely the surrounding polyglot context policy. PRIVATE
-        // actors have sharing capabilities stripped by ActorRuntime even when
-        // the parent context is a permissive developer context.
-        actors.requireEffectiveCapability(capability, api);
+        isolatePolicy.require(capability, api);
     }
 
     /**
