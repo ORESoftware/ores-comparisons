@@ -1,5 +1,5 @@
 name: oreslang-mutex-publication-atomicity
-# source head: 89ccc80d869bb404c6b9eafa60c2c1bc9c0ced4b
+# exact Oreslang source head: 89ccc80d869bb404c6b9eafa60c2c1bc9c0ced4b
 
 on:
   push:
@@ -9,15 +9,16 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr51-full
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out exact Oreslang branch
+      - name: Check out validation mirror
         uses: actions/checkout@v4
-        with:
-          repository: ores-truffle-oreslang/oreslang-source.java
-          ref: fix/mutex-publication-atomicity
 
       - name: Set up GraalVM
         uses: graalvm/setup-graalvm@v1
