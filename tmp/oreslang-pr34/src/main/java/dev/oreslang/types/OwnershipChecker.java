@@ -128,10 +128,17 @@ public final class OwnershipChecker {
             seedModuleState(module, moduleScope);
             Scope scope = new Scope(moduleScope);
             if (!method.isStatic()) {
-                // Receiver is immutable unless a future explicit "mut self"
-                // syntax is introduced. Methods can still mutate through an
-                // explicit &mut parameter.
-                scope.define("self", new VarState(Ast.TypeRef.simple(klass.name()), false, ValueKind.IMM_BORROW, Origin.PARAM));
+                Ast.TypeRef explicit = method.explicitReceiverType();
+                boolean mutableReceiver = explicit != null
+                        && explicit.isBorrow()
+                        && explicit.mutableBorrow();
+                scope.define(
+                        "self",
+                        new VarState(
+                                Ast.TypeRef.simple(klass.name()),
+                                false,
+                                mutableReceiver ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW,
+                                Origin.PARAM));
             }
             for (Ast.Param param : method.parameters()) scope.define(param.name(), stateForParam(param));
             checkBlock(method.body(), scope, method.returnType());
