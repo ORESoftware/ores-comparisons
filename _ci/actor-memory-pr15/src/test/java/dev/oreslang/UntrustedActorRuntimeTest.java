@@ -1,0 +1,221 @@
+package dev.oreslang;
+
+import dev.oreslang.runtime.ActorRuntime;
+import dev.oreslang.runtime.IsolatePolicy;
+import org.junit.jupiter.api.Test;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+final class UntrustedActorRuntimeTest {
+
+    @Test
+    void hardLifetimeCannotExceedFiveMinutes() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ActorRuntime.UntrustedActorLimits(
+                        Duration.ofSeconds(301),
+                        100,
+                        1024,
+                        1024,
+                        1024));
+    }
+
+    @Test
+    void fuelExhaustionFailsActorInsteadOfTrustingVoluntaryYield() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 8, 1024, 1024, 1024);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    null,
+                    ignored -> (message, turn) -> {
+                        for (int i = 0; i < 100; i++) turn.checkpoint();
+                    });
+
+            ref.send("run");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.ActorBudgetExceededException.class,
+                    ref.failure().orElseThrow());
+        }
+    }
+
+    @Test
+    void hardLifetimeReclaimsActorOwnedArenaMemory() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofMillis(100), 10_000, 1024, 1024, 1024);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    null,
+                    ignored -> (message, turn) -> {
+                        turn.privateMemory().orElseThrow().allocatePrivateBytes(4096);
+                    });
+
+            ref.send("allocate");
+            assertTrue(waitUntil(() -> runtime.privateMemoryBytes() >= 4096, 1000));
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.ActorLifetimeExceededException.class,
+                    ref.failure().orElseThrow());
+            assertEquals(0L, runtime.privateMemoryBytes(),
+                    "untrusted actor teardown must release all actor-accounted private memory");
+        }
+    }
+
+    @Test
+    void untrustedActorCannotSpawnChildren() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 1024, 1024, 1024);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    null,
+                    ignored -> (message, turn) ->
+                            turn.runtime().spawnPrivate(factoryContext ->
+                                    (childMessage, childContext) -> { }));
+
+            ref.send("spawn");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            SecurityException failure = assertInstanceOf(
+                    SecurityException.class,
+                    ref.failure().orElseThrow());
+            assertTrue(failure.getMessage().contains("cannot spawn child actors"));
+        }
+    }
+
+    @Test
+    void outboundMailboxDataFromUntrustedActorIsCapped() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var target = runtime.<Object>spawnPrivate(() -> (message, turn) -> { });
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 8, 1024, 1024);
+
+            var ref = runtime.<Object>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    null,
+                    ignored -> (message, turn) -> {
+                        @SuppressWarnings("unchecked")
+                        ActorRuntime.ActorRef<Object> receiver =
+                                (ActorRuntime.ActorRef<Object>) message;
+                        receiver.send("0123456789");
+                    });
+
+            ref.send(target);
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            IllegalStateException failure = assertInstanceOf(
+                    IllegalStateException.class,
+                    ref.failure().orElseThrow());
+            assertTrue(failure.getMessage().contains("outbound mailbox payload"));
+        }
+    }
+
+    @Test
+    void httpResponseStreamsWithoutMailboxRoundTrip() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            RecordingResponse response = new RecordingResponse();
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 32, 1024, 1024);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    response,
+                    ignored -> (message, turn) -> {
+                        var out = turn.httpResponse().orElseThrow();
+                        out.status(200);
+                        out.header("content-type", "text/plain");
+                        out.write(ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8)));
+                        out.complete();
+                        turn.self().stop();
+                    });
+
+            ref.send("request");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(ref.failure().isEmpty());
+            assertEquals(5, response.bytes.get());
+            assertTrue(response.completed.get());
+            assertFalse(response.aborted.get());
+        }
+    }
+
+    @Test
+    void httpResponseLimitFailsClosed() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            RecordingResponse response = new RecordingResponse();
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 32, 1024, 4);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    response,
+                    ignored -> (message, turn) ->
+                            turn.httpResponse().orElseThrow().write(
+                                    ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))));
+
+            ref.send("request");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.HttpResponseLimitExceededException.class,
+                    ref.failure().orElseThrow());
+            assertTrue(response.aborted.get());
+            assertEquals(0, response.bytes.get());
+        }
+    }
+
+    private static boolean waitUntil(BooleanSupplier condition, long timeoutMillis)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        while (!condition.getAsBoolean() && System.nanoTime() - deadline < 0) {
+            Thread.sleep(2);
+        }
+        return condition.getAsBoolean();
+    }
+
+    private static final class RecordingResponse
+            implements ActorRuntime.HttpResponseTransport {
+        private final AtomicInteger bytes = new AtomicInteger();
+        private final AtomicBoolean completed = new AtomicBoolean();
+        private final AtomicBoolean aborted = new AtomicBoolean();
+
+        @Override
+        public int write(ByteBuffer source) {
+            int count = source.remaining();
+            source.position(source.limit());
+            bytes.addAndGet(count);
+            return count;
+        }
+
+        @Override
+        public void complete() {
+            completed.set(true);
+        }
+
+        @Override
+        public void abort(Throwable cause) {
+            aborted.set(true);
+        }
+    }
+}
