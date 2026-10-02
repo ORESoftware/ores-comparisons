@@ -660,12 +660,22 @@ final class ActorRuntimeTest {
         ref.send("hold");
         assertTrue(entered.await(2, TimeUnit.SECONDS));
 
-        Thread closer = new Thread(runtime::close);
+        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+        Thread closer = new Thread(() -> {
+            try {
+                runtime.close();
+            } catch (Throwable failure) {
+                closeFailure.set(failure);
+            }
+        });
         closer.start();
         closer.join(500);
 
         try {
             assertFalse(closer.isAlive(), "runtime close must not wait for user code holding a SyncCell lock");
+            assertInstanceOf(IllegalStateException.class, closeFailure.get(),
+                    "close must report that deliberately uncooperative actor code is still running");
+            assertTrue(closeFailure.get().getMessage().contains("full actor termination"));
             assertTrue(cell.closed());
             assertEquals(0L, runtime.sharedMemoryBytes());
         } finally {
