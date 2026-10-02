@@ -1524,17 +1524,9 @@ public final class TypeChecker {
                     if (methods.size() == 1) {
                         Ast.MethodDecl method = methods.getFirst();
                         requireTraitMethodAccessible(method, named.name() + "." + member.member());
-                        if (method.explicitReceiverType() != null
-                                && method.explicitReceiverType().isBorrow()
-                                && method.explicitReceiverType().mutableBorrow()) {
-                            throw new IllegalArgumentException(
-                                    "mutable-receiver method value '" + member.member()
-                                            + "' cannot be extracted until Fnc models receiver ownership");
-                        }
-                        requireExtractableOwnership(
-                                method.parameters(),
-                                "method '" + named.name() + "." + method.name() + "'");
-                        return functionType(method.parameters(), method.returnType(), Set.copyOf(method.genericParameters()), named);
+                        throw new IllegalArgumentException(
+                                "bound instance method '" + named.name() + "." + method.name()
+                                        + "' cannot be extracted until Fnc models receiver ownership and lifetime provenance");
                     }
                     if (methods.size() > 1) throw new IllegalArgumentException("overloaded method '" + member.member() + "' must be called so arity can select the overload");
                 }

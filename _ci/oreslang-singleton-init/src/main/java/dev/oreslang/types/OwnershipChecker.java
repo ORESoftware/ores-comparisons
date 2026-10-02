@@ -123,17 +123,17 @@ public final class OwnershipChecker {
             Scope scope = new Scope(moduleScope);
             if (!method.isStatic()) {
                 Ast.TypeRef explicit = method.explicitReceiverType();
-                boolean mutableReceiver = explicit != null
-                        && explicit.isBorrow()
-                        && explicit.mutableBorrow();
+                ValueKind receiverKind;
+                if (explicit == null) receiverKind = ValueKind.IMM_BORROW;
+                else if (explicit.isBorrow()) {
+                    receiverKind = explicit.mutableBorrow() ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW;
+                } else {
+                    receiverKind = ValueKind.MOVE_ONLY; // take self
+                }
                 Ast.TypeRef selfType = Ast.TypeRef.simple(klass.name());
                 scope.define(
                         "self",
-                        new VarState(
-                                selfType,
-                                false,
-                                mutableReceiver ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW,
-                                Origin.PARAM));
+                        new VarState(selfType, false, receiverKind, Origin.PARAM));
             }
             for (Ast.Param param : method.parameters()) scope.define(param.name(), stateForParam(param));
             checkBlock(method.body(), scope, method.returnType());
@@ -413,26 +413,44 @@ public final class OwnershipChecker {
         }
 
         if (call.callee() instanceof Ast.MemberExpr member) {
-            checkExpr(member.receiver(), scope, false);
             Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
             Ast.MethodDecl method = klass == null ? null : findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
             if (method != null) {
-                if (requiresMutableReceiver(method)) {
-                    ensureMutableReceiver(member.receiver(), scope, "method '" + method.name() + "' receiver");
+                if (requiresTakeReceiver(method)) {
+                    checkExpr(member.receiver(), scope, true);
+                } else {
+                    checkExpr(member.receiver(), scope, false);
+                    if (requiresMutableReceiver(method)) {
+                        ensureMutableReceiver(member.receiver(), scope, "method '" + method.name() + "' receiver");
+                    }
                 }
                 checkArguments(call.arguments(), method.parameters(), scope, "method " + method.name());
                 return new ValueInfo(method.returnType(), kindOfType(method.returnType()), null);
             }
+            checkExpr(member.receiver(), scope, false);
+        } else {
+            checkExpr(call.callee(), scope, false);
         }
 
-        checkExpr(call.callee(), scope, false);
-        for (Ast.Expr arg : call.arguments()) checkExpr(arg, scope, true);
+        // Ownership-sensitive functions cannot currently be extracted as Fnc,
+        // so an indirect function value can only have ordinary read-borrow
+        // parameters. Never silently move non-Copy arguments here.
+        List<Ast.Param> borrowed = new ArrayList<>(call.arguments().size());
+        for (int i = 0; i < call.arguments().size(); i++) {
+            borrowed.add(new Ast.Param(Ast.TypeRef.inferred(), "$arg" + i));
+        }
+        checkArguments(call.arguments(), borrowed, scope, "first-class function");
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
     }
 
     private boolean requiresMutableReceiver(Ast.MethodDecl method) {
         Ast.TypeRef receiver = method.explicitReceiverType();
         return receiver != null && receiver.isBorrow() && receiver.mutableBorrow();
+    }
+
+    private boolean requiresTakeReceiver(Ast.MethodDecl method) {
+        Ast.TypeRef receiver = method.explicitReceiverType();
+        return receiver != null && !receiver.isBorrow();
     }
 
     private void checkArguments(List<Ast.Expr> arguments, List<Ast.Param> params, Scope scope, String callable) {
@@ -461,19 +479,11 @@ public final class OwnershipChecker {
                     VarState state = requireState(scope, name.name());
                     requireUsable(state, name.name(), mutable);
 
-                    if (state.kind == ValueKind.IMM_BORROW) {
-                        if (mutable) {
-                            throw error(callable + " argument " + (i + 1)
-                                    + " requires exclusive mutable access but '" + name.name()
-                                    + "' is a read borrow");
-                        }
-                        continue; // shared reborrow
-                    }
-                    if (state.kind == ValueKind.MUT_BORROW) {
-                        continue; // reborrow from an already exclusive callee view
+                    if (!mutable && state.kind == ValueKind.COPY) {
+                        continue; // Copy values cross ordinary parameters by copy.
                     }
 
-                    beginPersistentBorrow(state, mutable);
+                    beginTemporaryBorrow(state, mutable, callable, i + 1, name.name());
                     temporaryBorrows.add(new TemporaryBorrow(state, mutable));
                     continue;
                 }
@@ -493,6 +503,42 @@ public final class OwnershipChecker {
                 else temporary.owner().immutableBorrows--;
             }
         }
+    }
+
+    private void beginTemporaryBorrow(
+            VarState state,
+            boolean mutable,
+            String callable,
+            int position,
+            String name) {
+        if (state.kind == ValueKind.IMM_BORROW) {
+            if (mutable) {
+                throw error(callable + " argument " + position
+                        + " requires exclusive mutable access but '" + name + "' is a read borrow");
+            }
+            if (state.mutableBorrowed) {
+                throw error("cannot read-borrow '" + name + "' while an exclusive reborrow is active");
+            }
+            state.immutableBorrows++;
+            return;
+        }
+
+        if (state.kind == ValueKind.MUT_BORROW) {
+            if (mutable) {
+                if (state.mutableBorrowed || state.immutableBorrows > 0) {
+                    throw error("cannot exclusively reborrow '" + name + "' while another reborrow is active");
+                }
+                state.mutableBorrowed = true;
+            } else {
+                if (state.mutableBorrowed) {
+                    throw error("cannot read-borrow '" + name + "' while an exclusive reborrow is active");
+                }
+                state.immutableBorrows++;
+            }
+            return;
+        }
+
+        beginPersistentBorrow(state, mutable);
     }
 
     private void checkAssignmentTarget(Ast.Expr target, Scope scope) {
@@ -535,7 +581,7 @@ public final class OwnershipChecker {
             if (state.kind == ValueKind.IMM_BORROW) {
                 throw error("cannot mutate " + what + " through read borrow '" + name.name() + "'");
             }
-            if (state.kind != ValueKind.MUT_BORROW && (state.immutableBorrows > 0 || state.mutableBorrowed)) {
+            if (state.immutableBorrows > 0 || state.mutableBorrowed) {
                 throw error("cannot mutate '" + name.name() + "' while borrowed");
             }
             return;
@@ -797,10 +843,10 @@ public final class OwnershipChecker {
     private void requireUsable(VarState state, String name, boolean write) {
         if (state.moved) throw error("use of moved value '" + name + "'");
         if (write) {
-            if (state.mutableBorrowed && state.kind != ValueKind.MUT_BORROW) throw error("cannot mutate '" + name + "' while mutably borrowed");
+            if (state.mutableBorrowed) throw error("cannot mutate '" + name + "' while mutably borrowed/reborrowed");
             if (state.immutableBorrows > 0) throw error("cannot mutate '" + name + "' while immutably borrowed");
-        } else if (state.mutableBorrowed && state.kind != ValueKind.MUT_BORROW) {
-            throw error("cannot read '" + name + "' while it is mutably borrowed");
+        } else if (state.mutableBorrowed) {
+            throw error("cannot read '" + name + "' while it is mutably borrowed/reborrowed");
         }
     }
 
