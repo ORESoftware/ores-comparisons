@@ -65,11 +65,15 @@ public final class Parser {
                     rootDeclarations.add(parseClass(modifiers.isAbstract || afterDefineAbstract));
                     continue;
                 }
+                if (match(TRAIT)) {
+                    rootDeclarations.add(parseTrait());
+                    continue;
+                }
                 if (match(INTERFACE)) {
                     rootDeclarations.add(parseInterface(modifiers.visibility));
                     continue;
                 }
-                throw error(previous(), "expected module, class, or interface after 'define'");
+                throw error(previous(), "expected module, class, trait, or interface after 'define'");
             }
 
             Ast.Decl declaration = parseDeclarationAfterModifiers(annotations, modifiers);
@@ -147,8 +151,12 @@ public final class Parser {
         if (match(DEFINE)) {
             boolean afterDefineAbstract = match(ABSTRACT);
             if (match(CLASS)) return parseClass(modifiers.isAbstract || afterDefineAbstract);
+            if (match(TRAIT)) {
+                if (afterDefineAbstract) throw error(previous(), "traits express requirements with abstract members, not 'abstract trait'");
+                return parseTrait();
+            }
             if (match(INTERFACE)) return parseInterface(modifiers.visibility);
-            throw error(previous(), "expected class or interface after 'define'");
+            throw error(previous(), "expected class, trait, or interface after 'define'");
         }
 
         Ast.Decl declaration = parseDeclarationAfterModifiers(annotations, modifiers);
@@ -159,6 +167,7 @@ public final class Parser {
     private Ast.Decl parseDeclarationAfterModifiers(List<Ast.Annotation> annotations, Modifiers modifiers) {
         if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC);
         if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE);
+        if (match(TRAIT)) return parseTrait();
         if (match(INTERFACE)) return parseInterface(modifiers.visibility);
         if (match(TYPE)) return parseTypeAlias();
         if (isBindingKind(peek().type())) return parseModuleBinding(modifiers.visibility);
@@ -193,7 +202,10 @@ public final class Parser {
         String name = consume(IDENT, "expected class name").lexeme();
         List<String> generics = parseGenericParameters();
         List<Ast.TypeRef> parents = match(EXTENDS) ? parseTypeRefList() : List.of();
-        List<Ast.TypeRef> interfaces = match(IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
+        // 'is' is the canonical contract-conformance spelling. implements/impl
+        // remain accepted while existing source migrates.
+        List<Ast.TypeRef> interfaces = match(IS, IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
+        List<Ast.TypeRef> traits = match(WITH) ? parseTypeRefList() : List.of();
         consume(AS, "class declarations require 'as' before the body");
         List<Ast.FieldDecl> fields = new ArrayList<>();
         List<Ast.MethodDecl> methods = new ArrayList<>();
@@ -218,7 +230,33 @@ public final class Parser {
             methods.add(parseMethod(annotations, mods));
         }
         consume(END, "expected 'end' to close class " + name);
-        return new Ast.ClassDecl(name, isAbstract, generics, parents, interfaces, fields, methods);
+        return new Ast.ClassDecl(name, isAbstract, generics, parents, interfaces, traits, fields, methods);
+    }
+
+    private Ast.TraitDecl parseTrait() {
+        String name = consume(IDENT, "expected trait name").lexeme();
+        List<String> generics = parseGenericParameters();
+        List<Ast.TypeRef> interfaces = match(IS, IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
+        List<Ast.TypeRef> traits = match(WITH) ? parseTypeRefList() : List.of();
+        consume(AS, "trait declarations require 'as' before the body");
+
+        List<Ast.FieldDecl> fields = new ArrayList<>();
+        List<Ast.MethodDecl> methods = new ArrayList<>();
+        while (!check(END) && !check(EOF)) {
+            List<Ast.Annotation> annotations = parseAnnotations();
+            Modifiers mods = parseModifiers();
+            if (check(INIT)) throw error(peek(), "traits cannot declare init routines; trait state initializes as part of the host object");
+            if (isBindingKind(peek().type())) {
+                if (mods.isStatic) throw error(peek(), "traits cannot declare static data");
+                fields.add(parseField(mods.visibility));
+                continue;
+            }
+            if (mods.isStatic) throw error(peek(), "traits contain instance behavior only; static functions belong on classes or modules");
+            if (check(FNC)) throw error(peek(), "trait instance methods omit 'fnc', like class instance methods");
+            methods.add(parseMethod(annotations, mods));
+        }
+        consume(END, "expected 'end' to close trait " + name);
+        return new Ast.TraitDecl(name, generics, interfaces, traits, fields, methods);
     }
 
     private Ast.InterfaceDecl parseInterface(Ast.Visibility visibility) {
@@ -226,12 +264,16 @@ public final class Parser {
         List<String> generics = parseGenericParameters();
         List<Ast.TypeRef> parents = match(EXTENDS) ? parseTypeRefList() : List.of();
         boolean braceStyle = match(LBRACE);
+        if (!braceStyle) match(AS); // canonical spelling; legacy interface ... end remains accepted for migration
         Token.Type terminator = braceStyle ? RBRACE : END;
 
         List<Ast.InterfaceMember> members = new ArrayList<>();
         while (!check(terminator) && !check(EOF)) {
-            parseAnnotations();
-            parseModifiers();
+            List<Ast.Annotation> annotations = parseAnnotations();
+            Modifiers mods = parseModifiers();
+            if (!annotations.isEmpty() || mods.async || mods.isStatic || mods.isAbstract) {
+                throw error(peek(), "interface members are signatures only and do not accept annotations, async, static, or abstract modifiers");
+            }
 
             if (match(FNC)) {
                 String memberName = consume(IDENT, "expected interface function name").lexeme();
@@ -245,20 +287,7 @@ public final class Parser {
                 continue;
             }
 
-            if (check(IDENT) && checkNext(COLON)) {
-                String fieldName = advance().lexeme();
-                consume(COLON, "expected ':' after interface field name");
-                Ast.TypeRef type = parseTypeRef();
-                consumeMemberTerminator(terminator, "interface field signature should end with ';'");
-                members.add(new Ast.InterfaceFieldDecl(fieldName, type));
-                continue;
-            }
-
-            if (isBindingKind(peek().type())) advance();
-            Ast.TypeRef type = parseTypeRef();
-            String fieldName = consume(IDENT, "expected interface field name").lexeme();
-            consumeMemberTerminator(terminator, "interface field signature should end with ';'");
-            members.add(new Ast.InterfaceFieldDecl(fieldName, type));
+            throw error(peek(), "interfaces are storage-free contracts; put state in a trait or class and declare functions with 'fnc'");
         }
 
         consume(terminator, braceStyle ? "expected '}' to close interface " + name : "expected 'end' to close interface " + name);

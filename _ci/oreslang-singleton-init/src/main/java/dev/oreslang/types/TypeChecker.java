@@ -45,15 +45,18 @@ public final class TypeChecker {
     private final Set<String> ambiguousTypeAliases = new HashSet<>();
     private final Set<String> importedValues = new HashSet<>();
     private final Set<Ast.TypeAliasDecl> resolvingAliases = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+    // Set only while checking a method expanded from a trait.
+    private String activeTraitOwner;
 
     public static Ast.Program check(Ast.Program program) {
+        Ast.Program composed = TraitComposer.compose(program);
         TypeChecker checker = new TypeChecker();
-        checker.validateImports(program);
-        checker.collect(program);
+        checker.validateImports(composed);
+        checker.collect(composed);
         checker.validateRoutineRecursion();
-        checker.validate(program);
-        OwnershipChecker.check(program);
-        return program;
+        checker.validate(composed);
+        OwnershipChecker.check(composed);
+        return composed;
     }
 
     private void validateImports(Ast.Program program) {
@@ -132,6 +135,11 @@ public final class TypeChecker {
     private void checkModuleAdherence(Ast.ModuleDecl module) {
         for (Ast.Annotation annotation : module.annotations()) {
             if (!annotation.name().equals("AdheresTo")) continue;
+            if (module.singleton()) {
+                throw new IllegalArgumentException("singleton module '" + module.name()
+                        + "' cannot use ordinary @AdheresTo interfaces because its external surface is asynchronous;"
+                        + " define a service/singleton interface kind before advertising synchronous conformance");
+            }
             if (annotation.arguments().isEmpty()) throw new IllegalArgumentException("@AdheresTo requires at least one interface");
             Record actual = moduleShape(module);
             for (Ast.TypeRef ref : annotation.arguments()) {
@@ -176,10 +184,6 @@ public final class TypeChecker {
                     if (!all.add(generic)) throw new IllegalArgumentException("duplicate/shadowed generic '" + generic + "' in interface " + iface.name() + "." + fn.name());
                 }
                 functionType(fn.parameters(), fn.returnType(), all, null);
-            } else {
-                Ast.InterfaceFieldDecl field = (Ast.InterfaceFieldDecl) member;
-                if (!memberKeys.add(field.name())) throw new IllegalArgumentException("duplicate interface member '" + iface.name() + "." + field.name() + "'");
-                resolve(field.type(), generics, null);
             }
         }
     }
@@ -402,6 +406,11 @@ public final class TypeChecker {
             Ast.ModuleDecl owner,
             Ast.FieldDecl exportedField,
             Ast.ClassDecl klass) {
+        if (!klass.parents().isEmpty()) {
+            throw new IllegalArgumentException("exported singleton object '" + owner.name() + "."
+                    + exportedField.name()
+                    + "' cannot use class inheritance until inherited proxy methods are flattened and Send-checked");
+        }
         if (!klass.genericParameters().isEmpty()) {
             throw new IllegalArgumentException("exported singleton object '" + owner.name() + "." + exportedField.name()
                     + "' cannot use a generic class until proxy Send constraints are explicit");
@@ -704,6 +713,7 @@ public final class TypeChecker {
         }
 
         for (Ast.MethodDecl method : klass.methods()) {
+            activeTraitOwner = method.compositionOwner();
             Set<String> generics = new HashSet<>(classGenerics);
             for (String generic : method.genericParameters()) {
                 if (!generics.add(generic)) throw new IllegalArgumentException("duplicate/shadowed generic '" + generic + "' in " + klass.name() + "." + method.name());
@@ -729,6 +739,7 @@ public final class TypeChecker {
                 String label = method.isStatic() ? "static function" : "method";
                 throw new IllegalArgumentException("non-void " + label + " '" + module + "." + klass.name() + "." + method.name() + "' must explicitly return on every path");
             }
+            activeTraitOwner = null;
         }
 
         Set<String> implemented = new HashSet<>();
@@ -1121,12 +1132,13 @@ public final class TypeChecker {
                         + "' is actor-private inside singleton module '" + owner.name() + "'");
             }
             List<Ast.FieldDecl> fields = effectiveFields(klass, new LinkedHashSet<>());
-            if (created.arguments().size() > fields.size()) throw new IllegalArgumentException("constructor for " + klass.name() + " received too many positional fields");
+            List<Ast.FieldDecl> constructorFields = fields.stream().filter(field -> !field.composed()).toList();
+            if (created.arguments().size() > constructorFields.size()) throw new IllegalArgumentException("constructor for " + klass.name() + " received too many positional fields");
             Type nominal = nominalClassType(klass);
-            for (int i = 0; i < fields.size(); i++) {
-                Ast.FieldDecl field = fields.get(i);
-                if (i < created.arguments().size()) {
-                    requireAssignable(typeOf(created.arguments().get(i), env, generics, self),
+            int argumentIndex = 0;
+            for (Ast.FieldDecl field : fields) {
+                if (!field.composed() && argumentIndex < created.arguments().size()) {
+                    requireAssignable(typeOf(created.arguments().get(argumentIndex++), env, generics, self),
                             resolve(field.type(), Set.copyOf(klass.genericParameters()), nominal), "constructor field " + field.name());
                 } else if (field.initializer() == null) {
                     throw new IllegalArgumentException("constructor for " + klass.name() + " is missing field '" + field.name() + "'");
@@ -1261,6 +1273,10 @@ public final class TypeChecker {
             validateSingletonTransportExpr(conditional.whenTrue(), currentModule);
             validateSingletonTransportExpr(conditional.whenFalse(), currentModule);
         } else if (expr instanceof Ast.MemberExpr member) {
+            if (isExternalSingletonFunctionMember(member, currentModule)) {
+                throw new IllegalArgumentException("singleton service function values cannot be extracted; call and await "
+                        + ((Ast.NameExpr) member.receiver()).name() + "." + member.member() + "(...) directly");
+            }
             validateSingletonTransportExpr(member.receiver(), currentModule);
         } else if (expr instanceof Ast.IndexExpr indexed) {
             validateSingletonTransportExpr(indexed.receiver(), currentModule);
@@ -1280,8 +1296,25 @@ public final class TypeChecker {
     }
 
     private void validateSingletonTransportCallChildren(Ast.CallExpr call, String currentModule) {
-        validateSingletonTransportExpr(call.callee(), currentModule);
+        // A recognized external singleton call is allowed only because the
+        // surrounding validator proved it is immediately awaited. Do not
+        // reinterpret its callee member as a first-class function extraction.
+        if (!isExternalSingletonCall(call, currentModule)) {
+            validateSingletonTransportExpr(call.callee(), currentModule);
+        }
         for (Ast.Expr argument : call.arguments()) validateSingletonTransportExpr(argument, currentModule);
+    }
+
+    private boolean isExternalSingletonFunctionMember(Ast.MemberExpr member, String currentModule) {
+        if (!(member.receiver() instanceof Ast.NameExpr namespace)) return false;
+        Ast.ModuleDecl owner = modules.get(namespace.name());
+        if (owner == null || !owner.singleton() || owner.name().equals(currentModule)) return false;
+        for (Ast.Decl decl : owner.declarations()) {
+            if (decl instanceof Ast.FunctionDecl fn
+                    && fn.visibility() == Ast.Visibility.PUBLIC
+                    && fn.name().equals(member.member())) return true;
+        }
+        return false;
     }
 
     private boolean isExternalSingletonCall(Ast.CallExpr call, String currentModule) {
@@ -1448,8 +1481,6 @@ public final class TypeChecker {
                 all.addAll(fn.genericParameters());
                 mergeMember(members, methodKey(fn.name(), fn.parameters().size()),
                         functionType(fn.parameters(), fn.returnType(), all, null), "interface " + iface.name());
-            } else if (member instanceof Ast.InterfaceFieldDecl field) {
-                mergeMember(members, field.name(), resolve(field.type(), generics, null), "interface " + iface.name());
             }
         }
         stack.remove(iface);
@@ -1473,6 +1504,16 @@ public final class TypeChecker {
         Type self = nominalClassType(klass);
         for (Ast.FieldDecl field : klass.fields()) {
             if (field.name().equals(name)) {
+                if (activeTraitOwner != null) {
+                    if (!field.composed() || !activeTraitOwner.equals(field.compositionOwner())) {
+                        throw new IllegalArgumentException(
+                                "trait '" + activeTraitOwner + "' cannot access host or foreign trait state field '" + name + "'");
+                    }
+                } else if (field.composed() && field.visibility() != Ast.Visibility.PUBLIC) {
+                    throw new IllegalArgumentException(
+                            "trait state field '" + field.compositionOwner() + "." + name
+                                    + "' is private to that trait");
+                }
                 seen.remove(klass);
                 return resolve(field.type(), Set.copyOf(klass.genericParameters()), self);
             }
