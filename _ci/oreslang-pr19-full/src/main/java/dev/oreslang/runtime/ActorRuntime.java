@@ -1619,8 +1619,24 @@ public final class ActorRuntime implements AutoCloseable {
                 if (terminated) return;
                 terminated = true;
                 stopped.set(true);
+
+                /*
+                 * queuedMessages also includes senders that reserved a slot but
+                 * are still freezing their message. Remove only entries that
+                 * are physically queued here; in-flight senders will observe
+                 * terminated in enqueueReserved() and release their own slot.
+                 */
+                int dropped = mailbox.size();
                 mailbox.clear();
-                queuedMessages.set(0);
+                if (dropped != 0) {
+                    int remaining = queuedMessages.addAndGet(-dropped);
+                    if (remaining < 0) {
+                        queuedMessages.addAndGet(dropped);
+                        throw new IllegalStateException(
+                                "actor mailbox accounting underflow while terminating "
+                                        + ref.id());
+                    }
+                }
             }
 
             if (actors.remove(ref.id(), this)) {
