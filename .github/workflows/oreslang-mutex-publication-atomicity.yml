@@ -1,5 +1,5 @@
 name: oreslang-mutex-publication-atomicity
-# exact Oreslang source head: 89ccc80d869bb404c6b9eafa60c2c1bc9c0ced4b
+# exact Oreslang source head: dc36d6dbbe73c743e9bfb8c58b36931ef7c835a3
 
 on:
   push:
