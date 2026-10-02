@@ -248,4 +248,27 @@ final class MutexStaticAdmissionValidationTest {
                 "cannot await while holding a MutexGuard"));
     }
 
+
+    @Test
+    void conditionalReturnCannotEraseGuardLinearity() {
+        var program = Parser.parse("""
+                define module model
+                  define class Counter
+                    pub let int value = 0;
+                  end
+                end
+
+                define module app
+                  fnc bad(bool choose) => int | Counter {
+                    val mutex = Mutex.new(new Counter());
+                    return choose ? 1 : mutex.lock();
+                  }
+                end
+                """);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(program));
+    }
+
 }
