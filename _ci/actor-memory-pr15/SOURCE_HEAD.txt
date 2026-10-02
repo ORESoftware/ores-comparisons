@@ -1,2 +1,4 @@
-ores-truffle-oreslang/oreslang-source.java integration/actor-memory-keywords
-e3fa4b68c80a627e9f3fa60365ba4078dc2b6c13
+ores-truffle-oreslang/oreslang-source.java
+proof branch test/shared-private-isolation-proof-20261002
+head c5fcf52e003a3b7c81cfd3cfc77008f7b1d0a826
+base actor branch feat/akka-style-shared-actors @ 159d545ea6591b4fe200990b6d33b26e4ee3eac8
