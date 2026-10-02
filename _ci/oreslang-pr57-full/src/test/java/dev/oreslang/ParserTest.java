@@ -305,4 +305,55 @@ final class ParserTest {
     }
 
 
+
+@Test
+    void parsesReusableUnderscoreDestructureDiscards() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                define module app
+                  pub fnc main() => void {
+                    [const foo, _, let bar] = (1, 2, 3);
+                    [_, _, const tail] = (4, 5, 6);
+                    [const z, _, let y] = (7, 8, 9);
+                    stdio.println(foo);
+                    stdio.println(bar);
+                    stdio.println(tail);
+                    stdio.println(z);
+                    stdio.println(y);
+                    return;
+                  }
+                end
+                """));
+
+        Ast.FunctionDecl main = (Ast.FunctionDecl) program.modules().getFirst().declarations().getFirst();
+        Ast.DestructureStmt first = (Ast.DestructureStmt) main.body().getFirst();
+        assertFalse(first.bindings().getFirst().isDiscard());
+        assertTrue(first.bindings().get(1).isDiscard());
+
+        Ast.DestructureStmt second = (Ast.DestructureStmt) main.body().get(1);
+        assertTrue(second.bindings().getFirst().isDiscard());
+        assertTrue(second.bindings().get(1).isDiscard());
+        assertFalse(second.bindings().get(2).isDiscard());
+    }
+
+@Test
+    void reservedWordsMayNameMembersButRemainReservedLexically() {
+        assertDoesNotThrow(() -> Parser.parse("""
+                define module app
+                  fnc main() => void {
+                    val mutex = SharedMutex.new(arr[1, 2, 3]);
+                    return;
+                  }
+                end
+                """));
+
+        assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
+                define module app
+                  fnc main() => void {
+                    val new = 1;
+                    return;
+                  }
+                end
+                """));
+    }
+
 }
