@@ -90,14 +90,16 @@ final class ParserTest {
                         """));
         assertTrue(klass.getMessage().contains("require 'as'"));
 
-        var tokens = new Lexer("as is").scan();
+        var tokens = new Lexer("as is trait with").scan();
         assertEquals(Token.Type.AS, tokens.get(0).type());
         assertEquals(Token.Type.IS, tokens.get(1).type());
+        assertEquals(Token.Type.TRAIT, tokens.get(2).type());
+        assertEquals(Token.Type.WITH, tokens.get(3).type());
     }
 
     @Test
     void asAndIsCannotBeDeclaredAsVariableNames() {
-        for (String reserved : java.util.List.of("as", "is")) {
+        for (String reserved : java.util.List.of("as", "is", "trait", "with")) {
             IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                     () -> Parser.parse("""
                             define module app as

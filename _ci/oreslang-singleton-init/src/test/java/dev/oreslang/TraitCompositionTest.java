@@ -280,6 +280,28 @@ final class TraitCompositionTest {
     }
 
     @Test
+    void traitGenericSubstitutionRewritesMethodBodyTypes() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module model as
+                  define trait Echo<T> as
+                    pub echo(T value) => T {
+                      val T copy = value;
+                      return copy;
+                    }
+                  end
+
+                  define class IntEcho with Echo<int> as
+                  end
+
+                  pub fnc run() => int {
+                    val echo = new IntEcho();
+                    return echo.echo(7);
+                  }
+                end
+                """)));
+    }
+
+    @Test
     void traitNamesShareTheTypeNamespace() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

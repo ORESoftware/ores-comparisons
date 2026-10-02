@@ -646,7 +646,7 @@ public final class TraitComposer {
                         raw.visibility(),
                         raw.bindingKind(),
                         substitute(raw.type(), substitutions),
-                        raw.initializer(),
+                        substitute(raw.initializer(), substitutions),
                         binding.declaration().name());
 
                 mergeField(
@@ -855,6 +855,167 @@ public final class TraitComposer {
                     type.inferArguments());
         }
 
+        private List<Ast.Stmt> substituteStatements(
+                List<Ast.Stmt> statements,
+                Map<String, Ast.TypeRef> substitutions) {
+            return statements.stream()
+                    .map(statement -> substitute(statement, substitutions))
+                    .toList();
+        }
+
+        private Ast.Stmt substitute(
+                Ast.Stmt statement,
+                Map<String, Ast.TypeRef> substitutions) {
+            if (statement == null) return null;
+            if (statement instanceof Ast.BindingStmt binding) {
+                return new Ast.BindingStmt(
+                        binding.kind(),
+                        substitute(binding.declaredType(), substitutions),
+                        binding.name(),
+                        substitute(binding.initializer(), substitutions));
+            }
+            if (statement instanceof Ast.DestructureStmt destructure) {
+                return new Ast.DestructureStmt(
+                        destructure.bindings(),
+                        substitute(destructure.initializer(), substitutions));
+            }
+            if (statement instanceof Ast.ReturnStmt returned) {
+                return new Ast.ReturnStmt(
+                        returned.value() == null ? null : substitute(returned.value(), substitutions));
+            }
+            if (statement instanceof Ast.ExprStmt expression) {
+                return new Ast.ExprStmt(substitute(expression.expression(), substitutions));
+            }
+            if (statement instanceof Ast.DeferStmt deferred) {
+                return new Ast.DeferStmt(substitute(deferred.expression(), substitutions));
+            }
+            if (statement instanceof Ast.IfStmt conditional) {
+                List<Ast.IfBranch> branches = conditional.branches().stream()
+                        .map(branch -> new Ast.IfBranch(
+                                substitute(branch.condition(), substitutions),
+                                substituteStatements(branch.body(), substitutions)))
+                        .toList();
+                return new Ast.IfStmt(
+                        branches,
+                        substituteStatements(conditional.elseBody(), substitutions));
+            }
+            if (statement instanceof Ast.TryStmt attempted) {
+                return new Ast.TryStmt(
+                        substituteStatements(attempted.body(), substitutions),
+                        attempted.errorName(),
+                        substituteStatements(attempted.catchBody(), substitutions),
+                        substituteStatements(attempted.finallyBody(), substitutions));
+            }
+            if (statement instanceof Ast.ForOfStmt loop) {
+                return new Ast.ForOfStmt(
+                        loop.bindingKind(),
+                        loop.bindingName(),
+                        substitute(loop.iterable(), substitutions),
+                        substituteStatements(loop.body(), substitutions));
+            }
+            Ast.ForStmt loop = (Ast.ForStmt) statement;
+            return new Ast.ForStmt(
+                    substitute(loop.initializer(), substitutions),
+                    loop.condition() == null ? null : substitute(loop.condition(), substitutions),
+                    loop.update() == null ? null : substitute(loop.update(), substitutions),
+                    substituteStatements(loop.body(), substitutions));
+        }
+
+        private Ast.Expr substitute(
+                Ast.Expr expression,
+                Map<String, Ast.TypeRef> substitutions) {
+            if (expression == null) return null;
+            if (expression instanceof Ast.LiteralExpr || expression instanceof Ast.NameExpr) {
+                return expression;
+            }
+            if (expression instanceof Ast.BinaryExpr binary) {
+                return new Ast.BinaryExpr(
+                        binary.operator(),
+                        substitute(binary.left(), substitutions),
+                        substitute(binary.right(), substitutions));
+            }
+            if (expression instanceof Ast.UnaryExpr unary) {
+                return new Ast.UnaryExpr(
+                        unary.operator(),
+                        substitute(unary.operand(), substitutions));
+            }
+            if (expression instanceof Ast.AssignExpr assignment) {
+                return new Ast.AssignExpr(
+                        substitute(assignment.target(), substitutions),
+                        substitute(assignment.value(), substitutions));
+            }
+            if (expression instanceof Ast.ConditionalExpr conditional) {
+                return new Ast.ConditionalExpr(
+                        substitute(conditional.condition(), substitutions),
+                        substitute(conditional.whenTrue(), substitutions),
+                        substitute(conditional.whenFalse(), substitutions));
+            }
+            if (expression instanceof Ast.CallExpr call) {
+                return new Ast.CallExpr(
+                        substitute(call.callee(), substitutions),
+                        call.arguments().stream()
+                                .map(argument -> substitute(argument, substitutions))
+                                .toList());
+            }
+            if (expression instanceof Ast.MemberExpr member) {
+                return new Ast.MemberExpr(
+                        substitute(member.receiver(), substitutions),
+                        member.member());
+            }
+            if (expression instanceof Ast.IndexExpr indexed) {
+                return new Ast.IndexExpr(
+                        substitute(indexed.receiver(), substitutions),
+                        substitute(indexed.index(), substitutions));
+            }
+            if (expression instanceof Ast.NewExpr created) {
+                return new Ast.NewExpr(
+                        substitute(created.type(), substitutions),
+                        created.arguments().stream()
+                                .map(argument -> substitute(argument, substitutions))
+                                .toList());
+            }
+            if (expression instanceof Ast.AwaitExpr awaited) {
+                return new Ast.AwaitExpr(
+                        substitute(awaited.expression(), substitutions));
+            }
+            if (expression instanceof Ast.ListExpr list) {
+                return new Ast.ListExpr(
+                        list.elements().stream()
+                                .map(item -> substitute(item, substitutions))
+                                .toList());
+            }
+            if (expression instanceof Ast.TupleExpr tuple) {
+                return new Ast.TupleExpr(
+                        tuple.elements().stream()
+                                .map(item -> substitute(item, substitutions))
+                                .toList());
+            }
+            if (expression instanceof Ast.ObjectExpr object) {
+                return new Ast.ObjectExpr(
+                        object.fields().stream()
+                                .map(field -> new Ast.ObjectField(
+                                        field.name(),
+                                        substitute(field.value(), substitutions)))
+                                .toList());
+            }
+            Ast.LambdaExpr lambda = (Ast.LambdaExpr) expression;
+            List<Ast.Param> parameters = lambda.parameters().stream()
+                    .map(parameter -> new Ast.Param(
+                            substitute(parameter.type(), substitutions),
+                            parameter.name(),
+                            parameter.structural(),
+                            parameter.mutable()))
+                    .toList();
+            return new Ast.LambdaExpr(
+                    parameters,
+                    lambda.expressionBody() == null
+                            ? null
+                            : substitute(lambda.expressionBody(), substitutions),
+                    lambda.blockBody() == null
+                            ? null
+                            : substituteStatements(lambda.blockBody(), substitutions));
+        }
+
         private Ast.MethodDecl substitute(
                 Ast.MethodDecl method,
                 Map<String, Ast.TypeRef> substitutions) {
@@ -891,7 +1052,7 @@ public final class TraitComposer {
                     parameters,
                     substitute(method.returnType(), effective),
                     annotations,
-                    method.body(),
+                    substituteStatements(method.body(), effective),
                     method.compositionOwner());
         }
 
