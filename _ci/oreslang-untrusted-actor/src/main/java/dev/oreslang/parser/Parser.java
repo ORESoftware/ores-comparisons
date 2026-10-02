@@ -45,17 +45,19 @@ public final class Parser {
                 }
                 boolean afterDefineAbstract = match(ABSTRACT);
                 if (match(MODULE)) {
-                    if (modifiers.visibility != Ast.Visibility.PRIVATE || modifiers.async || modifiers.isStatic || modifiers.isAbstract || modifiers.shared || modifiers.untrusted) {
+                    if (modifiers.visibility != Ast.Visibility.PRIVATE || modifiers.async || modifiers.nonLexical || modifiers.isStatic || modifiers.isAbstract || modifiers.shared || modifiers.untrusted) {
                         throw error(previous(), "modules do not accept function/class modifiers");
                     }
                     modules.add(parseModule(annotations));
                     continue;
                 }
                 if (match(CLASS)) {
+                    if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
                     rootDeclarations.add(parseClass(modifiers.isAbstract || afterDefineAbstract));
                     continue;
                 }
                 if (match(INTERFACE)) {
+                    if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
                     rootDeclarations.add(parseInterface(modifiers.visibility));
                     continue;
                 }
@@ -129,8 +131,14 @@ public final class Parser {
                 throw error(previous(), "'shared' must modify an actor declaration; use 'shared actor <Name>'");
             }
             boolean afterDefineAbstract = match(ABSTRACT);
-            if (match(CLASS)) return parseClass(modifiers.isAbstract || afterDefineAbstract);
-            if (match(INTERFACE)) return parseInterface(modifiers.visibility);
+            if (match(CLASS)) {
+                if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
+                return parseClass(modifiers.isAbstract || afterDefineAbstract);
+            }
+            if (match(INTERFACE)) {
+                if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
+                return parseInterface(modifiers.visibility);
+            }
             throw error(previous(), "expected class or interface after 'define'");
         }
 
@@ -148,14 +156,17 @@ public final class Parser {
                     ? Ast.ActorKind.UNTRUSTED
                     : modifiers.shared ? Ast.ActorKind.SHARED : Ast.ActorKind.PRIVATE;
             if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC, actorKind);
-            if (modifiers.async || modifiers.isStatic || modifiers.isAbstract) {
-                throw error(previous(), "actor declarations do not accept async, static, or abstract modifiers");
+            if (modifiers.async || modifiers.nonLexical || modifiers.isStatic || modifiers.isAbstract) {
+                throw error(previous(), "actor declarations do not accept async, nlex, static, or abstract modifiers");
             }
             return parseActorClass(actorKind);
         }
-        if (modifiers.shared || modifiers.untrusted) throw error(previous(), "'shared'/'untrusted' must modify an actor declaration or actor fnc");
+        if (modifiers.shared || modifiers.untrusted) {
+            throw error(previous(), "'shared'/'untrusted' must modify an actor declaration or actor fnc");
+        }
         if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC);
         if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE);
+        if (modifiers.nonLexical) throw error(peek(), "'nlex' applies only to fnc, routine, or lambda");
         if (match(INTERFACE)) return parseInterface(modifiers.visibility);
         if (match(TYPE)) return parseTypeAlias();
         if (isBindingKind(peek().type())) return parseModuleBinding(modifiers.visibility);
@@ -184,7 +195,7 @@ public final class Parser {
         consume(RPAREN, "expected ')' after parameters");
         Ast.TypeRef returnType = parseReturnType(annotations);
         List<Ast.Stmt> body = parseBlock();
-        return new Ast.FunctionDecl(name, kind, modifiers.visibility, modifiers.async, actorKind, generics, params,
+        return new Ast.FunctionDecl(name, kind, modifiers.visibility, modifiers.async, modifiers.nonLexical, actorKind, generics, params,
                 returnType, annotations, body);
     }
 
@@ -199,6 +210,7 @@ public final class Parser {
         while (!check(END) && !check(EOF)) {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
+            if (mods.nonLexical) throw error(peek(), "'nlex' is unnecessary on class members; methods/static fnc never capture enclosing local scopes");
             if (isBindingKind(peek().type())) {
                 if (mods.isStatic) throw error(peek(), "static data members are not implemented yet; static class functions use 'static fnc'");
                 fields.add(parseField(mods.visibility));
@@ -230,7 +242,10 @@ public final class Parser {
         while (!check(terminator) && !check(EOF)) {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
-            if (mods.shared || mods.untrusted) throw error(previous(), "'shared'/'untrusted' is only valid on an actor declaration, not its members");
+            if (mods.shared || mods.untrusted) {
+                throw error(previous(), "'shared'/'untrusted' is only valid on an actor declaration, not its members");
+            }
+            if (mods.nonLexical) throw error(previous(), "'nlex' is unnecessary on actor members; actor methods already execute in the actor turn scope");
 
             if (isBindingKind(peek().type())) {
                 if (mods.isStatic) throw error(peek(), "actor state cannot be static");
@@ -411,12 +426,14 @@ public final class Parser {
     private Modifiers parseModifiers() {
         Ast.Visibility visibility = Ast.Visibility.PRIVATE;
         boolean async = false;
+        boolean nonLexical = false;
         boolean isStatic = false;
         boolean isAbstract = false;
         boolean shared = false;
         boolean untrusted = false;
         boolean visibilitySeen = false;
         boolean asyncSeen = false;
+        boolean nonLexicalSeen = false;
         boolean staticSeen = false;
         boolean abstractSeen = false;
         boolean sharedSeen = false;
@@ -435,6 +452,10 @@ public final class Parser {
                 if (asyncSeen) throw error(previous(), "duplicate 'async' modifier");
                 asyncSeen = true;
                 async = true;
+            } else if (match(NLEX)) {
+                if (nonLexicalSeen) throw error(previous(), "duplicate 'nlex' modifier");
+                nonLexicalSeen = true;
+                nonLexical = true;
             } else if (match(STATIC)) {
                 if (staticSeen) throw error(previous(), "duplicate 'static' modifier");
                 staticSeen = true;
@@ -455,7 +476,7 @@ public final class Parser {
                 break;
             }
         }
-        return new Modifiers(visibility, async, isStatic, isAbstract, shared, untrusted);
+        return new Modifiers(visibility, async, nonLexical, isStatic, isAbstract, shared, untrusted);
     }
 
     private Ast.TypeRef parseReturnType(List<Ast.Annotation> annotations) {
@@ -1010,7 +1031,7 @@ public final class Parser {
             case IDENT, SHARED, UNTRUSTED,
                     DEFINE, CLASS, MODULE, NAMESPACE, IMPORT, FROM, AS, EXTENDS, IMPLEMENTS,
                     TRY, CATCH, FINALLY, END, FI, IF, DO, ELSE, THEN,
-                    NEW, DONE, AWAIT, ASYNC, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
+                    NEW, DONE, AWAIT, ASYNC, NLEX, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
                     INTERFACE, IMPL, ABSTRACT, VOID, STATIC, PUB, PRIVATE, STRUCTURAL, RETURN, DEFER,
                     VAL, CONST, LET, MUT, SELF, TRUE, FALSE, NULL, OBJ, ARR -> true;
             default -> false;
@@ -1044,8 +1065,13 @@ public final class Parser {
             consume(RBRACKET, "expected ']' after arr literal");
             return new Ast.ListExpr(items);
         }
-        if (check(PIPE)) return parsePipeLambda();
-        if (check(LPAREN) && looksLikeLambda()) return parseLambda();
+        if (match(NLEX)) {
+            if (check(PIPE)) return parsePipeLambda(true);
+            if (check(LPAREN) && looksLikeLambda()) return parseLambda(true);
+            throw error(previous(), "'nlex' in expression position must prefix a lambda");
+        }
+        if (check(PIPE)) return parsePipeLambda(false);
+        if (check(LPAREN) && looksLikeLambda()) return parseLambda(false);
         if (match(LPAREN)) {
             Ast.Expr first = parseExpression();
             if (match(COMMA)) {
@@ -1082,16 +1108,16 @@ public final class Parser {
         return new Ast.ObjectExpr(fields);
     }
 
-    private Ast.LambdaExpr parseLambda() {
+    private Ast.LambdaExpr parseLambda(boolean nonLexical) {
         consume(LPAREN, "expected '('");
         List<Ast.Param> params = parseParametersUntil(RPAREN);
         consume(RPAREN, "expected ')' after lambda parameters");
         consume(ARROW, "expected '->' after lambda parameters");
         if (!check(LBRACE)) throw error(peek(), "lambdas always require a block body; use '-> { ... }'");
-        return new Ast.LambdaExpr(params, null, parseBlock());
+        return new Ast.LambdaExpr(params, null, parseBlock(), nonLexical);
     }
 
-    private Ast.LambdaExpr parsePipeLambda() {
+    private Ast.LambdaExpr parsePipeLambda(boolean nonLexical) {
         consume(PIPE, "expected '|'");
         List<Ast.Param> params = new ArrayList<>();
         if (!check(PIPE)) {
@@ -1110,7 +1136,7 @@ public final class Parser {
         consume(PIPE, "expected closing '|' after lambda parameters");
         consume(ARROW, "lambdas use the slim arrow '->'");
         if (!check(LBRACE)) throw error(peek(), "lambdas always require a block body; use '|args| -> { ... }'");
-        return new Ast.LambdaExpr(params, null, parseBlock());
+        return new Ast.LambdaExpr(params, null, parseBlock(), nonLexical);
     }
 
     private boolean looksLikeLambda() {
@@ -1169,11 +1195,6 @@ public final class Parser {
         throw error(peek(), message);
     }
 
-    /**
-     * shared/untrusted are contextual actor modifiers, not globally poisoned
-     * names. Declaration modifier parsing sees them before identifier parsing;
-     * ordinary bindings, parameters and expressions may still use the words.
-     */
     private static boolean isIdentifierToken(Token.Type type) {
         return type == IDENT || type == SHARED || type == UNTRUSTED;
     }
@@ -1212,5 +1233,5 @@ public final class Parser {
         return new IllegalArgumentException("Oreslang parse error at " + token.line() + ":" + token.column() + ": " + message);
     }
 
-    private record Modifiers(Ast.Visibility visibility, boolean async, boolean isStatic, boolean isAbstract, boolean shared, boolean untrusted) { }
+    private record Modifiers(Ast.Visibility visibility, boolean async, boolean nonLexical, boolean isStatic, boolean isAbstract, boolean shared, boolean untrusted) { }
 }
