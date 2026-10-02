@@ -240,6 +240,32 @@ public final class ActorRuntime implements AutoCloseable {
     public long actorMemoryBytes() { return privateMemoryBytes.get() + sharedMemoryBytes.get(); }
 
     /**
+     * Requires a capability using the policy effective for the current
+     * execution domain. Outside an actor turn this is the runtime ceiling;
+     * inside an actor turn it is the actor's derived policy.
+     *
+     * <p>This closes the gap between isolate-wide guest capability checks and
+     * actor-local restrictions. In particular, PRIVATE actors cannot regain
+     * SHARED_MEMORY or ACTOR_SHARE_READONLY merely because their parent
+     * developer context has those capabilities.</p>
+     */
+    public void requireEffectiveCapability(IsolatePolicy.Capability capability, String api) {
+        Objects.requireNonNull(capability);
+        Objects.requireNonNull(api);
+
+        ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
+        if (current == null) {
+            policyCeiling.require(capability, api);
+            return;
+        }
+        if (current.runtime() != this) {
+            throw new SecurityException(
+                    "actor capability check crossed actor-runtime boundaries for " + api);
+        }
+        current.policy().require(capability, api);
+    }
+
+    /**
      * Logical actor-confined memory slice for one private actor.
      *
      * This is independent of carrier threads. Mailbox payloads and persistent
