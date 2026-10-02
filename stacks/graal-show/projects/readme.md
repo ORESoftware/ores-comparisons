@@ -19,3 +19,5 @@ Graal Show now has a framework-neutral Ruby lowering path modeled on the ORES St
 - the Roda dummy fixture and Rails demo are both imported into this comparison surface.
 
 The dummy lane uses Roda so Rails behavior is not accidentally treated as the Graal contract. The Rails demo remains the richer reference for Rails conventions, physical route handlers, and the Graal supervisor.
+
+The Ruby fixture gitlinks are advanced only to merged `main` commits of the Roda source and lambda-contract repositories; the Rails app/infra references likewise pin concrete `main` commits from the working demo.
