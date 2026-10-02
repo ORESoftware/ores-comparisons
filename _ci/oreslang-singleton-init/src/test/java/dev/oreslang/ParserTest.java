@@ -96,6 +96,23 @@ final class ParserTest {
     }
 
     @Test
+    void asAndIsCannotBeDeclaredAsVariableNames() {
+        for (String reserved : java.util.List.of("as", "is")) {
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                    () -> Parser.parse("""
+                            define module app as
+                              pub routine main() => void {
+                                let int %s = 1;
+                                return;
+                              }
+                            end
+                            """.formatted(reserved)));
+            assertTrue(error.getMessage().contains("expected binding name")
+                    || error.getMessage().contains("expected"));
+        }
+    }
+
+    @Test
     void parsesFileAndModuleInitRoutinesAsLifecycleDeclarations() {
         Ast.Program program = Parser.parse("""
                 init routine() => void {
