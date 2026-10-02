@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -199,6 +200,45 @@ final class GarbageCollectionHardeningTest {
             assertEquals(1, runtime.gcStats().processCollections());
             assertEquals(1, runtime.gcStats().suppressedProcessRequests());
             assertEquals(List.of(ActorRuntime.GcReason.EXPLICIT), collector.processCollections);
+        }
+    }
+
+    @Test
+    void repeatedExplicitActorGcIsCoalescedPerMailboxMessage() throws Exception {
+        RecordingCollector collector = new RecordingCollector();
+        CountDownLatch firstMessage = new CountDownLatch(1);
+        CountDownLatch secondMessage = new CountDownLatch(1);
+        AtomicInteger seen = new AtomicInteger();
+
+        try (ActorRuntime runtime = new ActorRuntime(
+                IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8),
+                ActorRuntime.TurnExecutor.direct(),
+                new ActorRuntime.GcConfig(0, 0, 0),
+                collector)) {
+            var ref = runtime.<String>spawnPrivate(factory -> (message, context) -> {
+                context.gc();
+                context.gc();
+
+                if (seen.incrementAndGet() == 1) {
+                    firstMessage.countDown();
+                } else {
+                    secondMessage.countDown();
+                    context.self().stop();
+                }
+            });
+
+            ref.send("first");
+            assertTrue(firstMessage.await(2, TimeUnit.SECONDS));
+            ref.send("second");
+            assertTrue(secondMessage.await(2, TimeUnit.SECONDS));
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(ref.failure().isEmpty());
+
+            assertEquals(4, runtime.gcStats().actorRequests());
+            assertEquals(2, runtime.gcStats().suppressedActorRequests());
+            assertEquals(2, runtime.gcStats().actorCollections());
+            assertEquals(2, collector.actorCollections.size());
         }
     }
 
