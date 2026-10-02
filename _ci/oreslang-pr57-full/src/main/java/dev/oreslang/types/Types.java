@@ -54,8 +54,11 @@ public final class Types {
         Objects.requireNonNull(from);
         Objects.requireNonNull(to);
         if (from == Unknown.INSTANCE || to == Unknown.INSTANCE) return true;
-        if (to instanceof Generic || from instanceof Generic) return true;
         if (from.equals(to)) return true;
+        // An unbound generic denotes one consistent caller-selected type; it
+        // is not Any. Concrete values cannot satisfy an arbitrary T unless T
+        // has first been inferred/substituted at the call boundary.
+        if (to instanceof Generic || from instanceof Generic) return false;
         if (from instanceof StringLiteral && to == Primitive.STRING) return true;
 
         if (from instanceof Union source) {
