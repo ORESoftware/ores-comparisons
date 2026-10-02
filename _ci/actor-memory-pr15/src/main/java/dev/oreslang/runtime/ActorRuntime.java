@@ -296,6 +296,16 @@ public final class ActorRuntime implements AutoCloseable {
 
     public Shared<Object> shareReadonly(Object value) {
         requireCallerRuntimeAffinity("share readonly values");
+        IsolatePolicy callerPolicy = CURRENT_ACTOR_POLICY.get();
+        if (callerPolicy != null) {
+            callerPolicy.require(
+                    IsolatePolicy.Capability.ACTOR_SHARE_READONLY,
+                    "ActorRuntime.shareReadonly");
+        } else {
+            policyCeiling.require(
+                    IsolatePolicy.Capability.ACTOR_SHARE_READONLY,
+                    "ActorRuntime.shareReadonly");
+        }
         return new Shared<>(freezeForThisRuntime(value));
     }
 
@@ -639,15 +649,17 @@ public final class ActorRuntime implements AutoCloseable {
                     @Override public ActorRuntime runtime() { return ActorRuntime.this; }
                     @Override public IsolatePolicy policy() { return policy; }
                 };
-                while (true) {
+                while (!closed.get()) {
                     Object message = mailbox.take();
-                    if (message == STOP) return;
+                    if (message == STOP || closed.get()) return;
                     behavior.onMessage((M) message, context);
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
             } catch (VirtualMachineError fatal) {
                 throw fatal;
+            } catch (ThreadDeath death) {
+                throw death;
             } catch (Throwable failure) {
                 // v0 fail-stop supervision policy. The cell is removed below
                 // so subsequent sends fail immediately instead of targeting a
