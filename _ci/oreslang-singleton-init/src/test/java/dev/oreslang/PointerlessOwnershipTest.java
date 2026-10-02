@@ -78,6 +78,96 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void nestedMutableReborrowsRemainExclusive() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 0;
+                        end
+
+                        fnc inner(mut Box left, Box right) => void {
+                          left.value = right.value;
+                          return;
+                        }
+
+                        fnc outer(mut Box box) => void {
+                          inner(box, box);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow")
+                || error.getMessage().toLowerCase().contains("reborrow"));
+    }
+
+    @Test
+    void takeSelfTransfersReceiverOwnership() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 7;
+
+                  pub identity(take self)() => self {
+                    return self;
+                  }
+                end
+
+                fnc ok() => void {
+                  let Box box = new Box();
+                  val Box moved = box.identity();
+                  stdio.println(moved.value);
+                  return;
+                }
+                """)));
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+
+                          pub identity(take self)() => self {
+                            return self;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          val Box moved = box.identity();
+                          stdio.println(box.value);
+                          stdio.println(moved.value);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("moved"));
+    }
+
+    @Test
+    void boundMethodsCannotEscapeReceiverLifetime() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+
+                          pub read() => int {
+                            return self.value;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          val callback = box.read;
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("bound instance method")
+                && error.getMessage().contains("cannot be extracted"));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
