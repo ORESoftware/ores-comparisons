@@ -952,7 +952,7 @@ final class LanguageHardeningTest {
                   let int x;
                 }
 
-                fnc ok(MutablePoint p) => void {
+                fnc ok(MutablePoint mut p) => void {
                   p.x = 2;
                   return;
                 }

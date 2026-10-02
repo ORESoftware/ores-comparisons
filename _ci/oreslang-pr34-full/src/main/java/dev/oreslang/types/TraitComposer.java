@@ -1206,7 +1206,7 @@ public final class TraitComposer {
                 validateTraitSelfAccess(binding.declaration().name(), raw.body(), lexicalFields, lexicalMethods);
                 Ast.MethodDecl method = withCompositionOwner(
                         substitute(raw, substitutions),
-                        binding.declaration().name());
+                        binding.identity());
                 String key = methodKey(method);
                 Ast.MethodDecl previous = ownMethods.putIfAbsent(key, method);
                 if (previous != null) {
