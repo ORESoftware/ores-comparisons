@@ -1,0 +1,48 @@
+name: oreslang-base-d318-verify
+
+on:
+  push:
+    branches: ["ci/oreslang-base-d318-verify"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr57-full
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Verify live-base control snapshot
+        shell: bash
+        run: |
+          set +e
+          mvn -B -ntp verify > ../../oreslang-base-d318.log 2>&1
+          status=$?
+          echo "$status" > ../../oreslang-base-d318.status
+          tail -n 350 ../../oreslang-base-d318.log
+          exit 0
+      - name: Upload base diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oreslang-base-d318
+          path: |
+            oreslang-base-d318.log
+            oreslang-base-d318.status
+      - name: Preserve result
+        shell: bash
+        working-directory: .
+        run: exit "$(cat oreslang-base-d318.status)"
