@@ -97,7 +97,7 @@ When a cross-repository read credential is present, CI verifies every currently 
 
 Ruby is intentionally represented in two ways:
 
-- `ores-dummy-org-ruby-graal-1` is the governed dummy-org lane and uses Roda in normal server mode, proving that Graal lambda generation is not Rails-specific. The comparison currently pins the API source repo and its lambdas contract as a partial fixture.
+- `ores-dummy-org-ruby-graal-1` is the governed dummy-org lane and uses Roda in normal server mode, proving that Graal lambda generation is not Rails-specific. The comparison pins the complete 20-repository family; the API server contains the executable Roda → framework-free Graal lowering fixture.
 - `ores-ror-to-lambdas-demo/ores-ror.rb` plus `ores-ror-to-lambdas-demo/ores-ror.infra` are exact Rails reference gitlinks governed by `shared/graal-ruby-references.json`. They demonstrate the same app-native lowering contract with Rails as the authoring framework.
 
 In both cases the Graal worker artifact is expected to be framework-free Ruby; framework parsing/boot happens before admission, not inside the guest worker.
