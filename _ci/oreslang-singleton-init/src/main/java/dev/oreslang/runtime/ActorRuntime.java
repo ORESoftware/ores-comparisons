@@ -31,6 +31,7 @@ import java.util.function.Supplier;
  */
 public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_FREEZE_DEPTH = 256;
+    private static final long ACTOR_STOP_TIMEOUT_MILLIS = 2_000L;
     private static final int MAX_FREEZE_NODES = 100_000;
     private static final long MAX_FREEZE_BYTES = 16L * 1024 * 1024;
     private static final ThreadLocal<ActorExecution> CURRENT_ACTOR = new ThreadLocal<>();
@@ -431,8 +432,20 @@ public final class ActorRuntime implements AutoCloseable {
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        for (ActorCell<?> cell : actors.values()) cell.stop();
+        List<ActorCell<?>> snapshot = List.copyOf(actors.values());
+        for (ActorCell<?> cell : snapshot) cell.stop();
+
+        RuntimeException failure = null;
+        for (ActorCell<?> cell : snapshot) {
+            try {
+                cell.awaitStopped();
+            } catch (RuntimeException stopped) {
+                if (failure == null) failure = stopped;
+                else failure.addSuppressed(stopped);
+            }
+        }
         actors.clear();
+        if (failure != null) throw failure;
     }
 
     private final class ActorCell<M> {
@@ -514,6 +527,21 @@ public final class ActorRuntime implements AutoCloseable {
             mailbox.offer(STOP);
             Thread t = thread;
             if (t != null) t.interrupt();
+        }
+
+        private void awaitStopped() {
+            Thread t = thread;
+            if (t == null || t == Thread.currentThread()) return;
+            try {
+                t.join(ACTOR_STOP_TIMEOUT_MILLIS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException("interrupted while waiting for actor " + ref.id() + " to stop");
+            }
+            if (t.isAlive()) {
+                throw new IllegalStateException(
+                        "actor " + ref.id() + " did not stop within " + ACTOR_STOP_TIMEOUT_MILLIS + "ms");
+            }
         }
     }
 }
