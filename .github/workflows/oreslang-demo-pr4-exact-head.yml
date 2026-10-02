@@ -1,0 +1,59 @@
+name: oreslang-demo-pr4-exact-head
+
+on:
+  push:
+    branches: ["ci/oreslang-demo-pr4"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+
+      - name: Checkout exact demo and compiler revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          demo_sha=37f5d97c8e173af35f34251ac9aeb4ff08aa16d0
+          compiler_sha=337669587c6528e548fae3cd8910740dc2d79327
+
+          git clone --quiet https://github.com/ores-truffle-oreslang/oreslang-demo.git "$RUNNER_TEMP/oreslang-demo"
+          git -C "$RUNNER_TEMP/oreslang-demo" checkout --quiet --detach "$demo_sha"
+          test "$(git -C "$RUNNER_TEMP/oreslang-demo" rev-parse HEAD)" = "$demo_sha"
+          test "$(tr -d '[:space:]' < "$RUNNER_TEMP/oreslang-demo/SOURCE_REF")" = "$compiler_sha"
+
+          git clone --quiet https://github.com/ores-truffle-oreslang/oreslang-source.java.git "$RUNNER_TEMP/oreslang-source.java"
+          git -C "$RUNNER_TEMP/oreslang-source.java" checkout --quiet --detach "$compiler_sha"
+          test "$(git -C "$RUNNER_TEMP/oreslang-source.java" rev-parse HEAD)" = "$compiler_sha"
+
+          echo "demo_sha=$demo_sha"
+          echo "compiler_sha=$compiler_sha"
+
+      - name: Verify pinned compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -f "$RUNNER_TEMP/oreslang-source.java/pom.xml" verify
+
+      - name: Execute nlex and actor GC demos
+        shell: bash
+        env:
+          ORESLANG_SOURCE_DIR: ${{ runner.temp }}/oreslang-source.java
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/oreslang-demo"
+          bash scripts/test-nlex.sh
+          bash scripts/test-actors.sh
+          bash scripts/run-all.sh
