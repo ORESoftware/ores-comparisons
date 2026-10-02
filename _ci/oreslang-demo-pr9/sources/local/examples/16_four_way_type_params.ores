@@ -1,0 +1,32 @@
+namespace four_way_params_demo;
+
+define interface Named
+  fnc name() => String;
+end
+
+define trait Labelled is Named
+  pub val String label = "trait";
+  pub name() => String { return self.label; }
+end
+
+define class RefUser with Labelled
+end
+
+define struct ValueUser is Named {
+  String label = "struct";
+  pub name() => String { return self.label; }
+}
+
+fnc through_interface(Named value) => String { return value.name(); }
+fnc through_trait(Labelled value) => String { return value.name(); }
+fnc through_structural(@Structural Named value) => String { return value.name(); }
+
+pub routine main() => void {
+  val ref_user = new RefUser();
+  val value_user = new ValueUser();
+  stdio.println(through_interface(ref_user));
+  stdio.println(through_interface(value_user));
+  stdio.println(through_trait(ref_user));
+  stdio.println(through_structural(value_user));
+  return;
+}
