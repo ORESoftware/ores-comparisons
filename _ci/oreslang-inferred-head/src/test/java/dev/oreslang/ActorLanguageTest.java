@@ -248,10 +248,12 @@ final class ActorLanguageTest {
                   val shared = process.share_readonly(values);
                   val worker_ref = actor.spawn(worker);
                   actor.send(worker_ref, shared);
-                  stdio.stdout.write(":");
-                  stdio.stdout.write(values[0]);
+                  // Synchronize with the worker before asserting sender-side
+                  // reuse. actor.send is intentionally asynchronous.
                   actor.stop(worker_ref);
                   actor.join(worker_ref);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(values[0]);
                   return;
                 }
                 """);
