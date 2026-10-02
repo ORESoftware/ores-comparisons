@@ -923,10 +923,41 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     private static void requireStatelessActorFactory(Object factory) {
-        for (java.lang.reflect.Field field : factory.getClass().getDeclaredFields()) {
-            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
-                throw new SecurityException(
-                        "actor BehaviorFactory must be stateless; captured host state must enter through explicit actor messages/capabilities");
+        for (Class<?> type = factory.getClass();
+             type != null && type != Object.class;
+             type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                int modifiers = field.getModifiers();
+                boolean isStatic = java.lang.reflect.Modifier.isStatic(modifiers);
+                boolean isFinal = java.lang.reflect.Modifier.isFinal(modifiers);
+
+                if (!isStatic) {
+                    throw new SecurityException(
+                            "actor BehaviorFactory must be stateless; captured host state must enter through explicit actor messages/capabilities");
+                }
+                if (!isFinal) {
+                    throw new SecurityException(
+                            "actor BehaviorFactory declares mutable static JVM state '"
+                                    + field.getName() + "'; actor construction cannot share static state");
+                }
+                if (!field.trySetAccessible()) {
+                    throw new SecurityException(
+                            "actor BehaviorFactory contains inaccessible static state: " + field.getName());
+                }
+                final Object value;
+                try {
+                    value = field.get(null);
+                } catch (IllegalAccessException impossible) {
+                    throw new SecurityException(
+                            "cannot inspect actor BehaviorFactory static state: " + field.getName(),
+                            impossible);
+                }
+                if (!isPrivateStaticConstant(value)) {
+                    throw new SecurityException(
+                            "actor BehaviorFactory declares shared static object '"
+                                    + field.getName()
+                                    + "'; only immutable scalar constants are allowed");
+                }
             }
         }
     }
@@ -936,8 +967,38 @@ public final class ActorRuntime implements AutoCloseable {
              type != null && type != Object.class;
              type = type.getSuperclass()) {
             for (java.lang.reflect.Field field : type.getDeclaredFields()) {
-                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
-                if (!java.lang.reflect.Modifier.isFinal(field.getModifiers())) {
+                int modifiers = field.getModifiers();
+                boolean isStatic = java.lang.reflect.Modifier.isStatic(modifiers);
+                boolean isFinal = java.lang.reflect.Modifier.isFinal(modifiers);
+
+                if (isStatic) {
+                    if (!isFinal) {
+                        throw new SecurityException(
+                                "private actor behavior class declares mutable static JVM state '"
+                                        + field.getName() + "'; private actors cannot share static state");
+                    }
+                    if (!field.trySetAccessible()) {
+                        throw new SecurityException(
+                                "private actor behavior contains inaccessible static state: " + field.getName());
+                    }
+                    final Object staticValue;
+                    try {
+                        staticValue = field.get(null);
+                    } catch (IllegalAccessException impossible) {
+                        throw new SecurityException(
+                                "cannot inspect private actor static state: " + field.getName(),
+                                impossible);
+                    }
+                    if (!isPrivateStaticConstant(staticValue)) {
+                        throw new SecurityException(
+                                "private actor behavior class declares shared static object '"
+                                        + field.getName()
+                                        + "'; only immutable scalar constants are allowed");
+                    }
+                    continue;
+                }
+
+                if (!isFinal) {
                     throw new SecurityException(
                             "private actor behavior field '" + field.getName()
                                     + "' is mutable JVM state; persistent mutable state must use context.privateMemory()");
@@ -957,6 +1018,12 @@ public final class ActorRuntime implements AutoCloseable {
                 validatePrivateBehaviorCapture(owner, field.getName(), value);
             }
         }
+    }
+
+    private static boolean isPrivateStaticConstant(Object value) {
+        return value == null
+                || isScalar(value)
+                || value instanceof Class<?>;
     }
 
     private void validatePrivateBehaviorCapture(ActorId owner, String fieldName, Object value) {
