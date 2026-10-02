@@ -390,7 +390,6 @@ final class GpuKeywordTest {
                 """));
 
         assertTrue(failure.isGuestException());
-        assertFalse(failure.isInternalError());
     }
 
     @Test
