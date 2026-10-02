@@ -253,7 +253,7 @@ public final class TypeChecker {
                 throw new IllegalArgumentException("actor state field '" + klass.name() + "." + field.name()
                         + "' cannot be public; expose state through mailbox-dispatched methods");
             }
-            Type fieldType = classFieldType(klass, field);
+            Type fieldType = resolve(field.type(), classGenerics, self);
             if (field.initializer() != null) {
                 Type actual = typeOf(field.initializer(), new Env(null), classGenerics, self);
                 requireAssignable(actual, fieldType, "field initializer " + klass.name() + "." + field.name());
@@ -752,7 +752,7 @@ public final class TypeChecker {
                 if (klass != null) {
                     ResolvedField field = findFieldTarget(klass, named, member.member(), new LinkedHashSet<>());
                     if (field != null) {
-                        Type pattern = classFieldType(field.owner(), field.field());
+                        Type pattern = resolve(field.field().type(), Set.copyOf(field.owner().genericParameters()), field.ownerType());
                         return substituteGenerics(pattern, classGenericBindings(field.owner(), field.ownerType()));
                     }
                     List<Ast.MethodDecl> methods = findMethodsByName(klass, member.member(), new LinkedHashSet<>());
@@ -811,7 +811,7 @@ public final class TypeChecker {
                 ResolvedField resolvedField = fields.get(i);
                 Ast.FieldDecl field = resolvedField.field();
                 if (i < created.arguments().size()) {
-                    Type fieldPattern = classFieldType(resolvedField.owner(), field);
+                    Type fieldPattern = resolve(field.type(), Set.copyOf(resolvedField.owner().genericParameters()), resolvedField.ownerType());
                     Type expected = substituteGenerics(fieldPattern, classGenericBindings(resolvedField.owner(), resolvedField.ownerType()));
                     requireAssignable(typeOf(created.arguments().get(i), env, generics, self),
                             expected, "constructor field " + field.name());
@@ -1002,7 +1002,7 @@ public final class TypeChecker {
             // a parent T must never be resolved as an unrelated child T.
             for (Ast.FieldDecl field : klass.fields()) {
                 Type fieldType = resolveSharedGeneric(
-                        classFieldType(klass, field),
+                        resolve(field.type(), classGenerics, nominal),
                         classBindings);
                 if (!isSharedSafe(fieldType, seen, classBindings)) return false;
             }
@@ -1158,7 +1158,7 @@ public final class TypeChecker {
         }
         Set<String> generics = Set.copyOf(klass.genericParameters());
         Type self = nominalClassType(klass);
-        for (Ast.FieldDecl field : klass.fields()) mergeMember(members, field.name(), classFieldType(klass, field), "class " + klass.name());
+        for (Ast.FieldDecl field : klass.fields()) mergeMember(members, field.name(), resolve(field.type(), generics, self), "class " + klass.name());
         for (Ast.MethodDecl method : klass.methods()) {
             if (method.isStatic()) continue;
             mergeMember(members,
@@ -1188,7 +1188,7 @@ public final class TypeChecker {
         Set<String> generics = Set.copyOf(klass.genericParameters());
         Type self = nominalClassType(klass);
         for (Ast.FieldDecl field : klass.fields()) {
-            if (field.visibility() == Ast.Visibility.PUBLIC) mergeMember(members, field.name(), classFieldType(klass, field), "class " + klass.name());
+            if (field.visibility() == Ast.Visibility.PUBLIC) mergeMember(members, field.name(), resolve(field.type(), generics, self), "class " + klass.name());
         }
         for (Ast.MethodDecl method : klass.methods()) {
             if (!method.isStatic() && method.visibility() == Ast.Visibility.PUBLIC) {
@@ -1233,17 +1233,6 @@ public final class TypeChecker {
         return new Record(members);
     }
 
-    private Type classFieldType(Ast.ClassDecl klass, Ast.FieldDecl field) {
-        Set<String> generics = Set.copyOf(klass.genericParameters());
-        Type self = nominalClassType(klass);
-        if (field.type() != null) return resolve(field.type(), generics, self);
-        if (field.initializer() == null) {
-            throw new IllegalArgumentException("inferred field '" + klass.name() + "." + field.name()
-                    + "' requires an initializer");
-        }
-        return typeOf(field.initializer(), new Env(null), generics, self);
-    }
-
     private Named inferConstructedClassType(
             Ast.ClassDecl klass,
             List<Ast.Expr> arguments,
@@ -1264,7 +1253,10 @@ public final class TypeChecker {
         Set<String> classGenericNames = Set.copyOf(klass.genericParameters());
         for (int i = 0; i < arguments.size(); i++) {
             ResolvedField resolvedField = fields.get(i);
-            Type fieldPattern = classFieldType(resolvedField.owner(), resolvedField.field());
+            Type fieldPattern = resolve(
+                    resolvedField.field().type(),
+                    Set.copyOf(resolvedField.owner().genericParameters()),
+                    resolvedField.ownerType());
             fieldPattern = substituteGenerics(
                     fieldPattern,
                     classGenericBindings(resolvedField.owner(), resolvedField.ownerType()));
