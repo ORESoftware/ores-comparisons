@@ -23,10 +23,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
- * Process-wide actor registry for Oreslang singleton modules.
+ * Local process-runtime backend for Oreslang singleton modules.
  *
- * A singleton module has exactly one state cell and one serial mailbox in this
- * runtime process. Importers never receive the state object; generated/runtime
+ * A singleton module has exactly one state cell and one serial mailbox when
+ * all callers share this host runtime heap. A spawned Graal isolate has its own
+ * heap and statics, so this backend must not be used there as a substitute for
+ * the trusted host/process singleton coordinator. Importers never receive the state object; generated/runtime
  * proxies submit typed operations to the handle. Arguments and results cross
  * the boundary through {@link ActorRuntime#freeze(Object)} so writable aliases
  * cannot escape the owning actor.
@@ -89,6 +91,19 @@ public final class ProcessSingletonRegistry {
 
     public static int processSingletonCount() {
         return CELLS.size();
+    }
+
+    /**
+     * The local static backend is truly process-global only while callers share
+     * the host runtime heap. Spawned Graal isolates require a host coordinator
+     * and a cross-isolate request/reply bridge.
+     */
+    public static void requireBackendFor(boolean graalIsolated) {
+        if (graalIsolated) {
+            throw new IllegalStateException(
+                    "OS-process singleton requires the trusted host coordinator when Graal isolation is enabled; "
+                            + "the isolate-local static registry is not process-global");
+        }
     }
 
     /**

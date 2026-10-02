@@ -13,6 +13,10 @@ public final class CapabilityChecker {
 
     public static void check(Ast.Program program, IsolatePolicy policy) {
         for (Ast.ModuleDecl module : program.modules()) {
+            if (module.singleton()) {
+                require(policy, IsolatePolicy.Capability.PROCESS_SINGLETON,
+                        "singleton module " + module.name());
+            }
             for (Ast.Decl declaration : module.declarations()) {
                 if (declaration instanceof Ast.FunctionDecl fn) checkStatements(fn.body(), policy);
                 else if (declaration instanceof Ast.InitDecl init) checkStatements(init.body(), policy);

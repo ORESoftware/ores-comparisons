@@ -2,6 +2,7 @@ package dev.oreslang;
 
 import dev.oreslang.ast.Ast;
 import dev.oreslang.parser.Parser;
+import dev.oreslang.runtime.CapabilityChecker;
 import dev.oreslang.runtime.ExecutionProfile;
 import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.ProcessSingletonRegistry;
@@ -623,9 +624,36 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void isolateLocalStaticsCannotMasqueradeAsOsProcessSingletons() {
+        assertDoesNotThrow(() -> ProcessSingletonRegistry.requireBackendFor(false));
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> ProcessSingletonRegistry.requireBackendFor(true));
+        assertTrue(failure.getMessage().contains("trusted host coordinator"));
+        assertTrue(failure.getMessage().contains("not process-global"));
+    }
+
+    @Test
+    void strictFaasDoesNotGrantAmbientProcessSingletonAccess() {
+        String source = """
+                define singleton module forbidden_global as
+                  let int value = 1;
+                  pub fnc read() => int { return value; }
+                end
+                """;
+
+        SecurityException denied = assertThrows(SecurityException.class,
+                () -> CapabilityChecker.check(
+                        TypeChecker.check(Parser.parse(source)),
+                        IsolatePolicy.strictFaas()));
+        assertTrue(denied.getMessage().contains("PROCESS_SINGLETON"));
+    }
+
+    @Test
     void singletonCodeChangesRequireHotCodeLoadAuthority() throws Exception {
         IsolatePolicy noHotLoad = new IsolatePolicy(
-                Set.of(IsolatePolicy.Capability.STDOUT),
+                Set.of(IsolatePolicy.Capability.STDOUT, IsolatePolicy.Capability.PROCESS_SINGLETON),
                 64L * 1024 * 1024,
                 64,
                 Duration.ofSeconds(2));

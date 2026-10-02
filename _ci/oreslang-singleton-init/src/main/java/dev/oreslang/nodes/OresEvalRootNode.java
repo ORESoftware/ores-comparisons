@@ -237,6 +237,7 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private ProcessSingletonRegistry.Handle<SingletonState> singletonHandle(Ast.ModuleDecl module) {
+            ProcessSingletonRegistry.requireBackendFor(context.graalIsolated());
             String key = singletonKey(module);
             return singletonHandles.computeIfAbsent(key,
                     ignored -> ProcessSingletonRegistry.getOrCreate(key, () -> initializeSingleton(module)));

@@ -29,6 +29,7 @@ public record IsolatePolicy(
         STDIN,
         STDOUT,
         PROCESS_INFO,
+        PROCESS_SINGLETON,
         ACTOR_SHARE_READONLY,
         NETWORK,
         FILESYSTEM_READ,
@@ -69,7 +70,7 @@ public record IsolatePolicy(
     public static IsolatePolicy developer() {
         return new IsolatePolicy(
                 Set.of(Capability.STDIN, Capability.STDOUT, Capability.PROCESS_INFO,
-                        Capability.ACTOR_SHARE_READONLY, Capability.HOT_CODE_LOAD),
+                        Capability.PROCESS_SINGLETON, Capability.ACTOR_SHARE_READONLY, Capability.HOT_CODE_LOAD),
                 512L * 1024 * 1024, 8192, Duration.ofMinutes(10), false);
     }
 
@@ -167,6 +168,7 @@ public record IsolatePolicy(
                 "--ores-max-mailbox-messages=" + maxMailboxMessages,
                 "--ores-max-wall-ms=" + maxWallTime.toMillis(),
                 "--ores-adversarial=" + adversarial,
+                "--ores-graal-isolated=" + adversarial,
                 "--ores-execution-mode=" + profile.mode().name(),
                 "--ores-platform=" + profile.platform().name()
         };
@@ -195,6 +197,15 @@ public record IsolatePolicy(
             for (String value : raw.split(",")) caps.add(Capability.valueOf(value.trim().toUpperCase(Locale.ROOT)));
         }
         return new IsolatePolicy(caps, maxHeap, maxMailbox, Duration.ofMillis(maxWallMs), adversarial);
+    }
+
+    public static boolean graalIsolatedFromApplicationArguments(String[] args) {
+        for (String arg : args) {
+            if (arg.startsWith("--ores-graal-isolated=")) {
+                return Boolean.parseBoolean(arg.substring("--ores-graal-isolated=".length()));
+            }
+        }
+        return false;
     }
 
     public static ExecutionProfile executionProfileFromApplicationArguments(String[] args) {
