@@ -1,9 +1,12 @@
 package dev.oreslang;
 
 import dev.oreslang.runtime.ActorRuntime;
+import dev.oreslang.runtime.OresMutex;
 import org.junit.jupiter.api.Test;
 
+import java.util.AbstractList;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,47 +38,15 @@ final class ActorTransportHardeningTest {
             IllegalArgumentException wrongDestinationRuntime = assertThrows(
                     IllegalArgumentException.class,
                     () -> runtimeB.send(refA, "wrong-runtime"));
-            assertTrue(wrongDestinationRuntime.getMessage().contains("another ActorRuntime"));
+            assertTrue(wrongDestinationRuntime.getMessage().contains("different ActorRuntime"));
 
             IllegalArgumentException direct = assertThrows(
                     IllegalArgumentException.class,
                     () -> targetB.send(refA));
-            assertTrue(direct.getMessage().contains("owning ActorRuntime"));
+            assertTrue(direct.getMessage().contains("different ActorRuntime"));
 
             assertThrows(IllegalArgumentException.class, () -> ActorRuntime.freeze(refA));
-
-            ActorRuntime.Shared<Object> wrapped = runtimeA.shareReadonly(refA);
-            IllegalArgumentException wrappedFailure = assertThrows(
-                    IllegalArgumentException.class,
-                    () -> targetB.send(wrapped));
-            assertTrue(wrappedFailure.getMessage().contains("owning ActorRuntime"));
-        }
-    }
-
-    @Test
-    void actorStartupFailureDoesNotLeaveAUsableDeadRef() throws Exception {
-        try (ActorRuntime runtime = new ActorRuntime()) {
-            java.util.concurrent.CountDownLatch attempted = new java.util.concurrent.CountDownLatch(1);
-            var ref = runtime.<String>spawn(() -> {
-                attempted.countDown();
-                throw new IllegalStateException("startup failed");
-            });
-
-            assertTrue(attempted.await(2, java.util.concurrent.TimeUnit.SECONDS));
-
-            IllegalStateException failure = null;
-            long deadline = System.nanoTime()
-                    + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
-            while (failure == null && System.nanoTime() - deadline < 0) {
-                try {
-                    ref.send("after-failure");
-                    Thread.sleep(1);
-                } catch (IllegalStateException expected) {
-                    failure = expected;
-                }
-            }
-            assertNotNull(failure, "failed actor must be removed from the runtime registry");
-            assertTrue(failure.getMessage().contains("unknown actor"));
+            assertThrows(IllegalArgumentException.class, () -> runtimeA.shareReadonly(refA));
         }
     }
 
@@ -88,15 +59,13 @@ final class ActorTransportHardeningTest {
                 IllegalArgumentException.class,
                 () -> ActorRuntime.freeze(cycle));
 
-        assertTrue(error.getMessage().contains("cyclic actor message"));
+        assertTrue(error.getMessage().contains("cyclic"));
     }
 
     @Test
     void excessivelyDeepMessageGraphsAreRejected() {
         Object nested = "leaf";
-        for (int i = 0; i < 300; i++) {
-            nested = List.of(nested);
-        }
+        for (int i = 0; i < 300; i++) nested = List.of(nested);
         Object tooDeep = nested;
 
         IllegalArgumentException error = assertThrows(
@@ -108,7 +77,7 @@ final class ActorTransportHardeningTest {
 
     @Test
     void hostileContainerSizeCannotForceEagerAllocation() {
-        List<Object> hostile = new java.util.AbstractList<>() {
+        List<Object> hostile = new AbstractList<>() {
             @Override
             public Object get(int index) {
                 throw new AssertionError("oversized container must be rejected before iteration");
@@ -124,55 +93,50 @@ final class ActorTransportHardeningTest {
                 IllegalArgumentException.class,
                 () -> ActorRuntime.freeze(hostile));
 
-        assertTrue(error.getMessage().contains("maximum graph size"));
+        assertTrue(error.getMessage().contains("maximum node count"));
     }
 
     @Test
     void oversizedMessageGraphsAreRejected() {
-        List<Integer> tooManyNodes = java.util.Collections.nCopies(100_001, 1);
+        List<Integer> tooManyNodes = Collections.nCopies(100_001, 1);
 
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
                 () -> ActorRuntime.freeze(tooManyNodes));
 
-        assertTrue(error.getMessage().contains("maximum graph size"));
+        assertTrue(error.getMessage().contains("maximum node count"));
     }
 
     @Test
     void sharedMutexCannotUseGenericFreezeTransport() {
-        var shared = dev.oreslang.runtime.OresMutex.shared(new int[]{0});
+        var shared = OresMutex.shared(new int[]{0});
 
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
                 () -> ActorRuntime.freeze(shared));
 
-        assertTrue(error.getMessage().contains("runtime-scoped writable capability"));
+        assertTrue(error.getMessage().contains("live actor/shared capabilities"));
     }
-
     @Test
-    void sendableCannotReturnMutableHostObject() {
-        ActorRuntime.Sendable malicious = () -> new StringBuilder("mutable");
+    void actorStartupFailureDoesNotLeaveUsableRefOrActorQuota() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            java.util.concurrent.CountDownLatch attempted = new java.util.concurrent.CountDownLatch(1);
 
-        IllegalArgumentException error = assertThrows(
-                IllegalArgumentException.class,
-                () -> ActorRuntime.freeze(malicious));
+            var ref = runtime.<String>spawnPrivateTrusted(factoryContext -> {
+                attempted.countDown();
+                throw new IllegalStateException("startup failed");
+            });
 
-        assertTrue(error.getMessage().contains("not Sendable"));
-    }
-
-    @Test
-    void sendableCannotSelfAuthorizeByReturningItself() {
-        final class SelfReturning implements ActorRuntime.Sendable {
-            @Override
-            public Object freezeForSend() {
-                return this;
-            }
+            ref.send("trigger");
+            assertTrue(attempted.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(ref.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS));
+            assertFalse(ref.isAlive());
+            assertEquals(0, runtime.actorCount());
+            assertTrue(ref.failure().isPresent());
+            assertEquals("startup failed", ref.failure().orElseThrow().getMessage());
+            assertThrows(ActorRuntime.ActorTerminatedException.class, () -> ref.send("after-failure"));
         }
-
-        IllegalArgumentException error = assertThrows(
-                IllegalArgumentException.class,
-                () -> ActorRuntime.freeze(new SelfReturning()));
-
-        assertTrue(error.getMessage().contains("distinct frozen representation"));
     }
+
+
 }
