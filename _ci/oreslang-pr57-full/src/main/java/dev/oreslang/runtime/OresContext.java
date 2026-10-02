@@ -110,6 +110,7 @@ public final class OresContext implements AutoCloseable {
                 Map.entry("scheduler_safepoints", schedulerSafepoints.get()),
                 Map.entry("actor_gc_requests", actors.gcStats().actorRequests()),
                 Map.entry("process_gc_requests", actors.gcStats().processRequests()),
+                Map.entry("actor_gc_suppressed", actors.gcStats().suppressedActorRequests()),
                 Map.entry("process_gc_suppressed", actors.gcStats().suppressedProcessRequests()),
                 Map.entry("actor_gc_collections", actors.gcStats().actorCollections()),
                 Map.entry("process_gc_collections", actors.gcStats().processCollections()));
