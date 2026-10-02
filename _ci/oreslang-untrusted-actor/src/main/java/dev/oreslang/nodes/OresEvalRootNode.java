@@ -104,9 +104,6 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private Object callFunction(Ast.FunctionDecl fn, List<?> args) {
-            if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.UNTRUSTED) {
-                context.schedulerSafepoint();
-            }
             if (fn.actorKind() != Ast.ActorKind.NONE) {
                 throw new IllegalStateException("actor fnc '" + fn.name()
                         + "' cannot execute on the caller stack; it must be lowered through ActorRuntime");
@@ -127,9 +124,6 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private Object callMethod(OresObject receiver, Ast.MethodDecl method, List<?> args) {
-            if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.UNTRUSTED) {
-                context.schedulerSafepoint();
-            }
             if (args.size() != method.parameters().size()) throw new IllegalArgumentException("method " + method.name() + " arity mismatch");
             Env env = new Env(null);
             if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
@@ -318,33 +312,16 @@ public final class OresEvalRootNode extends RootNode {
                 Object value = eval(unary.operand(), env);
                 return switch (unary.operator()) {
                     case "&", "&mut" -> value;
-                    case "!" -> !truth(value);
-                    case "~" -> ~integralLong(value);
-                    case "+" -> value;
-                    case "-" -> negate(value);
+                    case "!" -> !truth(value); case "+" -> value; case "-" -> negate(value);
                     default -> throw new IllegalArgumentException("unsupported unary operator " + unary.operator());
                 };
             }
             if (expr instanceof Ast.BinaryExpr binary) {
-                if (binary.operator().equals("&&")) {
-                    Object left = eval(binary.left(), env);
-                    return truth(left) && truth(eval(binary.right(), env));
-                }
-                if (binary.operator().equals("||")) {
-                    Object left = eval(binary.left(), env);
-                    return truth(left) || truth(eval(binary.right(), env));
-                }
-                if (binary.operator().equals("^^")) {
-                    return truth(eval(binary.left(), env)) ^ truth(eval(binary.right(), env));
-                }
+                if (binary.operator().equals(",")) return truth(eval(binary.left(), env)) && truth(eval(binary.right(), env));
+                if (binary.operator().equals("|")) return truth(eval(binary.left(), env)) || truth(eval(binary.right(), env));
                 return binary(binary.operator(), eval(binary.left(), env), eval(binary.right(), env));
             }
             if (expr instanceof Ast.CallExpr call) {
-                if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.UNTRUSTED) {
-                    // Charge every callable path, including recursive lambdas
-                    // and static-method dispatch, not only named functions.
-                    context.schedulerSafepoint();
-                }
                 if (call.callee() instanceof Ast.MemberExpr methodCall) {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
@@ -702,12 +679,6 @@ public final class OresEvalRootNode extends RootNode {
                 case "==" -> Objects.equals(left, right); case "!=" -> !Objects.equals(left, right);
                 case "<" -> compare(left, right) < 0; case "<=" -> compare(left, right) <= 0;
                 case ">" -> compare(left, right) > 0; case ">=" -> compare(left, right) >= 0;
-                case "&" -> integralLong(left) & integralLong(right);
-                case "|" -> integralLong(left) | integralLong(right);
-                case "^" -> integralLong(left) ^ integralLong(right);
-                case "<<" -> integralLong(left) << shiftDistance(right);
-                case ">>" -> integralLong(left) >> shiftDistance(right);
-                case ">>>" -> integralLong(left) >>> shiftDistance(right);
                 default -> throw new IllegalArgumentException("unsupported operator " + op);
             };
         }
@@ -733,21 +704,6 @@ public final class OresEvalRootNode extends RootNode {
             }
             double x = a.doubleValue(), y = b.doubleValue();
             return switch (op) { case '+' -> x + y; case '-' -> x - y; case '*' -> x * y; case '/' -> x / y; case '%' -> x % y; default -> throw new IllegalArgumentException("bad numeric operator"); };
-        }
-
-        private long integralLong(Object value) {
-            if (!(value instanceof Number number) || !isIntegral(number)) {
-                throw new IllegalArgumentException("bitwise operator requires integer operands");
-            }
-            return number.longValue();
-        }
-
-        private int shiftDistance(Object value) {
-            long distance = integralLong(value);
-            if (distance < 0 || distance > 63) {
-                throw new IllegalArgumentException("shift distance must be between 0 and 63");
-            }
-            return (int) distance;
         }
 
         private Object negate(Object value) {

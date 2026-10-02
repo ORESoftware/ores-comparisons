@@ -37,7 +37,7 @@ public final class Ast {
 
     public enum Visibility { PRIVATE, PUBLIC }
     public enum CallableKind { FNC, ROUTINE }
-    public enum ActorKind { NONE, PRIVATE, SHARED, UNTRUSTED }
+    public enum ActorKind { NONE, PRIVATE, SHARED }
 
     public record Annotation(String name, List<TypeRef> arguments) {
         public Annotation { arguments = List.copyOf(arguments); }
@@ -315,24 +315,8 @@ public final class Ast {
     public record AssignExpr(Expr target, Expr value) implements Expr { }
     public record ConditionalExpr(Expr condition, Expr whenTrue, Expr whenFalse) implements Expr { }
 
-    public record CallExpr(
-            Expr callee,
-            List<TypeRef> typeArguments,
-            boolean typeArgumentsPresent,
-            List<Expr> arguments) implements Expr {
-        public CallExpr {
-            typeArguments = List.copyOf(typeArguments);
-            arguments = List.copyOf(arguments);
-            if (!typeArgumentsPresent && !typeArguments.isEmpty()) {
-                throw new IllegalArgumentException("call type arguments require an explicit <...> marker");
-            }
-        }
-        public CallExpr(Expr callee, List<Expr> arguments) {
-            this(callee, List.of(), false, arguments);
-        }
-        public CallExpr(Expr callee, List<TypeRef> typeArguments, List<Expr> arguments) {
-            this(callee, typeArguments, true, arguments);
-        }
+    public record CallExpr(Expr callee, List<Expr> arguments) implements Expr {
+        public CallExpr { arguments = List.copyOf(arguments); }
     }
 
     public record MemberExpr(Expr receiver, String member) implements Expr { }
