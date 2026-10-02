@@ -186,8 +186,64 @@ public final class TypeChecker {
 
     private void checkInit(Ast.ModuleDecl module, Ast.InitDecl init) {
         Env env = module.singleton() ? singletonModuleEnv(module) : moduleBindingEnv(module);
+        if (module.singleton()) validatePureSingletonInit(module, init);
         validateSingletonTransportStatements(init.body(), module.name());
         checkBlock(init.body(), env, Set.of(), Primitive.VOID, null);
+    }
+
+    /**
+     * Process init cannot inherit ambient authority from whichever actor or
+     * tenant first touches the singleton. Keep it deterministic and confined
+     * to already-declared singleton state until a supervisor-owned init
+     * capability model exists.
+     */
+    private void validatePureSingletonInit(Ast.ModuleDecl module, Ast.InitDecl init) {
+        Set<String> names = new LinkedHashSet<>();
+        for (Ast.Decl decl : module.declarations()) {
+            if (decl instanceof Ast.FieldDecl field) names.add(field.name());
+        }
+        validatePureSingletonInitStatements(module, init.body(), names);
+    }
+
+    private void validatePureSingletonInitStatements(
+            Ast.ModuleDecl module,
+            List<Ast.Stmt> statements,
+            Set<String> visibleNames) {
+        Set<String> names = new LinkedHashSet<>(visibleNames);
+        for (Ast.Stmt stmt : statements) {
+            if (stmt instanceof Ast.BindingStmt binding) {
+                if (!isPureSingletonInitializer(binding.initializer(), names)) {
+                    throw impureSingletonInit(module, "local binding '" + binding.name() + "'");
+                }
+                names.add(binding.name());
+                continue;
+            }
+            if (stmt instanceof Ast.ExprStmt expression
+                    && expression.expression() instanceof Ast.AssignExpr assignment
+                    && assignment.target() instanceof Ast.NameExpr target
+                    && names.contains(target.name())
+                    && isPureSingletonInitializer(assignment.value(), names)) {
+                continue;
+            }
+            if (stmt instanceof Ast.ReturnStmt ret && ret.value() == null) continue;
+            if (stmt instanceof Ast.IfStmt conditional) {
+                for (Ast.IfBranch branch : conditional.branches()) {
+                    if (!isPureSingletonInitializer(branch.condition(), names)) {
+                        throw impureSingletonInit(module, "if condition");
+                    }
+                    validatePureSingletonInitStatements(module, branch.body(), names);
+                }
+                validatePureSingletonInitStatements(module, conditional.elseBody(), names);
+                continue;
+            }
+            throw impureSingletonInit(module, stmt.getClass().getSimpleName());
+        }
+    }
+
+    private IllegalArgumentException impureSingletonInit(Ast.ModuleDecl module, String construct) {
+        return new IllegalArgumentException("singleton init routine '" + module.name()
+                + "' must be deterministic and context-free; " + construct
+                + " would make process state depend on the first caller");
     }
 
     private Env moduleBindingEnv(Ast.ModuleDecl module) {
@@ -378,6 +434,157 @@ public final class TypeChecker {
                         + "' result is not statically Sendable");
             }
         }
+
+        String classOwnerName = classOwners.get(klass);
+        Ast.ModuleDecl classOwner = classOwnerName == null ? null : modules.get(classOwnerName);
+        if (classOwner != null && classOwner != owner) {
+            Set<String> actorBindings = new LinkedHashSet<>();
+            for (Ast.Decl decl : classOwner.declarations()) {
+                if (decl instanceof Ast.FieldDecl field) actorBindings.add(field.name());
+            }
+            if (!actorBindings.isEmpty()) {
+                for (Ast.FieldDecl classField : klass.fields()) {
+                    if (classField.initializer() != null
+                            && referencesActorModuleBinding(classField.initializer(), actorBindings, Set.of())) {
+                        throw new IllegalArgumentException("exported singleton class '" + klass.name()
+                                + "' cannot capture actor-local module state from '" + classOwner.name() + "'");
+                    }
+                }
+                for (Ast.MethodDecl method : klass.methods()) {
+                    Set<String> shadowed = new LinkedHashSet<>();
+                    shadowed.add("self");
+                    for (Ast.Param param : method.parameters()) shadowed.add(param.name());
+                    if (referencesActorModuleBinding(method.body(), actorBindings, shadowed)) {
+                        throw new IllegalArgumentException("exported singleton class '" + klass.name()
+                                + "' cannot capture actor-local module state from '" + classOwner.name() + "'");
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean referencesActorModuleBinding(
+            List<Ast.Stmt> statements,
+            Set<String> actorBindings,
+            Set<String> inheritedShadowed) {
+        Set<String> shadowed = new LinkedHashSet<>(inheritedShadowed);
+        for (Ast.Stmt stmt : statements) {
+            if (stmt instanceof Ast.BindingStmt binding) {
+                if (referencesActorModuleBinding(binding.initializer(), actorBindings, shadowed)) return true;
+                shadowed.add(binding.name());
+            } else if (stmt instanceof Ast.DestructureStmt destructure) {
+                if (referencesActorModuleBinding(destructure.initializer(), actorBindings, shadowed)) return true;
+                for (Ast.DestructureBinding binding : destructure.bindings()) shadowed.add(binding.name());
+            } else if (stmt instanceof Ast.ReturnStmt ret) {
+                if (ret.value() != null && referencesActorModuleBinding(ret.value(), actorBindings, shadowed)) return true;
+            } else if (stmt instanceof Ast.ExprStmt expression) {
+                if (referencesActorModuleBinding(expression.expression(), actorBindings, shadowed)) return true;
+            } else if (stmt instanceof Ast.DeferStmt defer) {
+                if (referencesActorModuleBinding(defer.expression(), actorBindings, shadowed)) return true;
+            } else if (stmt instanceof Ast.IfStmt conditional) {
+                for (Ast.IfBranch branch : conditional.branches()) {
+                    if (referencesActorModuleBinding(branch.condition(), actorBindings, shadowed)
+                            || referencesActorModuleBinding(branch.body(), actorBindings, shadowed)) return true;
+                }
+                if (referencesActorModuleBinding(conditional.elseBody(), actorBindings, shadowed)) return true;
+            } else if (stmt instanceof Ast.TryStmt attempted) {
+                if (referencesActorModuleBinding(attempted.body(), actorBindings, shadowed)) return true;
+                Set<String> caught = new LinkedHashSet<>(shadowed);
+                caught.add(attempted.errorName());
+                if (referencesActorModuleBinding(attempted.catchBody(), actorBindings, caught)
+                        || referencesActorModuleBinding(attempted.finallyBody(), actorBindings, shadowed)) return true;
+            } else if (stmt instanceof Ast.ForOfStmt loop) {
+                if (referencesActorModuleBinding(loop.iterable(), actorBindings, shadowed)) return true;
+                Set<String> loopShadowed = new LinkedHashSet<>(shadowed);
+                loopShadowed.add(loop.bindingName());
+                if (referencesActorModuleBinding(loop.body(), actorBindings, loopShadowed)) return true;
+            } else if (stmt instanceof Ast.ForStmt loop) {
+                Set<String> loopShadowed = new LinkedHashSet<>(shadowed);
+                if (loop.initializer() != null
+                        && referencesActorModuleBinding(List.of(loop.initializer()), actorBindings, loopShadowed)) return true;
+                if (loop.condition() != null
+                        && referencesActorModuleBinding(loop.condition(), actorBindings, loopShadowed)) return true;
+                if (loop.update() != null
+                        && referencesActorModuleBinding(loop.update(), actorBindings, loopShadowed)) return true;
+                if (referencesActorModuleBinding(loop.body(), actorBindings, loopShadowed)) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean referencesActorModuleBinding(
+            Ast.Expr expr,
+            Set<String> actorBindings,
+            Set<String> shadowed) {
+        if (expr instanceof Ast.NameExpr name) {
+            return actorBindings.contains(name.name()) && !shadowed.contains(name.name());
+        }
+        if (expr instanceof Ast.AssignExpr assignment) {
+            return referencesActorModuleBinding(assignment.target(), actorBindings, shadowed)
+                    || referencesActorModuleBinding(assignment.value(), actorBindings, shadowed);
+        }
+        if (expr instanceof Ast.BinaryExpr binary) {
+            return referencesActorModuleBinding(binary.left(), actorBindings, shadowed)
+                    || referencesActorModuleBinding(binary.right(), actorBindings, shadowed);
+        }
+        if (expr instanceof Ast.UnaryExpr unary) {
+            return referencesActorModuleBinding(unary.operand(), actorBindings, shadowed);
+        }
+        if (expr instanceof Ast.ConditionalExpr conditional) {
+            return referencesActorModuleBinding(conditional.condition(), actorBindings, shadowed)
+                    || referencesActorModuleBinding(conditional.whenTrue(), actorBindings, shadowed)
+                    || referencesActorModuleBinding(conditional.whenFalse(), actorBindings, shadowed);
+        }
+        if (expr instanceof Ast.CallExpr call) {
+            if (referencesActorModuleBinding(call.callee(), actorBindings, shadowed)) return true;
+            for (Ast.Expr arg : call.arguments()) {
+                if (referencesActorModuleBinding(arg, actorBindings, shadowed)) return true;
+            }
+            return false;
+        }
+        if (expr instanceof Ast.MemberExpr member) {
+            return referencesActorModuleBinding(member.receiver(), actorBindings, shadowed);
+        }
+        if (expr instanceof Ast.IndexExpr indexed) {
+            return referencesActorModuleBinding(indexed.receiver(), actorBindings, shadowed)
+                    || referencesActorModuleBinding(indexed.index(), actorBindings, shadowed);
+        }
+        if (expr instanceof Ast.NewExpr created) {
+            for (Ast.Expr arg : created.arguments()) {
+                if (referencesActorModuleBinding(arg, actorBindings, shadowed)) return true;
+            }
+            return false;
+        }
+        if (expr instanceof Ast.AwaitExpr awaited) {
+            return referencesActorModuleBinding(awaited.expression(), actorBindings, shadowed);
+        }
+        if (expr instanceof Ast.ListExpr list) {
+            for (Ast.Expr item : list.elements()) {
+                if (referencesActorModuleBinding(item, actorBindings, shadowed)) return true;
+            }
+            return false;
+        }
+        if (expr instanceof Ast.TupleExpr tuple) {
+            for (Ast.Expr item : tuple.elements()) {
+                if (referencesActorModuleBinding(item, actorBindings, shadowed)) return true;
+            }
+            return false;
+        }
+        if (expr instanceof Ast.ObjectExpr object) {
+            for (Ast.ObjectField field : object.fields()) {
+                if (referencesActorModuleBinding(field.value(), actorBindings, shadowed)) return true;
+            }
+            return false;
+        }
+        if (expr instanceof Ast.LambdaExpr lambda) {
+            Set<String> lambdaShadowed = new LinkedHashSet<>(shadowed);
+            for (Ast.Param param : lambda.parameters()) lambdaShadowed.add(param.name());
+            if (lambda.expressionBody() != null
+                    && referencesActorModuleBinding(lambda.expressionBody(), actorBindings, lambdaShadowed)) return true;
+            return lambda.blockBody() != null
+                    && referencesActorModuleBinding(lambda.blockBody(), actorBindings, lambdaShadowed);
+        }
+        return false;
     }
 
     private boolean containsTypeAlias(Ast.TypeRef type) {

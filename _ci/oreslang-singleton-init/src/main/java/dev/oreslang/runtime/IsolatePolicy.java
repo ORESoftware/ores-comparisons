@@ -56,6 +56,10 @@ public record IsolatePolicy(
         if (adversarial && capabilities.contains(Capability.THREAD_CREATE)) {
             throw new IllegalArgumentException("adversarial isolates cannot grant THREAD_CREATE");
         }
+        if (adversarial && capabilities.contains(Capability.PROCESS_SINGLETON)) {
+            throw new IllegalArgumentException("adversarial Graal isolates cannot grant PROCESS_SINGLETON until"
+                    + " a trusted host/supervisor process-singleton coordinator is installed");
+        }
     }
 
     /**

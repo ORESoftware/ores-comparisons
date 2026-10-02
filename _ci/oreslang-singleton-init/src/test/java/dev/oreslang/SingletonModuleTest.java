@@ -450,6 +450,61 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void ordinaryModuleClassMethodsSeeActorLocalInitializedModuleState() throws Exception {
+        String output = eval("""
+                define module local_model as
+                  let int base = 1;
+
+                  init routine() => void {
+                    base = base + 40;
+                    return;
+                  }
+
+                  define class Reader as
+                    pub read() => int {
+                      return base;
+                    }
+                  end
+
+                  pub fnc make() => Reader {
+                    return new Reader();
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    val Reader reader = local_model.make();
+                    stdio.println(reader.read());
+                    return;
+                  }
+                end
+                """, "module-class-init-state.ores");
+
+        assertTrue(output.contains("41"), output);
+    }
+
+    @Test
+    void singletonInitCannotDependOnFirstCallerAmbientAuthority() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module caller_dependent_init as
+                          let String first_context = "";
+
+                          init routine() => void {
+                            first_context = process.context_id;
+                            return;
+                          }
+
+                          pub fnc read() => String {
+                            return first_context;
+                          }
+                        end
+                        """)));
+        assertTrue(error.getMessage().contains("deterministic and context-free"));
+        assertTrue(error.getMessage().contains("first caller"));
+    }
+
+    @Test
     void singletonModuleInitRunsExactlyOncePerOsProcessStateCell() throws Exception {
         String program = """
                 define singleton module process_init_once_test as
@@ -511,6 +566,26 @@ final class SingletonModuleTest {
 
         assertTrue(eval(program, "singleton-object-export.ores").contains("42"));
         assertTrue(eval(program, "singleton-object-export.ores").contains("43"));
+    }
+
+    @Test
+    void exportedSingletonObjectCannotCaptureActorLocalModuleState() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        let int actor_local_value = 41;
+
+                        define class CapturingFoo as
+                          pub read() => int {
+                            return actor_local_value;
+                          }
+                        end
+
+                        define singleton module process_owner as
+                          pub val CapturingFoo foo = new CapturingFoo();
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("cannot capture actor-local module state"));
     }
 
     @Test

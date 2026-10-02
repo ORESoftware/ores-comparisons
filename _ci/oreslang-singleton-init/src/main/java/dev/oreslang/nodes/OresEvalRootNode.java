@@ -354,7 +354,8 @@ public final class OresEvalRootNode extends RootNode {
         private Object callMethod(OresObject receiver, Ast.MethodDecl method, List<?> args, SingletonState singletonState) {
             if (singletonState != null) ProcessSingletonRegistry.checkExecutionBudget();
             if (args.size() != method.parameters().size()) throw new IllegalArgumentException("method " + method.name() + " arity mismatch");
-            Env env = new Env(null, singletonState);
+            Env lexical = classLexicalModuleState(receiver.klass, singletonState);
+            Env env = new Env(lexical, singletonState);
             if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
             for (int i = 0; i < method.parameters().size(); i++) {
                 Ast.Param param = method.parameters().get(i);
@@ -503,6 +504,7 @@ public final class OresEvalRootNode extends RootNode {
                     Object receiver = eval(target.receiver(), env);
                     if (receiver instanceof OresObject object) {
                         if (!object.fields.containsKey(target.member())) throw new IllegalArgumentException("unknown field " + target.member());
+                        if (env.singletonState != null) ActorRuntime.freeze(value);
                         object.fields.put(target.member(), value);
                         return value;
                     }
@@ -721,6 +723,22 @@ public final class OresEvalRootNode extends RootNode {
                     });
         }
 
+        private Env classLexicalModuleState(Ast.ClassDecl klass, SingletonState singletonState) {
+            Ast.ModuleDecl owner = ownerModule(klass);
+            if (owner == null) return null;
+            if (owner.singleton()) {
+                if (singletonState == null || !singletonState.key.equals(singletonKey(owner))) {
+                    throw new IllegalArgumentException("class '" + klass.name()
+                            + "' is actor-private inside singleton module '" + owner.name() + "'");
+                }
+                return singletonState.fields;
+            }
+            // A class used as process-singleton state but declared outside that
+            // singleton must not capture the caller actor's module state.
+            if (singletonState != null) return null;
+            return actorModuleState(owner);
+        }
+
         private Object invokeStaticFunction(Ast.ClassDecl klass, String name, List<Object> args, SingletonState singletonState) {
             Ast.MethodDecl fn = findStaticFunction(klass, name, args.size(), new LinkedHashSet<>());
             if (fn == null) throw new IllegalArgumentException("no static function " + klass.name() + "." + name + " with arity " + args.size());
@@ -731,7 +749,8 @@ public final class OresEvalRootNode extends RootNode {
             if (singletonState != null) ProcessSingletonRegistry.checkExecutionBudget();
             if (!fn.isStatic()) throw new IllegalArgumentException("not a static class function: " + klass.name() + "." + fn.name());
             if (args.size() != fn.parameters().size()) throw new IllegalArgumentException("static function " + fn.name() + " arity mismatch");
-            Env env = new Env(null, singletonState);
+            Env lexical = classLexicalModuleState(klass, singletonState);
+            Env env = new Env(lexical, singletonState);
             for (int i = 0; i < fn.parameters().size(); i++) {
                 Ast.Param param = fn.parameters().get(i);
                 env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);

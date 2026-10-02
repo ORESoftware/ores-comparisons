@@ -125,6 +125,16 @@ final class ParserTest {
     }
 
     @Test
+    void singletonQualifierCannotApplyToAClass() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        define singleton class Foo as
+                        end
+                        """));
+        assertTrue(error.getMessage().contains("'singleton' may only qualify a module"));
+    }
+
+    @Test
     void classesCannotDeclareLifecycleInitRoutines() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> Parser.parse("""

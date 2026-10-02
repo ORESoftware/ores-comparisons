@@ -33,9 +33,12 @@ import java.util.function.Supplier;
  * the boundary through {@link ActorRuntime#freeze(Object)} so writable aliases
  * cannot escape the owning actor.
  *
- * Cells intentionally have process lifetime. They are not owned by an
- * individual Graal Context or isolate and therefore are not closed when one
- * isolate is disposed.
+ * Cells intentionally outlive individual ordinary Graal Contexts that share
+ * this runtime heap. A spawned Graal isolate has its own heap/statics, so this
+ * local backend is NOT sufficient for cross-isolate OS-process singleton
+ * identity. Adversarial isolate policy therefore fails closed; production
+ * isolate deployments must route the same protocol through a trusted
+ * supervisor-owned coordinator.
  */
 public final class ProcessSingletonRegistry {
     private static final int MAILBOX_CAPACITY = 8_192;
