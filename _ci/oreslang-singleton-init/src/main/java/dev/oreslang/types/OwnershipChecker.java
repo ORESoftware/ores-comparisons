@@ -34,6 +34,7 @@ public final class OwnershipChecker {
     private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
     private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
     private final Map<String, Ast.InterfaceDecl> interfaces = new HashMap<>();
+    private final Map<String, Ast.ModuleDecl> modules = new HashMap<>();
     private final Set<String> ambiguousFunctions = new HashSet<>();
     private final Set<String> ambiguousClasses = new HashSet<>();
     private final Set<String> ambiguousInterfaces = new HashSet<>();
@@ -50,6 +51,7 @@ public final class OwnershipChecker {
 
     private void index(Ast.Program program) {
         for (Ast.ModuleDecl module : program.modules()) {
+            modules.put(module.name(), module);
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.FunctionDecl fn) index(functions, ambiguousFunctions, module.name(), fn.name(), fn);
                 else if (decl instanceof Ast.ClassDecl klass) index(classes, ambiguousClasses, module.name(), klass.name(), klass);
@@ -349,6 +351,21 @@ public final class OwnershipChecker {
             return checkCall(call, scope);
         }
         if (expr instanceof Ast.MemberExpr member) {
+            if (member.receiver() instanceof Ast.NameExpr namespace
+                    && scope.lookup(namespace.name()) == null
+                    && modules.containsKey(namespace.name())) {
+                Ast.FieldDecl moduleField = findModuleField(modules.get(namespace.name()), member.member());
+                if (moduleField != null) {
+                    Ast.TypeRef fieldType = moduleField.type() == null
+                            ? inferFieldType(moduleField.initializer())
+                            : moduleField.type();
+                    if (isCopyType(fieldType)) return new ValueInfo(fieldType, ValueKind.COPY, null);
+                    throw error("cannot directly extract non-Copy module state '"
+                            + namespace.name() + "." + member.member()
+                            + "'; use a borrowing accessor or explicit ownership-transfer API");
+                }
+            }
+
             ValueInfo receiver = checkExpr(member.receiver(), scope, false);
             Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
             if (klass != null) {
@@ -964,6 +981,17 @@ public final class OwnershipChecker {
         if (expression instanceof Ast.NewExpr created) return created.type();
         if (expression instanceof Ast.AwaitExpr awaited) return ownershipTypeOfExpr(awaited.expression(), scope);
         if (expression instanceof Ast.MemberExpr member) {
+            if (member.receiver() instanceof Ast.NameExpr namespace
+                    && scope.lookup(namespace.name()) == null
+                    && modules.containsKey(namespace.name())) {
+                Ast.FieldDecl moduleField = findModuleField(modules.get(namespace.name()), member.member());
+                if (moduleField != null) {
+                    return moduleField.type() == null
+                            ? inferFieldType(moduleField.initializer())
+                            : moduleField.type();
+                }
+            }
+
             Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
             if (klass != null) {
                 Ast.FieldDecl field = findField(klass, member.member(), new LinkedHashSet<>());
@@ -1029,6 +1057,13 @@ public final class OwnershipChecker {
         return returnType != null && returnType.name().equals("self")
                 ? Ast.TypeRef.simple(klass.name())
                 : returnType;
+    }
+
+    private Ast.FieldDecl findModuleField(Ast.ModuleDecl module, String name) {
+        for (Ast.Decl declaration : module.declarations()) {
+            if (declaration instanceof Ast.FieldDecl field && field.name().equals(name)) return field;
+        }
+        return null;
     }
 
     private Ast.InterfaceDecl interfaceOfReceiver(Ast.Expr receiver, Scope scope) {
@@ -1208,6 +1243,10 @@ public final class OwnershipChecker {
 
     private void move(VarState state, String name) {
         requireUsable(state, name, false);
+        if (state.origin == Origin.MODULE) {
+            throw error("cannot move persistent module-owned state '" + name
+                    + "'; borrow it or expose an explicit ownership-transfer service");
+        }
         if (state.immutableBorrows > 0 || state.mutableBorrowed) throw error("cannot move '" + name + "' while it is borrowed");
         state.moved = true;
     }
@@ -1271,6 +1310,7 @@ public final class OwnershipChecker {
 
     private boolean isCopyType(Ast.TypeRef type) {
         if (type == null || type.isBorrow()) return false;
+        if (type.isStringLiteral()) return true;
         if (type.name().equals("Option") && type.arguments().size() == 1) {
             Ast.TypeRef inner = type.arguments().getFirst();
             return inner.name().equals("null") || isCopyType(inner);
