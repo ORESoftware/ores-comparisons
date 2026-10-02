@@ -212,4 +212,61 @@ final class ParserTest {
         assertTrue(fn.body().stream().anyMatch(stmt ->
                 stmt instanceof Ast.TypeDeclStmt local && local.declaration() instanceof Ast.TraitDecl));
     }
+    @Test
+    void compactAndLongStructSyntaxNormalizeToSameAstWithContractsAndTraits() {
+        Ast.ClassDecl longForm = (Ast.ClassDecl) Parser.parse("""
+                define struct Box<T> is Named<T> with Measured<T> as
+                  pub value: T;
+                end
+                """).modules().getFirst().declarations().getFirst();
+
+        Ast.ClassDecl compact = (Ast.ClassDecl) Parser.parse("""
+                struct Box<T> is Named<T> with Measured<T> {
+                  pub value: T;
+                }
+                """).modules().getFirst().declarations().getFirst();
+
+        assertEquals(longForm, compact);
+        assertTrue(compact.isStruct());
+    }
+
+    @Test
+    void compactAndLongInterfaceSyntaxNormalizeToSameAst() {
+        Ast.InterfaceDecl longForm = (Ast.InterfaceDecl) Parser.parse("""
+                define interface Lock<T> as
+                  fnc lock() => T;
+                end
+                """).modules().getFirst().declarations().getFirst();
+
+        Ast.InterfaceDecl compact = (Ast.InterfaceDecl) Parser.parse("""
+                interface Lock<T> {
+                  fnc lock() => T;
+                }
+                """).modules().getFirst().declarations().getFirst();
+
+        assertEquals(longForm, compact);
+    }
+    @Test
+    void structBindingKindSupportsTypeFirstAndNameFirstSugarEqually() {
+        Ast.ClassDecl typeFirst = (Ast.ClassDecl) Parser.parse("""
+                struct State {
+                  pub let int count;
+                  pub val String name;
+                  pub const int limit = 10;
+                }
+                """).modules().getFirst().declarations().getFirst();
+
+        Ast.ClassDecl nameFirst = (Ast.ClassDecl) Parser.parse("""
+                struct State {
+                  pub let count: int;
+                  pub val name: String;
+                  pub const limit: int = 10;
+                }
+                """).modules().getFirst().declarations().getFirst();
+
+        assertEquals(typeFirst, nameFirst);
+        assertEquals(Ast.BindingKind.LET, nameFirst.fields().get(0).bindingKind());
+        assertEquals(Ast.BindingKind.VAL, nameFirst.fields().get(1).bindingKind());
+        assertEquals(Ast.BindingKind.CONST, nameFirst.fields().get(2).bindingKind());
+    }
 }

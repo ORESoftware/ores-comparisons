@@ -1486,7 +1486,7 @@ public final class TypeChecker {
             if (receiver instanceof SingletonProxy proxy) {
                 Ast.ClassDecl klass = findClass(proxy.target().name());
                 if (klass == null) throw new IllegalArgumentException("unknown singleton proxy class '" + proxy.target().name() + "'");
-                if (findFieldType(klass, member.member(), proxy.target(), new LinkedHashSet<>()) != null) {
+                if (findFieldType(klass, member.member(), proxy.target(), new LinkedHashSet<>(), false) != null) {
                     throw new IllegalArgumentException("singleton object fields are actor-private; invoke a public method on "
                             + proxy.moduleName() + "." + proxy.fieldName());
                 }
@@ -1905,8 +1905,16 @@ public final class TypeChecker {
         if (receiver instanceof Named named) {
             Ast.ClassDecl klass = findClass(named.name());
             if (klass != null) {
-                Type field = findFieldType(klass, member.member(), named, new LinkedHashSet<>());
-                if (field != null) return field;
+                Ast.FieldDecl declaration = findFieldDecl(klass, member.member(), new LinkedHashSet<>());
+                if (declaration != null) {
+                    if (declaration.bindingKind() != Ast.BindingKind.LET) {
+                        throw new IllegalArgumentException("field '" + klass.name() + "." + member.member()
+                                + "' is immutable (" + declaration.bindingKind().name().toLowerCase()
+                                + ") and cannot be assigned; declare the field with let to permit mutation");
+                    }
+                    Type field = findFieldType(klass, member.member(), named, new LinkedHashSet<>());
+                    if (field != null) return field;
+                }
             }
         }
         throw new IllegalArgumentException("assignment target '" + member.member() + "' is not a mutable data field");
@@ -2113,6 +2121,43 @@ public final class TypeChecker {
         return List.copyOf(fields.values());
     }
 
+    private Ast.FieldDecl findFieldDecl(
+            Ast.ClassDecl klass,
+            String name,
+            Set<Ast.ClassDecl> seen) {
+        if (!seen.add(klass)) return null;
+        for (Ast.FieldDecl field : klass.fields()) {
+            if (field.name().equals(name)) {
+                if (activeTraitOwner != null) {
+                    if (!field.composed() || !activeTraitOwner.equals(field.compositionOwner())) {
+                        throw new IllegalArgumentException(
+                                "trait '" + activeTraitOwner + "' cannot access host or foreign trait state field '" + name + "'");
+                    }
+                } else if (field.composed() && field.visibility() != Ast.Visibility.PUBLIC) {
+                    throw new IllegalArgumentException(
+                            "trait state field '" + field.compositionOwner() + "." + name
+                                    + "' is private to that trait");
+                } else if (field.visibility() == Ast.Visibility.PRIVATE && activeClassOwner != klass) {
+                    throw new IllegalArgumentException(
+                            "field '" + klass.name() + "." + name + "' is private to " + klass.name());
+                }
+                seen.remove(klass);
+                return field;
+            }
+        }
+        for (Ast.TypeRef parentRef : klass.parents()) {
+            Ast.ClassDecl parent = resolveClassParent(parentRef, klass);
+            if (parent == null) continue;
+            Ast.FieldDecl found = findFieldDecl(parent, name, seen);
+            if (found != null) {
+                seen.remove(klass);
+                return found;
+            }
+        }
+        seen.remove(klass);
+        return null;
+    }
+
     private Type findFieldType(
             Ast.ClassDecl klass,
             String name,
@@ -2171,14 +2216,6 @@ public final class TypeChecker {
         }
         seen.remove(klass);
         return null;
-    }
-
-    private void requireTraitMethodAccessible(Ast.MethodDecl method, String where) {
-        if (!method.composed() || method.visibility() == Ast.Visibility.PUBLIC) return;
-        if (activeTraitOwner != null && activeTraitOwner.equals(method.compositionOwner())) return;
-        throw new IllegalArgumentException(
-                "trait-private method '" + method.compositionOwner() + "." + method.name()
-                        + "' is not accessible from " + where);
     }
 
     private Ast.MethodDecl findMethod(Ast.ClassDecl klass, String name, int arity, Set<Ast.ClassDecl> seen) {
@@ -2265,6 +2302,14 @@ public final class TypeChecker {
         return List.copyOf(functions.values());
     }
 
+    private void requireTraitMethodAccessible(Ast.MethodDecl method, String where) {
+        if (!method.composed() || method.visibility() == Ast.Visibility.PUBLIC) return;
+        if (activeTraitOwner != null && activeTraitOwner.equals(method.compositionOwner())) return;
+        throw new IllegalArgumentException(
+                "trait-private method '" + method.compositionOwner() + "." + method.name()
+                        + "' is not accessible from " + where);
+    }
+
     private boolean methodAccessible(Ast.ClassDecl owner, Ast.MethodDecl method) {
         if (method.visibility() == Ast.Visibility.PUBLIC) return true;
         if (method.composed()) {
@@ -2276,7 +2321,7 @@ public final class TypeChecker {
     private IllegalArgumentException inaccessibleMethod(Ast.ClassDecl owner, Ast.MethodDecl method) {
         if (method.composed()) {
             return new IllegalArgumentException(
-                    "trait method '" + method.compositionOwner() + "." + method.name()
+                    "trait-private method '" + method.compositionOwner() + "." + method.name()
                             + "' is private to that trait");
         }
         String label = method.isStatic() ? "static function" : "method";

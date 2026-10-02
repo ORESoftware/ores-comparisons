@@ -821,4 +821,141 @@ final class LanguageHardeningTest {
                         """)));
         assertTrue(nested.getMessage().contains("cannot use enclosing class generic parameter"));
     }
+    @Test
+    void declaredGenericTypesRequireExplicitConcreteArguments() {
+        IllegalArgumentException rawClass = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box<T> as
+                          pub val T value;
+                        end
+
+                        fnc bad(Box value) => void {
+                          return;
+                        }
+                        """)));
+        assertTrue(rawClass.getMessage().contains("expects 1 type argument"));
+
+        IllegalArgumentException diamondAnnotation = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box<T> as
+                          pub val T value;
+                        end
+
+                        fnc bad(Box<> value) => void {
+                          return;
+                        }
+                        """)));
+        assertTrue(diamondAnnotation.getMessage().contains("use <> only at construction"));
+
+        IllegalArgumentException listDiamond = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc bad(List<> value) => void {
+                          return;
+                        }
+                        """)));
+        assertTrue(listDiamond.getMessage().contains("diamond inference"));
+    }
+
+    @Test
+    void genericInterfaceConformanceUsesConcreteArguments() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define interface BoxApi<T> as
+                  fnc get() => T;
+                end
+
+                define class IntBox implements BoxApi<int> as
+                  pub get() => int { return 7; }
+                end
+                """)));
+
+        IllegalArgumentException mismatch = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define interface BoxApi<T> as
+                          fnc get() => T;
+                        end
+
+                        define class BadBox implements BoxApi<int> as
+                          pub get() => String { return "wrong"; }
+                        end
+                        """)));
+        assertTrue(mismatch.getMessage().contains("does not implement interface"));
+    }
+    @Test
+    void aggregateFieldAssignmentRespectsValConstAndLet() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                struct MutablePoint {
+                  let int x;
+                }
+
+                fnc move(MutablePoint mut point) => MutablePoint {
+                  point.x = 9;
+                  return point;
+                }
+                """)));
+
+        IllegalArgumentException structVal = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        struct Point {
+                          int x;
+                        }
+
+                        fnc bad(Point mut point) => void {
+                          point.x = 9;
+                          return;
+                        }
+                        """)));
+        assertTrue(structVal.getMessage().contains("cannot be assigned"));
+
+        IllegalArgumentException classConst = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Config as
+                          pub const int version = 1;
+                        end
+
+                        fnc bad(Config mut config) => void {
+                          config.version = 2;
+                          return;
+                        }
+                        """)));
+        assertTrue(classConst.getMessage().contains("cannot be assigned"));
+    }
+    @Test
+    void aggregateFieldAssignmentRequiresLetBindingKind() {
+        IllegalArgumentException valField = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        struct Point {
+                          val int x;
+                        }
+
+                        fnc bad(Point p) => void {
+                          p.x = 2;
+                          return;
+                        }
+                        """)));
+        assertTrue(valField.getMessage().contains("cannot be assigned"));
+
+        IllegalArgumentException constField = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Counter as
+                          const int limit = 10;
+
+                          pub set() => void {
+                            self.limit = 20;
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(constField.getMessage().contains("cannot be assigned"));
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                struct MutablePoint {
+                  let int x;
+                }
+
+                fnc ok(MutablePoint mut p) => void {
+                  p.x = 2;
+                  return;
+                }
+                """)));
+    }
 }
