@@ -119,7 +119,7 @@ final class MutexRuntimeTest {
             }));
         }
         for (Thread worker : workers) worker.join();
-        assertEquals(3000, mutex.withLock(value -> value[0]));
+        assertEquals(3000, mutex.withLock(value -> value[0]).intValue());
     }
 
     @Test
@@ -135,7 +135,7 @@ final class MutexRuntimeTest {
 
         assertTrue(error.getMessage().contains("not poisoned"));
         assertFalse(mutex.isPoisoned());
-        assertEquals(0, mutex.withLock(value -> value[0]));
+        assertEquals(0, mutex.withLock(value -> value[0]).intValue());
     }
 
     @Test
@@ -156,7 +156,7 @@ final class MutexRuntimeTest {
         });
 
         assertFalse(mutex.isPoisoned());
-        assertEquals(0, mutex.withLock(value -> value[0]));
+        assertEquals(0, mutex.withLock(value -> value[0]).intValue());
     }
 
     @Test
@@ -288,7 +288,7 @@ final class MutexRuntimeTest {
             assertTrue(recovered.await(2, TimeUnit.SECONDS));
             assertNull(failure.get());
             assertFalse(shared.isPoisoned());
-            assertEquals(0, shared.withLock(value -> value[0]));
+            assertEquals(0, shared.withLock(value -> value[0]).intValue());
         }
     }
 
@@ -316,7 +316,7 @@ final class MutexRuntimeTest {
 
             assertTrue(done.await(2, TimeUnit.SECONDS));
             assertNull(failure.get());
-            assertEquals(1, shared.withLock(value -> value[0]));
+            assertEquals(1, shared.withLock(value -> value[0]).intValue());
         }
     }
 
