@@ -322,6 +322,53 @@ final class TraitCompositionTest {
     }
 
     @Test
+    void hostClassesCannotOverridePrivateTraitHelpers() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Secret as
+                            private helper() => int {
+                              return 7;
+                            }
+
+                            pub read() => int {
+                              return self.helper();
+                            }
+                          end
+
+                          define class Bad with Secret as
+                            pub helper() => int {
+                              return 99;
+                            }
+                          end
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("trait-private method"));
+        assertTrue(error.getMessage().contains("cannot be overridden"));
+    }
+
+    @Test
+    void privateAbstractTraitRequirementsAreRejected() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Impossible as
+                            private abstract load() => int;
+                          end
+
+                          define abstract class Host with Impossible as
+                          end
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("private abstract method"));
+        assertTrue(error.getMessage().contains("must be public"));
+    }
+
+    @Test
     void traitsCannotAppearInRuntimeTypePositions() {
         IllegalArgumentException direct = assertThrows(
                 IllegalArgumentException.class,

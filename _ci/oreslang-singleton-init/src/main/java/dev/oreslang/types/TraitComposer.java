@@ -507,6 +507,13 @@ public final class TraitComposer {
 
                 if (local != null) {
                     for (MethodEntry candidate : candidates) {
+                        if (candidate.method().visibility() == Ast.Visibility.PRIVATE) {
+                            throw new IllegalArgumentException(
+                                    "class '" + klass.name() + "' method '" + key
+                                            + "' collides with trait-private method from "
+                                            + candidate.origin()
+                                            + "; private trait helpers cannot be overridden");
+                        }
                         requireCompatible(
                                 local,
                                 candidate.method(),
@@ -666,6 +673,12 @@ public final class TraitComposer {
 
             LinkedHashMap<String, Ast.MethodDecl> ownMethods = new LinkedHashMap<>();
             for (Ast.MethodDecl raw : binding.declaration().methods()) {
+                if (raw.isAbstract() && raw.visibility() == Ast.Visibility.PRIVATE) {
+                    throw new IllegalArgumentException(
+                            "trait '" + binding.declaration().name() + "' has private abstract method '"
+                                    + raw.name()
+                                    + "'; abstract trait requirements must be public so a host class can satisfy them");
+                }
                 validateTraitSelfAccess(binding.declaration().name(), raw.body(), lexicalFields, lexicalMethods);
                 Ast.MethodDecl method = withCompositionOwner(
                         substitute(raw, substitutions),
@@ -690,6 +703,14 @@ public final class TraitComposer {
 
                 if (override != null) {
                     for (MethodEntry candidate : inherited) {
+                        if (candidate.method().visibility() == Ast.Visibility.PRIVATE) {
+                            throw new IllegalArgumentException(
+                                    "trait '" + binding.declaration().name()
+                                            + "' method '" + key
+                                            + "' collides with private method inherited from "
+                                            + candidate.origin()
+                                            + "; private nested-trait helpers are lexical and cannot be overridden");
+                        }
                         requireCompatible(
                                 override,
                                 candidate.method(),
