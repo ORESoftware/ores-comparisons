@@ -1,0 +1,13 @@
+name: oreslang-demo-pr15-local-types
+on:
+  push:
+    branches: [ci/oreslang-demo-pr15-local-types-20261002]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: docker run --rm -v "$PWD/tmp/oreslang-pr34:/work" -w /work maven:3.9.11-eclipse-temurin-21 mvn -B -ntp verify
+      - run: docker run --rm -v "$PWD/tmp/oreslang-pr34:/work" -w /work maven:3.9.11-eclipse-temurin-21 mvn -B -ntp -DskipTests compile exec:java -Dexec.args="examples/demo_pr15_local_interface.ores"
