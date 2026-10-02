@@ -1,0 +1,49 @@
+name: oreslang-demo-pr10-feature-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-demo-pr10-features"]
+
+permissions:
+  contents: read
+
+jobs:
+  feature-matrix:
+    runs-on: ubuntu-latest
+    env:
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+      GH_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+    steps:
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Require cross-repository read credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CROSS_REPO_READ_TOKEN"
+      - name: Check out exact oreslang-demo PR 10 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global url."https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git clone --quiet https://github.com/ores-truffle-oreslang/oreslang-demo.git _ci/oreslang-demo
+          git -C _ci/oreslang-demo checkout --quiet --detach 257b7c38919d9861e77cc745c70f3b1bc87a907c
+          test "$(git -C _ci/oreslang-demo rev-parse HEAD)" = "257b7c38919d9861e77cc745c70f3b1bc87a907c"
+      - name: Runtime diagnostics
+        shell: bash
+        run: |
+          java --version
+          mvn --version
+          gh --version | head -n 1
+      - name: Run stable demo suite
+        working-directory: _ci/oreslang-demo
+        run: bash scripts/run-all.sh
+      - name: Run new feature-specific demo matrix
+        working-directory: _ci/oreslang-demo
+        run: bash scripts/run-feature-demos.sh
