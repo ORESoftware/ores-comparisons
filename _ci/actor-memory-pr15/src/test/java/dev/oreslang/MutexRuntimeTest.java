@@ -610,4 +610,131 @@ final class MutexRuntimeTest {
         }
     }
 
+
+    @Test
+    void shutdownRacingSendDoesNotBindOrAdmitSharedMutex() throws Exception {
+        ActorRuntime runtimeA = new ActorRuntime();
+        var shared = OresMutex.shared(new int[]{0});
+        CountDownLatch behaviorStarted = new CountDownLatch(1);
+        CountDownLatch releaseBehavior = new CountDownLatch(1);
+        CountDownLatch freezeEntered = new CountDownLatch(1);
+        CountDownLatch releaseFreeze = new CountDownLatch(1);
+        AtomicReference<Throwable> senderFailure = new AtomicReference<>();
+        AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+
+        var target = runtimeA.<Object>spawn(() -> (message, context) -> {
+            if ("block".equals(message)) {
+                behaviorStarted.countDown();
+                while (true) {
+                    try {
+                        releaseBehavior.await();
+                        return;
+                    } catch (InterruptedException ignored) {
+                        // Keep the actor alive long enough to exercise the
+                        // send-vs-close admission race.
+                    }
+                }
+            }
+        });
+
+        target.send("block");
+        assertTrue(behaviorStarted.await(2, TimeUnit.SECONDS));
+
+        ActorRuntime.Sendable blocking = () -> {
+            freezeEntered.countDown();
+            try {
+                if (!releaseFreeze.await(2, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("timed out waiting to release freeze");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CancellationException();
+            }
+            return shared;
+        };
+
+        Thread sender = Thread.ofPlatform().start(() -> {
+            try {
+                target.send(blocking);
+            } catch (Throwable failure) {
+                senderFailure.set(failure);
+            }
+        });
+        assertTrue(freezeEntered.await(2, TimeUnit.SECONDS));
+
+        Thread closer = Thread.ofPlatform().start(() -> {
+            try {
+                runtimeA.close();
+            } catch (Throwable failure) {
+                closeFailure.set(failure);
+            }
+        });
+
+        for (int i = 0; i < 10_000 && !runtimeA.isClosed(); i++) Thread.yield();
+        assertTrue(runtimeA.isClosed(), "close should publish the closed state before final admission");
+
+        releaseFreeze.countDown();
+        sender.join();
+
+        assertInstanceOf(IllegalStateException.class, senderFailure.get());
+        assertTrue(senderFailure.get().getMessage().contains("actor runtime is closed"));
+
+        releaseBehavior.countDown();
+        closer.join();
+        assertNull(closeFailure.get());
+
+        try (ActorRuntime runtimeB = new ActorRuntime()) {
+            CountDownLatch delivered = new CountDownLatch(1);
+            var receiver = runtimeB.<OresMutex.Shared<int[]>>spawn(() -> (mutex, context) -> {
+                var guard = mutex.tryLock().orElseThrow();
+                guard.value()[0] = 7;
+                guard.release();
+                delivered.countDown();
+            });
+
+            assertDoesNotThrow(() -> receiver.send(shared));
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals(7, shared.withLock(value -> value[0]).intValue());
+        }
+    }
+
+
+    @Test
+    void mixedRuntimePublicationFailsAtomicallyAcrossAllHandles() throws Exception {
+        var unbound = OresMutex.shared(new int[]{1});
+        var foreign = OresMutex.shared(new int[]{2});
+
+        try (ActorRuntime runtimeA = new ActorRuntime();
+             ActorRuntime runtimeB = new ActorRuntime();
+             ActorRuntime runtimeC = new ActorRuntime()) {
+            CountDownLatch boundForeign = new CountDownLatch(1);
+            var owner = runtimeA.<OresMutex.Shared<int[]>>spawn(() -> (mutex, context) -> {
+                assertFalse(mutex.isPoisoned());
+                boundForeign.countDown();
+            });
+            owner.send(foreign);
+            assertTrue(boundForeign.await(2, TimeUnit.SECONDS));
+
+            var rejected = runtimeB.<List<OresMutex.Shared<int[]>>>spawn(
+                    () -> (message, context) -> { });
+
+            IllegalArgumentException error = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> rejected.send(List.of(unbound, foreign)));
+            assertTrue(error.getMessage().contains("owning ActorRuntime"));
+
+            CountDownLatch delivered = new CountDownLatch(1);
+            var receiver = runtimeC.<OresMutex.Shared<int[]>>spawn(() -> (mutex, context) -> {
+                var guard = mutex.tryLock().orElseThrow();
+                guard.value()[0] = 11;
+                guard.release();
+                delivered.countDown();
+            });
+
+            assertDoesNotThrow(() -> receiver.send(unbound));
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals(11, unbound.withLock(value -> value[0]).intValue());
+        }
+    }
+
 }
