@@ -1178,12 +1178,13 @@ public final class TypeChecker {
             List<Ast.FieldDecl> fields = effectiveFields(klass, new LinkedHashSet<>());
             List<Ast.FieldDecl> constructorFields = fields.stream().filter(field -> !field.composed()).toList();
             if (created.arguments().size() > constructorFields.size()) throw new IllegalArgumentException("constructor for " + klass.name() + " received too many positional fields");
-            Type nominal = nominalClassType(klass);
+            Type nominal = concreteClassType(klass, created.type(), generics, self);
+            Map<String, Type> substitutions = classGenericSubstitutions(klass, nominal);
             int argumentIndex = 0;
             for (Ast.FieldDecl field : fields) {
                 if (!field.composed() && argumentIndex < created.arguments().size()) {
                     requireAssignable(typeOf(created.arguments().get(argumentIndex++), env, generics, self),
-                            resolve(field.type(), Set.copyOf(klass.genericParameters()), nominal), "constructor field " + field.name());
+                            instantiateClassType(field.type(), klass, substitutions, nominal), "constructor field " + field.name());
                 } else if (field.initializer() == null) {
                     throw new IllegalArgumentException("constructor for " + klass.name() + " is missing field '" + field.name() + "'");
                 }
@@ -1221,8 +1222,8 @@ public final class TypeChecker {
                 }
             }
 
-            Type nominal = nominalClassType(struct);
-            Set<String> structGenerics = Set.copyOf(struct.genericParameters());
+            Type nominal = concreteClassType(struct, created.type(), generics, self);
+            Map<String, Type> substitutions = classGenericSubstitutions(struct, nominal);
             for (Ast.FieldDecl field : struct.fields()) {
                 if (field.composed()) {
                     if (field.initializer() == null) {
@@ -1233,7 +1234,7 @@ public final class TypeChecker {
                 Ast.Expr value = supplied.get(field.name());
                 if (value != null) {
                     requireAssignable(typeOf(value, env, generics, self),
-                            resolve(field.type(), structGenerics, nominal),
+                            instantiateClassType(field.type(), struct, substitutions, nominal),
                             "struct field " + struct.name() + "." + field.name());
                 } else if (field.initializer() == null) {
                     throw new IllegalArgumentException("struct initializer for " + struct.name() + " is missing field '" + field.name() + "'");
@@ -1802,6 +1803,76 @@ public final class TypeChecker {
         return new Named(qualifiedClassName(klass), klass.genericParameters().stream().map(Generic::new).map(Type.class::cast).toList());
     }
 
+    private Type concreteClassType(
+            Ast.ClassDecl klass,
+            Ast.TypeRef use,
+            Set<String> surroundingGenerics,
+            Type self) {
+        List<Type> arguments;
+        if (use.inferArguments()) {
+            arguments = klass.genericParameters().stream().map(ignored -> (Type) Unknown.INSTANCE).toList();
+        } else {
+            if (use.arguments().size() != klass.genericParameters().size()) {
+                throw new IllegalArgumentException((klass.isStruct() ? "struct '" : "class '") + klass.name()
+                        + "' expects " + klass.genericParameters().size() + " type argument(s), got "
+                        + use.arguments().size() + "; use <> for inference");
+            }
+            arguments = use.arguments().stream().map(arg -> resolve(arg, surroundingGenerics, self)).toList();
+        }
+        return new Named(qualifiedClassName(klass), arguments);
+    }
+
+    private Map<String, Type> classGenericSubstitutions(Ast.ClassDecl klass, Type nominal) {
+        if (!(nominal instanceof Named named)) return Map.of();
+        if (named.arguments().size() != klass.genericParameters().size()) {
+            throw new IllegalArgumentException("internal generic arity mismatch for " + klass.name());
+        }
+        LinkedHashMap<String, Type> substitutions = new LinkedHashMap<>();
+        for (int i = 0; i < klass.genericParameters().size(); i++) {
+            substitutions.put(klass.genericParameters().get(i), named.arguments().get(i));
+        }
+        return Map.copyOf(substitutions);
+    }
+
+    private Type instantiateClassType(
+            Ast.TypeRef ref,
+            Ast.ClassDecl klass,
+            Map<String, Type> substitutions,
+            Type self) {
+        Type unresolved = resolve(ref, Set.copyOf(klass.genericParameters()), self);
+        return substituteGenerics(unresolved, substitutions);
+    }
+
+    private Type substituteGenerics(Type type, Map<String, Type> substitutions) {
+        if (type instanceof Generic generic) return substitutions.getOrDefault(generic.name(), generic);
+        if (type instanceof Named named) {
+            return new Named(named.name(), named.arguments().stream()
+                    .map(argument -> substituteGenerics(argument, substitutions)).toList());
+        }
+        if (type instanceof Borrow borrow) {
+            return new Borrow(substituteGenerics(borrow.target(), substitutions), borrow.mutable());
+        }
+        if (type instanceof ListType list) {
+            return new ListType(substituteGenerics(list.element(), substitutions));
+        }
+        if (type instanceof Tuple tuple) {
+            return new Tuple(tuple.elements().stream().map(element -> substituteGenerics(element, substitutions)).toList());
+        }
+        if (type instanceof Function function) {
+            return new Function(
+                    function.parameters().stream().map(parameter -> substituteGenerics(parameter, substitutions)).toList(),
+                    substituteGenerics(function.result(), substitutions));
+        }
+        if (type instanceof Record record) {
+            LinkedHashMap<String, Type> members = new LinkedHashMap<>();
+            for (Map.Entry<String, Type> entry : record.members().entrySet()) {
+                members.put(entry.getKey(), substituteGenerics(entry.getValue(), substitutions));
+            }
+            return new Record(members);
+        }
+        return type;
+    }
+
     private String qualifiedClassName(Ast.ClassDecl klass) {
         String local = localClassIdentities.get(klass);
         if (local != null) return local;
@@ -1981,7 +2052,8 @@ public final class TypeChecker {
                             + "': " + extras);
                 }
 
-                Type nominal = nominalClassType(struct);
+                Type nominal = named;
+                Map<String, Type> substitutions = classGenericSubstitutions(struct, nominal);
                 for (Ast.FieldDecl field : expectedFields.values()) {
                     if (field.composed()) {
                         if (field.initializer() == null) {
@@ -1997,7 +2069,7 @@ public final class TypeChecker {
                         }
                         continue;
                     }
-                    Type required = resolve(field.type(), Set.copyOf(struct.genericParameters()), nominal);
+                    Type required = instantiateClassType(field.type(), struct, substitutions, nominal);
                     if (!assignable(supplied, required)) {
                         throw new IllegalArgumentException(where + " field '" + field.name() + "' expects "
                                 + required + " but got " + supplied);
