@@ -117,4 +117,36 @@ final class MutexStaticAdmissionValidationTest {
                 () -> TypeChecker.check(program));
         assertTrue(error.getMessage().contains("cannot await while holding a MutexGuard"));
     }
+
+    @Test
+    void ownershipRejectsGuardEscapeThroughGenericConstructor() {
+        var program = Parser.parse("""
+                define module model
+                  define class Box<T>
+                    pub let T value;
+                  end
+
+                  define class Counter
+                    pub let int value = 0;
+                  end
+                end
+
+                define module app
+                  fnc bad() => void {
+                    val mutex = Mutex.new(new Counter());
+                    val guard = mutex.lock();
+                    val hidden = new Box<>(guard);
+                    stdio.println(hidden);
+                    return;
+                  }
+                end
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "MutexGuard cannot be stored in a constructed object"));
+    }
+
 }
