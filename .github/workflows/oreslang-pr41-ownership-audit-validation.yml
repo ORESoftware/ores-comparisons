@@ -1,0 +1,72 @@
+name: oreslang-pr41-ownership-audit-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-pr41-ownership-audit"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr57-full
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Run ownership audit validation
+        shell: bash
+        run: |
+          set +e
+          : > ../../oreslang-pr41.log
+          echo '=== RUNTIME ===' >> ../../oreslang-pr41.log
+          java --version >> ../../oreslang-pr41.log 2>&1
+          mvn --version >> ../../oreslang-pr41.log 2>&1
+          echo '=== FOCUSED OWNERSHIP TESTS ===' >> ../../oreslang-pr41.log
+          mvn -B -ntp -Dtest=OwnershipIntrinsicsHardeningTest,OwnershipAndClosureTest test >> ../../oreslang-pr41.log 2>&1
+          focused=$?
+          echo "focused_exit=$focused" >> ../../oreslang-pr41.log
+          echo '=== FULL VERIFY ===' >> ../../oreslang-pr41.log
+          mvn -B -ntp verify >> ../../oreslang-pr41.log 2>&1
+          verify=$?
+          echo "verify_exit=$verify" >> ../../oreslang-pr41.log
+          examples=0
+          if [ "$verify" = "0" ]; then
+            echo '=== SHOWCASE ===' >> ../../oreslang-pr41.log
+            mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/showcase.ores" >> ../../oreslang-pr41.log 2>&1
+            examples=$?
+            if [ "$examples" = "0" ]; then
+              echo '=== TOGETHER ===' >> ../../oreslang-pr41.log
+              mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/together.ores" >> ../../oreslang-pr41.log 2>&1
+              examples=$?
+            fi
+          fi
+          echo "examples_exit=$examples" >> ../../oreslang-pr41.log
+          printf 'focused=%s\nverify=%s\nexamples=%s\n' "$focused" "$verify" "$examples" > ../../oreslang-pr41.status
+          tail -n 350 ../../oreslang-pr41.log
+          exit 0
+      - name: Upload Oreslang PR41 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oreslang-pr41-ownership-audit
+          path: |
+            oreslang-pr41.log
+            oreslang-pr41.status
+      - name: Preserve validation result
+        shell: bash
+        working-directory: .
+        run: |
+          source <(sed 's/^/export /' oreslang-pr41.status)
+          if [ "$focused" != "0" ] || [ "$verify" != "0" ] || [ "$examples" != "0" ]; then exit 1; fi
