@@ -1,0 +1,35 @@
+name: oreslang-pr41-rebased-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-pr41-rebased-validation"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr57-full
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Focused ownership hardening
+        run: mvn -B -ntp -Dtest=OwnershipIntrinsicsHardeningTest,OwnershipAndClosureTest test
+      - name: Full verification
+        run: mvn -B -ntp verify
+      - name: Current examples
+        run: |
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/showcase.ores"
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/together.ores"
