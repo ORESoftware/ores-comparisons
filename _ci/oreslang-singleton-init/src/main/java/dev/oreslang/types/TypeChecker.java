@@ -44,8 +44,11 @@ public final class TypeChecker {
     private final Set<String> ambiguousInterfaces = new HashSet<>();
     private final Set<String> ambiguousTypeAliases = new HashSet<>();
     private final Set<String> importedValues = new HashSet<>();
+    private final Set<String> importedNames = new HashSet<>();
     private final Set<Ast.TypeAliasDecl> resolvingAliases = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
-    // Set only while checking a method expanded from a trait.
+    private final Set<Ast.ClassDecl> processEffectCheckedClasses =
+            java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+    // Set only while checking a method flattened from a trait.
     private String activeTraitOwner;
 
     public static Ast.Program check(Ast.Program program) {
@@ -56,7 +59,7 @@ public final class TypeChecker {
         checker.validateRoutineRecursion();
         checker.validate(composed);
         OwnershipChecker.check(composed);
-        return composed;
+        return TraitComposer.stripValidationClasses(composed);
     }
 
     private void validateImports(Ast.Program program) {
@@ -66,11 +69,13 @@ public final class TypeChecker {
             if (imported.wildcard()) {
                 if (imported.namespace() == null || imported.namespace().isBlank()) throw new IllegalArgumentException("wildcard imports require a namespace alias");
                 if (!exposed.add(imported.namespace())) throw new IllegalArgumentException("duplicate imported name '" + imported.namespace() + "'");
+                importedNames.add(imported.namespace());
                 importedValues.add(imported.namespace());
             } else {
                 if (imported.names().isEmpty()) throw new IllegalArgumentException("named import must select at least one name");
                 for (String name : imported.names()) {
                     if (!exposed.add(name)) throw new IllegalArgumentException("duplicate imported name '" + name + "'");
+                    importedNames.add(name);
                     if (imported.kind() != Ast.ImportKind.CLASS) importedValues.add(name);
                 }
             }
@@ -184,6 +189,10 @@ public final class TypeChecker {
                     if (!all.add(generic)) throw new IllegalArgumentException("duplicate/shadowed generic '" + generic + "' in interface " + iface.name() + "." + fn.name());
                 }
                 functionType(fn.parameters(), fn.returnType(), all, null);
+            } else {
+                Ast.InterfaceFieldDecl field = (Ast.InterfaceFieldDecl) member;
+                if (!memberKeys.add(field.name())) throw new IllegalArgumentException("duplicate interface member '" + iface.name() + "." + field.name() + "'");
+                resolve(field.type(), generics, null);
             }
         }
     }
@@ -375,6 +384,7 @@ public final class TypeChecker {
                 }
             }
         }
+        validateProcessOwnedModuleEffects(module);
     }
 
     private Ast.ClassDecl singletonProxyClass(Ast.FieldDecl field) {
@@ -470,6 +480,226 @@ public final class TypeChecker {
                 }
             }
         }
+        validateProcessOwnedClassEffects(owner, klass);
+    }
+
+    private void validateProcessOwnedModuleEffects(Ast.ModuleDecl owner) {
+        for (Ast.Decl decl : owner.declarations()) {
+            if (decl instanceof Ast.FunctionDecl fn) {
+                Set<String> locals = new LinkedHashSet<>();
+                for (Ast.Param param : fn.parameters()) locals.add(param.name());
+                validateProcessOwnedStatements(owner, null, fn.body(), locals,
+                        "singleton callable '" + owner.name() + "." + fn.name() + "'");
+            } else if (decl instanceof Ast.ClassDecl klass) {
+                validateProcessOwnedClassEffects(owner, klass);
+            }
+        }
+    }
+
+    private void validateProcessOwnedClassEffects(Ast.ModuleDecl owner, Ast.ClassDecl klass) {
+        if (!processEffectCheckedClasses.add(klass)) return;
+
+        for (Ast.FieldDecl field : klass.fields()) {
+            if (field.initializer() != null) {
+                validateProcessOwnedExpr(owner, klass, field.initializer(), Set.of(),
+                        "process-owned class '" + klass.name() + "' field initializer");
+            }
+        }
+
+        for (Ast.MethodDecl method : klass.methods()) {
+            Set<String> locals = new LinkedHashSet<>();
+            if (!method.isStatic()) locals.add("self");
+            for (Ast.Param param : method.parameters()) locals.add(param.name());
+            validateProcessOwnedStatements(owner, klass, method.body(), locals,
+                    "process-owned method '" + klass.name() + "." + method.name() + "'");
+        }
+    }
+
+    private void validateProcessOwnedStatements(
+            Ast.ModuleDecl processOwner,
+            Ast.ClassDecl processClass,
+            List<Ast.Stmt> statements,
+            Set<String> inheritedLocals,
+            String where) {
+        Set<String> locals = new LinkedHashSet<>(inheritedLocals);
+        for (Ast.Stmt stmt : statements) {
+            if (stmt instanceof Ast.BindingStmt binding) {
+                validateProcessOwnedExpr(processOwner, processClass, binding.initializer(), locals, where);
+                locals.add(binding.name());
+            } else if (stmt instanceof Ast.DestructureStmt destructure) {
+                validateProcessOwnedExpr(processOwner, processClass, destructure.initializer(), locals, where);
+                for (Ast.DestructureBinding binding : destructure.bindings()) locals.add(binding.name());
+            } else if (stmt instanceof Ast.ReturnStmt ret) {
+                if (ret.value() != null) validateProcessOwnedExpr(processOwner, processClass, ret.value(), locals, where);
+            } else if (stmt instanceof Ast.ExprStmt expression) {
+                validateProcessOwnedExpr(processOwner, processClass, expression.expression(), locals, where);
+            } else if (stmt instanceof Ast.DeferStmt defer) {
+                validateProcessOwnedExpr(processOwner, processClass, defer.expression(), locals, where);
+            } else if (stmt instanceof Ast.IfStmt conditional) {
+                for (Ast.IfBranch branch : conditional.branches()) {
+                    validateProcessOwnedExpr(processOwner, processClass, branch.condition(), locals, where);
+                    validateProcessOwnedStatements(processOwner, processClass, branch.body(),
+                            new LinkedHashSet<>(locals), where);
+                }
+                validateProcessOwnedStatements(processOwner, processClass, conditional.elseBody(),
+                        new LinkedHashSet<>(locals), where);
+            } else if (stmt instanceof Ast.TryStmt attempted) {
+                validateProcessOwnedStatements(processOwner, processClass, attempted.body(),
+                        new LinkedHashSet<>(locals), where);
+                Set<String> caught = new LinkedHashSet<>(locals);
+                caught.add(attempted.errorName());
+                validateProcessOwnedStatements(processOwner, processClass, attempted.catchBody(), caught, where);
+                validateProcessOwnedStatements(processOwner, processClass, attempted.finallyBody(),
+                        new LinkedHashSet<>(locals), where);
+            } else if (stmt instanceof Ast.ForOfStmt loop) {
+                validateProcessOwnedExpr(processOwner, processClass, loop.iterable(), locals, where);
+                Set<String> loopLocals = new LinkedHashSet<>(locals);
+                loopLocals.add(loop.bindingName());
+                validateProcessOwnedStatements(processOwner, processClass, loop.body(), loopLocals, where);
+            } else if (stmt instanceof Ast.ForStmt loop) {
+                Set<String> loopLocals = new LinkedHashSet<>(locals);
+                if (loop.initializer() != null) {
+                    validateProcessOwnedStatements(processOwner, processClass,
+                            List.of(loop.initializer()), loopLocals, where);
+                    if (loop.initializer() instanceof Ast.BindingStmt binding) loopLocals.add(binding.name());
+                }
+                if (loop.condition() != null) {
+                    validateProcessOwnedExpr(processOwner, processClass, loop.condition(), loopLocals, where);
+                }
+                if (loop.update() != null) {
+                    validateProcessOwnedExpr(processOwner, processClass, loop.update(), loopLocals, where);
+                }
+                validateProcessOwnedStatements(processOwner, processClass, loop.body(), loopLocals, where);
+            }
+        }
+    }
+
+    private void validateProcessOwnedExpr(
+            Ast.ModuleDecl processOwner,
+            Ast.ClassDecl processClass,
+            Ast.Expr expr,
+            Set<String> locals,
+            String where) {
+        if (expr instanceof Ast.LiteralExpr) return;
+
+        if (expr instanceof Ast.NameExpr name) {
+            if (locals.contains(name.name()) || name.name().equals("self")
+                    || name.name().equals("Some") || name.name().equals("None")) return;
+            if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("print")) {
+                throw processEffectError(where, "ambient capability '" + name.name() + "'");
+            }
+            if (importedNames.contains(name.name())) {
+                throw processEffectError(where, "imported dependency '" + name.name() + "'");
+            }
+            Ast.ModuleDecl referencedModule = modules.get(name.name());
+            if (referencedModule != null && !referencedModule.singleton()) {
+                throw processEffectError(where, "caller/context-local module '" + referencedModule.name() + "'");
+            }
+            return;
+        }
+
+        if (expr instanceof Ast.CallExpr call) {
+            if (call.callee() instanceof Ast.NameExpr name && !locals.contains(name.name())) {
+                Ast.FunctionDecl target = findFunction(name.name());
+                if (target != null) {
+                    String targetOwnerName = functionOwners.get(target);
+                    Ast.ModuleDecl targetOwner = targetOwnerName == null ? null : modules.get(targetOwnerName);
+                    if (targetOwner == null || !targetOwner.singleton()) {
+                        throw processEffectError(where, "ordinary helper function '" + name.name() + "'");
+                    }
+                }
+            }
+            if (call.callee() instanceof Ast.MemberExpr member
+                    && member.receiver() instanceof Ast.NameExpr receiver
+                    && !locals.contains(receiver.name())) {
+                Ast.ModuleDecl targetModule = modules.get(receiver.name());
+                if (targetModule != null && !targetModule.singleton()) {
+                    throw processEffectError(where, "caller/context-local module '" + targetModule.name() + "'");
+                }
+                Ast.ClassDecl targetClass = findClass(receiver.name());
+                if (targetClass != null && targetClass != processClass) {
+                    String ownerName = classOwners.get(targetClass);
+                    Ast.ModuleDecl classOwner = ownerName == null ? null : modules.get(ownerName);
+                    if (classOwner == null || !classOwner.singleton()
+                            || !classOwner.name().equals(processOwner.name())) {
+                        throw processEffectError(where, "ordinary static class '" + targetClass.name() + "'");
+                    }
+                }
+            }
+            validateProcessOwnedExpr(processOwner, processClass, call.callee(), locals, where);
+            for (Ast.Expr arg : call.arguments()) {
+                validateProcessOwnedExpr(processOwner, processClass, arg, locals, where);
+            }
+            return;
+        }
+
+        if (expr instanceof Ast.NewExpr created) {
+            Ast.ClassDecl target = findClass(created.type().name());
+            if (target == null) {
+                throw processEffectError(where, "unresolved or imported class construction '" + created.type().name() + "'");
+            }
+            if (target != processClass) {
+                String ownerName = classOwners.get(target);
+                Ast.ModuleDecl classOwner = ownerName == null ? null : modules.get(ownerName);
+                if (classOwner == null || !classOwner.singleton()
+                        || !classOwner.name().equals(processOwner.name())) {
+                    throw processEffectError(where, "ordinary class construction '" + target.name() + "'");
+                }
+            }
+            for (Ast.Expr arg : created.arguments()) {
+                validateProcessOwnedExpr(processOwner, processClass, arg, locals, where);
+            }
+            return;
+        }
+
+        if (expr instanceof Ast.AssignExpr assignment) {
+            validateProcessOwnedExpr(processOwner, processClass, assignment.target(), locals, where);
+            validateProcessOwnedExpr(processOwner, processClass, assignment.value(), locals, where);
+        } else if (expr instanceof Ast.BinaryExpr binary) {
+            validateProcessOwnedExpr(processOwner, processClass, binary.left(), locals, where);
+            validateProcessOwnedExpr(processOwner, processClass, binary.right(), locals, where);
+        } else if (expr instanceof Ast.UnaryExpr unary) {
+            validateProcessOwnedExpr(processOwner, processClass, unary.operand(), locals, where);
+        } else if (expr instanceof Ast.ConditionalExpr conditional) {
+            validateProcessOwnedExpr(processOwner, processClass, conditional.condition(), locals, where);
+            validateProcessOwnedExpr(processOwner, processClass, conditional.whenTrue(), locals, where);
+            validateProcessOwnedExpr(processOwner, processClass, conditional.whenFalse(), locals, where);
+        } else if (expr instanceof Ast.MemberExpr member) {
+            validateProcessOwnedExpr(processOwner, processClass, member.receiver(), locals, where);
+        } else if (expr instanceof Ast.IndexExpr indexed) {
+            validateProcessOwnedExpr(processOwner, processClass, indexed.receiver(), locals, where);
+            validateProcessOwnedExpr(processOwner, processClass, indexed.index(), locals, where);
+        } else if (expr instanceof Ast.AwaitExpr awaited) {
+            validateProcessOwnedExpr(processOwner, processClass, awaited.expression(), locals, where);
+        } else if (expr instanceof Ast.ListExpr list) {
+            for (Ast.Expr item : list.elements()) {
+                validateProcessOwnedExpr(processOwner, processClass, item, locals, where);
+            }
+        } else if (expr instanceof Ast.TupleExpr tuple) {
+            for (Ast.Expr item : tuple.elements()) {
+                validateProcessOwnedExpr(processOwner, processClass, item, locals, where);
+            }
+        } else if (expr instanceof Ast.ObjectExpr object) {
+            for (Ast.ObjectField field : object.fields()) {
+                validateProcessOwnedExpr(processOwner, processClass, field.value(), locals, where);
+            }
+        } else if (expr instanceof Ast.LambdaExpr lambda) {
+            Set<String> lambdaLocals = new LinkedHashSet<>(locals);
+            for (Ast.Param param : lambda.parameters()) lambdaLocals.add(param.name());
+            if (lambda.expressionBody() != null) {
+                validateProcessOwnedExpr(processOwner, processClass, lambda.expressionBody(), lambdaLocals, where);
+            }
+            if (lambda.blockBody() != null) {
+                validateProcessOwnedStatements(processOwner, processClass, lambda.blockBody(), lambdaLocals, where);
+            }
+        }
+    }
+
+    private IllegalArgumentException processEffectError(String where, String dependency) {
+        return new IllegalArgumentException(where
+                + " cannot depend on " + dependency
+                + "; process-singleton code may use only its own state/helpers and explicit singleton-service calls"
+                + " until Oreslang has a process-safe effect declaration");
     }
 
     private boolean referencesActorModuleBinding(
@@ -721,9 +951,14 @@ public final class TypeChecker {
 
             if (method.explicitReceiverType() != null) {
                 Ast.TypeRef receiverRef = method.explicitReceiverType();
-                boolean namesEnclosingClass = receiverRef.name().equals(klass.name()) || receiverRef.name().equals(qualifiedClassName(klass)) || receiverRef.name().equals("self");
+                Ast.TypeRef receiverTargetRef = receiverRef.isBorrow()
+                        ? receiverRef.borrowedTarget()
+                        : receiverRef;
+                boolean namesEnclosingClass = receiverTargetRef.name().equals(klass.name())
+                        || receiverTargetRef.name().equals(qualifiedClassName(klass))
+                        || receiverTargetRef.name().equals("self");
                 if (!namesEnclosingClass) {
-                    Type receiver = resolve(receiverRef, generics, self);
+                    Type receiver = resolve(receiverTargetRef, generics, self);
                     requireAssignable(self, receiver, "explicit self receiver in " + klass.name() + "." + method.name());
                 }
             }
@@ -1481,6 +1716,8 @@ public final class TypeChecker {
                 all.addAll(fn.genericParameters());
                 mergeMember(members, methodKey(fn.name(), fn.parameters().size()),
                         functionType(fn.parameters(), fn.returnType(), all, null), "interface " + iface.name());
+            } else if (member instanceof Ast.InterfaceFieldDecl field) {
+                mergeMember(members, field.name(), resolve(field.type(), generics, null), "interface " + iface.name());
             }
         }
         stack.remove(iface);

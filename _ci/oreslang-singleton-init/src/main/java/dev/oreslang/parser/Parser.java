@@ -287,7 +287,20 @@ public final class Parser {
                 continue;
             }
 
-            throw error(peek(), "interfaces are storage-free contracts; put state in a trait or class and declare functions with 'fnc'");
+            if (check(IDENT) && checkNext(COLON)) {
+                String fieldName = advance().lexeme();
+                consume(COLON, "expected ':' after interface data requirement name");
+                Ast.TypeRef type = parseTypeRef();
+                consumeMemberTerminator(terminator, "interface data requirement should end with ';'");
+                members.add(new Ast.InterfaceFieldDecl(fieldName, type));
+                continue;
+            }
+
+            if (isBindingKind(peek().type())) advance();
+            Ast.TypeRef type = parseTypeRef();
+            String fieldName = consume(IDENT, "expected interface data requirement name").lexeme();
+            consumeMemberTerminator(terminator, "interface data requirement should end with ';' and cannot have an initializer");
+            members.add(new Ast.InterfaceFieldDecl(fieldName, type));
         }
 
         consume(terminator, braceStyle ? "expected '}' to close interface " + name : "expected 'end' to close interface " + name);

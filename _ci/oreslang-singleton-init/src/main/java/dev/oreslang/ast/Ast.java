@@ -151,7 +151,7 @@ public final class Ast {
         }
     }
 
-    public sealed interface InterfaceMember permits InterfaceFunctionDecl { }
+    public sealed interface InterfaceMember permits InterfaceFunctionDecl, InterfaceFieldDecl { }
 
     public record InterfaceFunctionDecl(
             String name,
@@ -163,6 +163,13 @@ public final class Ast {
             parameters = List.copyOf(parameters);
         }
     }
+
+    /**
+     * Contract-only data member requirement. This does not allocate storage;
+     * it requires a conforming structural value/class/module to expose data
+     * with this name and type.
+     */
+    public record InterfaceFieldDecl(String name, TypeRef type) implements InterfaceMember { }
 
 
     public record InterfaceDecl(

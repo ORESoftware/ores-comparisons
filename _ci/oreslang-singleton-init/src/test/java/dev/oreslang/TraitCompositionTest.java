@@ -16,16 +16,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class TraitCompositionTest {
     @Test
-    void interfacesAreStorageFreeContracts() {
+    void interfaceDataMembersAreRequirementsNotStorage() {
+        assertDoesNotThrow(() -> Parser.parse("""
+                define interface HasState as
+                  val int state;
+                end
+                """));
+
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
                 () -> Parser.parse("""
                         define interface Bad as
-                          val int state;
+                          val int state = 1;
                         end
                         """));
 
-        assertTrue(error.getMessage().contains("storage-free contracts"));
+        assertTrue(error.getMessage().contains("cannot have an initializer")
+                || error.getMessage().contains("interface data requirement"));
     }
 
     @Test
@@ -39,7 +46,7 @@ final class TraitCompositionTest {
                   define trait Counter is CounterApi as
                     private let int count = 10;
 
-                    pub bump() => int {
+                    pub bump(self &mut self)() => int {
                       self.count = self.count + 1;
                       return self.count;
                     }
@@ -77,7 +84,7 @@ final class TraitCompositionTest {
                   define trait Counter as
                     private let int count = 10;
 
-                    pub bump() => int {
+                    pub bump(self &mut self)() => int {
                       self.count = self.count + 1;
                       return self.count;
                     }

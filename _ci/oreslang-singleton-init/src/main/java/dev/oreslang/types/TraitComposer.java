@@ -20,10 +20,31 @@ import java.util.Set;
  * ordinary type/ownership/capability/runtime passes execute.
  */
 public final class TraitComposer {
+    private static final String VALIDATION_CLASS_PREFIX = "$trait$";
     private TraitComposer() { }
 
     public static Ast.Program compose(Ast.Program program) {
         return new Composer(program).compose();
+    }
+
+    /**
+     * Synthetic abstract classes exist only while the normal type/ownership
+     * passes validate trait declarations, including traits that no class uses.
+     */
+    public static Ast.Program stripValidationClasses(Ast.Program program) {
+        List<Ast.ModuleDecl> modules = new ArrayList<>();
+        for (Ast.ModuleDecl module : program.modules()) {
+            List<Ast.Decl> declarations = module.declarations().stream()
+                    .filter(declaration -> !(declaration instanceof Ast.ClassDecl klass)
+                            || !klass.name().startsWith(VALIDATION_CLASS_PREFIX))
+                    .toList();
+            modules.add(new Ast.ModuleDecl(
+                    module.name(),
+                    module.singleton(),
+                    module.annotations(),
+                    declarations));
+        }
+        return new Ast.Program(program.namespace(), program.imports(), modules);
     }
 
     private record TraitBinding(String module, Ast.TraitDecl declaration) { }
@@ -62,6 +83,11 @@ public final class TraitComposer {
                         declarations.add(declaration);
                     }
                 }
+                for (Ast.Decl declaration : module.declarations()) {
+                    if (declaration instanceof Ast.TraitDecl trait) {
+                        declarations.add(validationClass(module.name(), trait));
+                    }
+                }
                 modules.add(new Ast.ModuleDecl(
                         module.name(),
                         module.singleton(),
@@ -89,6 +115,38 @@ public final class TraitComposer {
                     }
                 }
             }
+        }
+
+        private Ast.ClassDecl validationClass(String moduleName, Ast.TraitDecl trait) {
+            List<Ast.TypeRef> arguments = trait.genericParameters().stream()
+                    .map(Ast.TypeRef::simple)
+                    .toList();
+            Ast.TypeRef reference = new Ast.TypeRef(
+                    trait.name(),
+                    arguments,
+                    false);
+            Material material = materialize(
+                    moduleName,
+                    reference,
+                    Set.copyOf(trait.genericParameters()),
+                    new ArrayDeque<>());
+
+            List<Ast.FieldDecl> fields = material.fields.values().stream()
+                    .map(FieldEntry::field)
+                    .toList();
+            List<Ast.MethodDecl> methods = material.methods.values().stream()
+                    .map(MethodEntry::method)
+                    .toList();
+
+            return new Ast.ClassDecl(
+                    VALIDATION_CLASS_PREFIX + moduleName + "$" + trait.name(),
+                    true,
+                    trait.genericParameters(),
+                    List.of(),
+                    List.copyOf(material.interfaces.values()),
+                    List.of(),
+                    fields,
+                    methods);
         }
 
         private Ast.ClassDecl composeClass(String moduleName, Ast.ClassDecl klass) {
