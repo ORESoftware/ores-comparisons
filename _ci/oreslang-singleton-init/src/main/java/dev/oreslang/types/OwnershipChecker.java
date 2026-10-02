@@ -806,7 +806,18 @@ public final class OwnershipChecker {
 
                 boolean mutable = mode == Ast.ParamMode.MUT;
                 if (arg instanceof Ast.NameExpr name) {
-                    VarState state = requireState(scope, name.name());
+                    VarState state = scope.lookup(name.name());
+                    if (state == null) {
+                        // Builtins/global Copy values such as None are not local
+                        // ownership roots. TypeChecker validates their value type;
+                        // ownership only needs to reject mutable borrowing here.
+                        if (mutable) {
+                            throw error(callable + " argument " + (i + 1)
+                                    + " for a mut parameter must be a named mutable owner");
+                        }
+                        checkExpr(arg, scope, false);
+                        continue;
+                    }
                     requireUsable(state, name.name(), mutable);
 
                     if (!mutable && state.kind == ValueKind.COPY) {

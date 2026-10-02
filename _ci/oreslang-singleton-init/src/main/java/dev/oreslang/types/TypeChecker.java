@@ -1500,6 +1500,13 @@ public final class TypeChecker {
                 }
             }
             if (call.callee() instanceof Ast.MemberExpr member) {
+                if (member.receiver() instanceof Ast.NameExpr importedClass
+                        && importedNames.contains(importedClass.name())
+                        && !importedValues.contains(importedClass.name())) {
+                    throw new IllegalArgumentException(
+                            "static call on imported class '" + importedClass.name()
+                                    + "' requires linked ownership metadata");
+                }
                 Type receiver = deref(typeOf(member.receiver(), env, generics, self));
                 if (receiver instanceof ClassNamespace classNamespace) {
                     Ast.ClassDecl klass = findClass(classNamespace.className());
