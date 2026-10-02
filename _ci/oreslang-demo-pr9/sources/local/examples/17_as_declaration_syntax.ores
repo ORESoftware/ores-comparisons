@@ -1,0 +1,22 @@
+namespace as_syntax_demo;
+
+define class Counter as
+  pub let int value = 40;
+  pub bump() => int {
+    self.value = self.value + 2;
+    return self.value;
+  }
+  pub static fnc kind() => String { return "counter"; }
+end
+
+define module helpers as
+  pub fnc answer() => int { return 42; }
+end
+
+pub routine main() => void {
+  val counter = new Counter();
+  stdio.println(counter.bump());
+  stdio.println(Counter.kind());
+  stdio.println(helpers.answer());
+  return;
+}
