@@ -238,7 +238,9 @@ public final class ActorRuntime implements AutoCloseable {
 
     /** Signals actors; each actor scavenges only its own roots at a safe point. */
     public long requestProcessGc() {
-        return processGcEpoch.incrementAndGet();
+        long epoch = processGcEpoch.incrementAndGet();
+        for (ActorCell<?> cell : actors.values()) cell.requestGc();
+        return epoch;
     }
 
     /** Manual cleanup is strictly current-actor scoped. */
@@ -450,6 +452,7 @@ public final class ActorRuntime implements AutoCloseable {
 
     private final class ActorCell<M> {
         private static final Object STOP = new Object();
+        private static final Object GC = new Object();
         private final ActorRef<M> ref;
         private final ActorKind kind;
         private final IsolatePolicy policy;
@@ -498,6 +501,10 @@ public final class ActorRuntime implements AutoCloseable {
                 while (true) {
                     Object message = mailbox.take();
                     if (message == STOP) return;
+                    if (message == GC) {
+                        applyRequestedProcessGc(execution);
+                        continue;
+                    }
                     applyRequestedProcessGc(execution);
                     behavior.onMessage((M) message, context);
                     gc.safepoint(GcRuntime.Scope.ACTOR,
@@ -521,6 +528,12 @@ public final class ActorRuntime implements AutoCloseable {
                     actors.remove(ref.id(), this);
                 }
             }
+        }
+
+        private void requestGc() {
+            // Best effort wake-up. If the bounded mailbox is full, the epoch is
+            // still observed before the next application turn.
+            mailbox.offer(GC);
         }
 
         private void stop() {
