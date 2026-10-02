@@ -5,6 +5,8 @@ import dev.oreslang.parser.Parser;
 import dev.oreslang.types.TypeChecker;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -322,6 +324,21 @@ final class ActorCapabilityIsolationTest {
                 () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
 
         assertTrue(error.getMessage().contains("SHARED_MEMORY"));
+    }
+
+
+    @Test
+    void invalidOreslangPrivateActorSharingFixtureIsRejected() throws Exception {
+        String source = Files.readString(Path.of("examples/private-actor-sharing-invalid.ores"));
+        Ast.Program program = TypeChecker.check(Parser.parse(source));
+
+        SecurityException error = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.developer()));
+
+        assertTrue(
+                error.getMessage().contains("SHARED_MEMORY")
+                        || error.getMessage().contains("ACTOR_SHARE_READONLY"));
     }
 
 
