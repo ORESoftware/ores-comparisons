@@ -382,13 +382,11 @@ public final class OwnershipChecker {
             }
             if (intrinsic.name().equals("take")) {
                 requireIntrinsicArity(call, "take", 1);
-                if (call.arguments().getFirst() instanceof Ast.NameExpr name) {
-                    VarState state = requireState(scope, name.name());
-                    if (state.kind == ValueKind.IMM_BORROW || state.kind == ValueKind.MUT_BORROW) {
-                        throw error("take(" + name.name() + ") cannot take ownership from a borrowed value");
-                    }
+                ValueInfo taken = checkExpr(call.arguments().getFirst(), scope, true);
+                if (taken.kind == ValueKind.IMM_BORROW || taken.kind == ValueKind.MUT_BORROW) {
+                    throw error("take(...) cannot take ownership from a borrowed value");
                 }
-                return checkExpr(call.arguments().getFirst(), scope, true);
+                return taken;
             }
             if (intrinsic.name().equals("copy")) {
                 requireIntrinsicArity(call, "copy", 1);
@@ -413,11 +411,33 @@ public final class OwnershipChecker {
         }
 
         if (call.callee() instanceof Ast.MemberExpr member) {
+            if (member.receiver() instanceof Ast.NameExpr namespace && scope.lookup(namespace.name()) == null) {
+                Ast.FunctionDecl qualified = findFunction(namespace.name() + "." + member.member());
+                if (qualified != null) {
+                    checkArguments(call.arguments(), qualified.parameters(), scope,
+                            "function " + namespace.name() + "." + qualified.name());
+                    return new ValueInfo(qualified.returnType(), kindOfType(qualified.returnType()), null);
+                }
+
+                Ast.ClassDecl staticClass = findClass(namespace.name());
+                Ast.MethodDecl staticMethod = staticClass == null
+                        ? null
+                        : findStaticMethod(staticClass, member.member(), call.arguments().size(), new LinkedHashSet<>());
+                if (staticMethod != null) {
+                    checkArguments(call.arguments(), staticMethod.parameters(), scope,
+                            "static function " + staticClass.name() + "." + staticMethod.name());
+                    return new ValueInfo(staticMethod.returnType(), kindOfType(staticMethod.returnType()), null);
+                }
+            }
+
             Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
             Ast.MethodDecl method = klass == null ? null : findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
             if (method != null) {
                 if (requiresTakeReceiver(method)) {
-                    checkExpr(member.receiver(), scope, true);
+                    ValueInfo receiver = checkExpr(member.receiver(), scope, true);
+                    if (receiver.kind == ValueKind.IMM_BORROW || receiver.kind == ValueKind.MUT_BORROW) {
+                        throw error("method '" + method.name() + "' takes self ownership but receiver is borrowed");
+                    }
                 } else {
                     checkExpr(member.receiver(), scope, false);
                     if (requiresMutableReceiver(method)) {
@@ -463,14 +483,11 @@ public final class OwnershipChecker {
                 Ast.ParamMode mode = param.structural() ? Ast.ParamMode.BORROW : param.mode();
 
                 if (mode == Ast.ParamMode.TAKE) {
-                    if (arg instanceof Ast.NameExpr name) {
-                        VarState state = requireState(scope, name.name());
-                        if (state.kind == ValueKind.IMM_BORROW || state.kind == ValueKind.MUT_BORROW) {
-                            throw error(callable + " argument " + (i + 1)
-                                    + " uses take but '" + name.name() + "' is borrowed");
-                        }
+                    ValueInfo taken = checkExpr(arg, scope, true);
+                    if (taken.kind == ValueKind.IMM_BORROW || taken.kind == ValueKind.MUT_BORROW) {
+                        throw error(callable + " argument " + (i + 1)
+                                + " requires ownership but the supplied value is borrowed");
                     }
-                    checkExpr(arg, scope, true);
                     continue;
                 }
 
@@ -821,6 +838,31 @@ public final class OwnershipChecker {
             Ast.ClassDecl p = findClass(parent.name());
             if (p == null) continue;
             Ast.MethodDecl found = findMethod(p, name, arity, seen);
+            if (found != null) {
+                seen.remove(klass);
+                return found;
+            }
+        }
+        seen.remove(klass);
+        return null;
+    }
+
+    private Ast.MethodDecl findStaticMethod(
+            Ast.ClassDecl klass,
+            String name,
+            int arity,
+            Set<Ast.ClassDecl> seen) {
+        if (!seen.add(klass)) return null;
+        for (Ast.MethodDecl method : klass.methods()) {
+            if (method.isStatic() && method.name().equals(name) && method.parameters().size() == arity) {
+                seen.remove(klass);
+                return method;
+            }
+        }
+        for (Ast.TypeRef parent : klass.parents()) {
+            Ast.ClassDecl p = findClass(parent.name());
+            if (p == null) continue;
+            Ast.MethodDecl found = findStaticMethod(p, name, arity, seen);
             if (found != null) {
                 seen.remove(klass);
                 return found;
