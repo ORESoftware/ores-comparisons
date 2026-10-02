@@ -1,8 +1,8 @@
-name: oreslang-actor-memory-keywords-validation
+name: oreslang-pr101-runtime-sharedsafe-validation
 
 on:
   push:
-    branches: ["ci/oreslang-actor-memory-keywords"]
+    branches: ["ci/oreslang-pr101-runtime-sharedsafe-20261002"]
   pull_request:
     branches: ["main"]
 
