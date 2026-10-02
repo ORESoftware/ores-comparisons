@@ -1,0 +1,25 @@
+name: oreslang-pr94-fairness
+
+on:
+  push:
+    branches:
+      - ci/oreslang-pr94-fairness
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: maven
+      - name: Verify exact mirrored tree
+        working-directory: _ci/oreslang-pr94-fairness
+        run: mvn -B -ntp verify
