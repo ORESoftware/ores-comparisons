@@ -1,0 +1,36 @@
+name: oreslang-mutex-publication-atomicity
+
+on:
+  push:
+    branches: ["ci/oreslang-mutex-publication-atomicity"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact Oreslang branch
+        uses: actions/checkout@v4
+        with:
+          repository: ores-truffle-oreslang/oreslang-source.java
+          ref: fix/mutex-publication-atomicity
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+
+      - name: Runtime diagnostics
+        run: |
+          java --version
+          mvn --version
+
+      - name: Full Maven verification
+        run: mvn -B -ntp verify
