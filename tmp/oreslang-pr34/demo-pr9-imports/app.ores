@@ -1,0 +1,8 @@
+import module math from "./lib.ores";
+import class Widget from "./lib.ores";
+import fnc answer from "./lib.ores";
+import * as sibling from "./lib.ores";
+
+pub fnc main() => void {
+  return;
+}
