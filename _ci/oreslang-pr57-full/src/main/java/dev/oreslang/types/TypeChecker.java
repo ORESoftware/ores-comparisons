@@ -906,7 +906,11 @@ public final class TypeChecker {
                 if (klass != null) {
                     ResolvedField field = findFieldTarget(klass, named, member.member(), new LinkedHashSet<>());
                     if (field != null) {
-                        Type pattern = resolve(field.field().type(), Set.copyOf(field.owner().genericParameters()), field.ownerType());
+                        Type pattern = classFieldType(
+                                field.owner(),
+                                field.field(),
+                                Set.copyOf(field.owner().genericParameters()),
+                                field.ownerType());
                         return substituteGenerics(pattern, classGenericBindings(field.owner(), field.ownerType()));
                     }
                     List<Ast.MethodDecl> methods = findMethodsByName(klass, member.member(), new LinkedHashSet<>());
