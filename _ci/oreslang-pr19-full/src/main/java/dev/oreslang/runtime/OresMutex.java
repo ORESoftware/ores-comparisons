@@ -120,6 +120,15 @@ public final class OresMutex {
         }
     }
 
+    /**
+     * Runtime-owned aggregate contract used to inspect values protected by
+     * SharedMutex at actor-transport boundaries. Implementations must expose
+     * every transitively reachable child that can carry capabilities/state.
+     */
+    public interface SharedState {
+        Iterable<?> sharedStateChildren();
+    }
+
     public sealed interface Lock<T> permits Local, Shared {
         Guard<T> lock();
         Optional<Guard<T>> tryLock();
