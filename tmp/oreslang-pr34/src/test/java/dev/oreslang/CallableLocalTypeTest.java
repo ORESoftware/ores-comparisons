@@ -397,6 +397,101 @@ final class CallableLocalTypeTest {
         assertTrue(error.getMessage().contains("type alias cycle"));
     }
 
+    @Test
+    void localTypeDeclarationsAreHoistedRegardlessOfTextualOrder() throws Exception {
+        String output = runProgram("""
+                define module app as
+                  fnc make() => View<int> {
+                    struct Box is View<int> {
+                      value: Value;
+
+                      pub get() => Value {
+                        return self.value;
+                      }
+                    }
+
+                    type Value = int;
+
+                    interface View<T> {
+                      fnc get() => T;
+                    }
+
+                    return Box { value = 7 };
+                  }
+
+                  pub fnc main() => void {
+                    val result = make();
+                    stdio.stdout.write(result.get());
+                    return;
+                  }
+                end
+                """);
+
+        assertEquals("7", output);
+    }
+
+    @Test
+    void nestedLocalAliasesShadowAndThenRestoreOuterTypeBindings() throws Exception {
+        String output = runProgram("""
+                define module app as
+                  pub fnc main() => void {
+                    type T = int;
+
+                    if true do
+                      type T = string;
+                      val T inner = "inner";
+                      stdio.stdout.write(inner);
+                    fi
+
+                    val T outer = 9;
+                    stdio.stdout.write(outer);
+                    return;
+                  }
+                end
+                """);
+
+        assertEquals("inner9", output);
+    }
+
+    @Test
+    void localTypeAndValueNamespacesAreIndependent() throws Exception {
+        String output = runProgram("""
+                define module app as
+                  pub fnc main() => void {
+                    struct T {
+                      value: int;
+                    }
+
+                    val int T = 3;
+                    val item = T { value = 4 };
+                    stdio.stdout.write(T);
+                    stdio.stdout.write(item.value);
+                    return;
+                  }
+                end
+                """);
+
+        assertEquals("34", output);
+    }
+
+    @Test
+    void duplicateLocalTypeNamesAcrossKindsAreRejectedInOneScope() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          fnc bad() => void {
+                            type T = int;
+                            interface T {
+                              fnc read() => int;
+                            }
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("duplicate callable-local type 'T'"));
+    }
+
     private static String runProgram(String program) throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         Source source = Source.newBuilder(OresLanguage.ID, program, "callable-local-types.ores")
