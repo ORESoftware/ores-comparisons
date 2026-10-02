@@ -38,7 +38,32 @@ public final class OresContext implements AutoCloseable {
         this.actors = new ActorRuntime(
                 isolatePolicy,
                 ActorRuntime.DispatcherConfig.defaults(),
-                this::executeActorTurn);
+                new ActorRuntime.TurnExecutor() {
+                    @Override
+                    public void execute(Runnable turn) {
+                        executeActorTurn(null, isolatePolicy, turn);
+                    }
+
+                    @Override
+                    public void execute(
+                            ActorRuntime.ActorKind kind,
+                            IsolatePolicy actorPolicy,
+                            Runnable turn) {
+                        executeActorTurn(kind, actorPolicy, turn);
+                    }
+
+                    @Override
+                    public boolean supportsUntrustedIsolation() {
+                        // This OresContext has one guest context. Even when the
+                        // whole context is SandboxPolicy.UNTRUSTED, one hostile
+                        // actor could consume that context's CPU budget before
+                        // the sandbox terminates it. That is process containment,
+                        // not per-actor starvation isolation. Keep untrusted
+                        // actor admission closed until this executor maps each
+                        // such actor to its own hard Graal/native isolate.
+                        return false;
+                    }
+                });
     }
 
     public static OresContext get(Node node) {
@@ -55,9 +80,7 @@ public final class OresContext implements AutoCloseable {
     public ExecutionProfile executionProfile() { return executionProfile; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
-        // Guest APIs invoked during an actor turn must use the actor's derived
-        // policy, not merely the surrounding polyglot context policy.
-        actors.requireEffectiveCapability(capability, api);
+        isolatePolicy.require(capability, api);
     }
 
     /**
@@ -72,7 +95,13 @@ public final class OresContext implements AutoCloseable {
 
     public long schedulerSafepoints() { return schedulerSafepoints.get(); }
 
-    private void executeActorTurn(Runnable turn) {
+    private void executeActorTurn(
+            ActorRuntime.ActorKind kind,
+            IsolatePolicy actorPolicy,
+            Runnable turn) {
+        // A strict/adversarial Truffle context remains single-guest-thread at
+        // this layer. ActorRuntime still uses separate ready queues/pools, but
+        // this shared context is not advertised as per-actor hostile isolation.
         boolean serialize = isolatePolicy.adversarial();
         if (serialize) adversarialActorTurnLock.lock();
         TruffleContext truffleContext = env.getContext();
