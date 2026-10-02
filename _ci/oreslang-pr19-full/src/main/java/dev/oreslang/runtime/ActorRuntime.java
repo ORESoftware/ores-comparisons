@@ -276,9 +276,9 @@ public final class ActorRuntime implements AutoCloseable {
                 cell.policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor receive");
                 bindSharedMutexes(frozen);
             }
-            if (!cell.mailbox.offer(frozen)) {
+            if (!cell.enqueueReserved(frozen)) {
                 throw new IllegalStateException(
-                        "actor mailbox physical capacity unexpectedly exhausted for " + ref.id());
+                        "actor terminated before message admission for " + ref.id());
             }
             enqueued = true;
         } finally {
@@ -588,7 +588,7 @@ public final class ActorRuntime implements AutoCloseable {
 
         final List<ActorCell<?>> snapshot;
         synchronized (lifecycleLock) {
-            if (!closed.compareAndSet(false, true)) return;
+            closed.set(true);
             snapshot = List.copyOf(actors.values());
         }
 
@@ -632,6 +632,7 @@ public final class ActorRuntime implements AutoCloseable {
         private final Supplier<? extends Behavior<M>> behaviorFactory;
         private final BlockingQueue<Object> mailbox;
         private final AtomicInteger queuedMessages = new AtomicInteger();
+        private boolean terminated;
         private volatile Thread thread;
 
         private ActorCell(ActorRef<M> ref, IsolatePolicy policy, Supplier<? extends Behavior<M>> behaviorFactory) {
@@ -656,6 +657,19 @@ public final class ActorRuntime implements AutoCloseable {
                 throw new IllegalStateException(
                         "actor mailbox accounting underflow for " + ref.id());
             }
+        }
+
+        private synchronized boolean enqueueReserved(Object message) {
+            if (terminated) return false;
+            if (!mailbox.offer(message)) {
+                throw new IllegalStateException(
+                        "actor mailbox physical capacity unexpectedly exhausted for " + ref.id());
+            }
+            return true;
+        }
+
+        private synchronized void markTerminated() {
+            terminated = true;
         }
 
         private void start() {
@@ -693,6 +707,7 @@ public final class ActorRuntime implements AutoCloseable {
                 // so subsequent sends fail immediately instead of targeting a
                 // dead actor left behind in the runtime registry.
             } finally {
+                markTerminated();
                 CURRENT_ACTOR_DOMAIN.remove();
                 CURRENT_ACTOR_RUNTIME.remove();
                 CURRENT_ACTOR_POLICY.remove();
