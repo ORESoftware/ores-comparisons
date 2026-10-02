@@ -31,6 +31,12 @@ public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_FREEZE_DEPTH = 256;
     private static final int MAX_FREEZE_NODES = 100_000;
     private static final long MAX_FREEZE_BYTES = 16L * 1024 * 1024;
+    private static final ThreadLocal<ActorTurn> CURRENT_ACTOR = new ThreadLocal<>();
+
+    private record ActorTurn(
+            ActorRuntime runtime,
+            Map<Object, Object> locals,
+            Set<Object> initializing) { }
 
     private final Map<ActorId, ActorCell<?>> actors = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -150,6 +156,31 @@ public final class ActorRuntime implements AutoCloseable {
         if (closed.get()) throw new CancellationException("actor runtime is closing");
         if (Thread.currentThread().isInterrupted()) throw new CancellationException("actor execution interrupted");
         Thread.yield();
+    }
+
+    /**
+     * Returns actor-owned state for the currently executing actor turn.
+     * Returns null when called outside an actor belonging to this runtime.
+     * Values are owned by the actor cell and become unreachable when it dies.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T currentActorLocal(Object key, Supplier<? extends T> initializer) {
+        java.util.Objects.requireNonNull(key, "actor-local key");
+        java.util.Objects.requireNonNull(initializer, "actor-local initializer");
+        ActorTurn turn = CURRENT_ACTOR.get();
+        if (turn == null || turn.runtime() != this) return null;
+
+        if (turn.locals().containsKey(key)) return (T) turn.locals().get(key);
+        if (!turn.initializing().add(key)) {
+            throw new IllegalStateException("actor-local initialization cycle for key " + key);
+        }
+        try {
+            T value = java.util.Objects.requireNonNull(initializer.get(), "actor-local initializer returned null");
+            turn.locals().put(key, value);
+            return value;
+        } finally {
+            turn.initializing().remove(key);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -326,6 +357,8 @@ public final class ActorRuntime implements AutoCloseable {
         private final IsolatePolicy policy;
         private final Supplier<? extends Behavior<M>> behaviorFactory;
         private final BlockingQueue<Object> mailbox;
+        private final Map<Object, Object> locals = new LinkedHashMap<>();
+        private final Set<Object> localInitializing = new LinkedHashSet<>();
         private volatile Thread thread;
 
         private ActorCell(ActorRef<M> ref, IsolatePolicy policy, Supplier<? extends Behavior<M>> behaviorFactory) {
@@ -341,6 +374,7 @@ public final class ActorRuntime implements AutoCloseable {
 
         @SuppressWarnings("unchecked")
         private void run() {
+            CURRENT_ACTOR.set(new ActorTurn(ActorRuntime.this, locals, localInitializing));
             try {
                 final Behavior<M> behavior = java.util.Objects.requireNonNull(
                         behaviorFactory.get(), "actor behavior factory returned null");
@@ -363,6 +397,9 @@ public final class ActorRuntime implements AutoCloseable {
                 // so subsequent sends fail immediately instead of targeting a
                 // dead actor left behind in the runtime registry.
             } finally {
+                CURRENT_ACTOR.remove();
+                locals.clear();
+                localInitializing.clear();
                 actors.remove(ref.id(), this);
             }
         }
