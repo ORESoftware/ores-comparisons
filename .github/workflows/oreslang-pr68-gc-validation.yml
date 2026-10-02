@@ -32,6 +32,38 @@ jobs:
           -Dtest=GarbageCollectionHardeningTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest
           test
 
+
+  gc-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out validation repo
+        uses: actions/checkout@v4
+      - name: Check out Oreslang demo
+        uses: actions/checkout@v4
+        with:
+          repository: ores-truffle-oreslang/oreslang-demo
+          ref: feat/gc-examples
+          path: demo
+      - name: Check out exact Oreslang PR 68 head
+        uses: actions/checkout@v4
+        with:
+          repository: ores-truffle-oreslang/oreslang-source.java
+          ref: 2f81faa1c16ad9e0f939a2f6586e5265a33318ad
+          path: source
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Run GC example contract
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          ORESLANG_SOURCE_DIR="$GITHUB_WORKSPACE/source" \
+            bash demo/scripts/run.sh demo/examples/keywords/12_gc_contract.ores
+
   full-test:
     runs-on: ubuntu-latest
     steps:
