@@ -40,7 +40,7 @@ jobs:
           mvn -B -ntp -DskipTests compile > gpu-compile.log 2>&1
           compile_status=$?
           if [ "$compile_status" -eq 0 ]; then
-            mvn -B -ntp -Dtest=GpuExecutionTest,IncrementalFunctorStaticTest test > gpu-tests.log 2>&1
+            ORES_GPU_VALIDATE_OPENCL=1 mvn -B -ntp -Dtest=GpuExecutionTest,IncrementalFunctorStaticTest test > gpu-tests.log 2>&1
             test_status=$?
           else
             printf 'tests skipped because compile failed\n' > gpu-tests.log

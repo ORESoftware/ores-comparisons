@@ -124,9 +124,13 @@ public final class GpuSafetyChecker {
         }
         requireGpuType(module, result, true, new HashSet<>(), label + " result");
         Ast.TypeRef resolvedResult = resolveAlias(module, result, new HashSet<>());
-        if (resolvedResult.isTupleType() || resolvedResult.name().equals("Array") || resolvedResult.name().equals("List")) {
+        if (resolvedResult.isTupleType()
+                || resolvedResult.name().equals("Array")
+                || resolvedResult.name().equals("List")
+                || resolvedResult.name().equals("GpuArray")
+                || resolvedResult.name().equals("GpuStream")) {
             throw new IllegalArgumentException("GPU callable '" + label
-                    + "' must return a scalar or void; write array results through an explicit mutable Array<T>/List<T> parameter");
+                    + "' must return a scalar or void; write buffer results through an explicit mutable Array<T>/List<T>/GpuArray<T> parameter");
         }
     }
 
@@ -164,16 +168,18 @@ public final class GpuSafetyChecker {
             case "void" -> {
                 if (!allowVoid) throw new IllegalArgumentException(where + " cannot be void");
             }
-            case "Array", "List" -> {
+            case "Array", "List", "GpuArray" -> {
                 if (type.inferArguments() || type.arguments().size() != 1) {
-                    throw new IllegalArgumentException(where + " must use an explicit Array<T>/List<T> element type");
+                    throw new IllegalArgumentException(where + " must use an explicit " + type.name() + "<T> element type");
                 }
                 Ast.TypeRef element = type.arguments().getFirst();
-                if (element.name().equals("Array") || element.name().equals("List")) {
-                    throw new IllegalArgumentException(where + " cannot use nested host list layouts in the GPU ABI");
+                if (Set.of("Array", "List", "GpuArray", "GpuStream").contains(element.name())) {
+                    throw new IllegalArgumentException(where + " cannot use nested buffer/stream layouts in the GPU ABI");
                 }
                 requireGpuType(module, element, false, resolving, where + " element");
             }
+            case "GpuStream" -> throw new IllegalArgumentException(
+                    where + " uses GpuStream<T>, which is GPU-resident but is not lowerable until explicit sequential stream lowering is implemented");
             case "complex64", "complex128", "complex" -> throw new IllegalArgumentException(
                     where + " uses complex arithmetic, which is rejected until the GPU backend lowers Oreslang complex operators semantically");
             default -> throw new IllegalArgumentException(where + " type '" + type.name()

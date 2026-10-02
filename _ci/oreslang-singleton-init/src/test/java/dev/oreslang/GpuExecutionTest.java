@@ -550,6 +550,15 @@ final class GpuExecutionTest {
                 """).gpuProgram());
 
         validateOpenCl(OresCompiler.compile("""
+                gpu fnc scale_resident(GpuArray<f32> mut xs, i64 n, f32 factor) => void {
+                  for (let i64 i = 0; i < n; i = i + 1) {
+                    xs[i] = xs[i] * factor;
+                  }
+                  return;
+                }
+                """).gpuProgram());
+
+        validateOpenCl(OresCompiler.compile("""
                 gpu fnc load(Array<f32> xs, i64 i) => f32 {
                   return xs[i];
                 }
@@ -641,4 +650,63 @@ final class GpuExecutionTest {
                     || failure.getMessage().contains("never falls back to CPU"));
         }
     }
+
+    @Test
+    void gpuArrayLowersAsADeviceResidentBufferWithoutHostMaterialization() {
+        OresCompiler.CompilationResult compilation = OresCompiler.compile("""
+                gpu fnc load(GpuArray<i32> values, i64 index) => i32 {
+                  return values[index];
+                }
+                """);
+
+        GpuKernelCompiler.GpuKernel kernel = compilation.gpuProgram().kernels().getFirst();
+        GpuKernelCompiler.GpuParameter values = kernel.parameters().stream()
+                .filter(p -> p.name().equals("values"))
+                .findFirst().orElseThrow();
+
+        assertEquals("GpuArray<i32>", values.oresType());
+        assertTrue(values.buffer());
+        assertFalse(values.mutable());
+        assertEquals("__global const int* restrict", values.abiType());
+        assertTrue(kernel.hiddenParameters().stream()
+                .anyMatch(p -> p.purpose() == GpuKernelCompiler.HiddenPurpose.BUFFER_LENGTH
+                        && "values".equals(p.sourceParameter())));
+        assertTrue(compilation.gpuProgram().source().contains("__global const int* restrict ores_v_values"));
+        assertTrue(compilation.gpuProgram().source().contains("ulong __ores_len_values"));
+    }
+
+    @Test
+    void mutableGpuArrayParticipatesInRaceCheckedAutoParallelization() {
+        OresCompiler.CompilationResult compilation = OresCompiler.compile("""
+                gpu fnc scale(GpuArray<f32> mut values, i64 n, f32 factor) => void {
+                  for (let i64 i = 0; i < n; i = i + 1) {
+                    values[i] = values[i] * factor;
+                  }
+                  return;
+                }
+                """);
+
+        GpuKernelCompiler.GpuKernel kernel = compilation.gpuProgram().kernels().getFirst();
+        assertEquals(GpuKernelCompiler.ExecutionShape.DATA_PARALLEL_1D, kernel.executionShape());
+        assertTrue(kernel.launchPlan().enforceNoAliasBuffers());
+        assertTrue(kernel.parameters().stream()
+                .filter(p -> p.name().equals("values"))
+                .allMatch(p -> p.buffer() && p.mutable() && p.noAlias()));
+        assertTrue(compilation.gpuProgram().source().contains("__global float* restrict ores_v_values"));
+    }
+
+    @Test
+    void gpuStreamRemainsFailClosedUntilSequentialLoweringExists() {
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> OresCompiler.compile("""
+                        gpu fnc first(GpuStream<i32> values) => i32 {
+                          return 0;
+                        }
+                        """));
+
+        assertTrue(failure.getMessage().contains("GpuStream<T>"));
+        assertTrue(failure.getMessage().contains("not lowerable"));
+    }
+
 }

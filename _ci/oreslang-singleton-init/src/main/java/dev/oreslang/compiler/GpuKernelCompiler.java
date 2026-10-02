@@ -1433,7 +1433,8 @@ public final class GpuKernelCompiler {
 
     private boolean isBuffer(Ast.TypeRef type) {
         type = resolveAlias(type, null);
-        return (type.name().equals("Array") || type.name().equals("List")) && type.arguments().size() == 1;
+        return (type.name().equals("Array") || type.name().equals("List") || type.name().equals("GpuArray"))
+                && type.arguments().size() == 1;
     }
 
     private boolean isVoid(Ast.TypeRef type) {
