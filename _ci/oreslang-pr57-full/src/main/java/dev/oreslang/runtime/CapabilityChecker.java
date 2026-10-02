@@ -20,7 +20,9 @@ public final class CapabilityChecker {
                                     IsolatePolicy.Capability.SHARED_MEMORY,
                                     IsolatePolicy.Capability.ACTOR_SHARE_READONLY,
                                     IsolatePolicy.Capability.PROCESS_GC)
-                            : policy;
+                            : fn.actorKind() == Ast.ActorKind.SHARED
+                                    ? policy.withoutCapabilities(IsolatePolicy.Capability.PROCESS_GC)
+                                    : policy;
                     if (fn.actorKind() == Ast.ActorKind.SHARED) {
                         require(actorPolicy, IsolatePolicy.Capability.SHARED_MEMORY, "shared actor fnc " + fn.name());
                     }
@@ -32,7 +34,9 @@ public final class CapabilityChecker {
                                     IsolatePolicy.Capability.SHARED_MEMORY,
                                     IsolatePolicy.Capability.ACTOR_SHARE_READONLY,
                                     IsolatePolicy.Capability.PROCESS_GC)
-                            : policy;
+                            : klass.actorKind() == Ast.ActorKind.SHARED
+                                    ? policy.withoutCapabilities(IsolatePolicy.Capability.PROCESS_GC)
+                                    : policy;
                     if (klass.actorKind() == Ast.ActorKind.SHARED) {
                         require(actorPolicy, IsolatePolicy.Capability.SHARED_MEMORY, "shared actor " + klass.name());
                     }
