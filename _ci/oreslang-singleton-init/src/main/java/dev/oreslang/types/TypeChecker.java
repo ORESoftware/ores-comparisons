@@ -1049,6 +1049,14 @@ public final class TypeChecker {
                     fn.parameters().size(),
                     new LinkedHashSet<>());
             if (method == null || method.visibility() != Ast.Visibility.PUBLIC) continue;
+            if (method.explicitReceiverType() != null
+                    && method.explicitReceiverType().isBorrow()
+                    && method.explicitReceiverType().mutableBorrow()) {
+                throw new IllegalArgumentException(
+                        "interface '" + iface.name() + "." + fn.name()
+                                + "' is a read-receiver contract but class '" + klass.name()
+                                + "' implements it with mut self");
+            }
             requireParameterOwnershipMatch(
                     fn.parameters(),
                     method.parameters(),
@@ -2058,6 +2066,62 @@ public final class TypeChecker {
         members.put(name, type);
     }
 
+    private void validateStructuralInterfaceBorrowOnly(
+            Ast.InterfaceDecl iface,
+            Set<Ast.InterfaceDecl> seen) {
+        if (!seen.add(iface)) return;
+        for (Ast.TypeRef parentRef : iface.parents()) {
+            Ast.InterfaceDecl parent = findInterface(parentRef.name());
+            if (parent != null) validateStructuralInterfaceBorrowOnly(parent, seen);
+        }
+        for (Ast.InterfaceMember member : iface.members()) {
+            if (!(member instanceof Ast.InterfaceFunctionDecl fn)) continue;
+            for (Ast.Param parameter : fn.parameters()) {
+                Ast.ParamMode mode = parameter.structural() ? Ast.ParamMode.BORROW : parameter.mode();
+                if (mode != Ast.ParamMode.BORROW) {
+                    throw new IllegalArgumentException(
+                            "@Structural interface '" + iface.name()
+                                    + "' cannot expose " + mode.name().toLowerCase()
+                                    + " parameter '" + fn.name() + "." + parameter.name()
+                                    + "' until structural callable types encode ownership modes");
+                }
+            }
+        }
+        seen.remove(iface);
+    }
+
+    private void validateStructuralClassBorrowOnly(
+            Ast.ClassDecl klass,
+            Set<Ast.ClassDecl> seen) {
+        if (!seen.add(klass)) return;
+        for (Ast.TypeRef parentRef : klass.parents()) {
+            Ast.ClassDecl parent = resolveClassParent(parentRef, klass);
+            if (parent != null) validateStructuralClassBorrowOnly(parent, seen);
+        }
+        for (Ast.MethodDecl method : klass.methods()) {
+            if (method.isStatic() || method.visibility() != Ast.Visibility.PUBLIC) continue;
+            if (method.explicitReceiverType() != null
+                    && method.explicitReceiverType().isBorrow()
+                    && method.explicitReceiverType().mutableBorrow()) {
+                throw new IllegalArgumentException(
+                        "@Structural class '" + klass.name() + "' exposes mut self method '"
+                                + method.name() + "'; structural views are read-only");
+            }
+            for (Ast.Param parameter : method.parameters()) {
+                Ast.ParamMode mode = parameter.structural() ? Ast.ParamMode.BORROW : parameter.mode();
+                if (mode != Ast.ParamMode.BORROW) {
+                    throw new IllegalArgumentException(
+                            "@Structural class '" + klass.name() + "' method '"
+                                    + method.name() + "' exposes "
+                                    + mode.name().toLowerCase()
+                                    + " parameter '" + parameter.name()
+                                    + "' before structural callable ownership is modeled");
+                }
+            }
+        }
+        seen.remove(klass);
+    }
+
     private boolean isOwnershipIntrinsicName(String name) {
         return name.equals("borrow")
                 || name.equals("take")
@@ -2091,9 +2155,15 @@ public final class TypeChecker {
     private Type resolveParam(Ast.Param param, Set<String> generics, Type self) {
         if (!param.structural()) return resolve(param.type(), generics, self);
         Ast.InterfaceDecl iface = findInterface(param.type().name());
-        if (iface != null) return interfaceShape(iface, Set.copyOf(iface.genericParameters()), new LinkedHashSet<>());
+        if (iface != null) {
+            validateStructuralInterfaceBorrowOnly(iface, new LinkedHashSet<>());
+            return interfaceShape(iface, Set.copyOf(iface.genericParameters()), new LinkedHashSet<>());
+        }
         Ast.ClassDecl klass = findClass(param.type().name());
-        if (klass != null) return publicClassShape(klass, new LinkedHashSet<>());
+        if (klass != null) {
+            validateStructuralClassBorrowOnly(klass, new LinkedHashSet<>());
+            return publicClassShape(klass, new LinkedHashSet<>());
+        }
         throw new IllegalArgumentException("@Structural requires a known class or interface type, got '" + param.type().name() + "'");
     }
 

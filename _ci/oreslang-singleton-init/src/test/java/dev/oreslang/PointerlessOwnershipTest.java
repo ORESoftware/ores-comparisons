@@ -160,6 +160,51 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void mutableReceiverCannotMasqueradeAsReadOnlyInterfaceMethod() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define interface CounterApi as
+                          fnc bump() => int;
+                        end
+
+                        define class Counter is CounterApi as
+                          pub let int count = 0;
+
+                          pub bump(mut self)() => int {
+                            self.count = self.count + 1;
+                            return self.count;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("read-receiver contract"));
+        assertTrue(error.getMessage().contains("mut self"));
+    }
+
+    @Test
+    void structuralViewsRejectOwnershipSensitiveMethods() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 0;
+
+                          pub bump(mut self)() => int {
+                            self.value = self.value + 1;
+                            return self.value;
+                          }
+                        end
+
+                        fnc inspect(@Structural Box box) => int {
+                          return box.value;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("structural views are read-only"));
+    }
+
+    @Test
     void inheritedInterfaceOwnershipConflictsAreRejected() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

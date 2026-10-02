@@ -40,11 +40,15 @@ final class TraitCompositionTest {
         Ast.Program checked = assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 define module model as
                   define interface CounterApi as
-                    fnc bump() => int;
+                    fnc current() => int;
                   end
 
                   define trait Counter is CounterApi as
                     private let int count = 10;
+
+                    pub current() => int {
+                      return self.count;
+                    }
 
                     pub bump(mut self)() => int {
                       self.count = self.count + 1;
