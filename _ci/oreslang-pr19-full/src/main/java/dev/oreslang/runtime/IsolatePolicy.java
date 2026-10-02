@@ -29,9 +29,7 @@ public record IsolatePolicy(
         STDIN,
         STDOUT,
         PROCESS_INFO,
-        GC_CONTROL,
         ACTOR_SHARE_READONLY,
-        SHARED_MEMORY,
         NETWORK,
         FILESYSTEM_READ,
         FILESYSTEM_WRITE,
@@ -70,8 +68,8 @@ public record IsolatePolicy(
     /** Restricted local/test baseline. FFI/native/reflection/process spawning remain denied. */
     public static IsolatePolicy developer() {
         return new IsolatePolicy(
-                Set.of(Capability.STDIN, Capability.STDOUT, Capability.PROCESS_INFO, Capability.GC_CONTROL,
-                        Capability.ACTOR_SHARE_READONLY, Capability.SHARED_MEMORY, Capability.HOT_CODE_LOAD),
+                Set.of(Capability.STDIN, Capability.STDOUT, Capability.PROCESS_INFO,
+                        Capability.ACTOR_SHARE_READONLY, Capability.HOT_CODE_LOAD),
                 512L * 1024 * 1024, 8192, Duration.ofMinutes(10), false);
     }
 
@@ -80,14 +78,6 @@ public record IsolatePolicy(
                 ? EnumSet.noneOf(Capability.class)
                 : EnumSet.copyOf(capabilities);
         next.addAll(Arrays.asList(added));
-        return new IsolatePolicy(next, maxHeapBytes, maxMailboxMessages, maxWallTime, adversarial);
-    }
-
-    public IsolatePolicy withoutCapabilities(Capability... removed) {
-        EnumSet<Capability> next = capabilities.isEmpty()
-                ? EnumSet.noneOf(Capability.class)
-                : EnumSet.copyOf(capabilities);
-        next.removeAll(Arrays.asList(removed));
         return new IsolatePolicy(next, maxHeapBytes, maxMailboxMessages, maxWallTime, adversarial);
     }
 
@@ -115,7 +105,9 @@ public record IsolatePolicy(
         Context.Builder builder = Context.newBuilder(OresLanguage.ID)
                 .allowHostAccess(hostAccess)
                 .allowPolyglotAccess(PolyglotAccess.NONE)
-                .allowEnvironmentAccess(EnvironmentAccess.NONE)
+                .allowEnvironmentAccess(allows(Capability.ENVIRONMENT)
+                        ? EnvironmentAccess.INHERIT
+                        : EnvironmentAccess.NONE)
                 .allowNativeAccess(false)
                 .allowCreateThread(false)
                 .allowIO(IOAccess.NONE)
