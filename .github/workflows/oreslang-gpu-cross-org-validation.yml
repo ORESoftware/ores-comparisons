@@ -1,0 +1,36 @@
+name: oreslang-gpu-cross-org-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-gpu-pr13"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oreslang-gpu-cross-org-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: _ci/oreslang
+
+jobs:
+  gpu-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Diagnostics
+        run: |
+          java --version
+          mvn --version
+      - name: Run focused GPU regression suite
+        run: mvn -B -ntp -Dtest=GpuKeywordTest test
