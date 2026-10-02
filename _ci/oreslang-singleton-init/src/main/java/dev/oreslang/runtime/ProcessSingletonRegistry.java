@@ -190,7 +190,7 @@ public final class ProcessSingletonRegistry {
             CompletableFuture<Object> reply = new CompletableFuture<>();
             if (waitEdge != null) reply.whenComplete((ignored, failure) -> waitEdge.close());
 
-            long deadline = deadlineAfter(callerWallTime);
+            long deadline = effectiveDeadline(callerWallTime);
             Request request = new Request(
                     List.copyOf(frozen),
                     (state, args) -> operation.apply(cast(state), args),
@@ -223,16 +223,11 @@ public final class ProcessSingletonRegistry {
              * enforcement belongs exclusively to the serial actor and its
              * cooperative safepoints/transaction commit.
              */
-            long timeoutMillis;
-            try {
-                timeoutMillis = Math.max(1L, callerWallTime.toMillis());
-            } catch (ArithmeticException overflow) {
-                timeoutMillis = Long.MAX_VALUE;
-            }
+            long timeoutDelayNanos = Math.max(1L, deadline - System.nanoTime());
             ScheduledFuture<?> timeoutTask = TIMEOUTS.schedule(() -> {
                 if (!request.expireQueued(cell.diagnosticId)) return;
                 if (cell.mailbox.remove(request)) cell.releaseQueuedSlot();
-            }, timeoutMillis, TimeUnit.MILLISECONDS);
+            }, timeoutDelayNanos, TimeUnit.NANOSECONDS);
             request.timeoutTask(timeoutTask);
             reply.whenComplete((ignored, failure) -> request.cancelTimeoutTask());
             return reply;
@@ -490,7 +485,7 @@ public final class ProcessSingletonRegistry {
         return Integer.toUnsignedString(key.hashCode(), 16);
     }
 
-    private static long deadlineAfter(Duration duration) {
+    private static long effectiveDeadline(Duration duration) {
         long delta;
         try {
             delta = duration.toNanos();
@@ -499,15 +494,23 @@ public final class ProcessSingletonRegistry {
         }
         /*
          * nanoTime() is an arbitrary signed origin and may wrap. Deadline
-         * comparisons use subtraction, which is safe as long as the interval
+         * comparisons use subtraction, which is safe as long as each interval
          * stays below 2^63 ns; clamp pathological host policies accordingly.
          */
         delta = Math.max(1L, Math.min(delta, Long.MAX_VALUE / 4));
-        return System.nanoTime() + delta;
+        long now = System.nanoTime();
+
+        Long inheritedDeadline = CURRENT_DEADLINE_NANOS.get();
+        if (inheritedDeadline != null) {
+            long remaining = inheritedDeadline - now;
+            if (remaining <= 0) return now;
+            delta = Math.min(delta, remaining);
+        }
+        return now + delta;
     }
 
     private static boolean expired(long deadline) {
-        return deadline != Long.MAX_VALUE && System.nanoTime() - deadline >= 0;
+        return System.nanoTime() - deadline >= 0;
     }
 
     private static <T> void restoreThreadLocal(ThreadLocal<T> local, T previous) {
