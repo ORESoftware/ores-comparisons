@@ -1,0 +1,23 @@
+namespace ownership_intrinsics_demo;
+
+define struct Point {
+  int x;
+  int y;
+}
+
+fnc read(@Structural Point value) => int {
+  return value.x + value.y;
+}
+
+pub routine main() => void {
+  val p = new Point(20, 22);
+  val p2 = copy(p);
+  val borrowed = borrow(p2);
+  val shared = share(p2);
+  val moved = take(p2);
+
+  stdio.println(read(borrowed));
+  stdio.println(read(shared));
+  stdio.println(read(moved));
+  return;
+}
