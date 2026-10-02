@@ -139,6 +139,16 @@
       "transport": "git-submodule"
     },
     {
+      "stack": "graal-show",
+      "org": "ores-dummy-org-ruby-graal-1",
+      "source_language": "ruby",
+      "artifact_target": "graal",
+      "server_extension": ".rb",
+      "default_branch": "main",
+      "visibility": "public",
+      "transport": "git-submodule"
+    },
+    {
       "stack": "iso-lattes",
       "org": "ores-dummy-org-gleam-js-1",
       "source_language": "gleam",
