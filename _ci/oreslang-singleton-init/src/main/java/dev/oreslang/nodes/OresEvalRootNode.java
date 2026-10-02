@@ -489,6 +489,7 @@ public final class OresEvalRootNode extends RootNode {
                 if (local != Env.MISSING) return local;
                 if (name.name().equals("stdio")) return new StdioFacade(context);
                 if (name.name().equals("process")) return new ProcessFacade(context);
+                if (name.name().equals("actor")) return new ActorFacade(context);
                 if (name.name().equals("print")) return (Invokable) args -> {
                     context.requireCapability(IsolatePolicy.Capability.STDOUT, "print");
                     requireOne(args, "print"); context.output().print(display(args.getFirst())); context.output().flush(); return null;
@@ -743,7 +744,14 @@ public final class OresEvalRootNode extends RootNode {
                     case "context_id" -> process.contextId();
                     case "descriptor" -> process.descriptor();
                     case "share_readonly" -> (Invokable) process::shareReadonly;
+                    case "gc" -> (Invokable) process::gc;
                     default -> throw new IllegalArgumentException("unknown process member " + name);
+                };
+            }
+            if (receiver instanceof ActorFacade actor) {
+                return switch (name) {
+                    case "gc" -> (Invokable) actor::gc;
+                    default -> throw new IllegalArgumentException("unknown actor member " + name);
                 };
             }
             if (receiver instanceof ModuleFacade namespace) return moduleMember(namespace, name);
@@ -1406,6 +1414,10 @@ public final class OresEvalRootNode extends RootNode {
         private String contextId(){context.requireCapability(IsolatePolicy.Capability.PROCESS_INFO,"process.context_id");return context.contextId().toString();}
         private Map<String,Object> descriptor(){context.requireCapability(IsolatePolicy.Capability.PROCESS_INFO,"process.descriptor");return context.processDescriptor();}
         private Object shareReadonly(List<Object> args){context.requireCapability(IsolatePolicy.Capability.ACTOR_SHARE_READONLY,"process.share_readonly");requireOne(args,"process.share_readonly");return context.actors().shareReadonly(args.getFirst());}
+        private Object gc(List<Object> args){if(!args.isEmpty())throw new IllegalArgumentException("process.gc() takes no arguments");return context.processGc().asMap();}
+    }
+    private record ActorFacade(OresContext context) {
+        private Object gc(List<Object> args){if(!args.isEmpty())throw new IllegalArgumentException("actor.gc() takes no arguments");return context.actorGc().asMap();}
     }
     private static void requireOne(List<Object> args,String name){if(args.size()!=1)throw new IllegalArgumentException(name+" expects one argument");}
 }
