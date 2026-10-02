@@ -15,6 +15,57 @@ import static org.junit.jupiter.api.Assertions.*;
 
 final class MutexLanguageTest {
     @Test
+    void sharedActorFunctionsRejectBlockingSharedMutexLock() {
+        var program = Parser.parse("""
+                pub shared actor fnc worker(SharedMutex<int> mutex) => void {
+                  val guard = mutex.lock();
+                  guard.release();
+                  return;
+                }
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class, () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "actor code cannot use blocking SharedMutex.lock"));
+    }
+
+    @Test
+    void sharedActorMethodsRejectBlockingSharedMutexWithLock() {
+        var program = Parser.parse("""
+                shared actor Worker {
+                  pub fnc run(SharedMutex<int> mutex) => void {
+                    mutex.with_lock(|value| -> {
+                      return;
+                    });
+                    return;
+                  }
+                }
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class, () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "actor code cannot use blocking SharedMutex.with_lock"));
+    }
+
+    @Test
+    void actorCodeMayUseNonblockingSharedMutexOperations() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                pub shared actor fnc try_worker(SharedMutex<int> mutex) => void {
+                  val maybe_guard = mutex.try_lock();
+                  stdio.println(mutex.is_poisoned());
+                  return;
+                }
+
+                pub shared actor fnc async_worker(SharedMutex<int> mutex) => void {
+                  val future_guard = mutex.lock_async();
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void sharedMutexAcceptsFullySharedSafeUnionTypes() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 define module app
