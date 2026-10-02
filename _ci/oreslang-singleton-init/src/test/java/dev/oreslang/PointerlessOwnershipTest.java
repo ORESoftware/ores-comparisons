@@ -291,6 +291,126 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void nonCopyFieldProjectionCannotEscapeBorrowedOwner() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Inner as
+                          pub val int value = 7;
+                        end
+
+                        define class Outer as
+                          pub val Inner inner = new Inner();
+                        end
+
+                        fnc leak(Outer outer) => Inner {
+                          return outer.inner;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("borrowed value")
+                || error.getMessage().contains("return provenance"));
+    }
+
+    @Test
+    void storedFieldProjectionKeepsRootOwnerBorrowed() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Inner as
+                          pub val int value = 7;
+                        end
+
+                        define class Outer as
+                          pub val Inner inner = new Inner();
+                        end
+
+                        fnc mutate(mut Outer outer) => void {
+                          return;
+                        }
+
+                        fnc bad() => void {
+                          let Outer outer = new Outer();
+                          val inner = outer.inner;
+                          mutate(outer);
+                          stdio.println(inner.value);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow"));
+    }
+
+    @Test
+    void readReceiverConflictsWithMutableAliasingArgument() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 0;
+
+                          pub observe(self)(mut Box other) => void {
+                            other.value = 1;
+                            return;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          box.observe(box);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow"));
+    }
+
+    @Test
+    void mutableReceiverConflictsWithReadAliasingArgument() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 0;
+
+                          pub merge(mut self)(Box other) => void {
+                            self.value = other.value;
+                            return;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          box.merge(box);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow"));
+    }
+
+    @Test
+    void nonCopyFieldMayMoveOutOfUnreachableTemporary() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Inner as
+                  pub val int value = 7;
+                end
+
+                define class Outer as
+                  pub val Inner inner = new Inner();
+                end
+
+                fnc make() => Outer {
+                  return new Outer();
+                }
+
+                fnc extract() => Inner {
+                  return make().inner;
+                }
+                """)));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
