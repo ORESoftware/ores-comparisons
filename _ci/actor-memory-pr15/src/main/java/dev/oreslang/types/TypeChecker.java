@@ -140,7 +140,8 @@ public final class TypeChecker {
     private Record moduleShape(Ast.ModuleDecl module) {
         Map<String, Type> members = new LinkedHashMap<>();
         for (Ast.Decl decl : module.declarations()) {
-            if (decl instanceof Ast.FunctionDecl fn && fn.visibility() == Ast.Visibility.PUBLIC) {
+            if (decl instanceof Ast.FunctionDecl fn && fn.visibility() == Ast.Visibility.PUBLIC
+                    && fn.actorKind() == Ast.ActorKind.NONE) {
                 Type signature = functionType(fn.parameters(), fn.returnType(), Set.copyOf(fn.genericParameters()), null);
                 mergeMember(members, fn.name(), signature, "module " + module.name());
                 mergeMember(members, methodKey(fn.name(), fn.parameters().size()), signature, "module " + module.name());
@@ -177,6 +178,10 @@ public final class TypeChecker {
     }
 
     private void checkFunction(String module, Ast.FunctionDecl fn) {
+        if (fn.name().equals("main") && fn.actorKind() != Ast.ActorKind.NONE) {
+            throw new IllegalArgumentException(
+                    "program entrypoint 'main' cannot be an actor fnc; main must run synchronously and explicitly launch actors");
+        }
         Set<String> generics = uniqueGenerics(fn.genericParameters(), (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
         Env env = new Env(null);
         for (Ast.Param param : fn.parameters()) env.define(param.name(), resolveParam(param, generics, null), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
@@ -196,8 +201,23 @@ public final class TypeChecker {
 
         Set<String> parentNames = new HashSet<>();
         for (Ast.TypeRef parent : klass.parents()) {
-            if (!parentNames.add(parent.name())) throw new IllegalArgumentException("duplicate parent class '" + parent.name() + "' on " + klass.name());
-            resolveClassParent(parent, klass);
+            if (!parentNames.add(parent.name())) {
+                throw new IllegalArgumentException("duplicate parent class '" + parent.name() + "' on " + klass.name());
+            }
+            Ast.ClassDecl resolvedParent = resolveClassParent(parent, klass);
+            if (resolvedParent == null) {
+                if (klass.actorKind() != Ast.ActorKind.NONE) {
+                    throw new IllegalArgumentException("actor '" + klass.name()
+                            + "' cannot extend built-in class '" + parent.name()
+                            + "'; actor inheritance must preserve the actor isolation domain");
+                }
+                continue;
+            }
+            if (klass.actorKind() != resolvedParent.actorKind()) {
+                throw new IllegalArgumentException("actor isolation kind must be preserved across inheritance: "
+                        + klass.name() + " is " + klass.actorKind() + " but parent "
+                        + resolvedParent.name() + " is " + resolvedParent.actorKind());
+            }
         }
 
         Set<String> localMethodSignatures = new HashSet<>();
@@ -212,8 +232,12 @@ public final class TypeChecker {
         }
 
         for (Ast.FieldDecl field : klass.fields()) {
-            Type fieldType = resolve(field.type(), classGenerics, self);
-            if (field.initializer() != null) {
+            if (klass.actorKind() != Ast.ActorKind.NONE && field.visibility() == Ast.Visibility.PUBLIC) {
+                throw new IllegalArgumentException("actor state field '" + klass.name() + "." + field.name()
+                        + "' cannot be public; expose state through mailbox-dispatched methods");
+            }
+            Type fieldType = classFieldType(klass, field);
+            if (field.initializer() != null && field.type() != null) {
                 Type actual = typeOf(field.initializer(), new Env(null), classGenerics, self);
                 requireAssignable(actual, fieldType, "field initializer " + klass.name() + "." + field.name());
             }
@@ -408,7 +432,13 @@ public final class TypeChecker {
             if (classNamespace != null) return new ClassNamespace(qualifiedClassName(classNamespace));
             if (importedValues.contains(name.name())) return Unknown.INSTANCE;
             Ast.FunctionDecl fn = findFunction(name.name());
-            if (fn != null) return functionType(fn.parameters(), fn.returnType(), Set.copyOf(fn.genericParameters()), null);
+            if (fn != null) {
+                if (fn.actorKind() != Ast.ActorKind.NONE) {
+                    throw new IllegalArgumentException("actor fnc '" + fn.name()
+                            + "' is an actor entry point, not an ordinary function value; spawn it through the actor runtime");
+                }
+                return functionType(fn.parameters(), fn.returnType(), Set.copyOf(fn.genericParameters()), null);
+            }
             throw new IllegalArgumentException("unknown name '" + name.name() + "'");
         }
         if (expr instanceof Ast.AssignExpr assignment) {
@@ -615,6 +645,10 @@ public final class TypeChecker {
         if (expr instanceof Ast.NewExpr created) {
             Ast.ClassDecl klass = findClass(created.type().name());
             if (klass == null) return new Named(created.type().name(), created.type().arguments().stream().map(a -> resolve(a, generics, self)).toList());
+            if (klass.actorKind() != Ast.ActorKind.NONE) {
+                throw new IllegalArgumentException("actor '" + klass.name()
+                        + "' cannot be constructed with new; actor instances must be created through the actor runtime");
+            }
             List<Ast.FieldDecl> fields = effectiveFields(klass, new LinkedHashSet<>());
             if (created.arguments().size() > fields.size()) throw new IllegalArgumentException("constructor for " + klass.name() + " received too many positional fields");
             Type nominal = nominalClassType(klass);
@@ -622,7 +656,7 @@ public final class TypeChecker {
                 Ast.FieldDecl field = fields.get(i);
                 if (i < created.arguments().size()) {
                     requireAssignable(typeOf(created.arguments().get(i), env, generics, self),
-                            resolve(field.type(), Set.copyOf(klass.genericParameters()), nominal), "constructor field " + field.name());
+                            classFieldType(klass, field), "constructor field " + field.name());
                 } else if (field.initializer() == null) {
                     throw new IllegalArgumentException("constructor for " + klass.name() + " is missing field '" + field.name() + "'");
                 }
@@ -757,12 +791,12 @@ public final class TypeChecker {
             return bound != null && bound != type && isSharedSafe(bound, seen, genericBindings);
         }
         if (type instanceof ListType list) return isSharedSafe(list.element(), seen, genericBindings);
-        if (type instanceof Union union) {
-            for (Type option : union.options()) if (!isSharedSafe(option, seen, genericBindings)) return false;
-            return true;
-        }
         if (type instanceof Tuple tuple) {
             for (Type element : tuple.elements()) if (!isSharedSafe(element, seen, genericBindings)) return false;
+            return true;
+        }
+        if (type instanceof Union union) {
+            for (Type option : union.options()) if (!isSharedSafe(option, seen, genericBindings)) return false;
             return true;
         }
         if (type instanceof Record record) {
@@ -782,6 +816,7 @@ public final class TypeChecker {
 
         Ast.ClassDecl klass = findClass(named.name());
         if (klass == null) return false;
+        if (klass.actorKind() != Ast.ActorKind.NONE) return false;
         if (!seen.add(klass)) return true;
 
         try {
@@ -799,9 +834,10 @@ public final class TypeChecker {
             // generic environment. Flattening inherited fields here is unsafe:
             // a parent T must never be resolved as an unrelated child T.
             for (Ast.FieldDecl field : klass.fields()) {
-                Type fieldType = resolveSharedGeneric(
-                        resolve(field.type(), classGenerics, nominal),
-                        classBindings);
+                Type rawFieldType = field.type() != null
+                        ? resolve(field.type(), classGenerics, nominal)
+                        : typeOf(field.initializer(), new Env(null), classGenerics, nominal);
+                Type fieldType = resolveSharedGeneric(rawFieldType, classBindings);
                 if (!isSharedSafe(fieldType, seen, classBindings)) return false;
             }
 
@@ -831,6 +867,18 @@ public final class TypeChecker {
         if (type instanceof ListType list) return new ListType(resolveSharedGeneric(list.element(), bindings));
         if (type instanceof Tuple tuple) {
             return new Tuple(tuple.elements().stream().map(element -> resolveSharedGeneric(element, bindings)).toList());
+        }
+        if (type instanceof Union union) {
+            return Types.unionOf(union.options().stream()
+                    .map(option -> resolveSharedGeneric(option, bindings))
+                    .toList());
+        }
+        if (type instanceof Record record) {
+            Map<String, Type> members = new LinkedHashMap<>();
+            for (Map.Entry<String, Type> entry : record.members().entrySet()) {
+                members.put(entry.getKey(), resolveSharedGeneric(entry.getValue(), bindings));
+            }
+            return new Record(members);
         }
         return type;
     }
@@ -934,7 +982,7 @@ public final class TypeChecker {
         }
         Set<String> generics = Set.copyOf(klass.genericParameters());
         Type self = nominalClassType(klass);
-        for (Ast.FieldDecl field : klass.fields()) mergeMember(members, field.name(), resolve(field.type(), generics, self), "class " + klass.name());
+        for (Ast.FieldDecl field : klass.fields()) mergeMember(members, field.name(), classFieldType(klass, field), "class " + klass.name());
         for (Ast.MethodDecl method : klass.methods()) {
             if (method.isStatic()) continue;
             mergeMember(members, methodKey(method.name(), method.arity()),
@@ -960,7 +1008,7 @@ public final class TypeChecker {
         Set<String> generics = Set.copyOf(klass.genericParameters());
         Type self = nominalClassType(klass);
         for (Ast.FieldDecl field : klass.fields()) {
-            if (field.visibility() == Ast.Visibility.PUBLIC) mergeMember(members, field.name(), resolve(field.type(), generics, self), "class " + klass.name());
+            if (field.visibility() == Ast.Visibility.PUBLIC) mergeMember(members, field.name(), classFieldType(klass, field), "class " + klass.name());
         }
         for (Ast.MethodDecl method : klass.methods()) {
             if (!method.isStatic() && method.visibility() == Ast.Visibility.PUBLIC) {
@@ -996,6 +1044,17 @@ public final class TypeChecker {
         return new Record(members);
     }
 
+    private Type classFieldType(Ast.ClassDecl klass, Ast.FieldDecl field) {
+        Set<String> generics = Set.copyOf(klass.genericParameters());
+        Type self = nominalClassType(klass);
+        if (field.type() != null) return resolve(field.type(), generics, self);
+        if (field.initializer() == null) {
+            throw new IllegalArgumentException("inferred field '" + klass.name() + "." + field.name()
+                    + "' requires an initializer");
+        }
+        return typeOf(field.initializer(), new Env(null), generics, self);
+    }
+
     private List<Ast.FieldDecl> effectiveFields(Ast.ClassDecl klass, Set<Ast.ClassDecl> stack) {
         if (!stack.add(klass)) throw new IllegalArgumentException("inheritance cycle involving class '" + klass.name() + "'");
         LinkedHashMap<String, Ast.FieldDecl> fields = new LinkedHashMap<>();
@@ -1014,7 +1073,7 @@ public final class TypeChecker {
         for (Ast.FieldDecl field : klass.fields()) {
             if (field.name().equals(name)) {
                 seen.remove(klass);
-                return resolve(field.type(), Set.copyOf(klass.genericParameters()), self);
+                return classFieldType(klass, field);
             }
         }
         for (Ast.TypeRef parentRef : klass.parents()) {
