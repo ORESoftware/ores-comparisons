@@ -1,6 +1,6 @@
 source_repo=ores-truffle-oreslang/oreslang-source.java
 source_branch=rebase/untrusted-actor-sandbox-20261002
-source_head=e083abe17aabbf51b21c432ff9231961d5859062
+source_head=97f4c3b631e5d98dde8ca07982cfdd0ce37a4bf7
 base_branch=feat/akka-style-shared-actors
 validation=full mvn test
 purpose=validation-only mirror; do not merge
