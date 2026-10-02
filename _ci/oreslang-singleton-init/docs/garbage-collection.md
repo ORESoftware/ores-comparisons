@@ -16,13 +16,17 @@ The registry is bounded per context to prevent unbounded metadata growth. Failed
 
 ## Periodic sweeps
 
-A lightweight virtual-thread sweep runs periodically. Periodic sweeps never call `System.gc()`; normal Java heap tracing remains under the JVM collector.
+A process-shared daemon timer schedules context sweeps, so Oreslang does not park one sleeping sweeper thread per language context. Weak owners are registered with a `ReferenceQueue`; normal periodic/process sweeps drain queued dead owners instead of rescanning the entire cleanup registry.
+
+Periodic sweeps never call `System.gc()`; normal Java heap tracing remains under the JVM collector. Cleanup failures are retained in a retry set, preserving the idempotent retry contract even after a weak reference has already been dequeued.
 
 ## Explicit collection
 
 `process.gc()` requires `GC_CONTROL`. It performs a best-effort process/context sweep and may request JVM collection. JVM requests are throttled per context so guest code cannot turn `process.gc()` into a high-frequency global pressure point. Strict FaaS does not grant `GC_CONTROL`.
 
 `actor.gc()` is actor-domain local and never requests JVM-wide collection. Calling it outside an actor mailbox turn is an error. Actor-domain identity comes from the actor runtime's stable semantic execution domain, not carrier-thread identity. Actor cleanup entries are indexed by that domain, and one `actor.gc()` call inspects at most 256 entries so a guest cannot hide an unbounded O(context-registry) scan behind one actor operation.
+
+Actor termination retires that semantic domain deterministically. Runtime/interop cleanup hooks registered by the actor become eligible immediately at actor exit even if stale host references remain, while failures stay retryable from later process/periodic sweeps. This makes actor lifetime—not JVM reachability—the upper bound for actor-local host resources.
 
 ## Shutdown
 
