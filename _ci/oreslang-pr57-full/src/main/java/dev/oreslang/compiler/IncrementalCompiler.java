@@ -132,9 +132,7 @@ public final class IncrementalCompiler {
     private static void appendAbi(StringBuilder abi, Ast.Decl decl) {
         if (decl instanceof Ast.FunctionDecl fn) {
             if (fn.visibility() != Ast.Visibility.PUBLIC) return;
-            abi.append(fn.actorKind()).append(' ')
-                    .append(fn.async() ? "async " : "")
-                    .append(fn.kind()).append(" pub ").append(fn.name());
+            abi.append(fn.actorKind()).append(' ').append(fn.kind()).append(" pub ").append(fn.name());
             appendGenerics(abi, fn.genericParameters());
             appendParams(abi, fn.parameters());
             abi.append("=>").append(typeRef(fn.returnType())).append('\n');
@@ -157,7 +155,6 @@ public final class IncrementalCompiler {
             for (Ast.MethodDecl method : klass.methods()) {
                 if (method.visibility() != Ast.Visibility.PUBLIC) continue;
                 abi.append(method.isStatic() ? " static-fnc " : " method ")
-                        .append(method.async() ? "async " : "")
                         .append(method.name());
                 appendGenerics(abi, method.genericParameters());
                 appendParams(abi, method.parameters());
@@ -173,7 +170,7 @@ public final class IncrementalCompiler {
             abi.append('\n');
             for (Ast.InterfaceMember member : iface.members()) {
                 if (member instanceof Ast.InterfaceFunctionDecl fn) {
-                    abi.append(" iface-fnc ").append(fn.async() ? "async " : "").append(fn.name());
+                    abi.append(" iface-fnc ").append(fn.name());
                     appendGenerics(abi, fn.genericParameters());
                     appendParams(abi, fn.parameters());
                     abi.append("=>").append(typeRef(fn.returnType())).append('\n');
