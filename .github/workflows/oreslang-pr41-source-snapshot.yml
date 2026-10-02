@@ -1,0 +1,21 @@
+name: oreslang-pr41-source-snapshot
+
+on:
+  push:
+    branches: ["ci/oreslang-pr41-ownership-audit"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive exact Oreslang audit snapshot
+        run: tar -C _ci/oreslang-pr57-full -czf oreslang-pr41-source.tgz pom.xml src examples
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oreslang-pr41-source
+          path: oreslang-pr41-source.tgz
