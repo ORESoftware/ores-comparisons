@@ -130,6 +130,51 @@ final class GarbageCollectionHardeningTest {
     }
 
     @Test
+    void actorGcAuthorityIsMailboxScopedAndCannotBeExtracted() {
+        var actorProgram = TypeChecker.check(Parser.parse("""
+                pub actor fnc worker() => void {
+                  actor.gc();
+                  return;
+                }
+                """));
+        assertDoesNotThrow(() ->
+                CapabilityChecker.check(actorProgram, IsolatePolicy.strictFaas()));
+
+        var outsideActor = TypeChecker.check(Parser.parse("""
+                pub routine main() => void {
+                  actor.gc();
+                  return;
+                }
+                """));
+        SecurityException outside = assertThrows(SecurityException.class,
+                () -> CapabilityChecker.check(outsideActor, IsolatePolicy.developer()));
+        assertTrue(outside.getMessage().contains("mailbox context"));
+
+        var extracted = TypeChecker.check(Parser.parse("""
+                pub actor fnc worker() => void {
+                  val collect = actor.gc;
+                  return;
+                }
+                """));
+        SecurityException extraction = assertThrows(SecurityException.class,
+                () -> CapabilityChecker.check(extracted, IsolatePolicy.developer()));
+        assertTrue(extraction.getMessage().contains("cannot be extracted"));
+
+        var closure = TypeChecker.check(Parser.parse("""
+                pub actor fnc worker() => void {
+                  val collect = () -> {
+                    actor.gc();
+                    return;
+                  };
+                  return;
+                }
+                """));
+        SecurityException closureEscape = assertThrows(SecurityException.class,
+                () -> CapabilityChecker.check(closure, IsolatePolicy.developer()));
+        assertTrue(closureEscape.getMessage().contains("mailbox context"));
+    }
+
+    @Test
     void actorMailboxBoundariesRejectBorrowedStateAndBorrowedApis() {
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
                 actor BadState {
