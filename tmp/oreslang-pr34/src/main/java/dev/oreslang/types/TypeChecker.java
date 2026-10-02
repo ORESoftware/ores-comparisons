@@ -565,47 +565,10 @@ public final class TypeChecker {
             return false;
         }
         if (expr instanceof Ast.StructInitExpr created) {
-            if (created.anonymous()) {
-                Map<String, Type> members = new LinkedHashMap<>();
-                for (Ast.ObjectField field : created.fields()) {
-                    if (members.putIfAbsent(field.name(), typeOf(field.value(), env, generics, self)) != null) {
-                        throw new IllegalArgumentException("duplicate anonymous struct field '" + field.name() + "'");
-                    }
-                }
-                return new Record(members);
-            }
-
-            Ast.ClassDecl struct = findClass(created.type().name());
-            if (struct == null || !struct.isStruct()) {
-                throw new IllegalArgumentException("'" + created.type().name() + "' is not a struct type");
-            }
-
-            LinkedHashMap<String, Ast.FieldDecl> declared = new LinkedHashMap<>();
-            for (Ast.FieldDecl field : struct.fields()) declared.put(field.name(), field);
-
-            LinkedHashMap<String, Ast.Expr> supplied = new LinkedHashMap<>();
             for (Ast.ObjectField field : created.fields()) {
-                if (!declared.containsKey(field.name())) {
-                    throw new IllegalArgumentException("unknown struct field '" + struct.name() + "." + field.name() + "'");
-                }
-                if (supplied.putIfAbsent(field.name(), field.value()) != null) {
-                    throw new IllegalArgumentException("duplicate struct field '" + struct.name() + "." + field.name() + "'");
-                }
+                if (referencesActorModuleBinding(field.value(), actorBindings, shadowed)) return true;
             }
-
-            Type nominal = nominalClassType(struct);
-            Set<String> structGenerics = Set.copyOf(struct.genericParameters());
-            for (Ast.FieldDecl field : struct.fields()) {
-                Ast.Expr value = supplied.get(field.name());
-                if (value != null) {
-                    requireAssignable(typeOf(value, env, generics, self),
-                            resolve(field.type(), structGenerics, nominal),
-                            "struct field " + struct.name() + "." + field.name());
-                } else if (field.initializer() == null) {
-                    throw new IllegalArgumentException("struct initializer for " + struct.name() + " is missing field '" + field.name() + "'");
-                }
-            }
-            return nominal;
+            return false;
         }
         if (expr instanceof Ast.AwaitExpr awaited) {
             return referencesActorModuleBinding(awaited.expression(), actorBindings, shadowed);
@@ -1204,6 +1167,50 @@ public final class TypeChecker {
             }
             return nominal;
         }
+        if (expr instanceof Ast.StructInitExpr created) {
+            if (created.anonymous()) {
+                Map<String, Type> members = new LinkedHashMap<>();
+                for (Ast.ObjectField field : created.fields()) {
+                    if (members.putIfAbsent(field.name(), typeOf(field.value(), env, generics, self)) != null) {
+                        throw new IllegalArgumentException("duplicate anonymous struct field '" + field.name() + "'");
+                    }
+                }
+                return new Record(members);
+            }
+
+            Ast.ClassDecl struct = findClass(created.type().name());
+            if (struct == null || !struct.isStruct()) {
+                throw new IllegalArgumentException("'" + created.type().name() + "' is not a struct type");
+            }
+
+            LinkedHashMap<String, Ast.FieldDecl> declared = new LinkedHashMap<>();
+            for (Ast.FieldDecl field : struct.fields()) declared.put(field.name(), field);
+
+            LinkedHashMap<String, Ast.Expr> supplied = new LinkedHashMap<>();
+            for (Ast.ObjectField field : created.fields()) {
+                if (!declared.containsKey(field.name())) {
+                    throw new IllegalArgumentException("unknown struct field '" + struct.name() + "." + field.name() + "'");
+                }
+                if (supplied.putIfAbsent(field.name(), field.value()) != null) {
+                    throw new IllegalArgumentException("duplicate struct field '" + struct.name() + "." + field.name() + "'");
+                }
+            }
+
+            Type nominal = nominalClassType(struct);
+            Set<String> structGenerics = Set.copyOf(struct.genericParameters());
+            for (Ast.FieldDecl field : struct.fields()) {
+                Ast.Expr value = supplied.get(field.name());
+                if (value != null) {
+                    requireAssignable(typeOf(value, env, generics, self),
+                            resolve(field.type(), structGenerics, nominal),
+                            "struct field " + struct.name() + "." + field.name());
+                } else if (field.initializer() == null) {
+                    throw new IllegalArgumentException("struct initializer for " + struct.name() + " is missing field '" + field.name() + "'");
+                }
+            }
+            return nominal;
+        }
+
         if (expr instanceof Ast.AwaitExpr awaited) {
             Type awaitedType = typeOf(awaited.expression(), env, generics, self);
             if (awaitedType instanceof Named named && named.name().equals("Future") && named.arguments().size() == 1) return named.arguments().getFirst();
