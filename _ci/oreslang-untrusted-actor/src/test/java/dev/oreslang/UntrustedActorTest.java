@@ -239,6 +239,17 @@ final class UntrustedActorTest {
     }
 
     @Test
+    void adversarialHotLoadRejectsOversizedSourceBeforeCompilation() {
+        try (HotReloadManager hot = HotReloadManager.forUntrustedActors(
+                IsolatePolicy.developer(), ExecutionProfile.serverJit())) {
+            IllegalArgumentException denied = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> hot.load("huge.ores", "x".repeat(1_048_577)));
+            assertTrue(denied.getMessage().contains("maximum character count"));
+        }
+    }
+
+    @Test
     void trustedHotLoaderAuthorityIsSeparatedFromUntrustedGuestAuthority() {
         IsolatePolicy supervisor = IsolatePolicy.developer();
         assertTrue(supervisor.allows(IsolatePolicy.Capability.HOT_CODE_LOAD));
