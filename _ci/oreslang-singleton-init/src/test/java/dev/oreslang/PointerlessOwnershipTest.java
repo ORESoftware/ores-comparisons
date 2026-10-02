@@ -662,6 +662,64 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void anonymousObjectCopyFieldsRemainCopyValues() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                fnc read() => int {
+                  val record = obj{count: 7};
+                  return record.count;
+                }
+                """)));
+    }
+
+    @Test
+    void anonymousObjectNonCopyFieldsBorrowTheRoot() {
+        IllegalArgumentException escaped = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        fnc bad() => Box {
+                          val record = obj{child: new Box()};
+                          return record.child;
+                        }
+                        """)));
+        assertTrue(escaped.getMessage().contains("borrowed value")
+                || escaped.getMessage().contains("return provenance"));
+
+        IllegalArgumentException moved = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        fnc bad() => void {
+                          let record = obj{child: new Box()};
+                          val child = record.child;
+                          val moved = take(record);
+                          stdio.println(child.value);
+                          return;
+                        }
+                        """)));
+        assertTrue(moved.getMessage().toLowerCase().contains("borrow"));
+    }
+
+    @Test
+    void anonymousObjectFieldMayMoveOutOfUnreachableTemporary() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 7;
+                end
+
+                fnc make() => Box {
+                  return obj{child: new Box()}.child;
+                }
+                """)));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
