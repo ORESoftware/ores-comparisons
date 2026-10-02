@@ -42,6 +42,10 @@ jobs:
           ./tmp/verify-runtime-topology-tests
       - run: python3 scripts/verify_dummy_org_map.py
       - run: python3 scripts/verify_dummy_org_gitlinks.py
+      - run: python3 scripts/verify_runtime_fixture_org_map.py
+      - run: python3 scripts/render_runtime_fixture_gitmodules.py --check
+      - run: python3 scripts/verify_runtime_fixture_gitlinks.py
+      - run: python3 scripts/verify_graal_ruby_references.py
       - if: ${{ hashFiles('.gitmodules') == '' }}
         run: python3 scripts/verify_examples.py
       - run: python3 scripts/verify_project_repo_layout.py
@@ -174,6 +178,10 @@ jobs:
           ./tmp/verify-runtime-topology
           python3 scripts/verify_dummy_org_map.py
           python3 scripts/verify_dummy_org_gitlinks.py
+          python3 scripts/verify_runtime_fixture_org_map.py
+          python3 scripts/render_runtime_fixture_gitmodules.py --check
+          python3 scripts/verify_runtime_fixture_gitlinks.py
+          python3 scripts/verify_graal_ruby_references.py
           python3 scripts/verify_project_repo_layout.py
           python3 scripts/verify_examples.py
           python3 scripts/verify_org_manifests.py
