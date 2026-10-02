@@ -277,6 +277,51 @@ final class TraitCompositionTest {
     }
 
     @Test
+    void privateTraitMethodsRemainLexicalToTheTrait() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module model as
+                  define trait Secret as
+                    private helper() => int {
+                      return 7;
+                    }
+
+                    pub read() => int {
+                      return self.helper();
+                    }
+                  end
+
+                  define class Good with Secret as
+                  end
+                end
+                """)));
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Secret as
+                            private helper() => int {
+                              return 7;
+                            }
+
+                            pub read() => int {
+                              return self.helper();
+                            }
+                          end
+
+                          define class Bad with Secret as
+                            pub leak() => int {
+                              return self.helper();
+                            }
+                          end
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("trait-private method"));
+        assertTrue(error.getMessage().contains("Secret.helper"));
+    }
+
+    @Test
     void traitsCannotAppearInRuntimeTypePositions() {
         IllegalArgumentException direct = assertThrows(
                 IllegalArgumentException.class,
