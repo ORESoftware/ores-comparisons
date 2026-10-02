@@ -13,6 +13,8 @@ import_names    = IDENT
                 | "*" "as" IDENT ;
 
 top_level_item  = annotated_module_decl
+                | actor_decl
+                | actor_callable_decl
                 | callable_decl
                 | class_decl
                 | interface_decl
@@ -22,7 +24,9 @@ top_level_item  = annotated_module_decl
 annotated_module_decl = { annotation } "define" "module" IDENT
                         { module_member } "end" ;
 
-module_member   = callable_decl
+module_member   = actor_decl
+                | actor_callable_decl
+                | callable_decl
                 | class_decl
                 | interface_decl
                 | type_decl
@@ -30,10 +34,28 @@ module_member   = callable_decl
 
 visibility      = [ "pub" | "private" ] ;
 callable_modifier = "abstract" | "async" | "nlex" ;
+method_modifier   = "abstract" | "async" ;
 
 callable_decl   = { annotation } visibility { callable_modifier } callable_kind IDENT [ generic_params ]
                   "(" [ param_list ] ")" return_spec block ;
 callable_kind   = "fnc" | "routine" ;
+
+actor_callable_decl
+                = { annotation } visibility [ "async" ] [ "nlex" ] [ "shared" ] "actor" "fnc" IDENT [ generic_params ]
+                  "(" [ param_list ] ")" return_spec block ;
+
+actor_decl      = visibility [ "shared" ] "actor" IDENT [ generic_params ]
+                  [ "extends" type_ref { "," type_ref } ]
+                  [ ( "implements" | "impl" ) type_ref { "," type_ref } ]
+                  actor_body ;
+actor_body      = "{" { actor_member } "}"
+                | { actor_member } "end" ;
+actor_member    = field_decl
+                | actor_method_decl
+                | static_function_decl ;
+actor_method_decl
+                = { annotation } visibility { callable_modifier } [ "fnc" ] method_name [ generic_params ]
+                  method_head return_spec block ;
 
 class_decl      = "define" [ "abstract" ] "class" IDENT [ generic_params ]
                   [ "extends" type_ref { "," type_ref } ]
@@ -46,7 +68,7 @@ class_member    = field_decl
 
 field_decl      = visibility binding_kind type_ref IDENT [ "=" expression ] stmt_terminator ;
 
-method_decl     = { annotation } visibility { callable_modifier } method_name [ generic_params ]
+method_decl     = { annotation } visibility { method_modifier } method_name [ generic_params ]
                   method_head return_spec ( block | stmt_terminator ) ;
 method_name     = IDENT | "[" "Symbol" "." IDENT "]" ;
 method_head     = "(" [ explicit_receiver | param_list ] ")" [ "(" [ param_list ] ")" ] ;
@@ -105,7 +127,8 @@ defer_stmt      = "defer" expression stmt_terminator ;
 if_stmt         = "if" condition [ ";" ] "do" { statement }
                   { "elseif" condition [ ";" ] "do" { statement } }
                   [ "else" { statement } ] "fi" ;
-condition       = logic_or { "," logic_or } ;  (* comma is a legacy condition-only && alias *)
+condition       = condition_and { "|" condition_and } ;
+condition_and   = equality { "," equality } ;
 
 try_stmt        = "try" block "catch" "(" IDENT ")" block [ "finally" block ] ;
 
@@ -119,22 +142,15 @@ for_init        = binding_kind [ type_ref ] IDENT "=" expression
 expression      = assignment ;
 assignment      = conditional [ "=" assignment ] ;
 conditional     = logic_or [ "?" assignment ":" conditional ] ;
-logic_or        = logic_xor { "||" logic_xor } ;
-logic_xor       = logic_and { "^^" logic_and } ;
-logic_and       = bit_or { "&&" bit_or } ;
-bit_or          = bit_xor { "|" bit_xor } ;
-bit_xor         = bit_and { "^" bit_and } ;
-bit_and         = equality { "&" equality } ;
+logic_or        = equality { "|" equality } ;
 equality        = comparison { ( "==" | "!=" ) comparison } ;
-comparison      = shift { ( "<" | "<=" | ">" | ">=" ) shift } ;
-shift           = additive { ( "<<" | ">>" | ">>>" ) additive } ;
+comparison      = additive { ( "<" | "<=" | ">" | ">=" ) additive } ;
 additive        = multiplicative { ( "+" | "-" ) multiplicative } ;
 multiplicative  = unary { ( "*" | "/" | "%" ) unary } ;
-unary           = [ "!" | "~" | "-" | "+" | "await" ] postfix
+unary           = [ "!" | "-" | "+" | "await" ] postfix
                 | "&" [ "mut" ] unary ;
 postfix         = primary { call_suffix | member_suffix | index_suffix } ;
-call_suffix     = [ generic_call_args ] "(" [ argument_list ] ")" ;
-generic_call_args = "<" [ type_args ] ">" ;
+call_suffix     = "(" [ argument_list ] ")" ;
 member_suffix   = "." IDENT ;
 index_suffix    = "[" expression "]" ;
 argument_list   = expression { "," expression } ;
@@ -212,24 +228,23 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
    - Modules are flat: module names are single identifiers and modules may not
      contain modules.
    - fnc declarations may recurse; routines may not participate in a call cycle.
-   - nlex on fnc/routine is a capture barrier inherited by lambdas created
-     anywhere inside that callable. Explicit nlex lambdas establish the same
-     barrier for themselves and their nested lambdas.
+   - nlex on a fnc/routine is a capture barrier inherited by lambdas created
+     inside it; an explicit nlex lambda establishes the same barrier.
    - nlex blocks activation-local captures only. Module members, imports,
      top-level callables/classes, and built-ins remain statically resolvable.
-   - Parameters and locals declared inside an nlex callable/lambda use normal
-     lexical shadowing and take precedence over module/global names.
+   - nlex may qualify an actor fnc as an additional capture-free guarantee;
+     actor classes and actor/class methods do not accept nlex.
    - fnc and routine declarations do not overload.
    - instance methods may overload only when arity differs.
    - class-level functions use "static fnc"; they have no self receiver and are
      dispatched through the class namespace, never through an instance.
    - "=>" belongs to named callable return declarations.
    - "->" belongs to function types and lambdas.
-   - "<...>" is generic/type-argument syntax in type/declaration context.
-   - "<>" remains the inferred-type-argument marker where inference is supported;
-     it is never an XOR operator. Logical XOR is "^^"; bitwise XOR is "^".
-   - "&&", "||", and "^^" are boolean operators. "&", "|", "^", "~", "<<",
-     ">>", and ">>>" are integer bitwise operators.
+   - Unqualified "actor" declarations are private actors; "shared actor" opts
+     into the SHARED_MEMORY execution domain.
+   - Actor fields are private mailbox-owned state; public actor API is exposed
+     through actor methods/messages rather than public mutable fields.
+   - Actor inheritance must preserve actor isolation kind.
    - In a destructure pattern, an explicit binding kind propagates to subsequent
      unqualified names until another binding kind appears. A leading binding
      kind (for example const [a, b]) seeds the whole pattern. "_" never binds.
