@@ -9,7 +9,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class OresContext implements AutoCloseable {
@@ -21,7 +24,10 @@ public final class OresContext implements AutoCloseable {
     private final PrintWriter output;
     private final ActorRuntime actors;
     private final UUID contextId = UUID.randomUUID();
+    private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicLong schedulerSafepoints = new AtomicLong();
+    private final Map<Object, Object> contextLocals = new ConcurrentHashMap<>();
+    private final Set<Object> initializingContextLocals = ConcurrentHashMap.newKeySet();
     private final IsolatePolicy isolatePolicy;
     private final ExecutionProfile executionProfile;
     private final boolean graalIsolated;
@@ -55,7 +61,45 @@ public final class OresContext implements AutoCloseable {
     public long codeGeneration() { return codeGeneration; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
+        requireOpen();
         isolatePolicy.require(capability, api);
+    }
+
+    private void requireOpen() {
+        if (closed.get()) throw new IllegalStateException("Oreslang context is closed");
+    }
+
+    /**
+     * Lifetime-scoped storage for ordinary module/file state executing outside
+     * an Ores actor. Actor executions use ActorRuntime.currentActorLocal()
+     * instead, so actor state never aliases this context state.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T contextLocal(Object key, java.util.function.Supplier<? extends T> initializer) {
+        requireOpen();
+        java.util.Objects.requireNonNull(key, "key");
+        java.util.Objects.requireNonNull(initializer, "initializer");
+
+        Object existing = contextLocals.get(key);
+        if (existing != null) return (T) existing;
+        if (!initializingContextLocals.add(key)) {
+            throw new IllegalStateException("context-local initialization cycle for "
+                    + key.getClass().getSimpleName() + "#"
+                    + Integer.toUnsignedString(key.hashCode(), 16));
+        }
+        try {
+            existing = contextLocals.get(key);
+            if (existing != null) return (T) existing;
+            T value = java.util.Objects.requireNonNull(
+                    initializer.get(),
+                    "context-local initializer returned null for "
+                            + key.getClass().getSimpleName() + "#"
+                            + Integer.toUnsignedString(key.hashCode(), 16));
+            Object raced = contextLocals.putIfAbsent(key, value);
+            return raced == null ? value : (T) raced;
+        } finally {
+            initializingContextLocals.remove(key);
+        }
     }
 
     /**
@@ -64,6 +108,7 @@ public final class OresContext implements AutoCloseable {
      * long-running actor code without requiring recursion-only looping.
      */
     public void schedulerSafepoint() {
+        requireOpen();
         schedulerSafepoints.incrementAndGet();
         ProcessSingletonRegistry.checkExecutionBudget();
         actors.schedulerSafepoint();
@@ -94,7 +139,10 @@ public final class OresContext implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) return;
         actors.close();
+        contextLocals.clear();
+        initializingContextLocals.clear();
         output.flush();
     }
 }
