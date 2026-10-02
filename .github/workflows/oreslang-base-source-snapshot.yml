@@ -1,0 +1,21 @@
+name: oreslang-base-source-snapshot
+
+on:
+  push:
+    branches: ["ci/oreslang-base-d318-verify"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive exact Oreslang base snapshot
+        run: tar -C _ci/oreslang-pr57-full -czf oreslang-base-source.tgz pom.xml src examples
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oreslang-base-source
+          path: oreslang-base-source.tgz
