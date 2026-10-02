@@ -357,8 +357,8 @@ public final class TraitComposer {
                 String previous = names.putIfAbsent(name, kind);
                 if (previous != null) {
                     throw new IllegalArgumentException(
-                            "duplicate callable-local type '" + name + "': declared as both "
-                                    + previous + " and " + kind + " in the same lexical block");
+                            "duplicate callable-local type '" + name + "' (callable-local type name '" + name
+                                    + "'): declared as both " + previous + " and " + kind + " in the same lexical block");
                 }
 
                 if (local.declaration() instanceof Ast.TraitDecl trait) {
@@ -483,6 +483,17 @@ public final class TraitComposer {
             try {
             for (Ast.Stmt statement : statements) {
                 if (statement instanceof Ast.TypeDeclStmt local) {
+                    String localName = switch (local.declaration()) {
+                        case Ast.ClassDecl klass -> klass.name();
+                        case Ast.InterfaceDecl iface -> iface.name();
+                        case Ast.TraitDecl trait -> trait.name();
+                        case Ast.TypeAliasDecl alias -> alias.name();
+                        default -> null;
+                    };
+                    if (localName != null && generics.contains(localName)) {
+                        throw new IllegalArgumentException("callable-local type '" + localName
+                                + "' collides with an in-scope generic type parameter");
+                    }
                     validateNoTraitRuntimeTypes(moduleName, local.declaration());
                     continue;
                 }
@@ -593,8 +604,8 @@ public final class TraitComposer {
             }
             if (!generics.contains(type.name()) && isTraitName(moduleName, type.name())) {
                 throw new IllegalArgumentException(
-                        "trait '" + type.name() + "' cannot be used as a runtime type in " + where
-                                + "; traits are composition units only—use an interface for contracts or a class for values");
+                        "trait '" + type.name() + "' has no runtime/value type identity and cannot be used as a runtime type in "
+                                + where + "; traits are composition units only—use an interface for contracts or a class for values");
             }
             for (Ast.TypeRef argument : type.arguments()) {
                 validateTypeRef(moduleName, argument, generics, where);
@@ -681,14 +692,14 @@ public final class TraitComposer {
                 if (isTraitName(moduleName, created.type().name())) {
                     throw new IllegalArgumentException(
                             "trait '" + created.type().name()
-                                    + "' cannot be instantiated; compose it into a class with 'with'");
+                                    + "' has no runtime/value type identity and cannot be instantiated; compose it into a class with 'with'");
                 }
                 for (Ast.Expr argument : created.arguments()) validateNoTraitInstantiation(moduleName, argument);
             } else if (expression instanceof Ast.StructInitExpr created) {
                 if (created.type() != null && isTraitName(moduleName, created.type().name())) {
                     throw new IllegalArgumentException(
                             "trait '" + created.type().name()
-                                    + "' cannot be initialized as a value; compose it into a struct/class with 'with'");
+                                    + "' has no runtime/value type identity and cannot be initialized as a value; compose it into a struct/class with 'with'");
                 }
                 for (Ast.ObjectField field : created.fields()) {
                     validateNoTraitInstantiation(moduleName, field.value());
