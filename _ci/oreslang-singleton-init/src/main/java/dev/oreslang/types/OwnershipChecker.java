@@ -381,6 +381,9 @@ public final class OwnershipChecker {
             Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
             Ast.MethodDecl method = klass == null ? null : findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
             if (method != null) {
+                if (requiresMutableReceiver(method)) {
+                    ensureMutableReceiver(member.receiver(), scope, "method '" + method.name() + "' receiver");
+                }
                 checkArguments(call.arguments(), method.parameters(), scope, "method " + method.name());
                 return new ValueInfo(method.returnType(), kindOfType(method.returnType()), null);
             }
@@ -389,6 +392,11 @@ public final class OwnershipChecker {
         checkExpr(call.callee(), scope, false);
         for (Ast.Expr arg : call.arguments()) checkExpr(arg, scope, true);
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
+    }
+
+    private boolean requiresMutableReceiver(Ast.MethodDecl method) {
+        Ast.TypeRef receiver = method.explicitReceiverType();
+        return receiver != null && receiver.isBorrow() && receiver.mutableBorrow();
     }
 
     private void checkArguments(List<Ast.Expr> arguments, List<Ast.Param> params, Scope scope, String callable) {

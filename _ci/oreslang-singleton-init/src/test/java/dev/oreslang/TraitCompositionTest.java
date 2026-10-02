@@ -97,7 +97,7 @@ final class TraitCompositionTest {
 
                 define module app as
                   pub fnc main() => void {
-                    val box = new Box(5);
+                    let box = new Box(5);
                     stdio.println(box.value);
                     stdio.println(box.bump());
                     return;
@@ -120,6 +120,35 @@ final class TraitCompositionTest {
         String text = output.toString(StandardCharsets.UTF_8);
         assertTrue(text.contains("5"));
         assertTrue(text.contains("11"));
+    }
+
+    @Test
+    void mutableTraitMethodsRequireAMutableOwnerAtCallSite() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Counter as
+                            private let int count = 0;
+
+                            pub bump(self &mut self)() => int {
+                              self.count = self.count + 1;
+                              return self.count;
+                            }
+                          end
+
+                          define class Box with Counter as
+                          end
+
+                          pub fnc bad() => int {
+                            val box = new Box();
+                            return box.bump();
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("cannot mutate method 'bump' receiver"));
+        assertTrue(error.getMessage().contains("immutable"));
     }
 
     @Test
