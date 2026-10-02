@@ -1283,7 +1283,7 @@ final class ActorRuntimeTest {
             CountDownLatch privateChecked = new CountDownLatch(1);
             CountDownLatch sharedChecked = new CountDownLatch(1);
 
-            var isolated = runtime.<String>spawnPrivate(factoryContext -> (message, context) -> {
+            var isolated = runtime.<String>spawnPrivateTrusted(factoryContext -> (message, context) -> {
                 assertThrows(SecurityException.class, () ->
                         runtime.requireEffectiveCapability(
                                 IsolatePolicy.Capability.SHARED_MEMORY,
@@ -1304,7 +1304,7 @@ final class ActorRuntimeTest {
                 context.self().stop();
             });
 
-            var shared = runtime.<String>spawnShared(factoryContext -> (message, context) -> {
+            var shared = runtime.<String>spawnSharedTrusted(factoryContext -> (message, context) -> {
                 assertDoesNotThrow(() ->
                         runtime.requireEffectiveCapability(
                                 IsolatePolicy.Capability.SHARED_MEMORY,
