@@ -685,8 +685,18 @@ final class MutexRuntimeTest {
             }
         });
 
-        for (int i = 0; i < 10_000 && !runtimeA.isClosed(); i++) Thread.yield();
-        assertTrue(runtimeA.isClosed(), "close should publish the closed state before final admission");
+        IllegalStateException closedObserved = null;
+        for (int i = 0; i < 500 && closedObserved == null; i++) {
+            try {
+                target.send("probe");
+                Thread.yield();
+            } catch (IllegalStateException failure) {
+                if (failure.getMessage().contains("actor runtime is closed")) {
+                    closedObserved = failure;
+                }
+            }
+        }
+        assertNotNull(closedObserved, "close should publish the closed state before final admission");
 
         releaseFreeze.countDown();
         sender.join();
