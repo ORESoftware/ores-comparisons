@@ -354,4 +354,59 @@ final class MutexRuntimeTest {
             assertThrows(SecurityException.class, () -> ref.send(shared));
         }
     }
+
+    @Test
+    void strictActorCannotUseCapturedSharedMutexWithoutCapability() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            IsolatePolicy strict = IsolatePolicy.strictFaas();
+            var shared = OresMutex.shared(new int[]{0});
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> observed = new AtomicReference<>();
+
+            var ref = runtime.<String>spawn(strict, () -> (message, context) -> {
+                try {
+                    shared.tryLock();
+                } catch (Throwable failure) {
+                    observed.set(failure);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send("check");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertInstanceOf(SecurityException.class, observed.get());
+
+            // The denied touch must not bind the handle to the strict actor's runtime.
+            try (ActorRuntime otherRuntime = new ActorRuntime()) {
+                var other = otherRuntime.<OresMutex.Shared<int[]>>spawn(
+                        () -> (mutex, context) -> { });
+                assertDoesNotThrow(() -> other.send(shared));
+            }
+        }
+    }
+
+    @Test
+    void strictActorCannotCreateSharedMutexDirectly() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            IsolatePolicy strict = IsolatePolicy.strictFaas();
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> observed = new AtomicReference<>();
+
+            var ref = runtime.<String>spawn(strict, () -> (message, context) -> {
+                try {
+                    OresMutex.shared(new int[]{0});
+                } catch (Throwable failure) {
+                    observed.set(failure);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send("check");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertInstanceOf(SecurityException.class, observed.get());
+        }
+    }
+
 }
