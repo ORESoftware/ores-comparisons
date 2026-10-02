@@ -134,6 +134,26 @@ final class ActorCapabilityIsolationTest {
     }
 
     @Test
+    void transitiveCapabilityScanHandlesSelfReferentialStoredTypes() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                define class Node
+                  let Node next;
+
+                  pub identity(Node other) => Node {
+                    return other;
+                  }
+                end
+
+                actor PrivateWorker {
+                  let Node root;
+                }
+                """));
+
+        assertDoesNotThrow(() ->
+                CapabilityChecker.check(program, IsolatePolicy.developer()));
+    }
+
+    @Test
     void actorLocalRuntimePolicyCannotBeBypassedByParentContextCapability() throws Exception {
         IsolatePolicy developer = IsolatePolicy.developer();
 
