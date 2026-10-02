@@ -1,4 +1,5 @@
 name: oreslang-inferred-typing-validation
+# exact source head: d563f7344d795a2397c492cec790a38f6efa6faf
 
 on:
   push:
