@@ -25,7 +25,7 @@ public final class CapabilityChecker {
                         require(actorPolicy, IsolatePolicy.Capability.SHARED_MEMORY, "shared actor fnc " + fn.name());
                     }
                     checkCallableTypes(fn.parameters(), fn.returnType(), actorPolicy);
-                    checkStatements(fn.body(), actorPolicy);
+                    checkStatements(fn.body(), actorPolicy, fn.actorKind() != Ast.ActorKind.NONE);
                 } else if (declaration instanceof Ast.ClassDecl klass) {
                     IsolatePolicy actorPolicy = klass.actorKind() == Ast.ActorKind.PRIVATE
                             ? policy.withoutCapabilities(
@@ -40,12 +40,12 @@ public final class CapabilityChecker {
                     for (Ast.TypeRef iface : klass.interfaces()) checkType(iface, actorPolicy);
                     for (Ast.FieldDecl field : klass.fields()) {
                         checkType(field.type(), actorPolicy);
-                        if (field.initializer() != null) checkExpr(field.initializer(), actorPolicy);
+                        if (field.initializer() != null) checkExpr(field.initializer(), actorPolicy, false);
                     }
                     for (Ast.MethodDecl method : klass.methods()) {
                         checkType(method.explicitReceiverType(), actorPolicy);
                         checkCallableTypes(method.parameters(), method.returnType(), actorPolicy);
-                        checkStatements(method.body(), actorPolicy);
+                        checkStatements(method.body(), actorPolicy, klass.actorKind() != Ast.ActorKind.NONE && !method.isStatic());
                     }
                 } else if (declaration instanceof Ast.InterfaceDecl iface) {
                     for (Ast.TypeRef parent : iface.parents()) checkType(parent, policy);
@@ -58,7 +58,7 @@ public final class CapabilityChecker {
                     }
                 } else if (declaration instanceof Ast.FieldDecl field) {
                     checkType(field.type(), policy);
-                    if (field.initializer() != null) checkExpr(field.initializer(), policy);
+                    if (field.initializer() != null) checkExpr(field.initializer(), policy, false);
                 } else if (declaration instanceof Ast.TypeAliasDecl alias) {
                     checkType(alias.target(), policy);
                 }
@@ -82,50 +82,65 @@ public final class CapabilityChecker {
         for (Ast.TypeRef argument : type.arguments()) checkType(argument, policy);
     }
 
-    private static void checkStatements(List<Ast.Stmt> statements, IsolatePolicy policy) {
+    private static void checkStatements(
+            List<Ast.Stmt> statements,
+            IsolatePolicy policy,
+            boolean actorContext) {
         for (Ast.Stmt stmt : statements) {
             if (stmt instanceof Ast.BindingStmt s) {
                 checkType(s.declaredType(), policy);
-                checkExpr(s.initializer(), policy);
+                checkExpr(s.initializer(), policy, actorContext);
             }
-            else if (stmt instanceof Ast.DestructureStmt s) checkExpr(s.initializer(), policy);
-            else if (stmt instanceof Ast.ReturnStmt s && s.value() != null) checkExpr(s.value(), policy);
-            else if (stmt instanceof Ast.ExprStmt s) checkExpr(s.expression(), policy);
-            else if (stmt instanceof Ast.DeferStmt s) checkExpr(s.expression(), policy);
+            else if (stmt instanceof Ast.DestructureStmt s) checkExpr(s.initializer(), policy, actorContext);
+            else if (stmt instanceof Ast.ReturnStmt s && s.value() != null) checkExpr(s.value(), policy, actorContext);
+            else if (stmt instanceof Ast.ExprStmt s) checkExpr(s.expression(), policy, actorContext);
+            else if (stmt instanceof Ast.DeferStmt s) checkExpr(s.expression(), policy, actorContext);
             else if (stmt instanceof Ast.IfStmt s) {
                 for (Ast.IfBranch b : s.branches()) {
-                    checkExpr(b.condition(), policy);
-                    checkStatements(b.body(), policy);
+                    checkExpr(b.condition(), policy, actorContext);
+                    checkStatements(b.body(), policy, actorContext);
                 }
-                checkStatements(s.elseBody(), policy);
+                checkStatements(s.elseBody(), policy, actorContext);
             } else if (stmt instanceof Ast.TryStmt s) {
-                checkStatements(s.body(), policy);
-                checkStatements(s.catchBody(), policy);
-                checkStatements(s.finallyBody(), policy);
+                checkStatements(s.body(), policy, actorContext);
+                checkStatements(s.catchBody(), policy, actorContext);
+                checkStatements(s.finallyBody(), policy, actorContext);
             } else if (stmt instanceof Ast.ForOfStmt s) {
-                checkExpr(s.iterable(), policy);
-                checkStatements(s.body(), policy);
+                checkExpr(s.iterable(), policy, actorContext);
+                checkStatements(s.body(), policy, actorContext);
             } else if (stmt instanceof Ast.ForStmt s) {
-                if (s.initializer() != null) checkStatements(List.of(s.initializer()), policy);
-                if (s.condition() != null) checkExpr(s.condition(), policy);
-                if (s.update() != null) checkExpr(s.update(), policy);
-                checkStatements(s.body(), policy);
+                if (s.initializer() != null) checkStatements(List.of(s.initializer()), policy, actorContext);
+                if (s.condition() != null) checkExpr(s.condition(), policy, actorContext);
+                if (s.update() != null) checkExpr(s.update(), policy, actorContext);
+                checkStatements(s.body(), policy, actorContext);
             }
         }
     }
 
-    private static void checkExpr(Ast.Expr expr, IsolatePolicy policy) {
+    private static void checkExpr(Ast.Expr expr, IsolatePolicy policy, boolean actorContext) {
         if (expr instanceof Ast.NameExpr n && n.name().equals("print")) {
             require(policy, IsolatePolicy.Capability.STDOUT, "print");
         } else if (expr instanceof Ast.NameExpr n && n.name().equals("SharedMutex")) {
             require(policy, IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex");
         }
         else if (expr instanceof Ast.CallExpr c) {
-            checkExpr(c.callee(), policy);
-            for (Ast.Expr arg : c.arguments()) checkExpr(arg, policy);
+            String directPath = memberPath(c.callee());
+            if ("actor.gc".equals(directPath)) {
+                if (!actorContext) {
+                    throw new SecurityException("actor.gc() requires a live actor mailbox context");
+                }
+                for (Ast.Expr arg : c.arguments()) checkExpr(arg, policy, actorContext);
+                return;
+            }
+            checkExpr(c.callee(), policy, actorContext);
+            for (Ast.Expr arg : c.arguments()) checkExpr(arg, policy, actorContext);
         } else if (expr instanceof Ast.MemberExpr m) {
             String path = memberPath(m);
             if (path != null) {
+                if (path.equals("actor.gc")) {
+                    throw new SecurityException(
+                            "actor.gc is a mailbox-turn capability and cannot be extracted; call actor.gc() directly");
+                }
                 if (path.startsWith("stdio.") || path.equals("stdio")) require(policy, IsolatePolicy.Capability.STDOUT, path);
                 if (path.startsWith("process.descriptor") || path.equals("process.context_id")) require(policy, IsolatePolicy.Capability.PROCESS_INFO, path);
                 if (path.equals("process.gc")) require(policy, IsolatePolicy.Capability.PROCESS_GC, path);
@@ -140,23 +155,36 @@ public final class CapabilityChecker {
                 if (path.startsWith("thread.")) require(policy, IsolatePolicy.Capability.THREAD_CREATE, path);
                 if (path.startsWith("process.spawn")) require(policy, IsolatePolicy.Capability.CHILD_PROCESS, path);
             }
-            checkExpr(m.receiver(), policy);
-        } else if (expr instanceof Ast.BinaryExpr e) { checkExpr(e.left(), policy); checkExpr(e.right(), policy); }
-        else if (expr instanceof Ast.UnaryExpr e) checkExpr(e.operand(), policy);
-        else if (expr instanceof Ast.AssignExpr e) checkExpr(e.value(), policy);
-        else if (expr instanceof Ast.ConditionalExpr e) { checkExpr(e.condition(), policy); checkExpr(e.whenTrue(), policy); checkExpr(e.whenFalse(), policy); }
-        else if (expr instanceof Ast.IndexExpr e) { checkExpr(e.receiver(), policy); checkExpr(e.index(), policy); }
+            checkExpr(m.receiver(), policy, actorContext);
+        } else if (expr instanceof Ast.BinaryExpr e) {
+            checkExpr(e.left(), policy, actorContext);
+            checkExpr(e.right(), policy, actorContext);
+        }
+        else if (expr instanceof Ast.UnaryExpr e) checkExpr(e.operand(), policy, actorContext);
+        else if (expr instanceof Ast.AssignExpr e) checkExpr(e.value(), policy, actorContext);
+        else if (expr instanceof Ast.ConditionalExpr e) {
+            checkExpr(e.condition(), policy, actorContext);
+            checkExpr(e.whenTrue(), policy, actorContext);
+            checkExpr(e.whenFalse(), policy, actorContext);
+        }
+        else if (expr instanceof Ast.IndexExpr e) {
+            checkExpr(e.receiver(), policy, actorContext);
+            checkExpr(e.index(), policy, actorContext);
+        }
         else if (expr instanceof Ast.NewExpr e) {
             checkType(e.type(), policy);
-            for (Ast.Expr a : e.arguments()) checkExpr(a, policy);
+            for (Ast.Expr a : e.arguments()) checkExpr(a, policy, actorContext);
         }
-        else if (expr instanceof Ast.AwaitExpr e) checkExpr(e.expression(), policy);
-        else if (expr instanceof Ast.ListExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy);
-        else if (expr instanceof Ast.TupleExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy);
-        else if (expr instanceof Ast.ObjectExpr e) for (Ast.ObjectField f : e.fields()) checkExpr(f.value(), policy);
+        else if (expr instanceof Ast.AwaitExpr e) checkExpr(e.expression(), policy, actorContext);
+        else if (expr instanceof Ast.ListExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy, actorContext);
+        else if (expr instanceof Ast.TupleExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy, actorContext);
+        else if (expr instanceof Ast.ObjectExpr e) for (Ast.ObjectField f : e.fields()) checkExpr(f.value(), policy, actorContext);
         else if (expr instanceof Ast.LambdaExpr e) {
-            if (e.expressionBody() != null) checkExpr(e.expressionBody(), policy);
-            if (e.blockBody() != null) checkStatements(e.blockBody(), policy);
+            // A closure never acquires mailbox authority merely because it was
+            // created during an actor turn. This prevents actor.gc capability
+            // extraction across the inferred actor-turn lifetime.
+            if (e.expressionBody() != null) checkExpr(e.expressionBody(), policy, false);
+            if (e.blockBody() != null) checkStatements(e.blockBody(), policy, false);
         }
     }
 
