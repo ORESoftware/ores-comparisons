@@ -168,6 +168,129 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void takeRejectsBorrowValuedExpressions() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        fnc consume(take Box box) => void {
+                          return;
+                        }
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          consume(borrow(box));
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("requires ownership")
+                || error.getMessage().contains("cannot take ownership"));
+    }
+
+    @Test
+    void consumingReceiverRejectsBorrowedSelf() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+
+                          pub identity(take self)() => self {
+                            return self;
+                          }
+                        end
+
+                        fnc bad(Box box) => void {
+                          val Box moved = box.identity();
+                          stdio.println(moved.value);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("takes self ownership")
+                || error.getMessage().contains("receiver is borrowed"));
+    }
+
+    @Test
+    void qualifiedModuleTakeCallsMoveTheCallerValue() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        define module sink as
+                          pub fnc consume(take Box box) => void {
+                            return;
+                          }
+                        end
+
+                        define module app as
+                          pub fnc bad() => void {
+                            let Box box = new Box();
+                            sink.consume(box);
+                            stdio.println(box.value);
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("moved"));
+    }
+
+    @Test
+    void staticTakeCallsMoveTheCallerValue() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        define class Sink as
+                          pub static fnc consume(take Box box) => void {
+                            return;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          Sink.consume(box);
+                          stdio.println(box.value);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("moved"));
+    }
+
+    @Test
+    void ordinaryFirstClassFunctionsBorrowNonCopyArguments() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 7;
+                end
+
+                fnc read(Box box) => int {
+                  return box.value;
+                }
+
+                fnc ok() => void {
+                  let Box box = new Box();
+                  val Fnc<Box, int> callback = read;
+                  stdio.println(callback(box));
+                  stdio.println(box.value);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
