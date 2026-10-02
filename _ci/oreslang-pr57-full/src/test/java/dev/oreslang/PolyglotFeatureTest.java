@@ -56,4 +56,34 @@ final class PolyglotFeatureTest {
         assertTrue(text.contains("7"));
         assertTrue(text.contains("ores"));
     }
+
+@Test
+    void executesRepeatedUnderscoreDestructureDiscards() throws Exception {
+        String program = """
+                define module app
+                  pub fnc main() => void {
+                    [const foo, _, let bar] = (1, 200, 3);
+                    [const z, _, let y] = (4, 500, 6);
+                    [_, _, const tail] = (700, 800, 9);
+                    stdio.println(foo + bar + z + y + tail);
+                    return;
+                  }
+                end
+                """;
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(OresLanguage.ID, program, "destructure-discard.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        assertTrue(output.toString(StandardCharsets.UTF_8).contains("23"));
+    }
+
 }
