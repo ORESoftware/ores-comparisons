@@ -9,11 +9,8 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 
 public final class OresContext implements AutoCloseable {
     private static final ContextReference<OresContext> REFERENCE = ContextReference.create(OresLanguage.class);
@@ -29,8 +26,6 @@ public final class OresContext implements AutoCloseable {
     private final ExecutionProfile executionProfile;
     private final boolean graalIsolated;
     private final long codeGeneration;
-    private final Map<Object, Object> contextLocals = new ConcurrentHashMap<>();
-    private final Set<Object> initializingContextLocals = ConcurrentHashMap.newKeySet();
 
     public OresContext(OresLanguage language, TruffleLanguage.Env env) {
         this.language = language;
@@ -61,36 +56,6 @@ public final class OresContext implements AutoCloseable {
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
         isolatePolicy.require(capability, api);
-    }
-
-    /**
-     * Lifetime-scoped storage for ordinary module/file state executing outside
-     * an Ores actor. Actor executions use ActorRuntime.currentActorLocal()
-     * instead, so actor state never aliases this context state.
-     */
-    @SuppressWarnings("unchecked")
-    public <T> T contextLocal(Object key, Supplier<? extends T> initializer) {
-        java.util.Objects.requireNonNull(key, "key");
-        java.util.Objects.requireNonNull(initializer, "initializer");
-
-        Object existing = contextLocals.get(key);
-        if (existing != null) return (T) existing;
-        if (!initializingContextLocals.add(key)) {
-            throw new IllegalStateException("context-local initialization cycle for " + key);
-        }
-        try {
-            // ContextPolicy.EXCLUSIVE gives guest execution one owning context,
-            // but compute under the explicit lifecycle guard for clear cycle
-            // diagnostics and future scheduler changes.
-            existing = contextLocals.get(key);
-            if (existing != null) return (T) existing;
-            T value = java.util.Objects.requireNonNull(
-                    initializer.get(), "context-local initializer returned null for " + key);
-            Object raced = contextLocals.putIfAbsent(key, value);
-            return raced == null ? value : (T) raced;
-        } finally {
-            initializingContextLocals.remove(key);
-        }
     }
 
     /**
@@ -130,8 +95,6 @@ public final class OresContext implements AutoCloseable {
     @Override
     public void close() {
         actors.close();
-        contextLocals.clear();
-        initializingContextLocals.clear();
         output.flush();
     }
 }
