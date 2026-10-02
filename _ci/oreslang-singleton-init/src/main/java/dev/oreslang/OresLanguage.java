@@ -10,10 +10,6 @@ import dev.oreslang.nodes.OresInteropRootNode;
 import dev.oreslang.runtime.OresContext;
 import org.graalvm.polyglot.SandboxPolicy;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
-
 @TruffleLanguage.Registration(
         id = OresLanguage.ID,
         name = "Oreslang",
@@ -44,21 +40,7 @@ public final class OresLanguage extends TruffleLanguage<OresContext> {
         Ast.Program program = OresCompiler.parseAndTypeCheck(text);
         String codeUnitId = source.getPath();
         if (codeUnitId == null || codeUnitId.isBlank()) codeUnitId = source.getName();
-        RootCallTarget evaluator = new OresEvalRootNode(
-                this,
-                program,
-                codeUnitId,
-                sourceDigest(text)).getCallTarget();
+        RootCallTarget evaluator = new OresEvalRootNode(this, program, codeUnitId).getCallTarget();
         return new OresInteropRootNode(this, evaluator).getCallTarget();
-    }
-
-    private static String sourceDigest(String source) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(source.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (Exception impossible) {
-            throw new IllegalStateException(impossible);
-        }
     }
 }
