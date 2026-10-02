@@ -3,6 +3,8 @@ name: oreslang-mutex-pr19-validation
 on:
   push:
     branches: ["ci/oreslang-mutex-pr19"]
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: read
