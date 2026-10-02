@@ -972,7 +972,7 @@ final class ActorRuntimeTest {
                             context.runtime().shareReadonly(List.of("secret")));
 
             ref.send("check");
-            for (int i = 0; i < 500 && ref.failure().isEmpty(); i++) Thread.yield();
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
 
             assertTrue(ref.failure().isPresent());
             assertInstanceOf(SecurityException.class, ref.failure().orElseThrow());
