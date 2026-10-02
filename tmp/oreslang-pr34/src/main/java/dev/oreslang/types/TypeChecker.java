@@ -720,32 +720,42 @@ public final class TypeChecker {
 
         for (Ast.MethodDecl method : klass.methods()) {
             activeTraitOwner = method.compositionOwner();
-            Set<String> generics = new HashSet<>(classGenerics);
-            for (String generic : method.genericParameters()) {
-                if (!generics.add(generic)) throw new IllegalArgumentException("duplicate/shadowed generic '" + generic + "' in " + klass.name() + "." + method.name());
-            }
-
-            if (method.explicitReceiverType() != null) {
-                Ast.TypeRef receiverRef = method.explicitReceiverType();
-                boolean namesEnclosingClass = receiverRef.name().equals(klass.name()) || receiverRef.name().equals(qualifiedClassName(klass)) || receiverRef.name().equals("self");
-                if (!namesEnclosingClass) {
-                    Type receiver = resolve(receiverRef, generics, self);
-                    requireAssignable(self, receiver, "explicit self receiver in " + klass.name() + "." + method.name());
+            pushLocalTypeScope(method.body());
+            try {
+                Set<String> generics = new HashSet<>(classGenerics);
+                for (String generic : method.genericParameters()) {
+                    if (!generics.add(generic)) throw new IllegalArgumentException("duplicate/shadowed generic '" + generic + "' in " + klass.name() + "." + method.name());
                 }
-            }
 
-            Type callableSelf = method.isStatic() ? null : self;
-            Env env = new Env(classModuleEnv);
-            if (!method.isStatic()) env.define("self", self, Ast.BindingKind.VAL);
-            for (Ast.Param param : method.parameters()) env.define(param.name(), resolveParam(param, generics, callableSelf), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
-            Type returns = resolve(method.returnType(), generics, callableSelf);
-            validateSingletonTransportStatements(method.body(), module);
-            checkBlock(method.body(), env, generics, returns, callableSelf);
-            if (!method.isAbstract() && returns != Primitive.VOID && !definitelyReturns(method.body())) {
-                String label = method.isStatic() ? "static function" : "method";
-                throw new IllegalArgumentException("non-void " + label + " '" + module + "." + klass.name() + "." + method.name() + "' must explicitly return on every path");
+                if (method.explicitReceiverType() != null) {
+                    Ast.TypeRef receiverRef = method.explicitReceiverType();
+                    Ast.TypeRef receiverTargetRef = receiverRef.isBorrow()
+                            ? receiverRef.borrowedTarget()
+                            : receiverRef;
+                    boolean namesEnclosingClass = receiverTargetRef.name().equals(klass.name())
+                            || receiverTargetRef.name().equals(qualifiedClassName(klass))
+                            || receiverTargetRef.name().equals("self");
+                    if (!namesEnclosingClass) {
+                        Type receiver = resolve(receiverTargetRef, generics, self);
+                        requireAssignable(self, receiver, "explicit self receiver in " + klass.name() + "." + method.name());
+                    }
+                }
+
+                Type callableSelf = method.isStatic() ? null : self;
+                Env env = new Env(classModuleEnv);
+                if (!method.isStatic()) env.define("self", self, Ast.BindingKind.VAL);
+                for (Ast.Param param : method.parameters()) env.define(param.name(), resolveParam(param, generics, callableSelf), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                Type returns = resolve(method.returnType(), generics, callableSelf);
+                validateSingletonTransportStatements(method.body(), module);
+                checkBlock(method.body(), env, generics, returns, callableSelf);
+                if (!method.isAbstract() && returns != Primitive.VOID && !definitelyReturns(method.body())) {
+                    String label = method.isStatic() ? "static function" : "method";
+                    throw new IllegalArgumentException("non-void " + label + " '" + module + "." + klass.name() + "." + method.name() + "' must explicitly return on every path");
+                }
+            } finally {
+                popLocalTypeScope();
+                activeTraitOwner = null;
             }
-            activeTraitOwner = null;
         }
 
         Set<String> implemented = new HashSet<>();
@@ -1017,6 +1027,19 @@ public final class TypeChecker {
                     Type result = resolve(method.returnType(), methodGenerics, proxy.target());
                     return new Named("Future", List.of(result));
                 }
+                if (receiver instanceof Record record) {
+                    Type candidate = record.members().get(methodKey(member.member(), call.arguments().size()));
+                    if (!(candidate instanceof Function fn)) {
+                        throw new IllegalArgumentException("no structural method '" + member.member()
+                                + "' with arity " + call.arguments().size());
+                    }
+                    for (int i = 0; i < fn.parameters().size(); i++) {
+                        validateLambdaArgument(call.arguments().get(i), fn.parameters().get(i), env, generics, self);
+                        requireAssignable(typeOf(call.arguments().get(i), env, generics, self),
+                                fn.parameters().get(i), "structural argument " + (i + 1));
+                    }
+                    return fn.result();
+                }
                 if (receiver instanceof Named named) {
                     Ast.ClassDecl klass = findClass(named.name());
                     if (klass != null) {
@@ -1183,13 +1206,15 @@ public final class TypeChecker {
                 throw new IllegalArgumentException("'" + created.type().name() + "' is not a struct type");
             }
 
-            LinkedHashMap<String, Ast.FieldDecl> declared = new LinkedHashMap<>();
-            for (Ast.FieldDecl field : struct.fields()) declared.put(field.name(), field);
+            LinkedHashMap<String, Ast.FieldDecl> callerFields = new LinkedHashMap<>();
+            for (Ast.FieldDecl field : struct.fields()) {
+                if (!field.composed()) callerFields.put(field.name(), field);
+            }
 
             LinkedHashMap<String, Ast.Expr> supplied = new LinkedHashMap<>();
             for (Ast.ObjectField field : created.fields()) {
-                if (!declared.containsKey(field.name())) {
-                    throw new IllegalArgumentException("unknown struct field '" + struct.name() + "." + field.name() + "'");
+                if (!callerFields.containsKey(field.name())) {
+                    throw new IllegalArgumentException("unknown or trait-owned struct field '" + struct.name() + "." + field.name() + "'");
                 }
                 if (supplied.putIfAbsent(field.name(), field.value()) != null) {
                     throw new IllegalArgumentException("duplicate struct field '" + struct.name() + "." + field.name() + "'");
@@ -1199,6 +1224,12 @@ public final class TypeChecker {
             Type nominal = nominalClassType(struct);
             Set<String> structGenerics = Set.copyOf(struct.genericParameters());
             for (Ast.FieldDecl field : struct.fields()) {
+                if (field.composed()) {
+                    if (field.initializer() == null) {
+                        throw new IllegalArgumentException("composed trait state '" + struct.name() + "." + field.name() + "' requires an initializer");
+                    }
+                    continue;
+                }
                 Ast.Expr value = supplied.get(field.name());
                 if (value != null) {
                     requireAssignable(typeOf(value, env, generics, self),
@@ -1344,6 +1375,8 @@ public final class TypeChecker {
             validateSingletonTransportExpr(indexed.index(), currentModule);
         } else if (expr instanceof Ast.NewExpr created) {
             for (Ast.Expr argument : created.arguments()) validateSingletonTransportExpr(argument, currentModule);
+        } else if (expr instanceof Ast.StructInitExpr created) {
+            for (Ast.ObjectField field : created.fields()) validateSingletonTransportExpr(field.value(), currentModule);
         } else if (expr instanceof Ast.ListExpr list) {
             for (Ast.Expr item : list.elements()) validateSingletonTransportExpr(item, currentModule);
         } else if (expr instanceof Ast.TupleExpr tuple) {
@@ -1938,13 +1971,32 @@ public final class TypeChecker {
                 for (Ast.FieldDecl field : effectiveFields(struct, new LinkedHashSet<>())) {
                     expectedFields.put(field.name(), field);
                 }
-                if (!record.members().keySet().equals(expectedFields.keySet())) {
-                    throw new IllegalArgumentException(where + " does not match struct '" + struct.name()
-                            + "': expected fields " + expectedFields.keySet() + " but got " + record.members().keySet());
+                LinkedHashSet<String> callerFields = new LinkedHashSet<>();
+                for (Ast.FieldDecl field : expectedFields.values()) if (!field.composed()) callerFields.add(field.name());
+
+                LinkedHashSet<String> extras = new LinkedHashSet<>(record.members().keySet());
+                extras.removeAll(callerFields);
+                if (!extras.isEmpty()) {
+                    throw new IllegalArgumentException(where + " has unknown or trait-owned fields for struct '" + struct.name()
+                            + "': " + extras);
                 }
+
                 Type nominal = nominalClassType(struct);
                 for (Ast.FieldDecl field : expectedFields.values()) {
+                    if (field.composed()) {
+                        if (field.initializer() == null) {
+                            throw new IllegalArgumentException("composed trait state '" + struct.name() + "." + field.name()
+                                    + "' requires an initializer");
+                        }
+                        continue;
+                    }
                     Type supplied = record.members().get(field.name());
+                    if (supplied == null) {
+                        if (field.initializer() == null) {
+                            throw new IllegalArgumentException(where + " is missing required struct field '" + field.name() + "'");
+                        }
+                        continue;
+                    }
                     Type required = resolve(field.type(), Set.copyOf(struct.genericParameters()), nominal);
                     if (!assignable(supplied, required)) {
                         throw new IllegalArgumentException(where + " field '" + field.name() + "' expects "

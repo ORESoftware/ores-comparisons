@@ -30,6 +30,7 @@ import java.util.Set;
  * - moving an outer value from a repeating loop is rejected conservatively.
  */
 public final class OwnershipChecker {
+    private Ast.ModuleDecl activeModule;
     private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
     private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
     private final Set<String> ambiguousFunctions = new HashSet<>();
@@ -65,10 +66,16 @@ public final class OwnershipChecker {
 
     private void validate(Ast.Program program) {
         for (Ast.ModuleDecl module : program.modules()) {
-            for (Ast.Decl decl : module.declarations()) {
-                if (decl instanceof Ast.FunctionDecl fn) checkFunction(module, fn);
-                else if (decl instanceof Ast.InitDecl init) checkInit(module, init);
-                else if (decl instanceof Ast.ClassDecl klass) checkClass(module, klass);
+            Ast.ModuleDecl previous = activeModule;
+            activeModule = module;
+            try {
+                for (Ast.Decl decl : module.declarations()) {
+                    if (decl instanceof Ast.FunctionDecl fn) checkFunction(module, fn);
+                    else if (decl instanceof Ast.InitDecl init) checkInit(module, init);
+                    else if (decl instanceof Ast.ClassDecl klass) checkClass(module, klass);
+                }
+            } finally {
+                activeModule = previous;
             }
         }
     }
@@ -147,6 +154,13 @@ public final class OwnershipChecker {
     }
 
     private void checkStatement(Ast.Stmt stmt, Scope scope, Ast.TypeRef returnType) {
+        if (stmt instanceof Ast.TypeDeclStmt localType) {
+            if (localType.declaration() instanceof Ast.ClassDecl klass) {
+                if (activeModule == null) throw error("local aggregate has no enclosing module ownership scope");
+                checkClass(activeModule, klass);
+            }
+            return;
+        }
         if (stmt instanceof Ast.BindingStmt binding) {
             checkBinding(binding, scope);
             return;

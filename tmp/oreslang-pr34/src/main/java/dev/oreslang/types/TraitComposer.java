@@ -58,6 +58,12 @@ public final class TraitComposer {
                     }
                     if (declaration instanceof Ast.ClassDecl klass) {
                         declarations.add(composeClass(module.name(), klass));
+                    } else if (declaration instanceof Ast.FunctionDecl fn) {
+                        declarations.add(withBody(fn, composeStatements(module.name(), fn.body())));
+                    } else if (declaration instanceof Ast.InitDecl init) {
+                        declarations.add(new Ast.InitDecl(composeStatements(module.name(), init.body())));
+                    } else if (declaration instanceof Ast.FieldDecl field) {
+                        declarations.add(withInitializer(field, composeExpr(module.name(), field.initializer())));
                     } else {
                         declarations.add(declaration);
                     }
@@ -92,7 +98,7 @@ public final class TraitComposer {
         }
 
         private Ast.ClassDecl composeClass(String moduleName, Ast.ClassDecl klass) {
-            if (klass.traits().isEmpty()) return klass;
+            if (klass.traits().isEmpty()) return composeClassBodies(moduleName, klass);
 
             LinkedHashMap<String, FieldEntry> traitFields = new LinkedHashMap<>();
             LinkedHashMap<String, List<MethodEntry>> traitMethods = new LinkedHashMap<>();
@@ -166,7 +172,7 @@ public final class TraitComposer {
             methods.addAll(composedMethods);
             methods.addAll(klass.methods());
 
-            return new Ast.ClassDecl(
+            return composeClassBodies(moduleName, new Ast.ClassDecl(
                     klass.name(),
                     klass.kind(),
                     klass.isAbstract(),
@@ -175,7 +181,201 @@ public final class TraitComposer {
                     List.copyOf(interfaces.values()),
                     List.of(),
                     fields,
+                    methods));
+        }
+
+        private Ast.ClassDecl composeClassBodies(String moduleName, Ast.ClassDecl klass) {
+            List<Ast.FieldDecl> fields = new ArrayList<>(klass.fields().size());
+            for (Ast.FieldDecl field : klass.fields()) {
+                fields.add(withInitializer(field, composeExpr(moduleName, field.initializer())));
+            }
+
+            List<Ast.MethodDecl> methods = new ArrayList<>(klass.methods().size());
+            for (Ast.MethodDecl method : klass.methods()) {
+                methods.add(withBody(method, composeStatements(moduleName, method.body())));
+            }
+
+            return new Ast.ClassDecl(
+                    klass.name(),
+                    klass.kind(),
+                    klass.isAbstract(),
+                    klass.genericParameters(),
+                    klass.parents(),
+                    klass.interfaces(),
+                    klass.traits(),
+                    fields,
                     methods);
+        }
+
+        private Ast.FunctionDecl withBody(Ast.FunctionDecl fn, List<Ast.Stmt> body) {
+            return new Ast.FunctionDecl(
+                    fn.name(),
+                    fn.kind(),
+                    fn.visibility(),
+                    fn.async(),
+                    fn.genericParameters(),
+                    fn.parameters(),
+                    fn.returnType(),
+                    fn.annotations(),
+                    body);
+        }
+
+        private Ast.MethodDecl withBody(Ast.MethodDecl method, List<Ast.Stmt> body) {
+            return new Ast.MethodDecl(
+                    method.name(),
+                    method.visibility(),
+                    method.isStatic(),
+                    method.isAbstract(),
+                    method.async(),
+                    method.explicitReceiverType(),
+                    method.genericParameters(),
+                    method.parameters(),
+                    method.returnType(),
+                    method.annotations(),
+                    body,
+                    method.compositionOwner());
+        }
+
+        private Ast.FieldDecl withInitializer(Ast.FieldDecl field, Ast.Expr initializer) {
+            if (field.initializer() == initializer) return field;
+            return new Ast.FieldDecl(
+                    field.name(),
+                    field.visibility(),
+                    field.bindingKind(),
+                    field.type(),
+                    initializer,
+                    field.compositionOwner());
+        }
+
+        private List<Ast.Stmt> composeStatements(String moduleName, List<Ast.Stmt> statements) {
+            List<Ast.Stmt> result = new ArrayList<>(statements.size());
+            for (Ast.Stmt stmt : statements) result.add(composeStatement(moduleName, stmt));
+            return List.copyOf(result);
+        }
+
+        private Ast.Stmt composeStatement(String moduleName, Ast.Stmt stmt) {
+            if (stmt instanceof Ast.TypeDeclStmt local) {
+                if (local.declaration() instanceof Ast.ClassDecl klass) {
+                    return new Ast.TypeDeclStmt(composeClass(moduleName, klass));
+                }
+                return local;
+            }
+            if (stmt instanceof Ast.BindingStmt binding) {
+                return new Ast.BindingStmt(binding.kind(), binding.declaredType(), binding.name(),
+                        composeExpr(moduleName, binding.initializer()));
+            }
+            if (stmt instanceof Ast.DestructureStmt destructure) {
+                return new Ast.DestructureStmt(destructure.bindings(), composeExpr(moduleName, destructure.initializer()));
+            }
+            if (stmt instanceof Ast.ReturnStmt ret) {
+                return new Ast.ReturnStmt(composeExpr(moduleName, ret.value()));
+            }
+            if (stmt instanceof Ast.ExprStmt expression) {
+                return new Ast.ExprStmt(composeExpr(moduleName, expression.expression()));
+            }
+            if (stmt instanceof Ast.DeferStmt defer) {
+                return new Ast.DeferStmt(composeExpr(moduleName, defer.expression()));
+            }
+            if (stmt instanceof Ast.IfStmt conditional) {
+                List<Ast.IfBranch> branches = new ArrayList<>(conditional.branches().size());
+                for (Ast.IfBranch branch : conditional.branches()) {
+                    branches.add(new Ast.IfBranch(
+                            composeExpr(moduleName, branch.condition()),
+                            composeStatements(moduleName, branch.body())));
+                }
+                return new Ast.IfStmt(branches, composeStatements(moduleName, conditional.elseBody()));
+            }
+            if (stmt instanceof Ast.TryStmt attempted) {
+                return new Ast.TryStmt(
+                        composeStatements(moduleName, attempted.body()),
+                        attempted.errorName(),
+                        composeStatements(moduleName, attempted.catchBody()),
+                        composeStatements(moduleName, attempted.finallyBody()));
+            }
+            if (stmt instanceof Ast.ForOfStmt loop) {
+                return new Ast.ForOfStmt(
+                        loop.bindingKind(),
+                        loop.bindingName(),
+                        composeExpr(moduleName, loop.iterable()),
+                        composeStatements(moduleName, loop.body()));
+            }
+            if (stmt instanceof Ast.ForStmt loop) {
+                return new Ast.ForStmt(
+                        loop.initializer() == null ? null : composeStatement(moduleName, loop.initializer()),
+                        composeExpr(moduleName, loop.condition()),
+                        composeExpr(moduleName, loop.update()),
+                        composeStatements(moduleName, loop.body()));
+            }
+            return stmt;
+        }
+
+        private Ast.Expr composeExpr(String moduleName, Ast.Expr expr) {
+            if (expr == null || expr instanceof Ast.LiteralExpr || expr instanceof Ast.NameExpr) return expr;
+            if (expr instanceof Ast.BinaryExpr e) {
+                return new Ast.BinaryExpr(e.operator(), composeExpr(moduleName, e.left()), composeExpr(moduleName, e.right()));
+            }
+            if (expr instanceof Ast.UnaryExpr e) {
+                return new Ast.UnaryExpr(e.operator(), composeExpr(moduleName, e.operand()));
+            }
+            if (expr instanceof Ast.AssignExpr e) {
+                return new Ast.AssignExpr(composeExpr(moduleName, e.target()), composeExpr(moduleName, e.value()));
+            }
+            if (expr instanceof Ast.ConditionalExpr e) {
+                return new Ast.ConditionalExpr(
+                        composeExpr(moduleName, e.condition()),
+                        composeExpr(moduleName, e.whenTrue()),
+                        composeExpr(moduleName, e.whenFalse()));
+            }
+            if (expr instanceof Ast.CallExpr e) {
+                List<Ast.Expr> args = new ArrayList<>(e.arguments().size());
+                for (Ast.Expr arg : e.arguments()) args.add(composeExpr(moduleName, arg));
+                return new Ast.CallExpr(composeExpr(moduleName, e.callee()), args);
+            }
+            if (expr instanceof Ast.MemberExpr e) {
+                return new Ast.MemberExpr(composeExpr(moduleName, e.receiver()), e.member());
+            }
+            if (expr instanceof Ast.IndexExpr e) {
+                return new Ast.IndexExpr(composeExpr(moduleName, e.receiver()), composeExpr(moduleName, e.index()));
+            }
+            if (expr instanceof Ast.NewExpr e) {
+                List<Ast.Expr> args = new ArrayList<>(e.arguments().size());
+                for (Ast.Expr arg : e.arguments()) args.add(composeExpr(moduleName, arg));
+                return new Ast.NewExpr(e.type(), args);
+            }
+            if (expr instanceof Ast.StructInitExpr e) {
+                List<Ast.ObjectField> fields = new ArrayList<>(e.fields().size());
+                for (Ast.ObjectField field : e.fields()) {
+                    fields.add(new Ast.ObjectField(field.name(), composeExpr(moduleName, field.value())));
+                }
+                return new Ast.StructInitExpr(e.type(), fields);
+            }
+            if (expr instanceof Ast.AwaitExpr e) {
+                return new Ast.AwaitExpr(composeExpr(moduleName, e.expression()));
+            }
+            if (expr instanceof Ast.ListExpr e) {
+                List<Ast.Expr> elements = new ArrayList<>(e.elements().size());
+                for (Ast.Expr element : e.elements()) elements.add(composeExpr(moduleName, element));
+                return new Ast.ListExpr(elements);
+            }
+            if (expr instanceof Ast.TupleExpr e) {
+                List<Ast.Expr> elements = new ArrayList<>(e.elements().size());
+                for (Ast.Expr element : e.elements()) elements.add(composeExpr(moduleName, element));
+                return new Ast.TupleExpr(elements);
+            }
+            if (expr instanceof Ast.ObjectExpr e) {
+                List<Ast.ObjectField> fields = new ArrayList<>(e.fields().size());
+                for (Ast.ObjectField field : e.fields()) {
+                    fields.add(new Ast.ObjectField(field.name(), composeExpr(moduleName, field.value())));
+                }
+                return new Ast.ObjectExpr(fields);
+            }
+            if (expr instanceof Ast.LambdaExpr e) {
+                return new Ast.LambdaExpr(
+                        e.parameters(),
+                        composeExpr(moduleName, e.expressionBody()),
+                        e.blockBody() == null ? null : composeStatements(moduleName, e.blockBody()));
+            }
+            return expr;
         }
 
         private Ast.MethodDecl selectTraitMethod(
