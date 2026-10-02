@@ -720,6 +720,70 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void destructuringBorrowedCollectionsDoesNotManufactureOwnership() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        fnc leak(Array<Box> boxes) => Box {
+                          [val first] = boxes;
+                          return first;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("borrowed value")
+                || error.getMessage().contains("return provenance"));
+    }
+
+    @Test
+    void destructuringBorrowedCopyElementsStillCopies() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                fnc first(Array<int> values) => int {
+                  [val first] = values;
+                  return first;
+                }
+                """)));
+    }
+
+    @Test
+    void destructuringConsumedCollectionTransfersElementOwnership() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 7;
+                end
+
+                fnc extract() => Box {
+                  let boxes = arr[new Box()];
+                  [val first] = take(boxes);
+                  return first;
+                }
+                """)));
+    }
+
+    @Test
+    void destructuringMutableBorrowDoesNotUpgradeElementToMutableOwner() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 0;
+                        end
+
+                        fnc bad(mut Array<Box> boxes) => void {
+                          [let first] = boxes;
+                          first.value = 1;
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("immutable binding/read borrow")
+                || error.getMessage().contains("read borrow"));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
