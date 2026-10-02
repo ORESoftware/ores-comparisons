@@ -117,11 +117,17 @@ public final class OwnershipChecker {
         }
         if (stmt instanceof Ast.DestructureStmt destructure) {
             ValueInfo source = checkExpr(destructure.initializer(), scope, true);
-            for (Ast.DestructureBinding binding : destructure.bindings()) {
+            for (int i = 0; i < destructure.bindings().size(); i++) {
+                Ast.DestructureBinding binding = destructure.bindings().get(i);
+                if (binding.isDiscard()) continue;
+                Ast.TypeRef bindingType = destructureBindingType(destructure, source.type, i, binding.name());
+                ValueKind bindingKind = bindingType.name().equals("$infer$")
+                        ? (source.kind == ValueKind.COPY ? ValueKind.COPY : ValueKind.MOVE_ONLY)
+                        : kindOfType(bindingType);
                 scope.define(binding.name(), new VarState(
-                        Ast.TypeRef.inferred(),
+                        bindingType,
                         binding.kind() == Ast.BindingKind.LET,
-                        source.kind == ValueKind.COPY ? ValueKind.COPY : ValueKind.MOVE_ONLY,
+                        bindingKind,
                         Origin.LOCAL));
             }
             return;
@@ -670,7 +676,9 @@ public final class OwnershipChecker {
                 blockLocals.add(binding.name());
             } else if (stmt instanceof Ast.DestructureStmt destructure) {
                 scanExpr(destructure.initializer(), blockLocals, outer, recursiveBinding, captures, false);
-                for (Ast.DestructureBinding binding : destructure.bindings()) blockLocals.add(binding.name());
+                for (Ast.DestructureBinding binding : destructure.bindings()) {
+                    if (!binding.isDiscard()) blockLocals.add(binding.name());
+                }
             } else if (stmt instanceof Ast.ReturnStmt ret && ret.value() != null) {
                 scanExpr(ret.value(), blockLocals, outer, recursiveBinding, captures, false);
             } else if (stmt instanceof Ast.ExprStmt e) scanExpr(e.expression(), blockLocals, outer, recursiveBinding, captures, false);
@@ -889,6 +897,20 @@ public final class OwnershipChecker {
         }
     }
 
+    private Ast.TypeRef destructureBindingType(Ast.DestructureStmt destructure, Ast.TypeRef source, int index, String name) {
+        if (source == null) return Ast.TypeRef.inferred();
+        if (destructure.kind() == Ast.DestructureKind.SEQUENCE) {
+            if (source.isTupleType() && index < source.arguments().size()) return source.arguments().get(index);
+            if ((source.name().equals("Array") || source.name().equals("List")) && source.arguments().size() == 1) {
+                return source.arguments().getFirst();
+            }
+        } else if (source.isRecordType()) {
+            Ast.TypeRef member = source.recordMembers().get(name);
+            if (member != null) return member;
+        }
+        return Ast.TypeRef.inferred();
+    }
+
     private ValueKind kindOfType(Ast.TypeRef type) {
         if (type == null) return ValueKind.MOVE_ONLY;
         if (type.isBorrow()) return type.mutableBorrow() ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW;
@@ -897,6 +919,7 @@ public final class OwnershipChecker {
 
     private boolean isCopyType(Ast.TypeRef type) {
         if (type == null || type.isBorrow()) return false;
+        if (type.isUnion()) return type.arguments().stream().allMatch(this::isCopyType);
         return switch (type.name()) {
             case "i8","i16","i32","i64","u8","u16","u32","u64","int","uint","bigint",
                     "f32","f64","float","decimal","complex64","complex128","complex",
