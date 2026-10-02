@@ -38,6 +38,35 @@ jobs:
           -Dtest=GarbageCollectionHardeningTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest,OreslangActorIsolationExampleTest
           test
 
+  gc-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Verify exact mirrored source
+        run: grep -Fq "head b92d32849e2bbe7923154f41f457a79c6bf08e3f" SOURCE_HEAD.txt
+      - name: Compile mirrored Oreslang
+        run: mvn -B -ntp -q -DskipTests compile
+      - name: Run GC language contract example
+        run: |
+          set +e
+          output="$(mvn -B -ntp -DskipTests exec:java -Dexec.args=examples/demo-gc-contract.ores 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [[ "$status" -ne 0 ]]; then
+            exit "$status"
+          fi
+          grep -Fq "gc-contract-ok" <<<"$output"
+          echo "GC DEMO PASS"
+
   full-test:
     runs-on: ubuntu-latest
     steps:
