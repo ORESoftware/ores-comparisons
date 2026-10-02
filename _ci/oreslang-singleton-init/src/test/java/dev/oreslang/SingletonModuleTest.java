@@ -569,6 +569,111 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void hotReloadedSingletonObjectUsesCurrentMethodBehaviorWithExistingState() throws Exception {
+        String firstProgram = """
+                define class HotValue as
+                  val int base = 1;
+
+                  pub read() => int {
+                    return self.base;
+                  }
+                end
+
+                define singleton module hot_object_owner as
+                  pub val HotValue value = new HotValue();
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    stdio.println(await hot_object_owner.value.read());
+                    return;
+                  }
+                end
+                """;
+
+        String secondProgram = """
+                define class HotValue as
+                  val int base = 1;
+
+                  pub read() => int {
+                    return self.base + 10;
+                  }
+                end
+
+                define singleton module hot_object_owner as
+                  pub val HotValue value = new HotValue();
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    stdio.println(await hot_object_owner.value.read());
+                    return;
+                  }
+                end
+                """;
+
+        assertTrue(eval(firstProgram, "hot-object-proxy.ores").contains("1"));
+        assertTrue(eval(secondProgram, "hot-object-proxy.ores").contains("11"));
+    }
+
+    @Test
+    void singletonServiceFunctionValuesCannotBeExtracted() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module extraction_guard as
+                          let int value = 1;
+                          pub fnc read() => int { return value; }
+                        end
+
+                        define module app as
+                          pub routine main() => void {
+                            val f = extraction_guard.read;
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("cannot be extracted"));
+    }
+
+    @Test
+    void singletonModulesCannotAdvertiseOrdinarySynchronousInterfaces() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define interface CounterService {
+                          fnc read() => int;
+                        }
+
+                        @AdheresTo(CounterService)
+                        define singleton module counter_service as
+                          let int value = 1;
+                          pub fnc read() => int { return value; }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("external surface is asynchronous"));
+    }
+
+    @Test
+    void exportedSingletonObjectsRejectInheritanceUntilInheritedSurfaceIsSendChecked() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class BaseValue as
+                          pub read() => int { return 1; }
+                        end
+
+                        define class ChildValue extends BaseValue as
+                        end
+
+                        define singleton module inherited_proxy_owner as
+                          pub val ChildValue value = new ChildValue();
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("cannot use class inheritance"));
+    }
+
+    @Test
     void exportedSingletonObjectCannotCaptureActorLocalModuleState() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
