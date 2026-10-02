@@ -252,38 +252,6 @@ const complex z = 3 + 4i;
 
 Numeric widening is loss-aware; real values can widen toward complex values, but silent lossy narrowing is not performed.
 
-## Generics and operators
-
-Generic declarations and type applications use angle brackets:
-
-```ores
-define class Box<T>
-  val T value;
-end
-
-fnc identity<T>(T value) => T {
-  return value;
-}
-
-fnc use(Box<int> box) => int {
-  return identity(box.value);
-}
-```
-
-Known classes, interfaces, aliases, and built-ins enforce generic arity. Generic parameters are opaque types, not an implicit `any`: a concrete value is not assignable to an unconstrained `T` unless inference has bound that `T`. Generic function and method calls infer type arguments from value arguments. Calls may also state type arguments explicitly with `identity<int>(42)`; `identity<>(42)` explicitly requests inference. Constructors support the same inference marker: `new Box<>(7)` infers `Box<int>` from positional fields, including inherited generic fields. Every class generic must be inferable and repeated occurrences must infer compatibly; otherwise explicit type arguments are required. The `<` opening a call-site generic list must be adjacent to the callable name/member, which keeps ordinary spaced comparisons such as `a < b` unambiguous. Nested generic closers such as `Option<Array<int>>` remain valid.
-
-Generic inference works for both unqualified and module-qualified calls, such as `identity<>(42)` and `util.identity<>(42)`. Generic declarations must currently be specialized by a direct call. Unspecialized polymorphic function or bound-method values such as `val f = identity` or `val f = box.map` are rejected until Oreslang has a first-class universal/polytype representation; non-generic function values remain supported.
-
-Generic bindings are substituted through inherited class fields/methods, constructors, inherited interfaces, structural-typing views, and nominal subtype checks, so `Child<U> extends Parent<U>` preserves the concrete `U` all the way through member access and assignment. Generic class and interface arguments are invariant by default: `Child<int>` may satisfy `Parent<int>`, but never `Parent<String>`; likewise an implementation of `HasValue<int>` does not satisfy `HasValue<String>`.
-
-Generic callable contracts compare type parameters by position rather than spelling, so an interface method `map<T>` can be implemented as `map<U>` when their signatures are otherwise equivalent. The number of callable generic parameters is part of the contract; adding an unused extra generic parameter does not silently satisfy the interface.
-
-`Type<>` is reserved for inferred type arguments in type contexts that explicitly support inference; it is **not** an expression operator. Oreslang uses `^^` for logical XOR and `^` for bitwise XOR.
-
-Logical operators are `!`, `&&`, `^^`, and `||`. `&&` and `||` short-circuit; `^^` evaluates both boolean operands. Bitwise operators are integer-only: unary `~`, binary `&`, `^`, `|`, and shifts `<<`, `>>`, `>>>`. In the current runtime all integral spellings share one signed 64-bit bitwise lane: `~` flips all 64 bits, `<<` shifts left, `>>` is arithmetic/sign-extending right shift, and `>>>` is logical/zero-filling right shift. Shift distances must be in the range 0 through 63. Width-specific masking/sign behavior can be introduced later when the runtime preserves distinct i8/i16/i32/i64/u* representations instead of collapsing them to the current integral type.
-
-From tighter to looser binding, the relevant binary precedence is: multiplicative, additive, shifts, comparisons, equality, bitwise AND, bitwise XOR, bitwise OR, logical AND, logical XOR, logical OR, ternary, assignment. Prefix borrow `&value` / `&mut value` remains unambiguous because bitwise `&` is infix.
-
 ## Lambdas
 
 Lambdas are lexical closures by default and use `->`. The canonical block
@@ -301,50 +269,23 @@ function or block. Captured mutable state remains part of the closure.
 ## Non-lexical callables (`nlex`)
 
 `nlex` is an opt-in **capture barrier**, not a ban on global/module lookup.
-It means that a callable cannot capture bindings owned by an enclosing runtime
-activation. The compiler/runtime can therefore build lambdas in that region
-without retaining or snapshotting an outer local environment.
-
-```ores
-define module math
-  pub fnc offset(int x) => int {
-    return x + 10;
-  }
-end
-
-pub routine main() => void {
-  val int outer_bias = 100;
-
-  val Fnc<int, int> lexical = |int x| -> {
-    return x + outer_bias;
-  };
-
-  val Fnc<int, int> isolated = nlex |int x| -> {
-    val int outer_bias = 1;
-    return math.offset(x) + outer_bias;
-  };
-}
-```
+It prevents a callable from capturing bindings owned by an enclosing runtime
+activation, so an `nlex` lambda does not retain or snapshot an outer local
+environment.
 
 Inside an `nlex` region:
 
-- parameters and locals declared inside the callable are available normally;
-- a local binding shadows a module/global/import binding with the same name;
-- module members, imported symbols, top-level functions/classes, and built-ins
-  such as `stdio`, `process`, and `print` remain available;
-- an enclosing activation-local binding is not available for capture;
-- lambdas created inside an `nlex fnc`, `nlex routine`, or `nlex` lambda
-  inherit the capture barrier recursively.
+- parameters and locals declared inside the callable remain available;
+- locals shadow module/global/import bindings normally;
+- module members, imports, top-level callables/classes, and built-ins remain
+  statically resolvable;
+- enclosing activation-local bindings cannot be captured;
+- lambdas nested in an `nlex fnc`, `nlex routine`, or `nlex` lambda inherit
+  the barrier.
 
-For named top-level/module `fnc` and `routine` declarations, `nlex` is
-mainly a compile-time guarantee about closures created in their bodies: those
-named callables already begin with their own invocation frame. The runtime
-benefit is at lambda creation. Ordinary lambdas snapshot/retain the lexical
-environment they need; an `nlex` lambda takes the no-environment path.
-
-Capture eligibility follows **storage lifetime**, not merely source nesting:
-module/import/global bindings have code-unit lifetime, while outer locals
-belong to an activation frame.
+Actor entry points remain governed by their actor isolation rules. `nlex` may
+add a capture-free guarantee to an actor fnc, but it does not replace mailbox,
+private-slice, or shared-actor isolation.
 
 ## Conditionals
 
@@ -384,7 +325,63 @@ try {
 
 ## Actors
 
-Actors own their mutable heaps. Cross-actor communication occurs through mailboxes, and message values are frozen/copied/serialized at the runtime boundary. Arbitrary mutable host objects are rejected as messages. Deeply immutable values may use read-only sharing.
+Oreslang uses an Akka-style dispatcher model: an actor is **not** a thread. Every actor owns one mailbox, and at most one mailbox turn for a given actor may execute at a time. Actors are multiplexed over bounded thread pools, so the carrier thread may change between turns.
+
+There are two actor execution domains:
+
+```ores
+pub actor fnc worker(int value) => int {
+  return value;
+}
+
+shared actor Account {
+  let int balance = 100;
+
+  pub fnc withdraw(int amount) => void {
+    self.balance = self.balance - amount;
+    return;
+  }
+}
+```
+
+- an unqualified `actor` is **private**;
+- `shared actor` is a **shared-memory-capable** actor;
+- private and shared actors are scheduled on **different dispatcher pools** for bulkheading;
+- compiler-generated/context-aware actor factories are capture-free for **both** actor kinds; mutable host state must enter through messages or explicit runtime-owned capabilities rather than Java closure capture;
+- trusted host embedding has separately named supervisor-only construction escape hatches, and adversarial policies reject them;
+- both kinds still process their own mailbox serially;
+- actor-owned `let` fields may mutate during a mailbox turn because that turn is the exclusive mutation capability for `self`;
+- no lock is required around ordinary actor-owned fields, including fields of a shared actor;
+- actor `self` and move-only state rooted at `self` cannot escape the mailbox turn by value or returned borrow; copy-like values such as integers, booleans, and strings may be returned normally;
+- synchronized shared memory requires the host-granted `SHARED_MEMORY` capability.
+
+Private actors do not accept explicitly shared mutable memory. Each private actor owns a **confined memory slice** identified by its actor id, independent of whichever dispatcher thread happens to execute a mailbox turn. Incoming messages are isolation-copied into that actor domain and charged against the destination slice before mailbox admission. Compiler-managed actor state allocations use the same slice.
+
+The slice has two simultaneous limits:
+
+- a per-actor limit from that actor's `IsolatePolicy.maxHeapBytes()`;
+- an aggregate private-actor memory budget from the parent runtime policy.
+
+This prevents many private actors from multiplying the parent's memory ceiling. Destroying the actor closes its slice and releases its accounting.
+
+The JVM backend's slice is a language/runtime ownership and accounting boundary, not a separate Java GC heap. The slice follows the actor id across dispatcher workers; it is not thread-local state. When physical heap separation is required for adversarial tenant code, the same private-actor semantics must be backed by a cross-thread-capable private region or a separate Graal polyglot/native isolate.
+
+Shared actors may additionally receive:
+
+1. deeply immutable `Shared<T>` values; and
+2. explicit synchronized shared cells.
+
+The runtime primitive for the second case is `SyncCell<T>`. A cell stores only frozen state and serializes replacement updates under a lock. Shared-cell state is quota-accounted against the same parent actor-memory ceiling as private actor slices. Private actor turns cannot create, inspect, mutate, or close a `SyncCell<T>`. This is the intended lowering target for a future `sync` language construct; `sync` is **not** an implicit lock around actor methods.
+
+Actor message graphs are cyclicity-checked and bounded by nesting depth, node count, and logical byte quotas before admission so malicious container graphs cannot turn actor transport into unbounded recursion, CPU, or memory use.
+
+This preserves the central invariant:
+
+> Actor state is mutated through mailbox ownership. Shared mutable state outside an actor is exceptional and must use an explicit synchronization abstraction.
+
+Arbitrary mutable host objects remain invalid actor messages. Actor kind is part of the public ABI, so changing a normal callable/class into a private or shared actor invalidates dependent compiled units.
+
+Shared writable handles use transactional publication. A `SharedMutex<T>` is reserved to the destination runtime before mailbox visibility, committed only after queue admission, and unbound again when first publication fails. This prevents failed sends from accidentally claiming a writable capability for the wrong runtime.
 
 ## Isolates
 
@@ -579,7 +576,7 @@ Security is layered. Oreslang uses a deny-by-default language capability policy 
 
 An isolate policy can independently allow or deny:
 
-`STDIN`, `STDOUT`, `PROCESS_INFO`, `ACTOR_SHARE_READONLY`, `NETWORK`, `FILESYSTEM_READ`, `FILESYSTEM_WRITE`, `ENVIRONMENT`, `HOT_CODE_LOAD`, `FFI`, `NATIVE`, `REFLECTION`, `CHILD_PROCESS`, `THREAD_CREATE`, and `POLYGLOT`.
+`STDIN`, `STDOUT`, `PROCESS_INFO`, `ACTOR_SHARE_READONLY`, `SHARED_MEMORY`, `NETWORK`, `FILESYSTEM_READ`, `FILESYSTEM_WRITE`, `ENVIRONMENT`, `HOT_CODE_LOAD`, `FFI`, `NATIVE`, `REFLECTION`, `CHILD_PROCESS`, `THREAD_CREATE`, and `POLYGLOT`.
 
 The trusted compiler API can reject forbidden API usage before execution:
 
@@ -748,8 +745,7 @@ A static class function:
 - has no implicit or explicit `self`;
 - cannot be invoked through an instance;
 - may be extracted as a function value from the class namespace;
-- has one shared definition, just like any other named function;
-- does not capture enclosing class generics. In `class Box<T>`, a static function cannot use that `T`; declare its own `static fnc identity<U>(U value) => U` instead. Static-function generics support the same explicit and inferred call syntax as top-level functions.
+- has one shared definition, just like any other named function.
 
 Static data fields are intentionally not part of v0.5 yet; `static` on a class binding is rejected rather than silently acquiring Java-like global mutable state semantics.
 
