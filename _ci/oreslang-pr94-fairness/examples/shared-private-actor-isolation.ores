@@ -12,19 +12,24 @@ shared actor SharedCounter {
   let SharedMutex<CounterState> shared_count =
       SharedMutex.new(new CounterState());
 
-  pub fnc increment() => void {
+  pub fnc increment() => bool {
     self.local_count = self.local_count + 1;
 
-    // SharedMutex<T> is a Copy-like synchronized capability. Bind the handle
-    // locally before entering the lexical protected-borrow callback.
+    // Actor mailbox turns must never park a dispatcher carrier. Until actor
+    // continuation lowering can suspend/resume an incomplete lock_async()
+    // future, shared actors use nonblocking acquisition for explicit shared
+    // memory. Ordinary actor-owned state like local_count needs no mutex.
     val shared_count = self.shared_count;
+    val maybe_guard = shared_count.try_lock();
 
-    shared_count.with_lock(|counter| -> {
-      counter.value = counter.value + 1;
-      return;
-    });
+    if maybe_guard.is_none(); do
+      return false;
+    fi
 
-    return;
+    val guard = maybe_guard.unwrap();
+    guard.value = guard.value + 1;
+    guard.release();
+    return true;
   }
 
   pub fnc local_value() => int {
