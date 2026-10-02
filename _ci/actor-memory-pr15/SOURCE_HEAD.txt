@@ -1,5 +1,5 @@
 ores-truffle-oreslang/oreslang-source.java
 PR #81
-head 53e804ebbfb31302528c734b3980bc0dacbb4389
-base feat/akka-style-shared-actors @ b8ff862b95250c257a5874a5252ad6c217ecf4f7
+head f6e698d7dda8b523e5586296b621db5e4689ac95
+base feat/akka-style-shared-actors @ ee59b45e6824cb081b2d8f335f4c55aba308dd65
 focus shared/private actor capability isolation hardening
