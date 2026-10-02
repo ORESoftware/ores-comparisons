@@ -559,6 +559,109 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void persistentModuleStateCannotBeMovedOut() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        define module state as
+                          val Box box = new Box();
+
+                          pub fnc take_out() => Box {
+                            return box;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("persistent module-owned state"));
+    }
+
+    @Test
+    void ordinaryCallsMayReadBorrowModuleState() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 7;
+                end
+
+                define module state as
+                  val Box box = new Box();
+
+                  fnc read(Box value) => int {
+                    return value.value;
+                  }
+
+                  pub fnc current() => int {
+                    return read(box);
+                  }
+                end
+                """)));
+    }
+
+    @Test
+    void mutableCallsMayExclusivelyBorrowLetModuleState() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub let int value = 0;
+                end
+
+                define module state as
+                  let Box box = new Box();
+
+                  fnc bump(mut Box value) => void {
+                    value.value = value.value + 1;
+                    return;
+                  }
+
+                  pub fnc next() => int {
+                    bump(box);
+                    return box.value;
+                  }
+                end
+                """)));
+    }
+
+    @Test
+    void qualifiedCopyModuleFieldsMayBeReadDirectly() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module state as
+                  pub val int count = 7;
+                end
+
+                define module app as
+                  pub fnc read() => int {
+                    return state.count;
+                  }
+                end
+                """)));
+    }
+
+    @Test
+    void qualifiedNonCopyModuleFieldsRequireAnAccessor() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        define module state as
+                          pub val Box box = new Box();
+                        end
+
+                        define module app as
+                          pub fnc bad() => int {
+                            return state.box.value;
+                          }
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("cannot directly extract non-Copy module state"));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
