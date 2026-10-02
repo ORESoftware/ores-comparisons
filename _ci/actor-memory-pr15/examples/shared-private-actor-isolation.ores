@@ -15,7 +15,11 @@ shared actor SharedCounter {
   pub fnc increment() => void {
     self.local_count = self.local_count + 1;
 
-    self.shared_count.with_lock(|counter| -> {
+    // SharedMutex<T> is a Copy-like synchronized capability. Bind the handle
+    // locally before entering the lexical protected-borrow callback.
+    val shared_count = self.shared_count;
+
+    shared_count.with_lock(|counter| -> {
       counter.value = counter.value + 1;
       return;
     });
