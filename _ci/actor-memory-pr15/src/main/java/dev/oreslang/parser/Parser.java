@@ -766,7 +766,7 @@ public final class Parser {
                 consume(RPAREN, "expected ')' after arguments");
                 expr = new Ast.CallExpr(expr, args);
             } else if (match(DOT)) {
-                String member = consume(IDENT, "expected member name after '.'").lexeme();
+                String member = consumeMemberName();
                 expr = new Ast.MemberExpr(expr, member);
             } else if (match(LBRACKET)) {
                 Ast.Expr index = parseExpression();
@@ -775,6 +775,32 @@ public final class Parser {
             } else break;
         }
         return expr;
+    }
+
+    private String consumeMemberName() {
+        Token token = peek();
+        if (isMemberNameToken(token.type())) {
+            advance();
+            return token.lexeme();
+        }
+        throw error(token, "expected member name after '.'");
+    }
+
+    /**
+     * Reserved words remain illegal lexical identifiers, but member names live
+     * in a separate namespace. This permits APIs such as SharedMutex.new(...)
+     * without allowing declarations such as `val new = ...`.
+     */
+    private static boolean isMemberNameToken(Token.Type type) {
+        return switch (type) {
+            case IDENT,
+                    DEFINE, CLASS, MODULE, NAMESPACE, IMPORT, FROM, AS, EXTENDS, IMPLEMENTS,
+                    TRY, CATCH, FINALLY, END, FI, IF, DO, ELSE, THEN,
+                    NEW, DONE, AWAIT, ASYNC, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
+                    INTERFACE, IMPL, ABSTRACT, VOID, STATIC, PUB, PRIVATE, STRUCTURAL, RETURN, DEFER,
+                    VAL, CONST, LET, MUT, SELF, TRUE, FALSE, NULL, OBJ, ARR -> true;
+            default -> false;
+        };
     }
 
     private Ast.Expr parsePrimary() {
