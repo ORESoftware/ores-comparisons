@@ -124,7 +124,7 @@ final class GarbageCollectionRuntimeTest {
     void gcSurfaceTypeChecksAndCapabilityPolicyFailsClosed() {
         String source = """
                 pub routine main() => void {
-                  const report = process.gc();
+                  val report = process.gc();
                   print(report.scavenged);
                   return;
                 }
