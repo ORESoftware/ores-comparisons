@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: ["main"]
 
-concurrency:
-  group: oreslang-pr68-v4-mirror
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
