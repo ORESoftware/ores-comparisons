@@ -104,11 +104,15 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private Object callFunction(Ast.FunctionDecl fn, List<?> args) {
+            if (fn.actorKind() != Ast.ActorKind.NONE) {
+                throw new IllegalStateException("actor fnc '" + fn.name()
+                        + "' cannot execute on the caller stack; it must be lowered through ActorRuntime");
+            }
             if (args.size() != fn.parameters().size()) {
                 if (fn.parameters().isEmpty() && args.size() == 1 && args.getFirst() instanceof Object[] array && array.length == 0) args = List.of();
                 else throw new IllegalArgumentException("function " + fn.name() + " expects " + fn.parameters().size() + " arguments, got " + args.size());
             }
-            Env env = new Env(null);
+            Env env = new Env(null, fn.nonLexical());
             for (int i = 0; i < fn.parameters().size(); i++) {
                 Ast.Param param = fn.parameters().get(i);
                 env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
@@ -269,7 +273,17 @@ public final class OresEvalRootNode extends RootNode {
                     Object receiver = eval(target.receiver(), env);
                     if (receiver instanceof OresMutex.Guard<?> guard) receiver = guard.value();
                     if (receiver instanceof OresObject object) {
-                        if (!object.fields.containsKey(target.member())) throw new IllegalArgumentException("unknown field " + target.member());
+                        if (!object.fields.containsKey(target.member())) {
+                            throw new IllegalArgumentException("unknown field " + target.member());
+                        }
+                        Ast.FieldDecl field = effectiveFields(object.klass, new LinkedHashSet<>()).stream()
+                                .filter(candidate -> candidate.name().equals(target.member()))
+                                .findFirst()
+                                .orElseThrow(() -> new IllegalArgumentException("unknown field " + target.member()));
+                        if (field.bindingKind() != Ast.BindingKind.LET) {
+                            throw new IllegalArgumentException("field '" + object.klass.name() + "."
+                                    + target.member() + "' is immutable");
+                        }
                         object.fields.put(target.member(), value);
                         return value;
                     }
@@ -298,14 +312,31 @@ public final class OresEvalRootNode extends RootNode {
                 Object value = eval(unary.operand(), env);
                 return switch (unary.operator()) {
                     case "&", "&mut" -> value;
-                    case "!" -> !truth(value); case "+" -> value; case "-" -> negate(value);
+                    case "!" -> !truth(value);
+                    case "~" -> ~integralLong(value);
+                    case "+" -> value;
+                    case "-" -> negate(value);
                     default -> throw new IllegalArgumentException("unsupported unary operator " + unary.operator());
                 };
             }
             if (expr instanceof Ast.BinaryExpr binary) {
-                if (binary.operator().equals(",")) return truth(eval(binary.left(), env)) && truth(eval(binary.right(), env));
-                if (binary.operator().equals("|")) return truth(eval(binary.left(), env)) || truth(eval(binary.right(), env));
-                return binary(binary.operator(), eval(binary.left(), env), eval(binary.right(), env));
+                if (binary.operator().equals("&&")) {
+                    Object left = eval(binary.left(), env);
+                    return truth(left) && truth(eval(binary.right(), env));
+                }
+                if (binary.operator().equals("||")) {
+                    Object left = eval(binary.left(), env);
+                    return truth(left) || truth(eval(binary.right(), env));
+                }
+                if (binary.operator().equals("^^")) {
+                    return truth(eval(binary.left(), env)) ^ truth(eval(binary.right(), env));
+                }
+                Object left = eval(binary.left(), env);
+                Object right = eval(binary.right(), env);
+                if (binary.operator().equals("|") && left instanceof Boolean lb && right instanceof Boolean rb) {
+                    return lb || rb;
+                }
+                return binary(binary.operator(), left, right);
             }
             if (expr instanceof Ast.CallExpr call) {
                 if (call.callee() instanceof Ast.MemberExpr methodCall) {
@@ -339,6 +370,10 @@ public final class OresEvalRootNode extends RootNode {
             if (expr instanceof Ast.NewExpr created) {
                 Ast.ClassDecl klass = findClass(created.type().name());
                 if (klass == null) throw new IllegalArgumentException("unknown class " + created.type().name());
+                if (klass.actorKind() != Ast.ActorKind.NONE) {
+                    throw new IllegalStateException("actor '" + klass.name()
+                            + "' cannot be constructed with new; actor state must be initialized inside ActorRuntime");
+                }
                 List<Object> args = created.arguments().stream().map(arg -> eval(arg, env)).toList();
                 List<Ast.FieldDecl> classFields = effectiveFields(klass, new LinkedHashSet<>());
                 if (args.size() > classFields.size()) throw new IllegalArgumentException("too many constructor arguments for " + klass.name());
@@ -355,7 +390,14 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (expr instanceof Ast.AwaitExpr awaited) {
                 Object value = eval(awaited.expression(), env);
-                if (value instanceof CompletionStage<?> stage) return stage.toCompletableFuture().join();
+                if (value instanceof CompletionStage<?> stage) {
+                    var future = stage.toCompletableFuture();
+                    if (ActorRuntime.inActorExecution() && !future.isDone()) {
+                        throw new IllegalStateException(
+                                "await would block an actor dispatcher carrier; actor continuation lowering must suspend/resume the mailbox turn");
+                    }
+                    return future.join();
+                }
                 return value;
             }
             if (expr instanceof Ast.ListExpr list) {
@@ -372,10 +414,11 @@ public final class OresEvalRootNode extends RootNode {
                 return Map.copyOf(result);
             }
             if (expr instanceof Ast.LambdaExpr lambda) {
-                Env captured = env.snapshot();
+                boolean nonLexical = lambda.nonLexical() || env.descendantsNonLexical();
+                Env captured = nonLexical ? null : env.snapshot();
                 return (Invokable) args -> {
                     if (args.size() != lambda.parameters().size()) throw new IllegalArgumentException("lambda arity mismatch");
-                    Env local = new Env(captured);
+                    Env local = new Env(captured, nonLexical);
                     for (int i = 0; i < lambda.parameters().size(); i++) {
                         Ast.Param param = lambda.parameters().get(i);
                         local.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
@@ -653,6 +696,12 @@ public final class OresEvalRootNode extends RootNode {
                 case "==" -> Objects.equals(left, right); case "!=" -> !Objects.equals(left, right);
                 case "<" -> compare(left, right) < 0; case "<=" -> compare(left, right) <= 0;
                 case ">" -> compare(left, right) > 0; case ">=" -> compare(left, right) >= 0;
+                case "&" -> integralLong(left) & integralLong(right);
+                case "|" -> integralLong(left) | integralLong(right);
+                case "^" -> integralLong(left) ^ integralLong(right);
+                case "<<" -> integralLong(left) << shiftDistance(right);
+                case ">>" -> integralLong(left) >> shiftDistance(right);
+                case ">>>" -> integralLong(left) >>> shiftDistance(right);
                 default -> throw new IllegalArgumentException("unsupported operator " + op);
             };
         }
@@ -678,6 +727,21 @@ public final class OresEvalRootNode extends RootNode {
             }
             double x = a.doubleValue(), y = b.doubleValue();
             return switch (op) { case '+' -> x + y; case '-' -> x - y; case '*' -> x * y; case '/' -> x / y; case '%' -> x % y; default -> throw new IllegalArgumentException("bad numeric operator"); };
+        }
+
+        private long integralLong(Object value) {
+            if (!(value instanceof Number number) || !isIntegral(number)) {
+                throw new IllegalArgumentException("bitwise operator requires integer operands");
+            }
+            return number.longValue();
+        }
+
+        private int shiftDistance(Object value) {
+            long distance = integralLong(value);
+            if (distance < 0 || distance > 63) {
+                throw new IllegalArgumentException("shift distance must be between 0 and 63");
+            }
+            return (int) distance;
         }
 
         private Object negate(Object value) {
@@ -771,8 +835,14 @@ public final class OresEvalRootNode extends RootNode {
     private static final class Env {
         private static final Object MISSING = new Object();
         private final Env parent;
+        private final boolean descendantsNonLexical;
         private final Map<String, Slot> slots = new HashMap<>();
-        private Env(Env parent) { this.parent = parent; }
+        private Env(Env parent) { this(parent, parent != null && parent.descendantsNonLexical); }
+        private Env(Env parent, boolean descendantsNonLexical) {
+            this.parent = parent;
+            this.descendantsNonLexical = descendantsNonLexical;
+        }
+        private boolean descendantsNonLexical() { return descendantsNonLexical; }
         private void define(String name, Object value, Ast.BindingKind kind) {
             if (slots.putIfAbsent(name, new Slot(value, kind)) != null) throw new IllegalArgumentException("duplicate binding " + name);
         }
@@ -795,7 +865,11 @@ public final class OresEvalRootNode extends RootNode {
             if (parent != null) { parent.assign(name, value); return; }
             throw new IllegalArgumentException("unknown binding " + name);
         }
-        private Env snapshot() { Env cp=new Env(parent==null?null:parent.snapshot()); cp.slots.putAll(slots); return cp; }
+        private Env snapshot() {
+            Env cp = new Env(parent == null ? null : parent.snapshot(), descendantsNonLexical);
+            cp.slots.putAll(slots);
+            return cp;
+        }
         private void releaseMutexGuards(boolean failed) {
             Set<Object> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
             for (Slot slot : slots.values()) releaseMutexGuardsInValue(slot.value, failed, seen);
@@ -816,8 +890,7 @@ public final class OresEvalRootNode extends RootNode {
                 if (option.present()) releaseMutexGuardsInValue(option.value(), failed, seen);
                 return;
             }
-            if (value instanceof CompletionStage<?> stage) {
-                var future = stage.toCompletableFuture();
+            if (value instanceof OresMutex.GuardFuture<?> future) {
                 if (!future.isDone()) {
                     future.cancel(true);
                     return;
