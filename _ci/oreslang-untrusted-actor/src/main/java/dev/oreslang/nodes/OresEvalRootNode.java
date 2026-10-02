@@ -329,6 +329,8 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (expr instanceof Ast.CallExpr call) {
                 if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.UNTRUSTED) {
+                    // Charge every callable path, including recursive lambdas
+                    // and static-method dispatch, not only named functions.
                     context.schedulerSafepoint();
                 }
                 if (call.callee() instanceof Ast.MemberExpr methodCall) {

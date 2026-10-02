@@ -16,7 +16,7 @@ public record Token(Type type, String lexeme, int line, int column) {
 
         LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,
         COMMA, DOT, SEMICOLON, COLON, QUESTION, AT,
-        PLUS, MINUS, STAR, SLASH, PERCENT, PIPE, AMP, BANG,
+        PLUS, MINUS, STAR, SLASH, PERCENT, PIPE, AMP, CARET, TILDE, BANG,
         EQUAL, EQUAL_EQUAL, BANG_EQUAL,
         LT, LTE, GT, GTE,
         ARROW, FAT_ARROW,

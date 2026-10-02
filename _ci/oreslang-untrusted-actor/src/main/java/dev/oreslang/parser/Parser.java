@@ -260,8 +260,6 @@ public final class Parser {
             if (mods.isStatic) {
                 consume(FNC, "static actor functions must be declared with 'static fnc'");
             } else {
-                // Actor methods may use the explicit fnc spelling shown by the
-                // actor API, while ordinary class instance methods omit fnc.
                 match(FNC);
             }
             methods.add(parseMethod(annotations, mods));
@@ -325,18 +323,9 @@ public final class Parser {
 
     private Ast.FieldDecl parseField(Ast.Visibility visibility) {
         Ast.BindingKind kind = parseBindingKind();
-        Ast.TypeRef type = null;
-        String name;
-        if (checkIdentifier() && checkNext(EQUAL)) {
-            name = advance().lexeme();
-        } else {
-            type = parseTypeRef();
-            name = consumeIdentifier("expected field name").lexeme();
-        }
+        Ast.TypeRef type = parseTypeRef();
+        String name = consumeIdentifier("expected field name").lexeme();
         Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
-        if (type == null && initializer == null) {
-            throw error(previous(), "inferred field '" + name + "' requires an initializer");
-        }
         consumeStatementTerminator("field declaration should end with ';'");
         return new Ast.FieldDecl(name, visibility, kind, type, initializer);
     }
@@ -890,12 +879,9 @@ public final class Parser {
     }
 
     private Ast.Expr parseCondition() {
-        Ast.Expr expression = parseEquality();
-        while (true) {
-            if (match(COMMA)) expression = new Ast.BinaryExpr(",", expression, parseEquality());
-            else if (match(PIPE)) expression = new Ast.BinaryExpr("|", expression, parseEquality());
-            else break;
-        }
+        Ast.Expr expression = parseLogicalOr();
+        // Legacy condition-only comma means logical AND. Prefer && in new code.
+        while (match(COMMA)) expression = new Ast.BinaryExpr("&&", expression, parseLogicalOr());
         return expression;
     }
 
@@ -933,7 +919,7 @@ public final class Parser {
     }
 
     private Ast.Expr parseConditional() {
-        Ast.Expr condition = parseOr();
+        Ast.Expr condition = parseLogicalOr();
         if (!match(QUESTION)) return condition;
         Ast.Expr whenTrue = parseAssignment();
         consume(COLON, "expected ':' in ternary expression");
@@ -941,9 +927,39 @@ public final class Parser {
         return new Ast.ConditionalExpr(condition, whenTrue, whenFalse);
     }
 
-    private Ast.Expr parseOr() {
+    private Ast.Expr parseLogicalOr() {
+        Ast.Expr expr = parseLogicalXor();
+        while (matchAdjacentPair(PIPE)) expr = new Ast.BinaryExpr("||", expr, parseLogicalXor());
+        return expr;
+    }
+
+    private Ast.Expr parseLogicalXor() {
+        Ast.Expr expr = parseLogicalAnd();
+        while (matchAdjacentPair(CARET)) expr = new Ast.BinaryExpr("^^", expr, parseLogicalAnd());
+        return expr;
+    }
+
+    private Ast.Expr parseLogicalAnd() {
+        Ast.Expr expr = parseBitwiseOr();
+        while (matchAdjacentPair(AMP)) expr = new Ast.BinaryExpr("&&", expr, parseBitwiseOr());
+        return expr;
+    }
+
+    private Ast.Expr parseBitwiseOr() {
+        Ast.Expr expr = parseBitwiseXor();
+        while (matchSingleOperator(PIPE)) expr = new Ast.BinaryExpr("|", expr, parseBitwiseXor());
+        return expr;
+    }
+
+    private Ast.Expr parseBitwiseXor() {
+        Ast.Expr expr = parseBitwiseAnd();
+        while (matchSingleOperator(CARET)) expr = new Ast.BinaryExpr("^", expr, parseBitwiseAnd());
+        return expr;
+    }
+
+    private Ast.Expr parseBitwiseAnd() {
         Ast.Expr expr = parseEquality();
-        while (match(PIPE)) expr = new Ast.BinaryExpr("|", expr, parseEquality());
+        while (matchSingleOperator(AMP)) expr = new Ast.BinaryExpr("&", expr, parseEquality());
         return expr;
     }
 
@@ -957,9 +973,22 @@ public final class Parser {
     }
 
     private Ast.Expr parseComparison() {
-        Ast.Expr expr = parseAdditive();
+        Ast.Expr expr = parseShift();
         while (match(LT, LTE, GT, GTE)) {
             String op = previous().lexeme();
+            expr = new Ast.BinaryExpr(op, expr, parseShift());
+        }
+        return expr;
+    }
+
+    private Ast.Expr parseShift() {
+        Ast.Expr expr = parseAdditive();
+        while (true) {
+            String op;
+            if (matchAdjacentTriple(GT)) op = ">>>";
+            else if (matchAdjacentPair(LT)) op = "<<";
+            else if (matchAdjacentPair(GT)) op = ">>";
+            else break;
             expr = new Ast.BinaryExpr(op, expr, parseAdditive());
         }
         return expr;
@@ -984,7 +1013,7 @@ public final class Parser {
     }
 
     private Ast.Expr parseUnary() {
-        if (match(BANG, MINUS, PLUS)) return new Ast.UnaryExpr(previous().lexeme(), parseUnary());
+        if (match(BANG, TILDE, MINUS, PLUS)) return new Ast.UnaryExpr(previous().lexeme(), parseUnary());
         if (match(AMP)) {
             boolean mutable = match(MUT);
             return new Ast.UnaryExpr(mutable ? "&mut" : "&", parseUnary());
@@ -996,7 +1025,13 @@ public final class Parser {
     private Ast.Expr parsePostfix() {
         Ast.Expr expr = parsePrimary();
         while (true) {
-            if (match(LPAREN)) {
+            if (check(LT) && adjacent(previous(), peek()) && looksLikeTypeArgumentCall()) {
+                List<Ast.TypeRef> typeArguments = parseCallTypeArguments();
+                consume(LPAREN, "expected '(' after call type arguments");
+                List<Ast.Expr> args = parseArgumentsUntil(RPAREN);
+                consume(RPAREN, "expected ')' after arguments");
+                expr = new Ast.CallExpr(expr, typeArguments, args);
+            } else if (match(LPAREN)) {
                 List<Ast.Expr> args = parseArgumentsUntil(RPAREN);
                 consume(RPAREN, "expected ')' after arguments");
                 expr = new Ast.CallExpr(expr, args);
@@ -1010,6 +1045,32 @@ public final class Parser {
             } else break;
         }
         return expr;
+    }
+
+    private List<Ast.TypeRef> parseCallTypeArguments() {
+        consume(LT, "expected '<' before call type arguments");
+        List<Ast.TypeRef> arguments = new ArrayList<>();
+        if (!check(GT)) {
+            do arguments.add(parseTypeRef()); while (match(COMMA));
+        }
+        consume(GT, "expected '>' after call type arguments");
+        return List.copyOf(arguments);
+    }
+
+    private boolean looksLikeTypeArgumentCall() {
+        int depth = 0;
+        for (int i = current; i < tokens.size(); i++) {
+            Token.Type type = tokens.get(i).type();
+            if (type == LT) depth++;
+            else if (type == GT) {
+                depth--;
+                if (depth == 0) return i + 1 < tokens.size() && tokens.get(i + 1).type() == LPAREN;
+                if (depth < 0) return false;
+            } else if (type == SEMICOLON || type == EQUAL || type == QUESTION || type == COLON) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private String consumeMemberName() {
@@ -1031,7 +1092,7 @@ public final class Parser {
             case IDENT, SHARED, UNTRUSTED,
                     DEFINE, CLASS, MODULE, NAMESPACE, IMPORT, FROM, AS, EXTENDS, IMPLEMENTS,
                     TRY, CATCH, FINALLY, END, FI, IF, DO, ELSE, THEN,
-                    NEW, DONE, AWAIT, ASYNC, NLEX, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
+                    NEW, DONE, AWAIT, ASYNC, NLEX, ACTOR, SHARED, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
                     INTERFACE, IMPL, ABSTRACT, VOID, STATIC, PUB, PRIVATE, STRUCTURAL, RETURN, DEFER,
                     VAL, CONST, LET, MUT, SELF, TRUE, FALSE, NULL, OBJ, ARR -> true;
             default -> false;
@@ -1221,6 +1282,43 @@ public final class Parser {
 
     private boolean check(Token.Type type) { return peek().type() == type; }
     private boolean checkNext(Token.Type type) { return current + 1 < tokens.size() && tokens.get(current + 1).type() == type; }
+
+    private boolean adjacent(Token left, Token right) {
+        return left.line() == right.line() && right.column() == left.column() + left.lexeme().length();
+    }
+
+    private boolean checkAdjacentPair(Token.Type type) {
+        return current + 1 < tokens.size()
+                && tokens.get(current).type() == type
+                && tokens.get(current + 1).type() == type
+                && adjacent(tokens.get(current), tokens.get(current + 1));
+    }
+
+    private boolean matchAdjacentPair(Token.Type type) {
+        if (!checkAdjacentPair(type)) return false;
+        advance();
+        advance();
+        return true;
+    }
+
+    private boolean matchAdjacentTriple(Token.Type type) {
+        if (current + 2 >= tokens.size()) return false;
+        Token first = tokens.get(current);
+        Token second = tokens.get(current + 1);
+        Token third = tokens.get(current + 2);
+        if (first.type() != type || second.type() != type || third.type() != type
+                || !adjacent(first, second) || !adjacent(second, third)) return false;
+        advance();
+        advance();
+        advance();
+        return true;
+    }
+
+    private boolean matchSingleOperator(Token.Type type) {
+        if (!check(type) || checkAdjacentPair(type)) return false;
+        advance();
+        return true;
+    }
     private boolean checkNextLexeme(String lexeme) {
         return current + 1 < tokens.size() && tokens.get(current + 1).type() == IDENT
                 && tokens.get(current + 1).lexeme().equals(lexeme);
@@ -1233,5 +1331,12 @@ public final class Parser {
         return new IllegalArgumentException("Oreslang parse error at " + token.line() + ":" + token.column() + ": " + message);
     }
 
-    private record Modifiers(Ast.Visibility visibility, boolean async, boolean nonLexical, boolean isStatic, boolean isAbstract, boolean shared, boolean untrusted) { }
+    private record Modifiers(
+            Ast.Visibility visibility,
+            boolean async,
+            boolean nonLexical,
+            boolean isStatic,
+            boolean isAbstract,
+            boolean shared,
+            boolean untrusted) { }
 }
