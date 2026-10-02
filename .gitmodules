@@ -394,6 +394,14 @@
 	path = stacks/scintilla-run/projects/http-observability/repos/sdk-typescript
 	url = https://github.com/ores-dummy-org-6/sdk-typescript.git
 	branch = stack/scintilla-run
+[submodule "reference--graal-show--rails-to-lambdas--app"]
+	path = stacks/graal-show/references/rails-to-lambdas/repos/ores-ror.rb
+	url = https://github.com/ores-ror-to-lambdas-demo/ores-ror.rb.git
+	branch = main
+[submodule "reference--graal-show--rails-to-lambdas--infra"]
+	path = stacks/graal-show/references/rails-to-lambdas/repos/ores-ror.infra
+	url = https://github.com/ores-ror-to-lambdas-demo/ores-ror.infra.git
+	branch = main
 [submodule "runtime--graal-show--clojure-jvm-1--_github"]
 	path = stacks/graal-show/projects/clojure-jvm-1/repos/.github
 	url = https://github.com/ores-dummy-org-clojure-jvm-1/.github.git
@@ -1513,4 +1521,12 @@
 [submodule "runtime--wasm-xprs--zig-wasm-2--ores-dummy-org-zig-wasm-2-web-server_zig"]
 	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-web-server.zig
 	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-web-server.zig.git
+	branch = main
+[submodule "runtime--graal-show--ruby-graal-1--ores-dummy-org-ruby-graal-1-api-server_rb"]
+	path = stacks/graal-show/projects/ruby-graal-1/repos/ores-dummy-org-ruby-graal-1-api-server.rb
+	url = https://github.com/ores-dummy-org-ruby-graal-1/ores-dummy-org-ruby-graal-1-api-server.rb.git
+	branch = main
+[submodule "runtime--graal-show--ruby-graal-1--ores-dummy-org-ruby-graal-1-lambdas"]
+	path = stacks/graal-show/projects/ruby-graal-1/repos/ores-dummy-org-ruby-graal-1-lambdas
+	url = https://github.com/ores-dummy-org-ruby-graal-1/ores-dummy-org-ruby-graal-1-lambdas.git
 	branch = main
