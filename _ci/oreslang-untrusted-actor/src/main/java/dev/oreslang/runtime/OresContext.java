@@ -55,6 +55,12 @@ public final class OresContext implements AutoCloseable {
     public ExecutionProfile executionProfile() { return executionProfile; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
+        // Actor authority is always an attenuation of the surrounding context,
+        // never an inheritance shortcut. This runtime check remains
+        // authoritative even if stale/malformed compiled input bypasses the
+        // static CapabilityChecker.
+        IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
+        if (actorPolicy != null) actorPolicy.require(capability, api);
         isolatePolicy.require(capability, api);
     }
 
