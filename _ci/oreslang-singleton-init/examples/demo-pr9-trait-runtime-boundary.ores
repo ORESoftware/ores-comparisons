@@ -1,0 +1,17 @@
+namespace trait_parameter_boundary_demo;
+
+define trait Stateful as
+  private val int state = 1;
+
+  pub read() => int {
+    return self.state;
+  }
+end
+
+fnc invalid(Stateful value) => int {
+  return value.read();
+}
+
+pub routine main() => void {
+  return;
+}
