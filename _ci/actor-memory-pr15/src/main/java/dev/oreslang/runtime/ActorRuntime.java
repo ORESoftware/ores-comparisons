@@ -267,10 +267,11 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         boolean enqueued = false;
+        List<OresMutex.Shared<?>> sharedMutexReservations = List.of();
         try {
             Object frozen = freezeForThisRuntime(message);
-            Set<OresMutex.Shared<?>> sharedMutexes = sharedMutexesIn(frozen);
-            if (!sharedMutexes.isEmpty()) {
+            boolean containsShared = containsSharedMutex(frozen);
+            if (containsShared) {
                 IsolatePolicy sender = CURRENT_ACTOR_POLICY.get();
                 if (sender != null) sender.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor send");
                 else policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex host send");
@@ -281,26 +282,21 @@ public final class ActorRuntime implements AutoCloseable {
                 if (closed.get()) {
                     throw new IllegalStateException("actor runtime is closed");
                 }
-
-                if (!sharedMutexes.isEmpty()) {
-                    boolean compatible = OresMutex.publishToRuntime(this, sharedMutexes, () -> {
-                        if (!cell.enqueueReserved(frozen)) {
-                            throw new IllegalStateException(
-                                    "actor terminated before message admission for " + ref.id());
-                        }
-                    });
-                    if (!compatible) {
-                        throw new IllegalArgumentException(
-                                "SharedMutex may cross actor mailboxes only within its owning ActorRuntime");
-                    }
-                } else if (!cell.enqueueReserved(frozen)) {
+                if (containsShared) {
+                    sharedMutexReservations = reserveSharedMutexBindings(frozen);
+                }
+                if (!cell.enqueueReserved(frozen)) {
                     throw new IllegalStateException(
                             "actor terminated before message admission for " + ref.id());
                 }
                 enqueued = true;
+                commitSharedMutexBindings(sharedMutexReservations);
             }
         } finally {
-            if (!enqueued) cell.releaseMailboxSlot();
+            if (!enqueued) {
+                abortSharedMutexBindings(sharedMutexReservations);
+                cell.releaseMailboxSlot();
+            }
         }
     }
 
@@ -547,45 +543,84 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
-    private static Set<OresMutex.Shared<?>> sharedMutexesIn(Object value) {
-        Set<OresMutex.Shared<?>> handles =
+    private List<OresMutex.Shared<?>> reserveSharedMutexBindings(Object value) {
+        Set<OresMutex.Shared<?>> unique =
                 Collections.newSetFromMap(new IdentityHashMap<>());
-        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        collectSharedMutexes(value, handles, seen);
-        return handles;
+        collectSharedMutexes(value, unique);
+
+        List<OresMutex.Shared<?>> reserved = new ArrayList<>(unique.size());
+        try {
+            for (OresMutex.Shared<?> mutex : unique) {
+                if (!mutex.reserveRuntimePublication(this)) {
+                    throw new IllegalArgumentException(
+                            "SharedMutex may cross actor mailboxes only within its owning ActorRuntime");
+                }
+                reserved.add(mutex);
+            }
+            return reserved;
+        } catch (RuntimeException | Error failure) {
+            abortSharedMutexBindings(reserved);
+            throw failure;
+        }
     }
 
     private static void collectSharedMutexes(
             Object value,
-            Set<OresMutex.Shared<?>> handles,
-            Set<Object> seen) {
-        if (value == null) return;
+            Set<OresMutex.Shared<?>> out) {
         if (value instanceof OresMutex.Shared<?> sharedMutex) {
-            handles.add(sharedMutex);
+            out.add(sharedMutex);
             return;
         }
         if (value instanceof Shared<?> shared) {
-            if (!seen.add(value)) return;
-            collectSharedMutexes(shared.value(), handles, seen);
+            collectSharedMutexes(shared.value(), out);
             return;
         }
         if (value instanceof List<?> list) {
-            if (!seen.add(value)) return;
-            for (Object item : list) collectSharedMutexes(item, handles, seen);
+            for (Object item : list) collectSharedMutexes(item, out);
             return;
         }
         if (value instanceof Set<?> set) {
-            if (!seen.add(value)) return;
-            for (Object item : set) collectSharedMutexes(item, handles, seen);
+            for (Object item : set) collectSharedMutexes(item, out);
             return;
         }
         if (value instanceof Map<?, ?> map) {
-            if (!seen.add(value)) return;
             for (Map.Entry<?, ?> entry : map.entrySet()) {
-                collectSharedMutexes(entry.getKey(), handles, seen);
-                collectSharedMutexes(entry.getValue(), handles, seen);
+                collectSharedMutexes(entry.getKey(), out);
+                collectSharedMutexes(entry.getValue(), out);
             }
         }
+    }
+
+    private void commitSharedMutexBindings(List<OresMutex.Shared<?>> reservations) {
+        for (OresMutex.Shared<?> mutex : reservations) {
+            mutex.commitRuntimePublication(this);
+        }
+    }
+
+    private void abortSharedMutexBindings(List<OresMutex.Shared<?>> reservations) {
+        for (int i = reservations.size() - 1; i >= 0; i--) {
+            reservations.get(i).abortRuntimePublication(this);
+        }
+    }
+
+    private static boolean containsSharedMutex(Object value) {
+        if (value instanceof OresMutex.Shared<?>) return true;
+        if (value instanceof Shared<?> shared) return containsSharedMutex(shared.value());
+        if (value instanceof List<?> list) {
+            for (Object item : list) if (containsSharedMutex(item)) return true;
+            return false;
+        }
+        if (value instanceof Set<?> set) {
+            for (Object item : set) if (containsSharedMutex(item)) return true;
+            return false;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (containsSharedMutex(entry.getKey()) || containsSharedMutex(entry.getValue())) return true;
+            }
+            return false;
+        }
+        return false;
     }
 
     /** Implemented by generated immutable Oreslang aggregate values. */
