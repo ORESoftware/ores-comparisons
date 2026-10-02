@@ -375,13 +375,22 @@ final class GpuKeywordTest {
 
     @Test
     void gpuNeverSilentlyFallsBackToCpu() {
+        GpuRuntime.GpuUnavailableException unavailable = assertThrows(
+                GpuRuntime.GpuUnavailableException.class,
+                () -> new GpuRuntime().dispatch(
+                        "test.kernel",
+                        GpuRuntime.CallableKind.ROUTINE,
+                        java.util.List.of()));
+        assertTrue(unavailable.getMessage().contains("CPU fallback is forbidden"));
+
         PolyglotException failure = assertThrows(PolyglotException.class, () -> run("""
                 pub gpu routine main() => void {
                   return;
                 }
                 """));
 
-        assertTrue(failure.getMessage().contains("CPU fallback is forbidden"));
+        assertTrue(failure.isGuestException());
+        assertFalse(failure.isInternalError());
     }
 
     @Test
