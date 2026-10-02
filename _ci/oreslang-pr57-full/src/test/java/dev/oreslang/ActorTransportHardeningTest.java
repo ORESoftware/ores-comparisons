@@ -122,7 +122,7 @@ final class ActorTransportHardeningTest {
         try (ActorRuntime runtime = new ActorRuntime()) {
             java.util.concurrent.CountDownLatch attempted = new java.util.concurrent.CountDownLatch(1);
 
-            var ref = runtime.<String>spawnPrivate(factoryContext -> {
+            var ref = runtime.<String>spawnPrivateTrusted(factoryContext -> {
                 attempted.countDown();
                 throw new IllegalStateException("startup failed");
             });
