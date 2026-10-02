@@ -1,0 +1,46 @@
+name: oreslang-demo-pr9-ownership
+
+on:
+  push:
+    branches: ["ci/oreslang-demo-pr9-ownership"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-singleton-init
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify exact mirrored source suite
+        run: mvn -B -ntp verify
+      - name: Run pointerless ownership demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mvn -B -ntp -DskipTests exec:java -Dexec.args='examples/demo-pr9-ownership.ores' 2>&1)"
+          printf '%s\n' "$out"
+          grep -F 'ownership-ok' <<<"$out"
+      - name: Prove share remains capability-gated
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          out="$(mvn -B -ntp -DskipTests exec:java -Dexec.args='examples/demo-pr9-share-boundary.ores' 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$out"
+          test "$status" -ne 0
+          grep -F 'reserved for explicit shared capabilities' <<<"$out"
