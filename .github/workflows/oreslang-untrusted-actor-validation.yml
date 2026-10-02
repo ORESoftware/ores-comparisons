@@ -1,8 +1,8 @@
-name: oreslang-untrusted-actor-validation
+name: oreslang-pr77-exact-validation
 
 on:
   push:
-    branches: ["ci/oreslang-untrusted-actor-20261002"]
+    branches: ["ci/oreslang-pr77-exact-validation"]
   workflow_dispatch:
 
 permissions:
