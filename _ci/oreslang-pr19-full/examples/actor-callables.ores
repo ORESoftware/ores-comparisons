@@ -1,0 +1,22 @@
+actor fnc add_one(int value) => int {
+  return value + 1;
+}
+
+actor routine shared_worker(String label) => void {
+  stdio.stdout.write(label);
+  return;
+}
+
+isoactor routine isolated_worker(String label) => void {
+  stdio.stdout.write(label);
+  return;
+}
+
+pub routine main() => void {
+  stdio.stdout.write(add_one(41));
+  stdio.stdout.write(":");
+  shared_worker("shared");
+  stdio.stdout.write(":");
+  isolated_worker("isolated");
+  return;
+}
