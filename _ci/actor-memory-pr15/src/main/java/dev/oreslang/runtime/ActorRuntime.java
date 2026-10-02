@@ -481,6 +481,8 @@ public final class ActorRuntime implements AutoCloseable {
         private final AtomicLong writtenBytes = new AtomicLong();
         private final AtomicLong headerBytes = new AtomicLong();
         private final AtomicInteger headerCount = new AtomicInteger();
+        private final AtomicBoolean statusSet = new AtomicBoolean();
+        private final AtomicBoolean responseStarted = new AtomicBoolean();
         private final AtomicBoolean completed = new AtomicBoolean();
 
         private HttpResponseCapability(
@@ -498,6 +500,7 @@ public final class ActorRuntime implements AutoCloseable {
         public long headerBytes() { return headerBytes.get(); }
         public int headerCount() { return headerCount.get(); }
         public boolean completed() { return completed.get(); }
+        public boolean responseStarted() { return responseStarted.get(); }
 
         private ActorCell<?> requireOwner(String operation) {
             ActorCell<?> cell = currentActor.get();
@@ -514,16 +517,32 @@ public final class ActorRuntime implements AutoCloseable {
 
         public void status(int statusCode) throws IOException {
             requireOwner("status");
+            if (responseStarted.get()) {
+                throw new IllegalStateException("HTTP status cannot change after response streaming starts");
+            }
             if (statusCode < 100 || statusCode > 599) {
                 throw new IllegalArgumentException("invalid HTTP status code " + statusCode);
+            }
+            if (!statusSet.compareAndSet(false, true)) {
+                throw new IllegalStateException("HTTP response status may be set only once");
             }
             transport.status(statusCode);
         }
 
         public void header(String name, String value) throws IOException {
             requireOwner("header");
+            if (responseStarted.get()) {
+                throw new IllegalStateException("HTTP headers cannot change after response streaming starts");
+            }
             Objects.requireNonNull(name, "header name");
             Objects.requireNonNull(value, "header value");
+            if (name.length() > 256) {
+                throw new HttpResponseLimitExceededException("HTTP response header name exceeds 256 characters");
+            }
+            if (value.length() > MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES) {
+                throw new HttpResponseLimitExceededException(
+                        "HTTP response header value exceeds metadata ceiling");
+            }
             if (!name.matches("[!#$%&'*+.^_|~0-9A-Za-z-]+")) {
                 throw new IllegalArgumentException("invalid HTTP header name");
             }
@@ -566,6 +585,7 @@ public final class ActorRuntime implements AutoCloseable {
                         "untrusted actor HTTP response limit exceeded: requested="
                                 + requested + " remaining=" + remaining + " max=" + maxBytes);
             }
+            responseStarted.set(true);
             int before = source.remaining();
             int written = transport.write(source);
             if (written < 0 || written > before || source.remaining() != before - written) {
@@ -578,11 +598,13 @@ public final class ActorRuntime implements AutoCloseable {
 
         public void flush() throws IOException {
             requireOwner("flush");
+            responseStarted.set(true);
             transport.flush();
         }
 
         public void complete() throws IOException {
             requireOwner("complete");
+            responseStarted.set(true);
             if (completed.compareAndSet(false, true)) {
                 transport.complete();
             }
@@ -1233,9 +1255,39 @@ public final class ActorRuntime implements AutoCloseable {
             ActorRuntime.this.stop(this);
         }
 
+        /** Narrow this reference to send-only authority. */
+        public Recipient<M> recipient() {
+            return new Recipient<>(this);
+        }
+
         @Override
         public String toString() {
             return "ActorRef[" + kind + ":" + id.value() + "]";
+        }
+    }
+
+    /**
+     * Send-only actor capability inspired by Actix Recipient<M>.
+     * It deliberately exposes no lifecycle, waiting, or failure-inspection API.
+     */
+    public final class Recipient<M> {
+        private final ActorRef<M> target;
+
+        private Recipient(ActorRef<M> target) {
+            this.target = Objects.requireNonNull(target);
+        }
+
+        private boolean ownedBy(ActorRuntime runtime) {
+            return target.ownedBy(runtime);
+        }
+
+        public void send(M message) {
+            ActorRuntime.this.send(target, message);
+        }
+
+        @Override
+        public String toString() {
+            return "Recipient[" + target.kind + ":" + target.id.value() + "]";
         }
     }
 
@@ -1579,6 +1631,13 @@ public final class ActorRuntime implements AutoCloseable {
             if (!ref.ownedBy(this)) {
                 throw new SecurityException(
                         "private actor behavior captured an ActorRef from another runtime in " + fieldName);
+            }
+            return;
+        }
+        if (value instanceof Recipient<?> recipient) {
+            if (!recipient.ownedBy(this)) {
+                throw new SecurityException(
+                        "private actor behavior captured a Recipient from another runtime in " + fieldName);
             }
             return;
         }
@@ -2144,7 +2203,9 @@ public final class ActorRuntime implements AutoCloseable {
             IdentityHashMap<Object, Boolean> visiting,
             int depth) {
         requireGraphDepth(depth);
-        if (value == null || isScalar(value) || value instanceof ActorRuntime.ActorRef<?>) return;
+        if (value == null || isScalar(value)
+                || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>) return;
         if (value instanceof OresMutex.Local<?>) {
             throw new IllegalArgumentException("Mutex<T> is actor-local state and cannot cross actor mailboxes");
         }
@@ -2211,6 +2272,13 @@ public final class ActorRuntime implements AutoCloseable {
             }
             return;
         }
+        if (value instanceof ActorRuntime.Recipient<?> recipient) {
+            if (!recipient.ownedBy(this)) {
+                throw new IllegalArgumentException(
+                        "Recipient belongs to a different ActorRuntime; cross-runtime actor channels require an explicit bridge");
+            }
+            return;
+        }
         if (value instanceof Shared<?> shared) {
             requireOwnedActorRefs(shared.value(), visiting, depth + 1);
             return;
@@ -2257,6 +2325,13 @@ public final class ActorRuntime implements AutoCloseable {
             if (!ref.ownedBy(this)) {
                 throw new IllegalArgumentException(
                         "ActorRef belongs to a different ActorRuntime; cross-runtime actor channels require an explicit bridge");
+            }
+            return;
+        }
+        if (value instanceof ActorRuntime.Recipient<?> recipient) {
+            if (!recipient.ownedBy(this)) {
+                throw new IllegalArgumentException(
+                        "Recipient belongs to a different ActorRuntime; cross-runtime actor channels require an explicit bridge");
             }
             return;
         }
@@ -2335,6 +2410,7 @@ public final class ActorRuntime implements AutoCloseable {
         requireGraphDepth(depth);
         if (value == null || isScalar(value)
                 || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>
                 || value instanceof SyncCell<?>) return;
         if (value instanceof OresMutex.Shared<?> sharedMutex) {
             out.add(sharedMutex);
@@ -2386,7 +2462,9 @@ public final class ActorRuntime implements AutoCloseable {
             IdentityHashMap<Object, Boolean> visiting,
             int depth) {
         requireGraphDepth(depth);
-        if (value == null || isScalar(value) || value instanceof ActorRuntime.ActorRef<?>) return;
+        if (value == null || isScalar(value)
+                || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>) return;
         if (value instanceof ActorRuntime.SyncCell<?>) {
             throw new IllegalArgumentException("SyncCell is mutable shared state and cannot be wrapped as Shared");
         }
@@ -2443,6 +2521,7 @@ public final class ActorRuntime implements AutoCloseable {
         }
         if (value == null || isScalar(value)
                 || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>
                 || value instanceof Shared<?>
                 || value instanceof SyncCell<?>
                 || value instanceof OresMutex.Shared<?>) {
@@ -2516,6 +2595,7 @@ public final class ActorRuntime implements AutoCloseable {
         requireGraphDepth(depth);
         if (value == null || isScalar(value)) return;
         if (value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>
                 || value instanceof Shared<?>
                 || value instanceof SyncCell<?>
                 || value instanceof OresMutex.Lock<?>
@@ -2558,6 +2638,7 @@ public final class ActorRuntime implements AutoCloseable {
             return shared;
         }
         if (value instanceof ActorRuntime.ActorRef<?> ref) return ref;
+        if (value instanceof ActorRuntime.Recipient<?> recipient) return recipient;
         if (value instanceof ActorRuntime.SyncCell<?> cell) return cell;
         if (value instanceof OresMutex.Shared<?> sharedMutex) return sharedMutex;
         if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
@@ -2625,6 +2706,7 @@ public final class ActorRuntime implements AutoCloseable {
         }
         if (value instanceof Shared<?> shared) return isolateCopy(shared.value(), visiting, depth + 1);
         if (value instanceof ActorRuntime.ActorRef<?> ref) return ref;
+        if (value instanceof ActorRuntime.Recipient<?> recipient) return recipient;
 
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross private actor boundaries");
@@ -2679,6 +2761,7 @@ public final class ActorRuntime implements AutoCloseable {
             throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
         }
         if (value instanceof ActorRuntime.ActorRef<?>) return requireWithinLimit(48L, limit);
+        if (value instanceof ActorRuntime.Recipient<?>) return requireWithinLimit(48L, limit);
 
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
@@ -2746,6 +2829,7 @@ public final class ActorRuntime implements AutoCloseable {
             throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
         }
         if (value instanceof ActorRuntime.ActorRef<?>) return 48L;
+        if (value instanceof ActorRuntime.Recipient<?>) return 48L;
         if (seen.put(value, Boolean.TRUE) != null) return 0L;
 
         long bytes = 24L;
@@ -2797,6 +2881,7 @@ public final class ActorRuntime implements AutoCloseable {
             return estimatePrivateTransportBytes(shared.value(), visiting, depth + 1, limit);
         }
         if (value instanceof ActorRuntime.ActorRef<?>) return requireWithinLimit(48L, limit);
+        if (value instanceof ActorRuntime.Recipient<?>) return requireWithinLimit(48L, limit);
 
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross private actor boundaries");
@@ -2912,6 +2997,7 @@ public final class ActorRuntime implements AutoCloseable {
         if (value instanceof UUID || value instanceof ActorId) return 40L;
         if (value instanceof Enum<?>) return 24L;
         if (value instanceof ActorRuntime.ActorRef<?>) return 48L;
+        if (value instanceof ActorRuntime.Recipient<?>) return 48L;
         if (value instanceof ActorRuntime.SyncCell<?>) return 64L;
         if (value instanceof OresMutex.Shared<?>) return 64L;
         if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {

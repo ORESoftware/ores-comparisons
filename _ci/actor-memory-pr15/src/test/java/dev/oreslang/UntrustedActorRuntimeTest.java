@@ -222,6 +222,59 @@ final class UntrustedActorRuntimeTest {
     }
 
     @Test
+    void untrustedActorCanReplyThroughSendOnlyRecipient() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger replies = new java.util.concurrent.atomic.AtomicInteger();
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var parent = runtime.<Object>spawnPrivateTrusted(
+                    IsolatePolicy.developer(),
+                    context -> (message, turn) -> replies.incrementAndGet());
+
+            var sandbox = runtime.<Object>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    new ActorRuntime.UntrustedActorLimits(
+                            Duration.ofSeconds(2), 100, 1024, 1024, 1024),
+                    null,
+                    null,
+                    ignored -> (message, turn) -> {
+                        @SuppressWarnings("unchecked")
+                        ActorRuntime.Recipient<Object> parentReply =
+                                (ActorRuntime.Recipient<Object>) message;
+                        parentReply.send("reply");
+                        turn.self().stop();
+                    });
+
+            sandbox.send(parent.recipient());
+            assertTrue(sandbox.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(waitUntil(() -> replies.get() == 1, 1000));
+            assertTrue(sandbox.failure().isEmpty());
+        }
+    }
+
+    @Test
+    void recipientCannotCrossActorRuntimeBoundary() {
+        try (ActorRuntime left = new ActorRuntime();
+             ActorRuntime right = new ActorRuntime()) {
+            var leftActor = left.<Object>spawnPrivate(context -> (message, turn) -> { });
+            var rightActor = right.<Object>spawnPrivate(context -> (message, turn) -> { });
+
+            IllegalArgumentException failure = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> rightActor.send(leftActor.recipient()));
+            assertTrue(failure.getMessage().contains("Recipient belongs to a different ActorRuntime"));
+        }
+    }
+
+    @Test
+    void recipientIsAChannelCapabilityNotPlainFreezableData() {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var ref = runtime.<Object>spawnPrivate(context -> (message, turn) -> { });
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> ActorRuntime.freeze(ref.recipient()));
+        }
+    }
+
+    @Test
     void untrustedActorCannotInspectForeignFailureObject() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
             var victim = runtime.<Object>spawnPrivate(context -> (message, turn) -> {
@@ -454,6 +507,36 @@ final class UntrustedActorRuntimeTest {
             assertEquals(5, response.bytes.get());
             assertTrue(response.completed.get());
             assertFalse(response.aborted.get());
+        }
+    }
+
+    @Test
+    void httpResponseStateCannotMutateAfterStreamingStarts() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            RecordingResponse response = new RecordingResponse();
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 1024, 1024, 1024);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    response,
+                    ignored -> (message, turn) -> {
+                        var out = turn.httpResponse().orElseThrow();
+                        out.status(200);
+                        out.header("x-before", "ok");
+                        out.write(ByteBuffer.wrap(new byte[]{'x'}));
+                        out.header("x-after", "forbidden");
+                    });
+
+            ref.send("request");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    IllegalStateException.class,
+                    ref.failure().orElseThrow());
+            assertTrue(response.aborted.get());
+            assertEquals(1, response.bytes.get());
         }
     }
 
