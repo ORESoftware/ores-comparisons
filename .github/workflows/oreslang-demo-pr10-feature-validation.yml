@@ -1,4 +1,4 @@
-name: oreslang-demo-pr10-feature-validation
+name: oreslang-demo-pr9-feature-validation
 
 on:
   push:
@@ -21,20 +21,19 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          cache: maven
       - name: Require cross-repository read credential
         shell: bash
         run: |
           set -euo pipefail
           test -n "$CROSS_REPO_READ_TOKEN"
-      - name: Check out exact oreslang-demo PR 10 head
+      - name: Check out exact oreslang-demo PR 9 head
         shell: bash
         run: |
           set -euo pipefail
           git config --global url."https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
           git clone --quiet https://github.com/ores-truffle-oreslang/oreslang-demo.git _ci/oreslang-demo
-          git -C _ci/oreslang-demo checkout --quiet --detach 257b7c38919d9861e77cc745c70f3b1bc87a907c
-          test "$(git -C _ci/oreslang-demo rev-parse HEAD)" = "257b7c38919d9861e77cc745c70f3b1bc87a907c"
+          git -C _ci/oreslang-demo checkout --quiet --detach 8c62cba7f323028eb7c4e79ae6f2914546825de4
+          test "$(git -C _ci/oreslang-demo rev-parse HEAD)" = "8c62cba7f323028eb7c4e79ae6f2914546825de4"
       - name: Runtime diagnostics
         shell: bash
         run: |
@@ -44,6 +43,6 @@ jobs:
       - name: Run stable demo suite
         working-directory: _ci/oreslang-demo
         run: bash scripts/run-all.sh
-      - name: Run new feature-specific demo matrix
+      - name: Run feature-specific demo matrix
         working-directory: _ci/oreslang-demo
         run: bash scripts/run-feature-demos.sh
