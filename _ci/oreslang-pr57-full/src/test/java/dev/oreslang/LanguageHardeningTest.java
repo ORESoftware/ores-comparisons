@@ -264,4 +264,32 @@ final class LanguageHardeningTest {
     }
 
 
+
+@Test
+    void destructureDiscardNeverBecomesAReadableBinding() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                define module app
+                  fnc f() => int {
+                    [_, const value] = (1, 2);
+                    return _;
+                  }
+                end
+                """)));
+
+        assertTrue(error.getMessage().contains("unknown name '_'"));
+    }
+
+@Test
+    void explicitBindingKindOnUnderscoreIsAlsoDiscarded() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module app
+                  fnc f() => int {
+                    [const _, let value] = (1, 2);
+                    [let _, const next] = (3, 4);
+                    return value + next;
+                  }
+                end
+                """)));
+    }
+
 }
