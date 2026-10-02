@@ -112,48 +112,6 @@ final class IsolationHotReloadTest {
     }
 
     @Test
-    void staleHotReloadGenerationCannotRollBackSingletonCode() {
-        IsolatePolicy policy = IsolatePolicy.developer();
-        try (HotReloadManager hot = new HotReloadManager(policy, ExecutionProfile.serverJit())) {
-            var first = hot.load("managed-singleton-generation.ores", """
-                    define singleton module managed_generation as
-                      let int count = 0;
-                      pub fnc next() => int {
-                        count = count + 1;
-                        return count;
-                      }
-                    end
-
-                    pub routine main() => void {
-                      val int n = await managed_generation.next();
-                      return;
-                    }
-                    """);
-
-            var second = hot.load("managed-singleton-generation.ores", """
-                    define singleton module managed_generation as
-                      let int count = 0;
-                      pub fnc next() => int {
-                        count = count + 10;
-                        return count;
-                      }
-                    end
-
-                    pub routine main() => void {
-                      val int n = await managed_generation.next();
-                      return;
-                    }
-                    """);
-
-            assertDoesNotThrow(second::start);
-            RuntimeException stale = assertThrows(RuntimeException.class, first::start);
-            assertTrue(String.valueOf(stale.getMessage()).contains("stale singleton generation")
-                    || (stale.getCause() != null
-                    && String.valueOf(stale.getCause().getMessage()).contains("stale singleton generation")));
-        }
-    }
-
-    @Test
     void hotReloadRequiresExplicitCapability() {
         assertThrows(SecurityException.class,
                 () -> new HotReloadManager(IsolatePolicy.strictFaas(), ExecutionProfile.serverJit()));
@@ -211,29 +169,26 @@ final class IsolationHotReloadTest {
     }
 
     @Test
-    void boundMethodExtractionIsRejectedAndSelfCannotBeRebound() {
-        IllegalArgumentException extracted = assertThrows(
-                IllegalArgumentException.class,
-                () -> TypeChecker.check(Parser.parse("""
-                        define class Box as
-                          val int value;
+    void extractedMethodValueKeepsReceiverAndSelfCannotBeRebound() throws Exception {
+        String output = run("""
+                define class Box
+                  val int value;
 
-                          pub get() => int {
-                            return self.value;
-                          }
-                        end
+                  pub get() => int {
+                    return self.value;
+                  }
+                end
 
-                        pub routine main() => void {
-                          val box = new Box(17);
-                          val Fnc<int> callback = box.get;
-                          return;
-                        }
-                        """)));
-        assertTrue(extracted.getMessage().contains("bound instance method"));
-        assertTrue(extracted.getMessage().contains("receiver ownership and lifetime provenance"));
+                pub routine main() => void {
+                  val box = new Box(17);
+                  val Fnc<int> callback = box.get;
+                  stdio.stdout.write(callback())
+                }
+                """);
+        assertEquals("17", output);
 
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Box as
+                define class Box
                   pub bad() => void {
                     self = new Box();
                     return;

@@ -38,7 +38,7 @@ final class OwnershipAndClosureTest {
     void ordinaryParametersAreImmutableForFieldMutation() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub let String foo = "start";
                         end
 
@@ -47,20 +47,19 @@ final class OwnershipAndClosureTest {
                           return;
                         }
                         """)));
-        assertTrue(error.getMessage().contains("immutable binding/read borrow"));
+        assertTrue(error.getMessage().contains("immutable parameter/binding"));
     }
 
     @Test
-    void takeParameterTransfersOwnershipAndCanMoveIntoMutableLocal() throws Exception {
+    void ownedMutParameterMayMutateAndReturnOwnership() throws Exception {
         String output = run("""
-                define class Bar as
+                define class Bar
                   pub let String foo = "start";
                 end
 
-                fnc change(take Bar b) => Bar {
-                  let Bar owned = b;
-                  owned.foo = "foobar";
-                  return owned;
+                fnc change(Bar mut b) => Bar {
+                  b.foo = "foobar";
+                  return b;
                 }
 
                 pub routine main() => void {
@@ -74,32 +73,20 @@ final class OwnershipAndClosureTest {
     }
 
     @Test
-    void pointerStyleBorrowSyntaxIsRejected() {
-        IllegalArgumentException error = assertThrows(
-                IllegalArgumentException.class,
-                () -> Parser.parse("""
-                        fnc bad(&mut String value) => void {
-                          return;
-                        }
-                        """));
-        assertTrue(error.getMessage().contains("pointer-style '&'"));
-    }
-
-    @Test
     void mutableBorrowAllowsMutationWithoutMovingOwner() throws Exception {
         String output = run("""
-                define class Bar as
+                define class Bar
                   pub let String foo = "start";
                 end
 
-                fnc change(mut Bar b) => void {
+                fnc change(&mut Bar b) => void {
                   b.foo = "borrowed";
                   return;
                 }
 
                 pub routine main() => void {
                   let Bar b = new Bar();
-                  change(b);
+                  change(&mut b);
                   stdio.stdout.write(b.foo);
                   return;
                 }
@@ -111,19 +98,19 @@ final class OwnershipAndClosureTest {
     void immutableBorrowBlocksOverlappingMutableBorrow() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub let String foo = "start";
                         end
 
-                        fnc mutate(mut Bar b) => void {
+                        fnc mutate(&mut Bar b) => void {
                           b.foo = "changed";
                           return;
                         }
 
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          val read = borrow(b);
-                          mutate(b);
+                          val &Bar read = &b;
+                          mutate(&mut b);
                           stdio.println(read.foo);
                           return;
                         }
@@ -135,11 +122,11 @@ final class OwnershipAndClosureTest {
     void useAfterMoveIsRejected() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub let String foo = "start";
                         end
 
-                        fnc consume(take Bar b) => void {
+                        fnc consume(Bar b) => void {
                           return;
                         }
 
@@ -157,35 +144,27 @@ final class OwnershipAndClosureTest {
     void borrowOfLocalCannotEscapeFunction() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub let String foo = "start";
                         end
 
-                        fnc bad() => Bar {
+                        fnc bad() => &Bar {
                           let Bar b = new Bar();
-                          return borrow(b);
+                          return &b;
                         }
                         """)));
-        assertTrue(error.getMessage().toLowerCase().contains("borrow")
-                || error.getMessage().contains("return"));
+        assertTrue(error.getMessage().contains("outlive its owner"));
     }
 
     @Test
-    void normalParameterBorrowDoesNotMoveCaller() {
+    void borrowedParameterCanBeReturned() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define class Bar as
+                define class Bar
                   pub let String foo = "start";
                 end
 
-                fnc read(Bar b) => String {
-                  return b.foo;
-                }
-
-                fnc ok() => void {
-                  let Bar b = new Bar();
-                  stdio.println(read(b));
-                  stdio.println(b.foo);
-                  return;
+                fnc identity(&Bar b) => &Bar {
+                  return b;
                 }
                 """)));
     }
@@ -194,14 +173,14 @@ final class OwnershipAndClosureTest {
     @Test
     void multipleImmutableBorrowsMayCoexist() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define class Bar as
+                define class Bar
                   pub let String foo = "start";
                 end
 
                 fnc ok() => void {
                   let Bar b = new Bar();
-                  val first = borrow(b);
-                  val second = borrow(b);
+                  val &Bar first = &b;
+                  val &Bar second = &b;
                   stdio.println(first.foo);
                   stdio.println(second.foo);
                   return;
@@ -213,19 +192,16 @@ final class OwnershipAndClosureTest {
     void secondMutableBorrowIsRejected() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub let String foo = "start";
                         end
 
-                        fnc mutateBoth(mut Bar first, mut Bar second) => void {
-                          first.foo = "first";
-                          second.foo = "second";
-                          return;
-                        }
-
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          mutateBoth(b, b);
+                          val &mut Bar first = &mut b;
+                          val &mut Bar second = &mut b;
+                          stdio.println(first.foo);
+                          stdio.println(second.foo);
                           return;
                         }
                         """)));
@@ -236,15 +212,15 @@ final class OwnershipAndClosureTest {
     void moveWhileBorrowedIsRejected() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub let String foo = "start";
                         end
 
-                        fnc consume(take Bar b) => void { return; }
+                        fnc consume(Bar b) => void { return; }
 
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          val read = borrow(b);
+                          val &Bar read = &b;
                           consume(b);
                           stdio.println(read.foo);
                           return;
@@ -256,11 +232,11 @@ final class OwnershipAndClosureTest {
     @Test
     void lexicalScopeEndsStoredBorrow() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define class Bar as
+                define class Bar
                   pub let String foo = "start";
                 end
 
-                fnc mutate(mut Bar b) => void {
+                fnc mutate(&mut Bar b) => void {
                   b.foo = "changed";
                   return;
                 }
@@ -268,10 +244,10 @@ final class OwnershipAndClosureTest {
                 fnc ok() => void {
                   let Bar b = new Bar();
                   if true; do
-                    val read = borrow(b);
+                    val &Bar read = &b;
                     stdio.println(read.foo);
                   fi
-                  mutate(b);
+                  mutate(&mut b);
                   return;
                 }
                 """)));
@@ -281,11 +257,11 @@ final class OwnershipAndClosureTest {
     @Test
     void moveInBothIfBranchesIsAllowedButValueIsMovedAfterJoin() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define class Bar as
+                define class Bar
                   pub let String foo = "start";
                 end
 
-                fnc consume(take Bar b) => void { return; }
+                fnc consume(Bar b) => void { return; }
 
                 fnc ok(bool flag) => void {
                   let Bar b = new Bar();
@@ -300,11 +276,11 @@ final class OwnershipAndClosureTest {
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub let String foo = "start";
                         end
 
-                        fnc consume(take Bar b) => void { return; }
+                        fnc consume(Bar b) => void { return; }
 
                         fnc bad(bool flag) => void {
                           let Bar b = new Bar();
@@ -324,11 +300,11 @@ final class OwnershipAndClosureTest {
     void immutableFieldStaysImmutableEvenThroughMutOwner() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Bar as
+                        define class Bar
                           pub val String foo = "start";
                         end
 
-                        fnc bad(mut Bar b) => void {
+                        fnc bad(Bar mut b) => void {
                           b.foo = "changed";
                           return;
                         }
@@ -340,7 +316,7 @@ final class OwnershipAndClosureTest {
     void moveOnlyCaptureTransfersIntoClosure() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 TypeChecker.check(Parser.parse("""
-                        define class Box as
+                        define class Box
                           pub val int value = 7;
                         end
 

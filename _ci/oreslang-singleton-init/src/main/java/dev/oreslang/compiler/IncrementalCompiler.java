@@ -116,8 +116,7 @@ public final class IncrementalCompiler {
         abi.append("namespace=").append(program.namespace() == null ? "" : program.namespace()).append('\n');
 
         for (Ast.ModuleDecl module : program.modules()) {
-            abi.append(module.singleton() ? "singleton module " : "module ")
-                    .append(module.name()).append('\n');
+            abi.append("module ").append(module.name()).append('\n');
             for (Ast.Annotation annotation : module.annotations()) {
                 if (annotation.name().equals("AdheresTo")) {
                     abi.append(" module-annotation AdheresTo:");
@@ -131,19 +130,16 @@ public final class IncrementalCompiler {
     }
 
     private static void appendAbi(StringBuilder abi, Ast.Decl decl) {
-        // Init routines are lifecycle implementation details. Source digest
-        // changes rebuild this unit, but init bodies are not exported ABI.
-        if (decl instanceof Ast.InitDecl) return;
         if (decl instanceof Ast.FunctionDecl fn) {
             if (fn.visibility() != Ast.Visibility.PUBLIC) return;
-            abi.append(fn.kind()).append(" pub ").append(fn.name());
+            abi.append(fn.actorKind()).append(' ').append(fn.kind()).append(" pub ").append(fn.name());
             appendGenerics(abi, fn.genericParameters());
             appendParams(abi, fn.parameters());
             abi.append("=>").append(typeRef(fn.returnType())).append('\n');
             return;
         }
         if (decl instanceof Ast.ClassDecl klass) {
-            abi.append("class ").append(klass.name());
+            abi.append(klass.actorKind()).append(" class ").append(klass.name());
             appendGenerics(abi, klass.genericParameters());
             abi.append(" extends ");
             for (Ast.TypeRef parent : klass.parents()) abi.append(typeRef(parent)).append(',');
@@ -153,27 +149,14 @@ public final class IncrementalCompiler {
             for (Ast.FieldDecl field : klass.fields()) {
                 if (field.visibility() != Ast.Visibility.PUBLIC) continue;
                 abi.append(" field ").append(field.bindingKind()).append(' ')
-                        .append(typeRef(field.type())).append(' ').append(field.name()).append('\n');
+                        .append(field.type() == null ? "<inferred:" + field.initializer() + ">" : typeRef(field.type()))
+                        .append(' ').append(field.name()).append('\n');
             }
             for (Ast.MethodDecl method : klass.methods()) {
                 if (method.visibility() != Ast.Visibility.PUBLIC) continue;
                 abi.append(method.isStatic() ? " static-fnc " : " method ")
                         .append(method.name());
                 appendGenerics(abi, method.genericParameters());
-                if (!method.isStatic()) {
-                    Ast.TypeRef receiver = method.explicitReceiverType();
-                    String receiverMode = receiver == null
-                            ? "borrow"
-                            : receiver.isBorrow()
-                                    ? (receiver.mutableBorrow() ? "mut" : "borrow")
-                                    : "take";
-                    abi.append("[self=").append(receiverMode).append(']');
-                    if (receiver != null) {
-                        abi.append('[')
-                                .append(typeRef(receiver.isBorrow() ? receiver.borrowedTarget() : receiver))
-                                .append(']');
-                    }
-                }
                 appendParams(abi, method.parameters());
                 abi.append("=>").append(typeRef(method.returnType())).append('\n');
             }
@@ -192,8 +175,7 @@ public final class IncrementalCompiler {
                     appendParams(abi, fn.parameters());
                     abi.append("=>").append(typeRef(fn.returnType())).append('\n');
                 } else if (member instanceof Ast.InterfaceFieldDecl field) {
-                    abi.append(" iface-data ").append(field.name()).append(':')
-                            .append(typeRef(field.type())).append('\n');
+                    abi.append(" iface-field ").append(field.name()).append(':').append(typeRef(field.type())).append('\n');
                 }
             }
             return;
@@ -221,8 +203,6 @@ public final class IncrementalCompiler {
         abi.append('(');
         for (Ast.Param param : params) {
             if (param.structural()) abi.append("structural ");
-            Ast.ParamMode mode = param.structural() ? Ast.ParamMode.BORROW : param.mode();
-            abi.append(mode.name().toLowerCase()).append(' ');
             abi.append(typeRef(param.type())).append(',');
         }
         abi.append(')');

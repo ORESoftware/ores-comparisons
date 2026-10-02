@@ -23,7 +23,7 @@ final class IncrementalFunctorStaticTest {
         var program = TypeChecker.check(Parser.parse("""
                 namespace payments;
 
-                define module api as
+                define module api
                   pub fnc ping() => int { return 1; }
                 end
                 """));
@@ -41,8 +41,8 @@ final class IncrementalFunctorStaticTest {
                 """));
 
         assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
-                define module outer as
-                  define module inner as
+                define module outer
+                  define module inner
                   end
                 end
                 """));
@@ -103,40 +103,6 @@ final class IncrementalFunctorStaticTest {
     }
 
     @Test
-    void receiverOwnershipChangesInvalidateImporters() {
-        IncrementalCompiler compiler = new IncrementalCompiler();
-        Map<String, String> first = Map.of(
-                "model.ores", """
-                        define class Counter as
-                          pub read() => int {
-                            return 1;
-                          }
-                        end
-                        """,
-                "consumer.ores", """
-                        import class {Counter} from "./model.ores";
-                        pub fnc use() => void { return; }
-                        """);
-
-        compiler.compile(first);
-
-        Map<String, String> changed = Map.of(
-                "model.ores", """
-                        define class Counter as
-                          pub read(mut self)() => int {
-                            return 1;
-                          }
-                        end
-                        """,
-                "consumer.ores", first.get("consumer.ores"));
-
-        var result = compiler.compile(changed);
-        assertTrue(result.rebuilt("model.ores"));
-        assertTrue(result.rebuilt("consumer.ores"),
-                "receiver ownership is public ABI and must invalidate importers");
-    }
-
-    @Test
     void inferredPublicBindingsParticipateInAbiInvalidation() {
         IncrementalCompiler compiler = new IncrementalCompiler();
         Map<String, String> first = Map.of(
@@ -191,8 +157,8 @@ final class IncrementalFunctorStaticTest {
     @Test
     void staticClassFunctionsUseStaticFncAndDoNotReceiveSelf() throws Exception {
         String output = run("""
-                define module model as
-                  define class Counter as
+                define module model
+                  define class Counter
                     pub val int value = 9;
 
                     pub static fnc twice(int x) => int {
@@ -213,19 +179,19 @@ final class IncrementalFunctorStaticTest {
         assertEquals("18", output);
 
         assertThrows(IllegalArgumentException.class, () -> Parser.parse("""
-                define class Bad as
+                define class Bad
                   static nope() => int { return 1; }
                 end
                 """));
 
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Bad as
+                define class Bad
                   static fnc nope() => int { return self.value; }
                 end
                 """)));
 
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Bad as
+                define class Bad
                   static fnc make() => int { return 1; }
                 end
                 fnc bad() => int {

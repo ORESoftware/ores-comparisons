@@ -29,9 +29,9 @@ public record IsolatePolicy(
         STDIN,
         STDOUT,
         PROCESS_INFO,
-        PROCESS_SINGLETON,
-        ACTOR_SHARE_READONLY,
         GC_CONTROL,
+        ACTOR_SHARE_READONLY,
+        SHARED_MEMORY,
         NETWORK,
         FILESYSTEM_READ,
         FILESYSTEM_WRITE,
@@ -57,10 +57,6 @@ public record IsolatePolicy(
         if (adversarial && capabilities.contains(Capability.THREAD_CREATE)) {
             throw new IllegalArgumentException("adversarial isolates cannot grant THREAD_CREATE");
         }
-        if (adversarial && capabilities.contains(Capability.PROCESS_SINGLETON)) {
-            throw new IllegalArgumentException("adversarial Graal isolates cannot grant PROCESS_SINGLETON until"
-                    + " a trusted host/supervisor process-singleton coordinator is installed");
-        }
     }
 
     /**
@@ -74,9 +70,8 @@ public record IsolatePolicy(
     /** Restricted local/test baseline. FFI/native/reflection/process spawning remain denied. */
     public static IsolatePolicy developer() {
         return new IsolatePolicy(
-                Set.of(Capability.STDIN, Capability.STDOUT, Capability.PROCESS_INFO,
-                        Capability.PROCESS_SINGLETON, Capability.ACTOR_SHARE_READONLY, Capability.GC_CONTROL,
-                        Capability.HOT_CODE_LOAD),
+                Set.of(Capability.STDIN, Capability.STDOUT, Capability.PROCESS_INFO, Capability.GC_CONTROL,
+                        Capability.ACTOR_SHARE_READONLY, Capability.SHARED_MEMORY, Capability.HOT_CODE_LOAD),
                 512L * 1024 * 1024, 8192, Duration.ofMinutes(10), false);
     }
 
@@ -85,6 +80,14 @@ public record IsolatePolicy(
                 ? EnumSet.noneOf(Capability.class)
                 : EnumSet.copyOf(capabilities);
         next.addAll(Arrays.asList(added));
+        return new IsolatePolicy(next, maxHeapBytes, maxMailboxMessages, maxWallTime, adversarial);
+    }
+
+    public IsolatePolicy withoutCapabilities(Capability... removed) {
+        EnumSet<Capability> next = capabilities.isEmpty()
+                ? EnumSet.noneOf(Capability.class)
+                : EnumSet.copyOf(capabilities);
+        next.removeAll(Arrays.asList(removed));
         return new IsolatePolicy(next, maxHeapBytes, maxMailboxMessages, maxWallTime, adversarial);
     }
 
@@ -105,10 +108,6 @@ public record IsolatePolicy(
     }
 
     public Context.Builder restrictedContextBuilder(ExecutionProfile profile) {
-        return restrictedContextBuilder(profile, new String[0]);
-    }
-
-    public Context.Builder restrictedContextBuilder(ExecutionProfile profile, String... extraArguments) {
         HostAccess hostAccess = adversarial
                 ? HostAccess.newBuilder(HostAccess.NONE).allowMutableTargetMappings().methodScoping(true).build()
                 : HostAccess.NONE;
@@ -123,7 +122,7 @@ public record IsolatePolicy(
                 .in(new ByteArrayInputStream(new byte[0]))
                 .out(new ByteArrayOutputStream())
                 .err(new ByteArrayOutputStream())
-                .arguments(OresLanguage.ID, applicationArguments(profile, extraArguments));
+                .arguments(OresLanguage.ID, applicationArguments(profile));
 
         /*
          * Graal's engine.IsolateLibrary option is experimental in 25.x. Opt in
@@ -163,25 +162,16 @@ public record IsolatePolicy(
     }
 
     public String[] applicationArguments(ExecutionProfile profile) {
-        return applicationArguments(profile, new String[0]);
-    }
-
-    public String[] applicationArguments(ExecutionProfile profile, String... extraArguments) {
         String caps = capabilities.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
-        String[] base = new String[] {
+        return new String[] {
                 "--ores-capabilities=" + caps,
                 "--ores-max-heap-bytes=" + maxHeapBytes,
                 "--ores-max-mailbox-messages=" + maxMailboxMessages,
                 "--ores-max-wall-ms=" + maxWallTime.toMillis(),
                 "--ores-adversarial=" + adversarial,
-                "--ores-graal-isolated=" + adversarial,
                 "--ores-execution-mode=" + profile.mode().name(),
                 "--ores-platform=" + profile.platform().name()
         };
-        if (extraArguments == null || extraArguments.length == 0) return base;
-        String[] combined = java.util.Arrays.copyOf(base, base.length + extraArguments.length);
-        System.arraycopy(extraArguments, 0, combined, base.length, extraArguments.length);
-        return combined;
     }
 
     public static IsolatePolicy fromApplicationArguments(String[] args) {
@@ -203,15 +193,6 @@ public record IsolatePolicy(
             for (String value : raw.split(",")) caps.add(Capability.valueOf(value.trim().toUpperCase(Locale.ROOT)));
         }
         return new IsolatePolicy(caps, maxHeap, maxMailbox, Duration.ofMillis(maxWallMs), adversarial);
-    }
-
-    public static boolean graalIsolatedFromApplicationArguments(String[] args) {
-        for (String arg : args) {
-            if (arg.startsWith("--ores-graal-isolated=")) {
-                return Boolean.parseBoolean(arg.substring("--ores-graal-isolated=".length()));
-            }
-        }
-        return false;
     }
 
     public static ExecutionProfile executionProfileFromApplicationArguments(String[] args) {
