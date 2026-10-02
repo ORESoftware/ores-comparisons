@@ -1,0 +1,55 @@
+name: oreslang-demo-pr9-local-types
+
+on:
+  push:
+    branches: ["ci/oreslang-demo-pr9-local-types"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: tmp/oreslang-pr34
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compile source snapshot
+        run: mvn -B -ntp -DskipTests compile
+      - name: Compile sibling import demo as a code-unit set
+        run: mvn -B -ntp -Dtest=DemoPr9SiblingImportTest test
+      - name: Run callable-local and nested interface demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mvn -B -ntp -DskipTests exec:java -Dexec.args='examples/demo-pr9-local-inline.ores' 2>&1)"
+          printf '%s\n' "$out"
+          grep -F 'local-interface-ok' <<<"$out"
+      - name: Run class struct interface trait parameter demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mvn -B -ntp -DskipTests exec:java -Dexec.args='examples/demo-pr9-type-model.ores' 2>&1)"
+          printf '%s\n' "$out"
+          grep -F 'type-model-ok' <<<"$out"
+      - name: Prove trait is not an ordinary runtime parameter value
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          out="$(mvn -B -ntp -DskipTests exec:java -Dexec.args='examples/demo-pr9-trait-runtime-boundary.ores' 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$out"
+          test "$status" -ne 0
+          grep -F 'no runtime/value type identity' <<<"$out"
