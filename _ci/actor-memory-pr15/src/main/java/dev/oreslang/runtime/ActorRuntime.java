@@ -61,6 +61,8 @@ public final class ActorRuntime implements AutoCloseable {
     private static final long DEFAULT_UNTRUSTED_MAILBOX_RETURN_BYTES = 1024L * 1024L;
     private static final long DEFAULT_UNTRUSTED_HTTP_REQUEST_BYTES = 16L * 1024L * 1024L;
     private static final long DEFAULT_UNTRUSTED_HTTP_RESPONSE_BYTES = 16L * 1024L * 1024L;
+    private static final int MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS = 128;
+    private static final long MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES = 64L * 1024L;
     private static final ThreadLocal<Boolean> ACTOR_CARRIER = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static final ThreadLocal<ActorExecutionContext> CURRENT_ACTOR_EXECUTION = new ThreadLocal<>();
 
@@ -387,6 +389,8 @@ public final class ActorRuntime implements AutoCloseable {
         private final HttpResponseTransport transport;
         private final long maxBytes;
         private final AtomicLong writtenBytes = new AtomicLong();
+        private final AtomicLong headerBytes = new AtomicLong();
+        private final AtomicInteger headerCount = new AtomicInteger();
         private final AtomicBoolean completed = new AtomicBoolean();
 
         private HttpResponseCapability(
@@ -401,6 +405,8 @@ public final class ActorRuntime implements AutoCloseable {
         public long maxBytes() { return maxBytes; }
         public long writtenBytes() { return writtenBytes.get(); }
         public long remainingBytes() { return Math.max(0L, maxBytes - writtenBytes.get()); }
+        public long headerBytes() { return headerBytes.get(); }
+        public int headerCount() { return headerCount.get(); }
         public boolean completed() { return completed.get(); }
 
         private ActorCell<?> requireOwner(String operation) {
@@ -433,6 +439,22 @@ public final class ActorRuntime implements AutoCloseable {
             }
             if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
                 throw new IllegalArgumentException("HTTP header value cannot contain CR/LF");
+            }
+            int nextCount = headerCount.incrementAndGet();
+            if (nextCount > MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS) {
+                headerCount.decrementAndGet();
+                throw new HttpResponseLimitExceededException(
+                        "untrusted actor HTTP response header-count limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS);
+            }
+            long bytes = (long) name.length() + value.length();
+            long nextBytes = headerBytes.addAndGet(bytes);
+            if (nextBytes > MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES) {
+                headerBytes.addAndGet(-bytes);
+                headerCount.decrementAndGet();
+                throw new HttpResponseLimitExceededException(
+                        "untrusted actor HTTP response header-byte limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES);
             }
             transport.header(name, value);
         }
@@ -2901,6 +2923,7 @@ public final class ActorRuntime implements AutoCloseable {
         private final HttpResponseCapability httpResponse;
         private final AtomicLong fuelRemaining = new AtomicLong(Long.MAX_VALUE);
         private final long createdNanos;
+        private final Duration hardLifetime;
         private final long deadlineNanos;
         private volatile Thread activeCarrier;
         private volatile ScheduledFuture<?> lifetimeFuture;
@@ -2938,7 +2961,10 @@ public final class ActorRuntime implements AutoCloseable {
                 if (untrustedLimits == null) {
                     throw new IllegalArgumentException("UNTRUSTED actor requires limits");
                 }
-                long lifetimeNanos = untrustedLimits.maxLifetime().toNanos();
+                this.hardLifetime = policy.maxWallTime().compareTo(untrustedLimits.maxLifetime()) <= 0
+                        ? policy.maxWallTime()
+                        : untrustedLimits.maxLifetime();
+                long lifetimeNanos = hardLifetime.toNanos();
                 this.deadlineNanos = lifetimeNanos >= Long.MAX_VALUE - createdNanos
                         ? Long.MAX_VALUE
                         : createdNanos + lifetimeNanos;
@@ -2956,6 +2982,7 @@ public final class ActorRuntime implements AutoCloseable {
                                 responseTransport,
                                 untrustedLimits.maxHttpResponseBytes());
             } else {
+                this.hardLifetime = policy.maxWallTime();
                 this.deadlineNanos = Long.MAX_VALUE;
                 this.httpRequest = null;
                 this.httpResponse = null;
@@ -2977,7 +3004,7 @@ public final class ActorRuntime implements AutoCloseable {
                 if (finalized || stopped.get()) return;
                 ActorLifetimeExceededException failure = new ActorLifetimeExceededException(
                         "untrusted actor exceeded hard lifetime of "
-                                + untrustedLimits.maxLifetime().toSeconds() + " seconds");
+                                + hardLifetime.toSeconds() + " seconds");
                 ref.terminationCause.compareAndSet(null, failure);
                 stopped.set(true);
                 drainMailboxReservations();

@@ -78,6 +78,60 @@ final class UntrustedActorRuntimeTest {
     }
 
     @Test
+    void tighterParentPolicyDeadlineBeatsActorLifetimeLimit() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            IsolatePolicy tighter = new IsolatePolicy(
+                    java.util.Set.of(),
+                    64L * 1024 * 1024,
+                    64,
+                    Duration.ofMillis(60),
+                    true);
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(5), 100, 1024, 1024, 1024);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    tighter,
+                    limits,
+                    null,
+                    null,
+                    ignored -> (message, turn) -> { });
+
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.ActorLifetimeExceededException.class,
+                    ref.failure().orElseThrow());
+        }
+    }
+
+    @Test
+    void responseHeaderFloodIsBoundedIndependentlyOfBody() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            RecordingResponse response = new RecordingResponse();
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 1000, 32, 1024, 1024);
+
+            var ref = runtime.<String>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    response,
+                    ignored -> (message, turn) -> {
+                        var out = turn.httpResponse().orElseThrow();
+                        for (int i = 0; i < 129; i++) {
+                            out.header("x-test-" + i, "v");
+                        }
+                    });
+
+            ref.send("request");
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.HttpResponseLimitExceededException.class,
+                    ref.failure().orElseThrow());
+            assertTrue(response.aborted.get());
+        }
+    }
+
+    @Test
     void untrustedActorCannotSpawnChildren() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
             var limits = new ActorRuntime.UntrustedActorLimits(
