@@ -765,6 +765,10 @@ public final class TypeChecker {
             for (Type element : tuple.elements()) if (!isSharedSafe(element, seen, genericBindings)) return false;
             return true;
         }
+        if (type instanceof Union union) {
+            for (Type option : union.options()) if (!isSharedSafe(option, seen, genericBindings)) return false;
+            return true;
+        }
         if (type instanceof Record record) {
             for (Type member : record.members().values()) if (!isSharedSafe(member, seen, genericBindings)) return false;
             return true;
@@ -831,6 +835,18 @@ public final class TypeChecker {
         if (type instanceof ListType list) return new ListType(resolveSharedGeneric(list.element(), bindings));
         if (type instanceof Tuple tuple) {
             return new Tuple(tuple.elements().stream().map(element -> resolveSharedGeneric(element, bindings)).toList());
+        }
+        if (type instanceof Union union) {
+            return Types.unionOf(union.options().stream()
+                    .map(option -> resolveSharedGeneric(option, bindings))
+                    .toList());
+        }
+        if (type instanceof Record record) {
+            Map<String, Type> members = new LinkedHashMap<>();
+            for (Map.Entry<String, Type> entry : record.members().entrySet()) {
+                members.put(entry.getKey(), resolveSharedGeneric(entry.getValue(), bindings));
+            }
+            return new Record(members);
         }
         return type;
     }
