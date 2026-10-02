@@ -7,7 +7,7 @@ import java.util.Objects;
 public final class Types {
     private Types() { }
 
-    public sealed interface Type permits Primitive, Named, Borrow, ClassNamespace, Record, Function, ListType, Tuple, Generic, StringLiteral, Unknown { }
+    public sealed interface Type permits Primitive, Named, Borrow, ClassNamespace, SingletonProxy, Record, Function, ListType, Tuple, Generic, StringLiteral, Unknown { }
 
     public enum Primitive implements Type {
         INT, FLOAT, DECIMAL, COMPLEX, BOOL, STRING, VOID, NULL
@@ -22,6 +22,13 @@ public final class Types {
 
     /** Compile-time meta-value for access to static class functions. */
     public record ClassNamespace(String className) implements Type { }
+
+    /**
+     * Typed capability for one process-owned class instance exported by a
+     * singleton module. It is assignable to the logical class type, but method
+     * calls are lowered through the singleton actor mailbox.
+     */
+    public record SingletonProxy(String moduleName, String fieldName, Named target) implements Type { }
 
     public record Record(Map<String, Type> members) implements Type {
         public Record { members = Map.copyOf(members); }
@@ -47,8 +54,10 @@ public final class Types {
         Objects.requireNonNull(from);
         Objects.requireNonNull(to);
         if (from == Unknown.INSTANCE || to == Unknown.INSTANCE) return true;
-        if (to instanceof Generic || from instanceof Generic) return true;
         if (from.equals(to)) return true;
+        // Generic variables are rigid while checking a generic definition.
+        // They are substituted/inferred at call and aggregate construction sites.
+        if (to instanceof Generic || from instanceof Generic) return false;
         if (from instanceof StringLiteral && to == Primitive.STRING) return true;
 
         if (from instanceof Borrow source && to instanceof Borrow target) {
