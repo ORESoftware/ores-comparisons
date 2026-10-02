@@ -241,7 +241,9 @@ public final class TypeChecker {
             Type actual = declaredAhead == null
                     ? typeOf(binding.initializer(), env, generics, self)
                     : typeOfWithExpected(binding.initializer(), declaredAhead, env, generics, self);
-            Type declared = declaredAhead == null ? actual : declaredAhead;
+            Type declared = declaredAhead == null
+                    ? inferredBindingType(actual, binding.kind())
+                    : declaredAhead;
             requireAssignable(actual, declared, "initializer for " + binding.name());
             if (recursiveLambda && declaredAhead instanceof Function) env.replace(binding.name(), declared, binding.kind());
             else env.define(binding.name(), declared, binding.kind());
@@ -253,10 +255,12 @@ public final class TypeChecker {
                 if (tuple.elements().size() != destructure.bindings().size()) throw new IllegalArgumentException("destructure arity mismatch");
                 for (int i = 0; i < destructure.bindings().size(); i++) {
                     Ast.DestructureBinding binding = destructure.bindings().get(i);
-                    env.define(binding.name(), tuple.elements().get(i), binding.kind());
+                    env.define(binding.name(), inferredBindingType(tuple.elements().get(i), binding.kind()), binding.kind());
                 }
             } else if (source instanceof ListType list) {
-                for (Ast.DestructureBinding binding : destructure.bindings()) env.define(binding.name(), list.element(), binding.kind());
+                for (Ast.DestructureBinding binding : destructure.bindings()) {
+                    env.define(binding.name(), inferredBindingType(list.element(), binding.kind()), binding.kind());
+                }
             } else if (source == Any.INSTANCE) {
                 for (Ast.DestructureBinding binding : destructure.bindings()) env.define(binding.name(), Any.INSTANCE, binding.kind());
             } else throw new IllegalArgumentException("destructuring requires a tuple or array/list value");
@@ -512,7 +516,9 @@ public final class TypeChecker {
             Type actual = declaredAhead == null
                     ? typeOf(binding.initializer(), env, generics, self)
                     : typeOfWithExpected(binding.initializer(), declaredAhead, env, generics, self);
-            Type declared = declaredAhead == null ? actual : declaredAhead;
+            Type declared = declaredAhead == null
+                    ? inferredBindingType(actual, binding.kind())
+                    : declaredAhead;
             requireAssignable(actual, declared, "initializer for " + binding.name());
             if (binding.kind() == Ast.BindingKind.CONST && !constant(binding.initializer())) {
                 throw new IllegalArgumentException("const '" + binding.name() + "' needs a compile-time constant initializer");
@@ -1215,8 +1221,57 @@ public final class TypeChecker {
     }
 
     private Type typeOfWithExpected(Ast.Expr expression, Type expected, Env env, Set<String> generics, Type self) {
+        if (expression instanceof Ast.CallExpr call && expected != Any.INSTANCE && expected != Unknown.INSTANCE) {
+            if (call.callee() instanceof Ast.NameExpr name && env.lookup(name.name()) == null) {
+                Ast.FunctionDecl direct = findFunction(name.name());
+                if (direct != null && !direct.genericParameters().isEmpty()) {
+                    return typeGenericFunctionCall(direct, call, env, generics, self, expected);
+                }
+            }
+            if (call.callee() instanceof Ast.MemberExpr member
+                    && member.receiver() instanceof Ast.NameExpr namespace
+                    && env.lookup(namespace.name()) == null
+                    && modules.containsKey(namespace.name())) {
+                Ast.FunctionDecl direct = functions.get(namespace.name() + "." + member.member());
+                if (direct != null && !direct.genericParameters().isEmpty()) {
+                    return typeGenericFunctionCall(direct, call, env, generics, self, expected);
+                }
+            }
+        }
         if (expression instanceof Ast.MatchExpr match && expected != Any.INSTANCE && expected != Unknown.INSTANCE) {
             return typeOfMatch(match, expected, env, generics, self);
+        }
+        if (expression instanceof Ast.ListExpr list && expected instanceof ListType expectedList) {
+            for (Ast.Expr item : list.elements()) {
+                Type actual = typeOfWithExpected(item, expectedList.element(), env, generics, self);
+                requireAssignable(actual, expectedList.element(), "list element");
+            }
+            return expectedList;
+        }
+        if (expression instanceof Ast.TupleExpr tuple && expected instanceof Tuple expectedTuple) {
+            if (tuple.elements().size() != expectedTuple.elements().size()) {
+                throw new IllegalArgumentException("tuple arity " + tuple.elements().size()
+                        + " does not match expected arity " + expectedTuple.elements().size());
+            }
+            for (int i = 0; i < tuple.elements().size(); i++) {
+                Type actual = typeOfWithExpected(tuple.elements().get(i), expectedTuple.elements().get(i), env, generics, self);
+                requireAssignable(actual, expectedTuple.elements().get(i), "tuple element " + (i + 1));
+            }
+            return expectedTuple;
+        }
+        if (expression instanceof Ast.ObjectExpr object && expected instanceof Record expectedRecord) {
+            Map<String, Type> actualMembers = new LinkedHashMap<>();
+            for (Ast.ObjectField field : object.fields()) {
+                Type memberExpected = expectedRecord.members().get(field.name());
+                Type actual = memberExpected == null
+                        ? typeOf(field.value(), env, generics, self)
+                        : typeOfWithExpected(field.value(), memberExpected, env, generics, self);
+                if (memberExpected != null) requireAssignable(actual, memberExpected, "object field " + field.name());
+                actualMembers.put(field.name(), actual);
+            }
+            Record actualRecord = new Record(actualMembers);
+            requireAssignable(actualRecord, expectedRecord, "object literal");
+            return expectedRecord;
         }
         if (expression instanceof Ast.LambdaExpr lambda && expected instanceof Function fn) {
             validateLambdaAgainstExpected(lambda, fn, env, generics, self);
@@ -1311,6 +1366,29 @@ public final class TypeChecker {
 
     private Type widenLiteralType(Type type) {
         if (type instanceof StringLiteral) return Primitive.STRING;
+        return type;
+    }
+
+    private Type inferredBindingType(Type type, Ast.BindingKind kind) {
+        return kind == Ast.BindingKind.LET ? widenMutableType(type) : type;
+    }
+
+    private Type widenMutableType(Type type) {
+        if (type instanceof StringLiteral) return Primitive.STRING;
+        if (type instanceof ListType list) return new ListType(widenMutableType(list.element()));
+        if (type instanceof Tuple tuple) {
+            return new Tuple(tuple.elements().stream().map(this::widenMutableType).toList());
+        }
+        if (type instanceof Named named) {
+            return new Named(named.name(), named.arguments().stream().map(this::widenMutableType).toList());
+        }
+        if (type instanceof Record record) {
+            Map<String, Type> members = new LinkedHashMap<>();
+            for (Map.Entry<String, Type> entry : record.members().entrySet()) {
+                members.put(entry.getKey(), widenMutableType(entry.getValue()));
+            }
+            return new Record(members);
+        }
         return type;
     }
 
@@ -1529,13 +1607,32 @@ public final class TypeChecker {
             Env env,
             Set<String> callerGenerics,
             Type callerSelf) {
+        return typeGenericFunctionCall(fn, call, env, callerGenerics, callerSelf, null);
+    }
+
+    private Type typeGenericFunctionCall(
+            Ast.FunctionDecl fn,
+            Ast.CallExpr call,
+            Env env,
+            Set<String> callerGenerics,
+            Type callerSelf,
+            Type contextualResult) {
         Set<String> names = Set.copyOf(fn.genericParameters());
         if (names.isEmpty()) return null;
         List<Type> parameters = fn.parameters().stream()
                 .map(param -> resolveParam(param, names, null))
                 .toList();
-        return typeSpecializedCall(parameters, callableReturnType(fn), names, Map.of(),
+        Type resultTemplate = callableReturnType(fn);
+        Map<String, Type> seedBindings = new LinkedHashMap<>();
+        if (contextualResult != null && contextualResult != Any.INSTANCE && contextualResult != Unknown.INSTANCE) {
+            inferGenericBindings(resultTemplate, contextualResult, names, seedBindings, fn.name());
+        }
+        Type actualResult = typeSpecializedCall(parameters, resultTemplate, names, seedBindings,
                 call.arguments(), env, callerGenerics, callerSelf, fn.name());
+        if (contextualResult != null && contextualResult != Any.INSTANCE && contextualResult != Unknown.INSTANCE) {
+            requireAssignable(actualResult, contextualResult, "result of " + fn.name());
+        }
+        return actualResult;
     }
 
     private Type typeSpecializedCall(

@@ -539,6 +539,60 @@ final class InferenceAndPatternMatchTest {
     }
 
     @Test
+    void expectedTypesContextuallyTypeEmptyLists() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                fnc make_empty() => Array<int> {
+                  return arr[];
+                }
+
+                fnc accept(Array<String> values) => void {
+                  return;
+                }
+
+                fnc use() => void {
+                  val Array<String> values = arr[];
+                  accept(arr[]);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void mutableLetInferenceWidensSingletonStringTypesRecursively() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                fnc use() => void {
+                  let name = "first";
+                  name = "second";
+
+                  let pair = ("left", "right");
+                  pair = ("next", "value");
+
+                  let maybe = Some("one");
+                  maybe = Some("two");
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void expectedResultCanInferOtherwiseUnboundGeneric() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                fnc empty_option<T>() => Option<T> {
+                  return None;
+                }
+
+                fnc as_return() => Option<int> {
+                  return empty_option();
+                }
+
+                fnc as_binding() => void {
+                  val Option<String> value = empty_option();
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void rangeAndOrPatternsComposeWithCatchAll() throws Exception {
         String output = run("""
                 fnc bucket(int value) {
