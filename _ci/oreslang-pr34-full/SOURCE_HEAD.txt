@@ -1,4 +1,4 @@
 source=ores-truffle-oreslang/oreslang-source.java
-head=3a0feae15d83f582db7095fa10641f96bd09a3dd
+head=294766fff0e8e589fb530ce1908322e44bedf29d
 pr=34
 mirror_experiment=module-info-without-explicit-generated-provider

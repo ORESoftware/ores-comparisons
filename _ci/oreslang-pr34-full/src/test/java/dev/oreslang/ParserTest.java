@@ -246,4 +246,27 @@ final class ParserTest {
 
         assertEquals(longForm, compact);
     }
+    @Test
+    void structBindingKindSupportsTypeFirstAndNameFirstSugarEqually() {
+        Ast.ClassDecl typeFirst = (Ast.ClassDecl) Parser.parse("""
+                struct State {
+                  pub let int count;
+                  pub val String name;
+                  pub const int limit = 10;
+                }
+                """).modules().getFirst().declarations().getFirst();
+
+        Ast.ClassDecl nameFirst = (Ast.ClassDecl) Parser.parse("""
+                struct State {
+                  pub let count: int;
+                  pub val name: String;
+                  pub const limit: int = 10;
+                }
+                """).modules().getFirst().declarations().getFirst();
+
+        assertEquals(typeFirst, nameFirst);
+        assertEquals(Ast.BindingKind.LET, nameFirst.fields().get(0).bindingKind());
+        assertEquals(Ast.BindingKind.VAL, nameFirst.fields().get(1).bindingKind());
+        assertEquals(Ast.BindingKind.CONST, nameFirst.fields().get(2).bindingKind());
+    }
 }
