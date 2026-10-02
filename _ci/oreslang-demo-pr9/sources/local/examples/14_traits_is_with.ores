@@ -1,0 +1,26 @@
+namespace traits_demo;
+
+define interface Named
+  fnc name() => String;
+end
+
+define trait Labelled is Named
+  pub val String label = "Ada";
+
+  pub name() => String {
+    return self.label;
+  }
+end
+
+define class User with Labelled
+  pub static fnc kind() => String {
+    return "user";
+  }
+end
+
+pub routine main() => void {
+  val user = new User();
+  stdio.println(user.name());
+  stdio.println(User.kind());
+  return;
+}
