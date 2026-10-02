@@ -81,6 +81,73 @@ final class ParserTest {
         assertTrue(tokens.stream().anyMatch(t -> t.type() == Token.Type.FAT_ARROW));
     }
     @Test
+    void lexerReservesActorChannelConcurrencyKeywords() {
+        var tokens = new Lexer("channel send try_send receive try_receive select case default loop").scan();
+        assertEquals(Token.Type.CHANNEL, tokens.get(0).type());
+        assertEquals(Token.Type.SEND, tokens.get(1).type());
+        assertEquals(Token.Type.TRY_SEND, tokens.get(2).type());
+        assertEquals(Token.Type.RECEIVE, tokens.get(3).type());
+        assertEquals(Token.Type.TRY_RECEIVE, tokens.get(4).type());
+        assertEquals(Token.Type.SELECT, tokens.get(5).type());
+        assertEquals(Token.Type.CASE, tokens.get(6).type());
+        assertEquals(Token.Type.DEFAULT, tokens.get(7).type());
+        assertEquals(Token.Type.LOOP, tokens.get(8).type());
+    }
+
+    @Test
+    void parsesActorReceiveLoopsChannelsAndSelectAsDedicatedAst() {
+        Ast.Program program = Parser.parse("""
+                pub actor fnc service() => void {
+                  val Channel<int> events = channel<int>(8);
+
+                  receive loop (int msg) {
+                    try_send(events, msg);
+                  }
+
+                  try_receive loop (int pending) {
+                    try_send(events, pending);
+                  }
+
+                  select {
+                    case receive(events) as int next => {
+                      stdio.println(next);
+                    }
+                    case send(events, 1) => {
+                      stdio.println("sent");
+                    }
+                    default => {
+                      stdio.println("idle");
+                    }
+                  }
+
+                  return;
+                }
+                """);
+
+        Ast.FunctionDecl fn = (Ast.FunctionDecl) program.modules().getFirst().declarations().getFirst();
+        assertInstanceOf(Ast.ChannelExpr.class, ((Ast.BindingStmt) fn.body().get(0)).initializer());
+
+        Ast.ReceiveLoopStmt receiveLoop = assertInstanceOf(Ast.ReceiveLoopStmt.class, fn.body().get(1));
+        assertEquals(Ast.ReceiveLoopMode.BLOCKING, receiveLoop.mode());
+        assertEquals("msg", receiveLoop.bindingName());
+        assertInstanceOf(
+                Ast.ChannelOpExpr.class,
+                ((Ast.ExprStmt) receiveLoop.body().getFirst()).expression());
+
+        Ast.ReceiveLoopStmt tryReceiveLoop = assertInstanceOf(Ast.ReceiveLoopStmt.class, fn.body().get(2));
+        assertEquals(Ast.ReceiveLoopMode.NONBLOCKING, tryReceiveLoop.mode());
+        assertEquals("pending", tryReceiveLoop.bindingName());
+
+        Ast.SelectStmt select = assertInstanceOf(Ast.SelectStmt.class, fn.body().get(3));
+        assertEquals(2, select.cases().size());
+        assertEquals(Ast.ChannelOpKind.RECEIVE, select.cases().get(0).operation().kind());
+        assertEquals(Ast.ChannelOpKind.SEND, select.cases().get(1).operation().kind());
+        assertFalse(select.defaultBody().isEmpty());
+
+        assertDoesNotThrow(() -> TypeChecker.check(program));
+    }
+
+    @Test
     void parsesSharedActorAndAllowsMailboxOwnedStateMutation() {
         String source = """
                 shared actor Account {

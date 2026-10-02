@@ -49,6 +49,17 @@ public final class CapabilityChecker {
                 checkStatements(s.body(), policy);
                 checkStatements(s.catchBody(), policy);
                 checkStatements(s.finallyBody(), policy);
+            } else if (stmt instanceof Ast.ReceiveLoopStmt s) {
+                checkStatements(s.body(), policy);
+            } else if (stmt instanceof Ast.ReceivePatternLoopStmt s) {
+                for (Ast.ReceiveCase branch : s.cases()) checkStatements(branch.body(), policy);
+                checkStatements(s.defaultBody(), policy);
+            } else if (stmt instanceof Ast.SelectStmt s) {
+                for (Ast.SelectCase branch : s.cases()) {
+                    checkExpr(branch.operation(), policy);
+                    checkStatements(branch.body(), policy);
+                }
+                checkStatements(s.defaultBody(), policy);
             } else if (stmt instanceof Ast.ForOfStmt s) {
                 checkExpr(s.iterable(), policy);
                 checkStatements(s.body(), policy);
@@ -89,6 +100,11 @@ public final class CapabilityChecker {
         else if (expr instanceof Ast.IndexExpr e) { checkExpr(e.receiver(), policy); checkExpr(e.index(), policy); }
         else if (expr instanceof Ast.NewExpr e) for (Ast.Expr a : e.arguments()) checkExpr(a, policy);
         else if (expr instanceof Ast.AwaitExpr e) checkExpr(e.expression(), policy);
+        else if (expr instanceof Ast.ChannelExpr e) checkExpr(e.capacity(), policy);
+        else if (expr instanceof Ast.ChannelOpExpr e) {
+            if (e.channel() != null) checkExpr(e.channel(), policy);
+            if (e.value() != null) checkExpr(e.value(), policy);
+        }
         else if (expr instanceof Ast.ListExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy);
         else if (expr instanceof Ast.TupleExpr e) for (Ast.Expr a : e.elements()) checkExpr(a, policy);
         else if (expr instanceof Ast.ObjectExpr e) for (Ast.ObjectField f : e.fields()) checkExpr(f.value(), policy);

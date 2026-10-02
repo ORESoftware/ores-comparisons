@@ -1,0 +1,221 @@
+package dev.oreslang;
+
+import dev.oreslang.ast.Ast;
+import dev.oreslang.parser.Parser;
+import dev.oreslang.runtime.ActorRuntime;
+import dev.oreslang.runtime.OresSymbol;
+import dev.oreslang.runtime.PatternSupport;
+import dev.oreslang.types.OwnershipChecker;
+import dev.oreslang.types.TypeChecker;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+final class ReceivePatternSymbolTest {
+    @Test
+    void parsesAndChecksTypedFifoReceivePatterns() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                pub actor fnc service() => void {
+                  receive loop {
+                    case [:put, key: String, value: int] => {
+                      val String copied_key = key;
+                      val int copied_value = value;
+                    }
+                    case :stop => {
+                      return;
+                    }
+                    default => {
+                      val String ignored = "unknown";
+                    }
+                  }
+                  return;
+                }
+                """));
+        assertDoesNotThrow(() -> OwnershipChecker.check(program));
+
+        Ast.FunctionDecl fn = (Ast.FunctionDecl) program.modules().getFirst().declarations().getFirst();
+        Ast.ReceivePatternLoopStmt receive =
+                assertInstanceOf(Ast.ReceivePatternLoopStmt.class, fn.body().getFirst());
+        assertEquals(Ast.ReceiveLoopMode.BLOCKING, receive.mode());
+        assertEquals(2, receive.cases().size());
+
+        Ast.ListPattern put = assertInstanceOf(
+                Ast.ListPattern.class, receive.cases().getFirst().pattern());
+        Ast.LiteralPattern tag = assertInstanceOf(Ast.LiteralPattern.class, put.elements().getFirst());
+        assertEquals(new Ast.Symbol("put"), tag.value());
+
+        Ast.TypedBindingPattern key =
+                assertInstanceOf(Ast.TypedBindingPattern.class, put.elements().get(1));
+        assertEquals("key", key.name());
+        assertEquals("String", key.type().name());
+    }
+
+    @Test
+    void nonblockingPatternLoopUsesTheSamePatternGrammar() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                pub actor fnc drain() => void {
+                  try_receive loop {
+                    case [:event, value: int] => {
+                      val int copied = value;
+                    }
+                    default => {
+                      val bool empty_or_other = true;
+                    }
+                  }
+                  return;
+                }
+                """));
+
+        Ast.FunctionDecl fn = (Ast.FunctionDecl) program.modules().getFirst().declarations().getFirst();
+        Ast.ReceivePatternLoopStmt receive =
+                assertInstanceOf(Ast.ReceivePatternLoopStmt.class, fn.body().getFirst());
+        assertEquals(Ast.ReceiveLoopMode.NONBLOCKING, receive.mode());
+    }
+
+    @Test
+    void patternReceiveIsActorOnlyAndRequiresExplicitFallbackForOpenProtocols() {
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                pub fnc bad() => void {
+                  receive loop {
+                    case :ping => {
+                      return;
+                    }
+                    default => {
+                      return;
+                    }
+                  }
+                }
+                """)));
+
+        IllegalArgumentException missingFallback = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        pub actor fnc bad() => void {
+                          receive loop {
+                            case :ping => {
+                              return;
+                            }
+                          }
+                          return;
+                        }
+                        """)));
+        assertTrue(missingFallback.getMessage().contains("never scans past an unmatched FIFO head"));
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                pub actor fnc ok() => void {
+                  receive loop {
+                    case message => {
+                      return;
+                    }
+                  }
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void wildcardOrBindingMakesLaterReceiveCasesUnreachable() {
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        pub actor fnc bad() => void {
+                          receive loop {
+                            case _ => {
+                              return;
+                            }
+                            case :later => {
+                              return;
+                            }
+                          }
+                          return;
+                        }
+                        """)));
+        assertTrue(failure.getMessage().contains("unreachable receive case"));
+    }
+
+    @Test
+    void symbolIsARealCopyTypeRatherThanAStringAlias() {
+        assertDoesNotThrow(() -> {
+            Ast.Program typed = TypeChecker.check(Parser.parse("""
+                    pub fnc protocol_tag() => Symbol {
+                      return :ping;
+                    }
+                    """));
+            OwnershipChecker.check(typed);
+        });
+
+        OresSymbol first = OresSymbol.of("ping");
+        OresSymbol second = OresSymbol.of("ping");
+        assertEquals(first, second);
+        assertNotSame(first, second, "symbols are ordinary GC-able values, not required global intern entries");
+        assertNotEquals(first, "ping");
+        assertEquals(":ping", first.toString());
+    }
+
+    @Test
+    void purePatternMatcherBindsTypedPayloadsAfterTagMatch() {
+        Ast.Program program = Parser.parse("""
+                pub actor fnc service() => void {
+                  receive loop {
+                    case [:put, key: String, value: int] => {
+                      return;
+                    }
+                    default => {
+                      return;
+                    }
+                  }
+                  return;
+                }
+                """);
+        Ast.FunctionDecl fn = (Ast.FunctionDecl) program.modules().getFirst().declarations().getFirst();
+        Ast.ReceivePatternLoopStmt receive = (Ast.ReceivePatternLoopStmt) fn.body().getFirst();
+        Ast.Pattern pattern = receive.cases().getFirst().pattern();
+
+        Map<String, Object> captures = PatternSupport.match(
+                pattern,
+                List.of(OresSymbol.of("put"), "answer", 42L)).orElseThrow();
+        assertEquals("answer", captures.get("key"));
+        assertEquals(42L, captures.get("value"));
+
+        assertTrue(PatternSupport.match(
+                pattern,
+                List.of(OresSymbol.of("get"), "answer", 42L)).isEmpty());
+        assertTrue(PatternSupport.match(
+                pattern,
+                List.of(OresSymbol.of("put"), "answer", "not-an-int")).isEmpty());
+    }
+
+    @Test
+    void actorTransportTreatsSymbolsAsImmutableSendableScalars() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch delivered = new CountDownLatch(1);
+            AtomicReference<Object> observed = new AtomicReference<>();
+
+            var ref = runtime.<Object>spawnPrivate(() -> (message, context) -> {
+                observed.set(message);
+                delivered.countDown();
+            });
+
+            List<Object> message = List.of(OresSymbol.of("put"), "answer", 42L);
+            ref.send(message);
+
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals(message, observed.get());
+            assertNotSame(message, observed.get(), "private actor transport must isolate the aggregate");
+        }
+    }
+
+    @Test
+    void symbolNamesAreBoundedAndIdentifierShaped() {
+        assertThrows(IllegalArgumentException.class, () -> OresSymbol.of(""));
+        assertThrows(IllegalArgumentException.class, () -> OresSymbol.of("not valid"));
+        assertThrows(IllegalArgumentException.class,
+                () -> OresSymbol.of("a".repeat(OresSymbol.MAX_NAME_LENGTH + 1)));
+    }
+}

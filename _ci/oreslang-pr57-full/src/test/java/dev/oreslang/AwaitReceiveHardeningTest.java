@@ -144,6 +144,47 @@ final class AwaitReceiveHardeningTest {
         }
     }
 
+
+    @Test
+    void awaitSupportsRuntimeDefinedAwaitablesAndRejectsNonAwaitables() {
+        AwaitSupport.Awaitable<Integer> custom = new AwaitSupport.Awaitable<>() {
+            @Override public boolean isDone() { return true; }
+            @Override public Integer await() { return 42; }
+        };
+
+        assertEquals(42, AwaitSupport.await(custom));
+        assertThrows(IllegalArgumentException.class, () -> AwaitSupport.await(null));
+        assertThrows(IllegalArgumentException.class, () -> AwaitSupport.await("not-awaitable"));
+    }
+
+    @Test
+    void cancelledReceiveDoesNotStealTheNextMailboxMessage() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch armed = new CountDownLatch(1);
+            CountDownLatch delivered = new CountDownLatch(1);
+            AtomicReference<String> ordinary = new AtomicReference<>();
+
+            var ref = runtime.<String>spawnPrivate(() -> (message, context) -> {
+                if ("arm".equals(message)) {
+                    var waiter = context.receive().toCompletableFuture();
+                    assertTrue(waiter.cancel(true));
+                    armed.countDown();
+                    return;
+                }
+                ordinary.set(message);
+                delivered.countDown();
+            });
+
+            ref.send("arm");
+            assertTrue(armed.await(2, TimeUnit.SECONDS));
+            ref.send("payload");
+
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals("payload", ordinary.get(),
+                    "cancelling a receive must restore ordinary FIFO delivery for the next message");
+        }
+    }
+
     @Test
     void receiveAPIsAreActorTurnScopedAndOneWaiterAtATime() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
