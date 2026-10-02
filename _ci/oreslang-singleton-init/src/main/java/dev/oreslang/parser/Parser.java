@@ -345,10 +345,20 @@ public final class Parser {
         Ast.TypeRef receiverType = null;
         List<Ast.Param> params;
         boolean mutableReceiver = check(MUT) && checkNext(SELF);
-        if (mods.isStatic && (check(SELF) || mutableReceiver)) {
+        boolean takeReceiver = check(IDENT) && peek().lexeme().equals("take") && checkNext(SELF);
+        if (mods.isStatic && (check(SELF) || mutableReceiver || takeReceiver)) {
             throw error(peek(), "static class functions do not have a self receiver");
         }
-        if (mutableReceiver) {
+        if (takeReceiver) {
+            advance(); // contextual take
+            consume(SELF, "consuming receiver syntax is 'take self'");
+            Ast.TypeRef target = check(RPAREN) ? Ast.TypeRef.simple("self") : parseTypeRef();
+            receiverType = target; // non-borrow receiver means ownership transfer
+            consume(RPAREN, "expected ')' after consuming self receiver");
+            consume(LPAREN, "explicit receiver form is method(take self)(params)");
+            params = parseParametersUntil(RPAREN);
+            consume(RPAREN, "expected ')' after method parameters");
+        } else if (mutableReceiver) {
             advance(); // mut
             consume(SELF, "mutable receiver syntax is 'mut self'");
             Ast.TypeRef target = check(RPAREN) ? Ast.TypeRef.simple("self") : parseTypeRef();

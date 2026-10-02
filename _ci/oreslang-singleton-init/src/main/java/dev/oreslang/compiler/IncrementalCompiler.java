@@ -161,12 +161,18 @@ public final class IncrementalCompiler {
                         .append(method.name());
                 appendGenerics(abi, method.genericParameters());
                 if (!method.isStatic()) {
-                    boolean mutableReceiver = method.explicitReceiverType() != null
-                            && method.explicitReceiverType().isBorrow()
-                            && method.explicitReceiverType().mutableBorrow();
-                    abi.append("[self=")
-                            .append(mutableReceiver ? "mut" : "borrow")
-                            .append(']');
+                    Ast.TypeRef receiver = method.explicitReceiverType();
+                    String receiverMode = receiver == null
+                            ? "borrow"
+                            : receiver.isBorrow()
+                                    ? (receiver.mutableBorrow() ? "mut" : "borrow")
+                                    : "take";
+                    abi.append("[self=").append(receiverMode).append(']');
+                    if (receiver != null) {
+                        abi.append('[')
+                                .append(typeRef(receiver.isBorrow() ? receiver.borrowedTarget() : receiver))
+                                .append(']');
+                    }
                 }
                 appendParams(abi, method.parameters());
                 abi.append("=>").append(typeRef(method.returnType())).append('\n');

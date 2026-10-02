@@ -52,7 +52,13 @@ public final class Ast {
         public static TypeRef simple(String name) { return new TypeRef(name, List.of(), false); }
         public static TypeRef inferred() { return new TypeRef("$infer$", List.of(), false); }
         public static TypeRef borrowed(TypeRef target, boolean mutable) {
-            return new TypeRef(mutable ? "$borrow_mut$" : "$borrow$", List.of(target), false);
+            boolean effectiveMutable = mutable;
+            TypeRef base = target;
+            while (base.isBorrow()) {
+                effectiveMutable |= base.mutableBorrow();
+                base = base.borrowedTarget();
+            }
+            return new TypeRef(effectiveMutable ? "$borrow_mut$" : "$borrow$", List.of(base), false);
         }
         public boolean isBorrow() { return name.equals("$borrow$") || name.equals("$borrow_mut$"); }
         public boolean mutableBorrow() { return name.equals("$borrow_mut$"); }
