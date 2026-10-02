@@ -71,6 +71,7 @@ public final class TraitComposer {
 
         private Ast.Program compose() {
             validateNoTraitInstantiation();
+            validateNoTraitRuntimeTypes();
             List<Ast.ModuleDecl> modules = new ArrayList<>();
             for (Ast.ModuleDecl module : program.modules()) {
                 List<Ast.Decl> declarations = new ArrayList<>();
@@ -96,6 +97,182 @@ public final class TraitComposer {
                         declarations));
             }
             return new Ast.Program(program.namespace(), program.imports(), modules);
+        }
+
+        private void validateNoTraitRuntimeTypes() {
+            for (Ast.ModuleDecl module : program.modules()) {
+                for (Ast.Decl declaration : module.declarations()) {
+                    validateNoTraitRuntimeTypes(module.name(), declaration);
+                }
+            }
+        }
+
+        private void validateNoTraitRuntimeTypes(String moduleName, Ast.Decl declaration) {
+            if (declaration instanceof Ast.FunctionDecl function) {
+                Set<String> generics = Set.copyOf(function.genericParameters());
+                validateParams(moduleName, function.parameters(), generics, "function " + function.name());
+                validateTypeRef(moduleName, function.returnType(), generics, "function return " + function.name());
+                validateNoTraitRuntimeTypes(moduleName, function.body(), generics);
+            } else if (declaration instanceof Ast.InitDecl init) {
+                validateNoTraitRuntimeTypes(moduleName, init.body(), Set.of());
+            } else if (declaration instanceof Ast.FieldDecl field) {
+                validateTypeRef(moduleName, field.type(), Set.of(), "module field " + field.name());
+                if (field.initializer() != null) validateNoTraitRuntimeTypes(moduleName, field.initializer(), Set.of());
+            } else if (declaration instanceof Ast.ClassDecl klass) {
+                Set<String> classGenerics = Set.copyOf(klass.genericParameters());
+                for (Ast.FieldDecl field : klass.fields()) {
+                    validateTypeRef(moduleName, field.type(), classGenerics, "class field " + klass.name() + "." + field.name());
+                    if (field.initializer() != null) validateNoTraitRuntimeTypes(moduleName, field.initializer(), classGenerics);
+                }
+                for (Ast.MethodDecl method : klass.methods()) {
+                    Set<String> generics = new LinkedHashSet<>(classGenerics);
+                    generics.addAll(method.genericParameters());
+                    validateTypeRef(moduleName, method.explicitReceiverType(), generics, "method receiver " + klass.name() + "." + method.name());
+                    validateParams(moduleName, method.parameters(), generics, "method " + klass.name() + "." + method.name());
+                    validateTypeRef(moduleName, method.returnType(), generics, "method return " + klass.name() + "." + method.name());
+                    validateNoTraitRuntimeTypes(moduleName, method.body(), generics);
+                }
+            } else if (declaration instanceof Ast.TraitDecl trait) {
+                Set<String> traitGenerics = Set.copyOf(trait.genericParameters());
+                for (Ast.FieldDecl field : trait.fields()) {
+                    validateTypeRef(moduleName, field.type(), traitGenerics, "trait field " + trait.name() + "." + field.name());
+                    if (field.initializer() != null) validateNoTraitRuntimeTypes(moduleName, field.initializer(), traitGenerics);
+                }
+                for (Ast.MethodDecl method : trait.methods()) {
+                    Set<String> generics = new LinkedHashSet<>(traitGenerics);
+                    generics.addAll(method.genericParameters());
+                    validateTypeRef(moduleName, method.explicitReceiverType(), generics, "trait receiver " + trait.name() + "." + method.name());
+                    validateParams(moduleName, method.parameters(), generics, "trait method " + trait.name() + "." + method.name());
+                    validateTypeRef(moduleName, method.returnType(), generics, "trait method return " + trait.name() + "." + method.name());
+                    validateNoTraitRuntimeTypes(moduleName, method.body(), generics);
+                }
+            } else if (declaration instanceof Ast.InterfaceDecl iface) {
+                Set<String> interfaceGenerics = Set.copyOf(iface.genericParameters());
+                for (Ast.InterfaceMember member : iface.members()) {
+                    if (member instanceof Ast.InterfaceFunctionDecl function) {
+                        Set<String> generics = new LinkedHashSet<>(interfaceGenerics);
+                        generics.addAll(function.genericParameters());
+                        validateParams(moduleName, function.parameters(), generics, "interface function " + iface.name() + "." + function.name());
+                        validateTypeRef(moduleName, function.returnType(), generics, "interface function return " + iface.name() + "." + function.name());
+                    } else if (member instanceof Ast.InterfaceFieldDecl field) {
+                        validateTypeRef(moduleName, field.type(), interfaceGenerics, "interface data requirement " + iface.name() + "." + field.name());
+                    }
+                }
+            } else if (declaration instanceof Ast.TypeAliasDecl alias) {
+                validateTypeRef(moduleName, alias.target(), Set.copyOf(alias.genericParameters()), "type alias " + alias.name());
+            }
+        }
+
+        private void validateNoTraitRuntimeTypes(
+                String moduleName,
+                List<Ast.Stmt> statements,
+                Set<String> generics) {
+            for (Ast.Stmt statement : statements) {
+                if (statement instanceof Ast.BindingStmt binding) {
+                    validateTypeRef(moduleName, binding.declaredType(), generics, "binding " + binding.name());
+                    validateNoTraitRuntimeTypes(moduleName, binding.initializer(), generics);
+                } else if (statement instanceof Ast.DestructureStmt destructure) {
+                    validateNoTraitRuntimeTypes(moduleName, destructure.initializer(), generics);
+                } else if (statement instanceof Ast.ReturnStmt returned && returned.value() != null) {
+                    validateNoTraitRuntimeTypes(moduleName, returned.value(), generics);
+                } else if (statement instanceof Ast.ExprStmt expression) {
+                    validateNoTraitRuntimeTypes(moduleName, expression.expression(), generics);
+                } else if (statement instanceof Ast.DeferStmt deferred) {
+                    validateNoTraitRuntimeTypes(moduleName, deferred.expression(), generics);
+                } else if (statement instanceof Ast.IfStmt conditional) {
+                    for (Ast.IfBranch branch : conditional.branches()) {
+                        validateNoTraitRuntimeTypes(moduleName, branch.condition(), generics);
+                        validateNoTraitRuntimeTypes(moduleName, branch.body(), generics);
+                    }
+                    validateNoTraitRuntimeTypes(moduleName, conditional.elseBody(), generics);
+                } else if (statement instanceof Ast.TryStmt attempted) {
+                    validateNoTraitRuntimeTypes(moduleName, attempted.body(), generics);
+                    validateNoTraitRuntimeTypes(moduleName, attempted.catchBody(), generics);
+                    validateNoTraitRuntimeTypes(moduleName, attempted.finallyBody(), generics);
+                } else if (statement instanceof Ast.ForOfStmt loop) {
+                    validateNoTraitRuntimeTypes(moduleName, loop.iterable(), generics);
+                    validateNoTraitRuntimeTypes(moduleName, loop.body(), generics);
+                } else if (statement instanceof Ast.ForStmt loop) {
+                    if (loop.initializer() != null) validateNoTraitRuntimeTypes(moduleName, List.of(loop.initializer()), generics);
+                    if (loop.condition() != null) validateNoTraitRuntimeTypes(moduleName, loop.condition(), generics);
+                    if (loop.update() != null) validateNoTraitRuntimeTypes(moduleName, loop.update(), generics);
+                    validateNoTraitRuntimeTypes(moduleName, loop.body(), generics);
+                }
+            }
+        }
+
+        private void validateNoTraitRuntimeTypes(
+                String moduleName,
+                Ast.Expr expression,
+                Set<String> generics) {
+            if (expression instanceof Ast.NewExpr created) {
+                validateTypeRef(moduleName, created.type(), generics, "constructor type");
+                for (Ast.Expr argument : created.arguments()) validateNoTraitRuntimeTypes(moduleName, argument, generics);
+            } else if (expression instanceof Ast.MemberExpr member) {
+                validateNoTraitRuntimeTypes(moduleName, member.receiver(), generics);
+            } else if (expression instanceof Ast.CallExpr call) {
+                validateNoTraitRuntimeTypes(moduleName, call.callee(), generics);
+                for (Ast.Expr argument : call.arguments()) validateNoTraitRuntimeTypes(moduleName, argument, generics);
+            } else if (expression instanceof Ast.BinaryExpr binary) {
+                validateNoTraitRuntimeTypes(moduleName, binary.left(), generics);
+                validateNoTraitRuntimeTypes(moduleName, binary.right(), generics);
+            } else if (expression instanceof Ast.UnaryExpr unary) {
+                validateNoTraitRuntimeTypes(moduleName, unary.operand(), generics);
+            } else if (expression instanceof Ast.AssignExpr assignment) {
+                validateNoTraitRuntimeTypes(moduleName, assignment.target(), generics);
+                validateNoTraitRuntimeTypes(moduleName, assignment.value(), generics);
+            } else if (expression instanceof Ast.ConditionalExpr conditional) {
+                validateNoTraitRuntimeTypes(moduleName, conditional.condition(), generics);
+                validateNoTraitRuntimeTypes(moduleName, conditional.whenTrue(), generics);
+                validateNoTraitRuntimeTypes(moduleName, conditional.whenFalse(), generics);
+            } else if (expression instanceof Ast.IndexExpr indexed) {
+                validateNoTraitRuntimeTypes(moduleName, indexed.receiver(), generics);
+                validateNoTraitRuntimeTypes(moduleName, indexed.index(), generics);
+            } else if (expression instanceof Ast.AwaitExpr awaited) {
+                validateNoTraitRuntimeTypes(moduleName, awaited.expression(), generics);
+            } else if (expression instanceof Ast.ListExpr list) {
+                for (Ast.Expr item : list.elements()) validateNoTraitRuntimeTypes(moduleName, item, generics);
+            } else if (expression instanceof Ast.TupleExpr tuple) {
+                for (Ast.Expr item : tuple.elements()) validateNoTraitRuntimeTypes(moduleName, item, generics);
+            } else if (expression instanceof Ast.ObjectExpr object) {
+                for (Ast.ObjectField field : object.fields()) validateNoTraitRuntimeTypes(moduleName, field.value(), generics);
+            } else if (expression instanceof Ast.LambdaExpr lambda) {
+                for (Ast.Param parameter : lambda.parameters()) {
+                    validateTypeRef(moduleName, parameter.type(), generics, "lambda parameter " + parameter.name());
+                }
+                if (lambda.expressionBody() != null) validateNoTraitRuntimeTypes(moduleName, lambda.expressionBody(), generics);
+                if (lambda.blockBody() != null) validateNoTraitRuntimeTypes(moduleName, lambda.blockBody(), generics);
+            }
+        }
+
+        private void validateParams(
+                String moduleName,
+                List<Ast.Param> parameters,
+                Set<String> generics,
+                String where) {
+            for (Ast.Param parameter : parameters) {
+                validateTypeRef(moduleName, parameter.type(), generics, where + " parameter " + parameter.name());
+            }
+        }
+
+        private void validateTypeRef(
+                String moduleName,
+                Ast.TypeRef type,
+                Set<String> generics,
+                String where) {
+            if (type == null) return;
+            if (type.isBorrow()) {
+                validateTypeRef(moduleName, type.borrowedTarget(), generics, where);
+                return;
+            }
+            if (!generics.contains(type.name()) && isTraitName(moduleName, type.name())) {
+                throw new IllegalArgumentException(
+                        "trait '" + type.name() + "' cannot be used as a runtime type in " + where
+                                + "; traits are composition units only—use an interface for contracts or a class for values");
+            }
+            for (Ast.TypeRef argument : type.arguments()) {
+                validateTypeRef(moduleName, argument, generics, where);
+            }
         }
 
         private void validateNoTraitInstantiation() {
@@ -213,8 +390,20 @@ public final class TraitComposer {
 
         private void indexTraits() {
             for (Ast.ModuleDecl module : program.modules()) {
+                Set<String> occupiedTypeNames = new HashSet<>();
+                for (Ast.Decl declaration : module.declarations()) {
+                    if (declaration instanceof Ast.ClassDecl klass) occupiedTypeNames.add(klass.name());
+                    else if (declaration instanceof Ast.InterfaceDecl iface) occupiedTypeNames.add(iface.name());
+                    else if (declaration instanceof Ast.TypeAliasDecl alias) occupiedTypeNames.add(alias.name());
+                }
+
                 for (Ast.Decl declaration : module.declarations()) {
                     if (!(declaration instanceof Ast.TraitDecl trait)) continue;
+                    if (occupiedTypeNames.contains(trait.name())) {
+                        throw new IllegalArgumentException(
+                                "trait '" + module.name() + "." + trait.name()
+                                        + "' collides with an existing class/interface/type alias in the same type namespace");
+                    }
 
                     TraitBinding binding = new TraitBinding(module.name(), trait);
                     String qualified = module.name() + "." + trait.name();

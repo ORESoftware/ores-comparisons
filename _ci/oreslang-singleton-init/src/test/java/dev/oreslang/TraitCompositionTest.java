@@ -247,6 +247,58 @@ final class TraitCompositionTest {
     }
 
     @Test
+    void traitsCannotAppearInRuntimeTypePositions() {
+        IllegalArgumentException direct = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Counter as
+                          end
+
+                          pub fnc use(Counter value) => void {
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(direct.getMessage().contains("cannot be used as a runtime type"));
+
+        IllegalArgumentException nested = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define trait Counter as
+                          end
+
+                          pub fnc use(Option<Counter> value) => void {
+                            return;
+                          }
+                        end
+                        """)));
+
+        assertTrue(nested.getMessage().contains("cannot be used as a runtime type"));
+    }
+
+    @Test
+    void traitNamesShareTheTypeNamespace() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module model as
+                          define interface Named as
+                            fnc name() => String;
+                          end
+
+                          define trait Named as
+                            pub name() => String { return "trait"; }
+                          end
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("collides with an existing class/interface/type alias"));
+    }
+
+    @Test
     void privateTraitStateStaysLexicallyOwnedByTheTrait() {
         IllegalArgumentException leak = assertThrows(
                 IllegalArgumentException.class,
