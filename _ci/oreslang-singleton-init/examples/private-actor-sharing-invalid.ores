@@ -9,7 +9,7 @@ fnc make_shared_cell() => void {
   return;
 }
 
-define class Helpers
+define class Helpers as
   pub static fnc make_shared() => void {
     val shared = SharedMutex.new(11);
     stdio.println(shared.is_poisoned());

@@ -11,6 +11,9 @@ import dev.oreslang.runtime.ActorRuntime;
 import dev.oreslang.runtime.OresContext;
 import org.graalvm.polyglot.SandboxPolicy;
 
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+
 @TruffleLanguage.Registration(
         id = OresLanguage.ID,
         name = "Oreslang",
@@ -55,9 +58,21 @@ public final class OresLanguage extends TruffleLanguage<OresContext> {
 
     @Override
     protected CallTarget parse(ParsingRequest request) {
-        String text = request.getSource().getCharacters().toString();
+        var source = request.getSource();
+        String text = source.getCharacters().toString();
         Ast.Program program = OresCompiler.parseAndTypeCheck(text);
-        RootCallTarget evaluator = new OresEvalRootNode(this, program).getCallTarget();
+        String codeUnitId = source.getPath();
+        if (codeUnitId == null || codeUnitId.isBlank()) {
+            codeUnitId = source.getName();
+        } else {
+            try {
+                codeUnitId = Path.of(codeUnitId).toAbsolutePath().normalize().toString().replace('\\', '/');
+            } catch (InvalidPathException invalidPath) {
+                throw new IllegalArgumentException("invalid Oreslang source path identity", invalidPath);
+            }
+        }
+        if (codeUnitId == null || codeUnitId.isBlank()) codeUnitId = "<anonymous>";
+        RootCallTarget evaluator = new OresEvalRootNode(this, program, codeUnitId).getCallTarget();
         return new OresInteropRootNode(this, evaluator).getCallTarget();
     }
 }

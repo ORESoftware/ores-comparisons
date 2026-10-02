@@ -34,6 +34,41 @@ import * as x from './xyz';
 
 Wildcard imports always require a namespace alias. This avoids silently injecting an unbounded set of names into the local scope. Import paths are part of the AST/compiler contract; filesystem/package resolution is a host build/bundling concern so strict isolates do not gain ambient filesystem access merely by using `import`.
 
+### Circular imports and file initialization
+
+Import cycles are legal. Oreslang does not reject a program merely because its
+file/module graph contains a cycle such as `a.ores -> b.ores -> a.ores`.
+
+The loader uses a staged lifecycle:
+
+1. parse and statically validate the complete reachable source graph;
+2. resolve/link imports for every code unit;
+3. compute strongly connected components (SCCs) of the import graph;
+4. for each dependency-first SCC, verify that **all** members are linked;
+5. run each member's optional file init hook;
+6. after initialization, invoke the entry unit's `main`.
+
+A file init hook has the exact shape:
+
+```ores
+fnc init() => void {
+  // side effects are allowed here
+  return;
+}
+```
+
+It is private, synchronous, non-actor, non-generic, takes no parameters, and
+returns `void`. The hook runs at most once for that loaded code-unit
+generation. Inside a cycle, init hooks execute in deterministic normalized
+code-unit-id order, but code must rely only on the stronger barrier guarantee:
+**every peer in the cycle is already linked before any peer's init begins**.
+
+This means an init hook may call exported declarations from a cyclic peer
+without observing an "unloaded module" state. If application state requires a
+specific sequencing relationship *between* two init hooks in the same cycle,
+that relationship should be made explicit in application code rather than
+inferred from the import edges.
+
 ## Module interfaces / OCaml-style module signatures
 
 Interfaces can describe the structural public shape required of a module. A module opts into checking with `@AdheresTo(...)`:
@@ -133,10 +168,12 @@ Sequence destructuring requires a returned tuple or array/list. Finite tuples ar
 
 ## Classes, receivers, multiple inheritance, and interfaces
 
+Class headers use `as` as the required body delimiter. The canonical form is `define class Name as ... end`; when `extends` or `implements` are present, `as` follows the complete class header.
+
 Methods omit `fnc`. Instance methods always have an implicit receiver named `self`.
 
 ```ores
-define class Box<T>
+define class Box<T> as
   val T value;
 
   @Ret<self>
@@ -159,7 +196,7 @@ The receiver variable name is always `self`.
 A class may list multiple parent classes and multiple interfaces:
 
 ```ores
-define class Combined extends Cacheable, Serializable implements HasId, Named
+define class Combined extends Cacheable, Serializable implements HasId, Named as
 end
 ```
 
@@ -168,10 +205,10 @@ Parent order is significant and is the deterministic v0.2 method-resolution orde
 `Object` and `List` are extensible base classes:
 
 ```ores
-define class RecordBag extends Object
+define class RecordBag extends Object as
 end
 
-define class Names extends List
+define class Names extends List as
 end
 ```
 
@@ -217,7 +254,7 @@ define interface Named
   String name;
 end
 
-define class User implements Named
+define class User implements Named as
   pub val String name;
 end
 ```
@@ -437,7 +474,7 @@ Named modules remain the normal namespace unit, but a source file may also conta
 
 ```ores
 define module x
-  define class y
+  define class y as
   end
 end
 
@@ -517,7 +554,7 @@ Explicit `implements` and module `@AdheresTo(...)` checks remain structural conf
 Only methods overload, and only by arity:
 
 ```ores
-define class Lookup
+define class Lookup as
   find() => Option<int> {
     return None;
   }
@@ -561,7 +598,7 @@ for (val item of values) {
 Classes can expose a JavaScript-like iterator symbol:
 
 ```ores
-define class Bag
+define class Bag as
   [Symbol.iterator]() => Array<int> {
     return arr[1, 2, 3];
   }
@@ -746,7 +783,7 @@ A deployment may still aggregate many code units into one Native Image for start
 Instance methods continue to omit `fnc`:
 
 ```ores
-define class Counter
+define class Counter as
   read() => int {
     return self.value;
   }
@@ -756,7 +793,7 @@ end
 Class-level functions are not methods. They are declared with the explicit `static fnc` form:
 
 ```ores
-define class Counter
+define class Counter as
   pub static fnc twice(int value) => int {
     return value * 2;
   }

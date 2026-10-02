@@ -166,7 +166,7 @@ final class OptionResultSemanticsTest {
     @Test
     void moveOnlyOptionsStayAffineEvenWhenInitializedWithNone() {
         IllegalArgumentException moved = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Box
+                define class Box as
                 end
 
                 fnc consume(Option<Box> value) => void {
@@ -199,7 +199,7 @@ final class OptionResultSemanticsTest {
     @Test
     void someMovesMoveOnlyPayloadAndUnwrapConsumesMoveOnlyOption() {
         IllegalArgumentException wrappedTwice = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Box
+                define class Box as
                 end
 
                 fnc bad() => void {
@@ -212,7 +212,7 @@ final class OptionResultSemanticsTest {
         assertTrue(wrappedTwice.getMessage().contains("moved value"));
 
         IllegalArgumentException unwrappedTwice = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Box
+                define class Box as
                 end
 
                 fnc bad() => void {
@@ -228,7 +228,7 @@ final class OptionResultSemanticsTest {
     @Test
     void ownedSumValuesCannotHideStackBorrows() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Box
+                define class Box as
                 end
 
                 fnc bad() => void {
@@ -243,7 +243,7 @@ final class OptionResultSemanticsTest {
     @Test
     void mutexTryLockOptionCanBeSafelyUnwrappedIntoLinearGuard() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define class Box
+                define class Box as
                 end
 
                 fnc good() => void {
@@ -256,7 +256,7 @@ final class OptionResultSemanticsTest {
                 """)));
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define class Box
+                define class Box as
                 end
 
                 fnc bad() => void {

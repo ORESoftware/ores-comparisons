@@ -54,7 +54,7 @@ final class ActorCapabilityIsolationTest {
     @Test
     void privateActorCannotHideSharedMutexInsideOrdinaryStoredClass() {
         Ast.Program program = TypeChecker.check(Parser.parse("""
-                define class SharedBox
+                define class SharedBox as
                   let SharedMutex<int> value;
                 end
 
@@ -97,7 +97,7 @@ final class ActorCapabilityIsolationTest {
     @Test
     void privateActorCannotLaunderSharedMemoryThroughStaticClassHelper() {
         Ast.Program program = TypeChecker.check(Parser.parse("""
-                define class Helpers
+                define class Helpers as
                   pub static fnc build_shared() => void {
                     val shared = SharedMutex.new(1);
                     stdio.println(shared);
@@ -123,7 +123,7 @@ final class ActorCapabilityIsolationTest {
     @Test
     void privateActorCannotCarryObjectWhoseInstanceMethodUsesSharedAuthority() {
         Ast.Program program = TypeChecker.check(Parser.parse("""
-                define class Helper
+                define class Helper as
                   pub use_shared() => void {
                     val shared = process.share_readonly(arr[1, 2, 3]);
                     stdio.println(shared);
@@ -148,7 +148,7 @@ final class ActorCapabilityIsolationTest {
         Ast.Program program = TypeChecker.check(Parser.parse("""
                 type SharedInt = SharedMutex<int>;
 
-                define class SharedBox
+                define class SharedBox as
                   let SharedInt value;
                 end
 
@@ -164,7 +164,7 @@ final class ActorCapabilityIsolationTest {
     @Test
     void transitiveCapabilityScanHandlesSelfReferentialStoredTypes() {
         Ast.Program program = TypeChecker.check(Parser.parse("""
-                define class Node
+                define class Node as
                   let Node next;
 
                   pub identity(Node other) => Node {
@@ -281,7 +281,7 @@ final class ActorCapabilityIsolationTest {
     @Test
     void privateActorCannotLaunderSharedMemoryThroughStaticMethodValue() {
         Ast.Program program = TypeChecker.check(Parser.parse("""
-                define class Helpers
+                define class Helpers as
                   pub static fnc build_shared() => void {
                     val shared = SharedMutex.new(1);
                     stdio.println(shared);
