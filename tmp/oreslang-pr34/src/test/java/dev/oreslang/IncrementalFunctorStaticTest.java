@@ -349,4 +349,79 @@ final class IncrementalFunctorStaticTest {
         assertTrue(third.rebuilt("consumer.ores"),
                 "trait changes that alter a composed public class shape must invalidate importers");
     }
+    @Test
+    void nonEscapingCallableLocalTypeChangesDoNotInvalidateImporters() {
+        IncrementalCompiler compiler = new IncrementalCompiler();
+
+        Map<String, String> first = Map.of(
+                "producer.ores", """
+                        pub fnc value() => int {
+                          struct Helper {
+                            value: int;
+                          }
+                          return 1;
+                        }
+                        """,
+                "consumer.ores", """
+                        import fnc {value} from "./producer.ores";
+                        pub fnc main() => void {
+                          stdio.println(value());
+                          return;
+                        }
+                        """);
+        compiler.compile(first);
+
+        Map<String, String> changed = Map.of(
+                "producer.ores", """
+                        pub fnc value() => int {
+                          struct Helper {
+                            label: string;
+                            count: int;
+                          }
+                          return 1;
+                        }
+                        """,
+                "consumer.ores", first.get("consumer.ores"));
+
+        var second = compiler.compile(changed);
+        assertTrue(second.rebuilt("producer.ores"));
+        assertTrue(second.reused("consumer.ores"),
+                "implementation-only local type changes must not pollute exported ABI");
+    }
+
+    @Test
+    void escapingCallableLocalAliasChangesInvalidateImporters() {
+        IncrementalCompiler compiler = new IncrementalCompiler();
+
+        Map<String, String> first = Map.of(
+                "producer.ores", """
+                        pub fnc value() => Out {
+                          type Out = int;
+                          return 1;
+                        }
+                        """,
+                "consumer.ores", """
+                        import fnc {value} from "./producer.ores";
+                        pub fnc main() => void {
+                          stdio.println(value());
+                          return;
+                        }
+                        """);
+        compiler.compile(first);
+
+        Map<String, String> changed = Map.of(
+                "producer.ores", """
+                        pub fnc value() => Out {
+                          type Out = string;
+                          return "one";
+                        }
+                        """,
+                "consumer.ores", first.get("consumer.ores"));
+
+        var second = compiler.compile(changed);
+        assertTrue(second.rebuilt("producer.ores"));
+        assertTrue(second.rebuilt("consumer.ores"),
+                "escaping local aliases are part of the callable ABI");
+    }
+
 }
