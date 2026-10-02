@@ -1,4 +1,3 @@
 ores-truffle-oreslang/oreslang-source.java
-PR #94
-head 0b39d6277ebd629371f748d344a7b47993dd1c10
-base main @ e6291fcb797d7e2187f44551675d20e07a0b100b
+replacement PR #95
+head bde574cbb7b1bdeb64dd915674c2f8bb45c6a534
