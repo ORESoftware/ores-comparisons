@@ -33,5 +33,5 @@ jobs:
       - name: GC + actor + ownership regression suite
         run: >-
           mvn -B -ntp
-          -Dtest=GarbageCollectionRuntimeTest,ActorRuntimeTest,OwnershipAndClosureTest,IsolationHotReloadTest
+          -Dtest=RuntimeGarbageCollectorTest,GarbageCollectionLanguageTest,ActorRuntimeTest,OwnershipAndClosureTest,IsolationHotReloadTest
           test
