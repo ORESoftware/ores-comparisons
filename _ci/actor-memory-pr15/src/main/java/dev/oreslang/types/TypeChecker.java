@@ -360,44 +360,14 @@ public final class TypeChecker {
         if (stmt instanceof Ast.DestructureStmt destructure) {
             Type source = deref(typeOf(destructure.initializer(), env, generics, self));
             if (destructure.kind() == Ast.DestructureKind.SEQUENCE) {
-                if (source instanceof Tuple tuple) {
-                    if (tuple.elements().size() != destructure.bindings().size()) {
-                        throw new IllegalArgumentException("destructure arity mismatch: tuple has " + tuple.elements().size()
-                                + " element(s), pattern has " + destructure.bindings().size());
-                    }
-                    for (int i = 0; i < destructure.bindings().size(); i++) {
-                        defineDestructureBinding(env, destructure.bindings().get(i), tuple.elements().get(i));
-                    }
-                } else if (source instanceof ListType list) {
-                    for (Ast.DestructureBinding binding : destructure.bindings()) {
-                        defineDestructureBinding(env, binding, list.element());
-                    }
-                } else {
-                    throw new IllegalArgumentException("sequence destructuring requires a tuple or array/list value");
+                List<Type> elementTypes = sequenceDestructureTypes(source, destructure.bindings().size());
+                for (int i = 0; i < destructure.bindings().size(); i++) {
+                    defineDestructureBinding(env, destructure.bindings().get(i), elementTypes.get(i));
                 }
             } else {
-                Record shape;
-                if (source instanceof Record record) {
-                    shape = record;
-                } else if (source instanceof Named named) {
-                    Ast.ClassDecl klass = findClass(named.name());
-                    if (klass == null) throw new IllegalArgumentException("object destructuring requires a record/map-like value");
-                    shape = (Record) substituteGenerics(
-                            publicClassShape(klass, new LinkedHashSet<>()),
-                            classGenericBindings(klass, named));
-                } else if (source == Unknown.INSTANCE) {
-                    shape = null;
-                } else {
-                    throw new IllegalArgumentException("object destructuring requires a record/map-like value");
-                }
-
                 for (Ast.DestructureBinding binding : destructure.bindings()) {
                     if (binding.isDiscard()) continue;
-                    Type member = shape == null ? Unknown.INSTANCE : shape.members().get(binding.name());
-                    if (member == null) {
-                        throw new IllegalArgumentException("object destructure requires member '" + binding.name() + "'");
-                    }
-                    env.define(binding.name(), member, binding.kind());
+                    env.define(binding.name(), objectDestructureMemberType(source, binding.name()), binding.kind());
                 }
             }
             return;
@@ -617,10 +587,21 @@ public final class TypeChecker {
                 }
                 return new Named(factory.name(), List.of(element));
             }
-            if (call.callee() instanceof Ast.NameExpr name && name.name().equals("Some")) {
-                if (call.typeArgumentsPresent()) throw new IllegalArgumentException("Some does not accept call-site type arguments");
-                if (call.arguments().size() != 1) throw new IllegalArgumentException("Some expects exactly one value");
-                return new Named("Option", List.of(typeOf(call.arguments().getFirst(), env, generics, self)));
+            if (call.callee() instanceof Ast.NameExpr name
+                    && (name.name().equals("Some") || name.name().equals("Ok") || name.name().equals("Err"))) {
+                if (call.typeArgumentsPresent()) {
+                    throw new IllegalArgumentException(name.name() + " does not accept call-site type arguments");
+                }
+                if (call.arguments().size() != 1) {
+                    throw new IllegalArgumentException(name.name() + " expects exactly one value");
+                }
+                Type value = widenCollectionElement(typeOf(call.arguments().getFirst(), env, generics, self));
+                return switch (name.name()) {
+                    case "Some" -> new Named("Option", List.of(value));
+                    case "Ok" -> new Named("Result", List.of(value, Unknown.INSTANCE));
+                    case "Err" -> new Named("Result", List.of(Unknown.INSTANCE, value));
+                    default -> throw new IllegalStateException("unreachable sum constructor");
+                };
             }
             if (call.callee() instanceof Ast.MemberExpr member) {
                 Type receiver = deref(typeOf(member.receiver(), env, generics, self));
@@ -716,6 +697,14 @@ public final class TypeChecker {
                 if (member.member().equals("stdout")) return new Named("stdio.stdout", List.of());
             }
             Type receiver = typeOf(member.receiver(), env, generics, self);
+            Type sumReceiver = deref(receiver);
+            Type sumMember = builtinOptionResultMember(sumReceiver, member.member());
+            if (sumMember != null) return sumMember;
+            if (sumReceiver instanceof Named sumNamed
+                    && (sumNamed.name().equals("Option") || sumNamed.name().equals("Result"))) {
+                throw new IllegalArgumentException(
+                        "unknown " + sumNamed.name() + " member '" + member.member() + "'");
+            }
             Type mutexMember = builtinMutexMember(receiver, member.member());
             if (mutexMember != null) return mutexMember;
             receiver = unwrapMutexGuard(receiver);
@@ -869,14 +858,73 @@ public final class TypeChecker {
             validateLambdaAgainstExpected(lambda, fn, env, generics, self);
             return fn;
         }
-        if (expected instanceof Tuple && expr instanceof Ast.ListExpr list) {
-            return new Tuple(list.elements().stream().map(item -> typeOf(item, env, generics, self)).toList());
+        if (expr instanceof Ast.ListExpr list) {
+            if (expected instanceof Tuple) {
+                return new Tuple(list.elements().stream().map(item -> typeOf(item, env, generics, self)).toList());
+            }
+            if (expected instanceof Union union
+                    && union.options().stream().allMatch(option -> option instanceof Tuple)) {
+                return new Tuple(list.elements().stream().map(item -> typeOf(item, env, generics, self)).toList());
+            }
         }
         return typeOf(expr, env, generics, self);
     }
 
     private void defineDestructureBinding(Env env, Ast.DestructureBinding binding, Type type) {
         if (!binding.isDiscard()) env.define(binding.name(), type, binding.kind());
+    }
+
+    private List<Type> sequenceDestructureTypes(Type source, int arity) {
+        source = deref(source);
+        if (source instanceof Tuple tuple) {
+            if (tuple.elements().size() != arity) {
+                throw new IllegalArgumentException("destructure arity mismatch: tuple has " + tuple.elements().size()
+                        + " element(s), pattern has " + arity);
+            }
+            return tuple.elements();
+        }
+        if (source instanceof ListType list) {
+            return java.util.Collections.nCopies(arity, list.element());
+        }
+        if (source instanceof Union union) {
+            List<List<Type>> alternatives = new ArrayList<>(union.options().size());
+            for (Type option : union.options()) {
+                alternatives.add(sequenceDestructureTypes(option, arity));
+            }
+            List<Type> joined = new ArrayList<>(arity);
+            for (int i = 0; i < arity; i++) {
+                final int slot = i;
+                joined.add(Types.unionOf(alternatives.stream().map(items -> items.get(slot)).toList()));
+            }
+            return List.copyOf(joined);
+        }
+        throw new IllegalArgumentException("sequence destructuring requires a tuple or array/list value");
+    }
+
+    private Type objectDestructureMemberType(Type source, String memberName) {
+        source = deref(source);
+        if (source instanceof Record record) {
+            Type member = record.members().get(memberName);
+            if (member == null) throw new IllegalArgumentException("object destructure requires member '" + memberName + "'");
+            return member;
+        }
+        if (source instanceof Named named) {
+            Ast.ClassDecl klass = findClass(named.name());
+            if (klass == null) throw new IllegalArgumentException("object destructuring requires a record/map-like value");
+            Record shape = (Record) substituteGenerics(
+                    publicClassShape(klass, new LinkedHashSet<>()),
+                    classGenericBindings(klass, named));
+            Type member = shape.members().get(memberName);
+            if (member == null) throw new IllegalArgumentException("object destructure requires member '" + memberName + "'");
+            return member;
+        }
+        if (source instanceof Union union) {
+            List<Type> alternatives = new ArrayList<>(union.options().size());
+            for (Type option : union.options()) alternatives.add(objectDestructureMemberType(option, memberName));
+            return Types.unionOf(alternatives);
+        }
+        if (source == Unknown.INSTANCE) return Unknown.INSTANCE;
+        throw new IllegalArgumentException("object destructuring requires a record/map-like value");
     }
 
     private void validateMutexCallback(Ast.LambdaExpr lambda, Type expectedParameter, Env parent, Set<String> generics, Type self) {
@@ -973,8 +1021,14 @@ public final class TypeChecker {
         if (!(type instanceof Named named)) return false;
 
         if (named.name().equals("Mutex") || named.name().equals("MutexGuard") || named.name().equals("Future")) return false;
+        if (named.name().equals("OptionUnwrapError")) return named.arguments().isEmpty();
         if (named.name().equals("Option") || named.name().equals("SharedMutex")) {
             return named.arguments().size() == 1 && isSharedSafe(named.arguments().getFirst(), seen, genericBindings);
+        }
+        if (named.name().equals("Result")) {
+            return named.arguments().size() == 2
+                    && isSharedSafe(named.arguments().get(0), seen, genericBindings)
+                    && isSharedSafe(named.arguments().get(1), seen, genericBindings);
         }
 
         for (Type argument : named.arguments()) {
@@ -1047,6 +1101,35 @@ public final class TypeChecker {
             return new Record(members);
         }
         return type;
+    }
+
+    private Type builtinOptionResultMember(Type receiver, String member) {
+        if (!(receiver instanceof Named named)) return null;
+        if (named.name().equals("Option") && named.arguments().size() == 1) {
+            Type element = named.arguments().getFirst();
+            return switch (member) {
+                case "is_some", "is_none" -> new Function(List.of(), Primitive.BOOL);
+                case "unwrap" -> new Function(List.of(), element);
+                case "unwrap_safe" -> new Function(
+                        List.of(),
+                        new Named("Result", List.of(element, new Named("OptionUnwrapError", List.of()))));
+                case "expect" -> new Function(List.of(Primitive.STRING), element);
+                case "unwrap_or" -> new Function(List.of(element), element);
+                default -> null;
+            };
+        }
+        if (named.name().equals("Result") && named.arguments().size() == 2) {
+            Type ok = named.arguments().get(0);
+            return switch (member) {
+                case "is_ok", "is_err" -> new Function(List.of(), Primitive.BOOL);
+                case "unwrap" -> new Function(List.of(), ok);
+                case "unwrap_safe" -> new Function(List.of(), named);
+                case "expect" -> new Function(List.of(Primitive.STRING), ok);
+                case "unwrap_or" -> new Function(List.of(ok), ok);
+                default -> null;
+            };
+        }
+        return null;
     }
 
     private Type builtinMutexMember(Type receiver, String member) {
@@ -1834,6 +1917,14 @@ public final class TypeChecker {
                 Type element = resolve(ref.arguments().getFirst(), generics, self, true);
                 if (element == Primitive.VOID) throw new IllegalArgumentException("Option<void> is invalid; use void for no return value");
                 yield new Named("Option", List.of(element));
+            }
+            case "Result" -> {
+                if (ref.inferArguments() || ref.arguments().size() != 2) {
+                    throw new IllegalArgumentException("Result requires exactly two explicit type arguments");
+                }
+                yield new Named("Result", List.of(
+                        resolve(ref.arguments().get(0), generics, self),
+                        resolve(ref.arguments().get(1), generics, self)));
             }
             case "MutexGuard" -> throw new IllegalArgumentException(
                     "MutexGuard<T> is compiler-managed and cannot be named in source declarations; acquire it from lock()/try_lock()/lock_async()");
