@@ -40,19 +40,24 @@ public final class Parser {
             Modifiers modifiers = parseModifiers();
 
             if (match(DEFINE)) {
+                if (modifiers.shared) {
+                    throw error(previous(), "'shared' must modify an actor declaration; use 'shared actor <Name>'");
+                }
                 boolean afterDefineAbstract = match(ABSTRACT);
                 if (match(MODULE)) {
-                    if (modifiers.visibility != Ast.Visibility.PRIVATE || modifiers.async || modifiers.isStatic || modifiers.isAbstract) {
+                    if (modifiers.visibility != Ast.Visibility.PRIVATE || modifiers.async || modifiers.nonLexical || modifiers.isStatic || modifiers.isAbstract || modifiers.shared) {
                         throw error(previous(), "modules do not accept function/class modifiers");
                     }
                     modules.add(parseModule(annotations));
                     continue;
                 }
                 if (match(CLASS)) {
+                    if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
                     rootDeclarations.add(parseClass(modifiers.isAbstract || afterDefineAbstract));
                     continue;
                 }
                 if (match(INTERFACE)) {
+                    if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
                     rootDeclarations.add(parseInterface(modifiers.visibility));
                     continue;
                 }
@@ -122,9 +127,18 @@ public final class Parser {
         Modifiers modifiers = parseModifiers();
 
         if (match(DEFINE)) {
+            if (modifiers.shared) {
+                throw error(previous(), "'shared' must modify an actor declaration; use 'shared actor <Name>'");
+            }
             boolean afterDefineAbstract = match(ABSTRACT);
-            if (match(CLASS)) return parseClass(modifiers.isAbstract || afterDefineAbstract);
-            if (match(INTERFACE)) return parseInterface(modifiers.visibility);
+            if (match(CLASS)) {
+                if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
+                return parseClass(modifiers.isAbstract || afterDefineAbstract);
+            }
+            if (match(INTERFACE)) {
+                if (modifiers.nonLexical) throw error(previous(), "'nlex' applies only to fnc, routine, or lambda");
+                return parseInterface(modifiers.visibility);
+            }
             throw error(previous(), "expected class or interface after 'define'");
         }
 
@@ -134,8 +148,18 @@ public final class Parser {
     }
 
     private Ast.Decl parseDeclarationAfterModifiers(List<Ast.Annotation> annotations, Modifiers modifiers) {
+        if (match(ACTOR)) {
+            Ast.ActorKind actorKind = modifiers.shared ? Ast.ActorKind.SHARED : Ast.ActorKind.PRIVATE;
+            if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC, actorKind);
+            if (modifiers.async || modifiers.nonLexical || modifiers.isStatic || modifiers.isAbstract) {
+                throw error(previous(), "actor declarations do not accept async, nlex, static, or abstract modifiers");
+            }
+            return parseActorClass(actorKind);
+        }
+        if (modifiers.shared) throw error(previous(), "'shared' must modify an actor declaration or actor fnc");
         if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC);
         if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE);
+        if (modifiers.nonLexical) throw error(peek(), "'nlex' applies only to fnc, routine, or lambda");
         if (match(INTERFACE)) return parseInterface(modifiers.visibility);
         if (match(TYPE)) return parseTypeAlias();
         if (isBindingKind(peek().type())) return parseModuleBinding(modifiers.visibility);
@@ -143,8 +167,19 @@ public final class Parser {
     }
 
     private Ast.FunctionDecl parseFunction(List<Ast.Annotation> annotations, Modifiers modifiers, Ast.CallableKind kind) {
+        return parseFunction(annotations, modifiers, kind, Ast.ActorKind.NONE);
+    }
+
+    private Ast.FunctionDecl parseFunction(
+            List<Ast.Annotation> annotations,
+            Modifiers modifiers,
+            Ast.CallableKind kind,
+            Ast.ActorKind actorKind) {
         if (modifiers.isStatic) throw error(previous(), "'static fnc' is only valid inside a class");
         if (modifiers.isAbstract) throw error(previous(), "top-level/module callables cannot be abstract");
+        if (kind == Ast.CallableKind.ROUTINE && actorKind != Ast.ActorKind.NONE) {
+            throw error(previous(), "actor entry points use fnc, not routine");
+        }
         String name = consume(IDENT, "expected callable name").lexeme();
         List<String> generics = parseGenericParameters();
         consume(LPAREN, "expected '('");
@@ -153,7 +188,7 @@ public final class Parser {
         consume(RPAREN, "expected ')' after parameters");
         Ast.TypeRef returnType = parseReturnType(annotations);
         List<Ast.Stmt> body = parseBlock();
-        return new Ast.FunctionDecl(name, kind, modifiers.visibility, modifiers.async, generics, params,
+        return new Ast.FunctionDecl(name, kind, modifiers.visibility, modifiers.async, modifiers.nonLexical, actorKind, generics, params,
                 returnType, annotations, body);
     }
 
@@ -162,12 +197,14 @@ public final class Parser {
         List<String> generics = parseGenericParameters();
         List<Ast.TypeRef> parents = match(EXTENDS) ? parseTypeRefList() : List.of();
         List<Ast.TypeRef> interfaces = match(IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
+        consume(AS, "expected 'as' after class header");
         List<Ast.FieldDecl> fields = new ArrayList<>();
         List<Ast.MethodDecl> methods = new ArrayList<>();
 
         while (!check(END) && !check(EOF)) {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
+            if (mods.nonLexical) throw error(peek(), "'nlex' is unnecessary on class members; methods/static fnc never capture enclosing local scopes");
             if (isBindingKind(peek().type())) {
                 if (mods.isStatic) throw error(peek(), "static data members are not implemented yet; static class functions use 'static fnc'");
                 fields.add(parseField(mods.visibility));
@@ -182,7 +219,48 @@ public final class Parser {
             methods.add(parseMethod(annotations, mods));
         }
         consume(END, "expected 'end' to close class " + name);
-        return new Ast.ClassDecl(name, isAbstract, generics, parents, interfaces, fields, methods);
+        return new Ast.ClassDecl(name, isAbstract, Ast.ActorKind.NONE, generics, parents, interfaces, fields, methods);
+    }
+
+    private Ast.ClassDecl parseActorClass(Ast.ActorKind actorKind) {
+        String name = consume(IDENT, "expected actor name").lexeme();
+        List<String> generics = parseGenericParameters();
+        List<Ast.TypeRef> parents = match(EXTENDS) ? parseTypeRefList() : List.of();
+        List<Ast.TypeRef> interfaces = match(IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
+
+        boolean braceStyle = match(LBRACE);
+        Token.Type terminator = braceStyle ? RBRACE : END;
+        List<Ast.FieldDecl> fields = new ArrayList<>();
+        List<Ast.MethodDecl> methods = new ArrayList<>();
+
+        while (!check(terminator) && !check(EOF)) {
+            List<Ast.Annotation> annotations = parseAnnotations();
+            Modifiers mods = parseModifiers();
+            if (mods.shared) throw error(previous(), "'shared' is only valid on an actor declaration, not its members");
+            if (mods.nonLexical) throw error(previous(), "'nlex' is unnecessary on actor members; actor methods already execute in the actor turn scope");
+
+            if (isBindingKind(peek().type())) {
+                if (mods.isStatic) throw error(peek(), "actor state cannot be static");
+                if (mods.visibility == Ast.Visibility.PUBLIC) {
+                    throw error(peek(), "actor state fields are private; expose state through actor methods");
+                }
+                fields.add(parseField(mods.visibility));
+                continue;
+            }
+
+            if (mods.isAbstract) throw error(peek(), "actor methods cannot be abstract");
+            if (mods.isStatic) {
+                consume(FNC, "static actor functions must be declared with 'static fnc'");
+            } else {
+                match(FNC);
+            }
+            methods.add(parseMethod(annotations, mods));
+        }
+
+        consume(terminator, braceStyle
+                ? "expected '}' to close actor " + name
+                : "expected 'end' to close actor " + name);
+        return new Ast.ClassDecl(name, false, actorKind, generics, parents, interfaces, fields, methods);
     }
 
     private Ast.InterfaceDecl parseInterface(Ast.Visibility visibility) {
@@ -237,9 +315,18 @@ public final class Parser {
 
     private Ast.FieldDecl parseField(Ast.Visibility visibility) {
         Ast.BindingKind kind = parseBindingKind();
-        Ast.TypeRef type = parseTypeRef();
-        String name = consume(IDENT, "expected field name").lexeme();
+        Ast.TypeRef type = null;
+        String name;
+        if (check(IDENT) && checkNext(EQUAL)) {
+            name = advance().lexeme();
+        } else {
+            type = parseTypeRef();
+            name = consume(IDENT, "expected field name").lexeme();
+        }
         Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
+        if (type == null && initializer == null) {
+            throw error(previous(), "inferred field '" + name + "' requires an initializer");
+        }
         consumeStatementTerminator("field declaration should end with ';'");
         return new Ast.FieldDecl(name, visibility, kind, type, initializer);
     }
@@ -329,19 +416,51 @@ public final class Parser {
     private Modifiers parseModifiers() {
         Ast.Visibility visibility = Ast.Visibility.PRIVATE;
         boolean async = false;
+        boolean nonLexical = false;
         boolean isStatic = false;
         boolean isAbstract = false;
-        boolean progress;
-        do {
-            progress = true;
-            if (match(PUB)) visibility = Ast.Visibility.PUBLIC;
-            else if (match(PRIVATE)) visibility = Ast.Visibility.PRIVATE;
-            else if (match(ASYNC)) async = true;
-            else if (match(STATIC)) isStatic = true;
-            else if (match(ABSTRACT)) isAbstract = true;
-            else progress = false;
-        } while (progress);
-        return new Modifiers(visibility, async, isStatic, isAbstract);
+        boolean shared = false;
+        boolean visibilitySeen = false;
+        boolean asyncSeen = false;
+        boolean nonLexicalSeen = false;
+        boolean staticSeen = false;
+        boolean abstractSeen = false;
+        boolean sharedSeen = false;
+
+        while (true) {
+            if (match(PUB)) {
+                if (visibilitySeen) throw error(previous(), "duplicate/conflicting visibility modifier");
+                visibilitySeen = true;
+                visibility = Ast.Visibility.PUBLIC;
+            } else if (match(PRIVATE)) {
+                if (visibilitySeen) throw error(previous(), "duplicate/conflicting visibility modifier");
+                visibilitySeen = true;
+                visibility = Ast.Visibility.PRIVATE;
+            } else if (match(ASYNC)) {
+                if (asyncSeen) throw error(previous(), "duplicate 'async' modifier");
+                asyncSeen = true;
+                async = true;
+            } else if (match(NLEX)) {
+                if (nonLexicalSeen) throw error(previous(), "duplicate 'nlex' modifier");
+                nonLexicalSeen = true;
+                nonLexical = true;
+            } else if (match(STATIC)) {
+                if (staticSeen) throw error(previous(), "duplicate 'static' modifier");
+                staticSeen = true;
+                isStatic = true;
+            } else if (match(ABSTRACT)) {
+                if (abstractSeen) throw error(previous(), "duplicate 'abstract' modifier");
+                abstractSeen = true;
+                isAbstract = true;
+            } else if (matchContextualShared()) {
+                if (sharedSeen) throw error(previous(), "duplicate 'shared' modifier");
+                sharedSeen = true;
+                shared = true;
+            } else {
+                break;
+            }
+        }
+        return new Modifiers(visibility, async, nonLexical, isStatic, isAbstract, shared);
     }
 
     private Ast.TypeRef parseReturnType(List<Ast.Annotation> annotations) {
@@ -681,6 +800,9 @@ public final class Parser {
             if (isBindingKind(peek().type())) currentKind = parseBindingKind();
 
             if (isDiscardToken(peek())) {
+                if (kind == Ast.DestructureKind.OBJECT) {
+                    throw error(peek(), "bare '_' discard is only valid in sequence destructuring");
+                }
                 advance();
                 bindings.add(Ast.DestructureBinding.discard());
                 continue;
@@ -755,13 +877,26 @@ public final class Parser {
     }
 
     private Ast.Expr parseCondition() {
-        Ast.Expr expression = parseEquality();
-        while (true) {
-            if (match(COMMA)) expression = new Ast.BinaryExpr(",", expression, parseEquality());
-            else if (match(PIPE)) expression = new Ast.BinaryExpr("|", expression, parseEquality());
-            else break;
+        Ast.Expr expression = normalizeLegacyConditionPipe(parseLogicalOr());
+        // Legacy condition-only comma means logical AND. Prefer && in new code.
+        while (match(COMMA)) {
+            expression = new Ast.BinaryExpr(
+                    "&&",
+                    expression,
+                    normalizeLegacyConditionPipe(parseLogicalOr()));
         }
         return expression;
+    }
+
+    private Ast.Expr normalizeLegacyConditionPipe(Ast.Expr expr) {
+        if (expr instanceof Ast.BinaryExpr binary) {
+            String operator = binary.operator().equals("|") ? "||" : binary.operator();
+            return new Ast.BinaryExpr(
+                    operator,
+                    normalizeLegacyConditionPipe(binary.left()),
+                    normalizeLegacyConditionPipe(binary.right()));
+        }
+        return expr;
     }
 
     private Ast.TryStmt parseTry() {
@@ -798,7 +933,7 @@ public final class Parser {
     }
 
     private Ast.Expr parseConditional() {
-        Ast.Expr condition = parseOr();
+        Ast.Expr condition = parseLogicalOr();
         if (!match(QUESTION)) return condition;
         Ast.Expr whenTrue = parseAssignment();
         consume(COLON, "expected ':' in ternary expression");
@@ -806,9 +941,39 @@ public final class Parser {
         return new Ast.ConditionalExpr(condition, whenTrue, whenFalse);
     }
 
-    private Ast.Expr parseOr() {
+    private Ast.Expr parseLogicalOr() {
+        Ast.Expr expr = parseLogicalXor();
+        while (matchAdjacentPair(PIPE)) expr = new Ast.BinaryExpr("||", expr, parseLogicalXor());
+        return expr;
+    }
+
+    private Ast.Expr parseLogicalXor() {
+        Ast.Expr expr = parseLogicalAnd();
+        while (matchAdjacentPair(CARET)) expr = new Ast.BinaryExpr("^^", expr, parseLogicalAnd());
+        return expr;
+    }
+
+    private Ast.Expr parseLogicalAnd() {
+        Ast.Expr expr = parseBitwiseOr();
+        while (matchAdjacentPair(AMP)) expr = new Ast.BinaryExpr("&&", expr, parseBitwiseOr());
+        return expr;
+    }
+
+    private Ast.Expr parseBitwiseOr() {
+        Ast.Expr expr = parseBitwiseXor();
+        while (matchSingleOperator(PIPE)) expr = new Ast.BinaryExpr("|", expr, parseBitwiseXor());
+        return expr;
+    }
+
+    private Ast.Expr parseBitwiseXor() {
+        Ast.Expr expr = parseBitwiseAnd();
+        while (matchSingleOperator(CARET)) expr = new Ast.BinaryExpr("^", expr, parseBitwiseAnd());
+        return expr;
+    }
+
+    private Ast.Expr parseBitwiseAnd() {
         Ast.Expr expr = parseEquality();
-        while (match(PIPE)) expr = new Ast.BinaryExpr("|", expr, parseEquality());
+        while (matchSingleOperator(AMP)) expr = new Ast.BinaryExpr("&", expr, parseEquality());
         return expr;
     }
 
@@ -822,9 +987,22 @@ public final class Parser {
     }
 
     private Ast.Expr parseComparison() {
-        Ast.Expr expr = parseAdditive();
+        Ast.Expr expr = parseShift();
         while (match(LT, LTE, GT, GTE)) {
             String op = previous().lexeme();
+            expr = new Ast.BinaryExpr(op, expr, parseShift());
+        }
+        return expr;
+    }
+
+    private Ast.Expr parseShift() {
+        Ast.Expr expr = parseAdditive();
+        while (true) {
+            String op;
+            if (matchAdjacentTriple(GT)) op = ">>>";
+            else if (matchAdjacentPair(LT)) op = "<<";
+            else if (matchAdjacentPair(GT)) op = ">>";
+            else break;
             expr = new Ast.BinaryExpr(op, expr, parseAdditive());
         }
         return expr;
@@ -849,7 +1027,7 @@ public final class Parser {
     }
 
     private Ast.Expr parseUnary() {
-        if (match(BANG, MINUS, PLUS)) return new Ast.UnaryExpr(previous().lexeme(), parseUnary());
+        if (match(BANG, TILDE, MINUS, PLUS)) return new Ast.UnaryExpr(previous().lexeme(), parseUnary());
         if (match(AMP)) {
             boolean mutable = match(MUT);
             return new Ast.UnaryExpr(mutable ? "&mut" : "&", parseUnary());
@@ -861,7 +1039,13 @@ public final class Parser {
     private Ast.Expr parsePostfix() {
         Ast.Expr expr = parsePrimary();
         while (true) {
-            if (match(LPAREN)) {
+            if (check(LT) && adjacent(previous(), peek()) && looksLikeTypeArgumentCall()) {
+                List<Ast.TypeRef> typeArguments = parseCallTypeArguments();
+                consume(LPAREN, "expected '(' after call type arguments");
+                List<Ast.Expr> args = parseArgumentsUntil(RPAREN);
+                consume(RPAREN, "expected ')' after arguments");
+                expr = new Ast.CallExpr(expr, typeArguments, args);
+            } else if (match(LPAREN)) {
                 List<Ast.Expr> args = parseArgumentsUntil(RPAREN);
                 consume(RPAREN, "expected ')' after arguments");
                 expr = new Ast.CallExpr(expr, args);
@@ -875,6 +1059,32 @@ public final class Parser {
             } else break;
         }
         return expr;
+    }
+
+    private List<Ast.TypeRef> parseCallTypeArguments() {
+        consume(LT, "expected '<' before call type arguments");
+        List<Ast.TypeRef> arguments = new ArrayList<>();
+        if (!check(GT)) {
+            do arguments.add(parseTypeRef()); while (match(COMMA));
+        }
+        consume(GT, "expected '>' after call type arguments");
+        return List.copyOf(arguments);
+    }
+
+    private boolean looksLikeTypeArgumentCall() {
+        int depth = 0;
+        for (int i = current; i < tokens.size(); i++) {
+            Token.Type type = tokens.get(i).type();
+            if (type == LT) depth++;
+            else if (type == GT) {
+                depth--;
+                if (depth == 0) return i + 1 < tokens.size() && tokens.get(i + 1).type() == LPAREN;
+                if (depth < 0) return false;
+            } else if (type == SEMICOLON || type == EQUAL || type == QUESTION || type == COLON) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private String consumeMemberName() {
@@ -896,7 +1106,7 @@ public final class Parser {
             case IDENT,
                     DEFINE, CLASS, MODULE, NAMESPACE, IMPORT, FROM, AS, EXTENDS, IMPLEMENTS,
                     TRY, CATCH, FINALLY, END, FI, IF, DO, ELSE, THEN,
-                    NEW, DONE, AWAIT, ASYNC, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
+                    NEW, DONE, AWAIT, ASYNC, NLEX, ACTOR, SHARED, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
                     INTERFACE, IMPL, ABSTRACT, VOID, STATIC, PUB, PRIVATE, STRUCTURAL, RETURN, DEFER,
                     VAL, CONST, LET, MUT, SELF, TRUE, FALSE, NULL, OBJ, ARR -> true;
             default -> false;
@@ -930,8 +1140,13 @@ public final class Parser {
             consume(RBRACKET, "expected ']' after arr literal");
             return new Ast.ListExpr(items);
         }
-        if (check(PIPE)) return parsePipeLambda();
-        if (check(LPAREN) && looksLikeLambda()) return parseLambda();
+        if (match(NLEX)) {
+            if (check(PIPE)) return parsePipeLambda(true);
+            if (check(LPAREN) && looksLikeLambda()) return parseLambda(true);
+            throw error(previous(), "'nlex' in expression position must prefix a lambda");
+        }
+        if (check(PIPE)) return parsePipeLambda(false);
+        if (check(LPAREN) && looksLikeLambda()) return parseLambda(false);
         if (match(LPAREN)) {
             Ast.Expr first = parseExpression();
             if (match(COMMA)) {
@@ -968,16 +1183,16 @@ public final class Parser {
         return new Ast.ObjectExpr(fields);
     }
 
-    private Ast.LambdaExpr parseLambda() {
+    private Ast.LambdaExpr parseLambda(boolean nonLexical) {
         consume(LPAREN, "expected '('");
         List<Ast.Param> params = parseParametersUntil(RPAREN);
         consume(RPAREN, "expected ')' after lambda parameters");
         consume(ARROW, "expected '->' after lambda parameters");
         if (!check(LBRACE)) throw error(peek(), "lambdas always require a block body; use '-> { ... }'");
-        return new Ast.LambdaExpr(params, null, parseBlock());
+        return new Ast.LambdaExpr(params, null, parseBlock(), nonLexical);
     }
 
-    private Ast.LambdaExpr parsePipeLambda() {
+    private Ast.LambdaExpr parsePipeLambda(boolean nonLexical) {
         consume(PIPE, "expected '|'");
         List<Ast.Param> params = new ArrayList<>();
         if (!check(PIPE)) {
@@ -996,7 +1211,7 @@ public final class Parser {
         consume(PIPE, "expected closing '|' after lambda parameters");
         consume(ARROW, "lambdas use the slim arrow '->'");
         if (!check(LBRACE)) throw error(peek(), "lambdas always require a block body; use '|args| -> { ... }'");
-        return new Ast.LambdaExpr(params, null, parseBlock());
+        return new Ast.LambdaExpr(params, null, parseBlock(), nonLexical);
     }
 
     private boolean looksLikeLambda() {
@@ -1043,6 +1258,15 @@ public final class Parser {
 
     private boolean isBindingKind(Token.Type type) { return type == CONST || type == VAL || type == LET; }
 
+    private boolean matchContextualShared() {
+        if (match(SHARED)) return true;
+        if (check(IDENT) && peek().lexeme().equals("shared")) {
+            advance();
+            return true;
+        }
+        return false;
+    }
+
     private boolean match(Token.Type... types) {
         for (Token.Type type : types) {
             if (check(type)) { advance(); return true; }
@@ -1057,6 +1281,43 @@ public final class Parser {
 
     private boolean check(Token.Type type) { return peek().type() == type; }
     private boolean checkNext(Token.Type type) { return current + 1 < tokens.size() && tokens.get(current + 1).type() == type; }
+
+    private boolean adjacent(Token left, Token right) {
+        return left.line() == right.line() && right.column() == left.column() + left.lexeme().length();
+    }
+
+    private boolean checkAdjacentPair(Token.Type type) {
+        return current + 1 < tokens.size()
+                && tokens.get(current).type() == type
+                && tokens.get(current + 1).type() == type
+                && adjacent(tokens.get(current), tokens.get(current + 1));
+    }
+
+    private boolean matchAdjacentPair(Token.Type type) {
+        if (!checkAdjacentPair(type)) return false;
+        advance();
+        advance();
+        return true;
+    }
+
+    private boolean matchAdjacentTriple(Token.Type type) {
+        if (current + 2 >= tokens.size()) return false;
+        Token first = tokens.get(current);
+        Token second = tokens.get(current + 1);
+        Token third = tokens.get(current + 2);
+        if (first.type() != type || second.type() != type || third.type() != type
+                || !adjacent(first, second) || !adjacent(second, third)) return false;
+        advance();
+        advance();
+        advance();
+        return true;
+    }
+
+    private boolean matchSingleOperator(Token.Type type) {
+        if (!check(type) || checkAdjacentPair(type)) return false;
+        advance();
+        return true;
+    }
     private boolean checkNextLexeme(String lexeme) {
         return current + 1 < tokens.size() && tokens.get(current + 1).type() == IDENT
                 && tokens.get(current + 1).lexeme().equals(lexeme);
@@ -1069,5 +1330,5 @@ public final class Parser {
         return new IllegalArgumentException("Oreslang parse error at " + token.line() + ":" + token.column() + ": " + message);
     }
 
-    private record Modifiers(Ast.Visibility visibility, boolean async, boolean isStatic, boolean isAbstract) { }
+    private record Modifiers(Ast.Visibility visibility, boolean async, boolean nonLexical, boolean isStatic, boolean isAbstract, boolean shared) { }
 }
