@@ -48,6 +48,10 @@ public final class TypeChecker {
     private final Set<String> importedValues = new HashSet<>();
     private final Set<Ast.TypeAliasDecl> resolvingAliases = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
     private Ast.ActorKind currentActorKind = Ast.ActorKind.NONE;
+    private final Set<Ast.FunctionDecl> actorEffectFunctionStack =
+            java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Set<Ast.MethodDecl> actorEffectMethodStack =
+            java.util.Collections.newSetFromMap(new IdentityHashMap<>());
 
     public static Ast.Program check(Ast.Program program) {
         TypeChecker checker = new TypeChecker();
@@ -231,6 +235,52 @@ public final class TypeChecker {
         }
         if (fn.visibility() == Ast.Visibility.PUBLIC && hasInferredArgs(fn.returnType())) {
             throw new IllegalArgumentException("public callable '" + fn.name() + "' cannot export unresolved <> type arguments");
+        }
+    }
+
+    private void validateActorEffectFunction(Ast.FunctionDecl fn) {
+        if (currentActorKind == Ast.ActorKind.NONE || fn.actorKind() != Ast.ActorKind.NONE) return;
+        if (!actorEffectFunctionStack.add(fn)) return;
+        try {
+            Set<String> generics = uniqueGenerics(
+                    fn.genericParameters(),
+                    (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
+            Env env = new Env(null, fn.nonLexical());
+            for (Ast.Param param : fn.parameters()) {
+                env.define(
+                        param.name(),
+                        resolveParam(param, generics, null),
+                        param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+            }
+            Type returns = resolve(fn.returnType(), generics, null);
+            checkBlock(fn.body(), env, generics, returns, null);
+        } finally {
+            actorEffectFunctionStack.remove(fn);
+        }
+    }
+
+    private void validateActorEffectMethod(
+            Ast.ClassDecl owner,
+            Named ownerType,
+            Ast.MethodDecl method) {
+        if (currentActorKind == Ast.ActorKind.NONE) return;
+        if (!actorEffectMethodStack.add(method)) return;
+        try {
+            Set<String> generics = new LinkedHashSet<>(owner.genericParameters());
+            generics.addAll(method.genericParameters());
+            Type callableSelf = method.isStatic() ? null : ownerType;
+            Env env = new Env(null);
+            if (!method.isStatic()) env.define("self", ownerType, Ast.BindingKind.VAL);
+            for (Ast.Param param : method.parameters()) {
+                env.define(
+                        param.name(),
+                        resolveParam(param, generics, callableSelf),
+                        param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+            }
+            Type returns = resolve(method.returnType(), generics, callableSelf);
+            checkBlock(method.body(), env, generics, returns, callableSelf);
+        } finally {
+            actorEffectMethodStack.remove(method);
         }
     }
 
@@ -482,6 +532,7 @@ public final class TypeChecker {
                             "generic callable '" + fn.name()
                                     + "' must be specialized by a direct call; polymorphic function values are not supported yet");
                 }
+                validateActorEffectFunction(fn);
                 return functionType(fn.parameters(), fn.returnType(), Set.of(), null);
             }
             throw new IllegalArgumentException("unknown name '" + name.name() + "'");
@@ -568,6 +619,7 @@ public final class TypeChecker {
                     }
                     String label = "function " + functionName.name();
                     validateCallTypeArgumentMarker(call, target.genericParameters(), label);
+                    validateActorEffectFunction(target);
                     return checkGenericCallable(
                             target.genericParameters(),
                             target.parameters(),
@@ -590,6 +642,7 @@ public final class TypeChecker {
                     }
                     String label = "function " + namespace.name() + "." + qualifiedCall.member();
                     validateCallTypeArgumentMarker(call, target.genericParameters(), label);
+                    validateActorEffectFunction(target);
                     return checkGenericCallable(
                             target.genericParameters(),
                             target.parameters(),
@@ -642,6 +695,10 @@ public final class TypeChecker {
                     Ast.MethodDecl fn = findStaticFunction(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
                     if (fn == null) throw new IllegalArgumentException("no static function '" + member.member() + "' with arity " + call.arguments().size() + " on " + klass.name());
                     validateCallTypeArgumentMarker(call, fn.genericParameters(), "static function " + klass.name() + "." + fn.name());
+                    validateActorEffectMethod(
+                            klass,
+                            nominalClassType(klass),
+                            fn);
                     List<String> callableGenerics = new ArrayList<>(fn.genericParameters());
                     String label = "static function " + klass.name() + "." + fn.name();
                     return checkGenericCallable(
@@ -686,6 +743,7 @@ public final class TypeChecker {
                         Ast.ClassDecl owner = target.owner();
                         Named ownerType = target.ownerType();
                         validateCallTypeArgumentMarker(call, method.genericParameters(), "method " + owner.name() + "." + method.name());
+                        validateActorEffectMethod(owner, ownerType, method);
                         List<String> callableGenerics = new ArrayList<>(owner.genericParameters());
                         callableGenerics.addAll(method.genericParameters());
                         String label = "method " + owner.name() + "." + method.name();
