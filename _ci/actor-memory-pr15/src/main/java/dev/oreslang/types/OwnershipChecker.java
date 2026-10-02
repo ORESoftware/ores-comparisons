@@ -86,10 +86,21 @@ public final class OwnershipChecker {
         for (Ast.MethodDecl method : klass.methods()) {
             Scope scope = new Scope(null);
             if (!method.isStatic()) {
-                // Receiver is immutable unless a future explicit "mut self"
-                // syntax is introduced. Methods can still mutate through an
-                // explicit &mut parameter.
-                scope.define("self", new VarState(Ast.TypeRef.simple(klass.name()), false, ValueKind.IMM_BORROW, Origin.PARAM));
+                if (klass.actorKind() != Ast.ActorKind.NONE) {
+                    scope.define("self", new VarState(
+                            Ast.TypeRef.borrowed(Ast.TypeRef.simple(klass.name()), true),
+                            false,
+                            ValueKind.MUT_BORROW,
+                            Origin.PARAM));
+                } else {
+                    // Ordinary class receivers remain immutable unless explicit
+                    // mutable receiver syntax is introduced.
+                    scope.define("self", new VarState(
+                            Ast.TypeRef.simple(klass.name()),
+                            false,
+                            ValueKind.IMM_BORROW,
+                            Origin.PARAM));
+                }
             }
             for (Ast.Param param : method.parameters()) scope.define(param.name(), stateForParam(param));
             checkBlock(method.body(), scope, method.returnType());
@@ -141,6 +152,9 @@ public final class OwnershipChecker {
                     VarState owner = borrowOwner(unary.operand(), scope);
                     if (owner.origin == Origin.LOCAL) {
                         throw error("cannot return a borrow of local value '" + owner.debugName + "'; borrowed value would outlive its owner");
+                    }
+                    if (isActorConfinedBorrow(owner)) {
+                        throw error("actor self cannot escape its mailbox turn as a returned borrow");
                     }
                 }
                 ValueInfo returned = checkExpr(ret.value(), scope, true);
@@ -271,6 +285,9 @@ public final class OwnershipChecker {
             if (state == null) return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.COPY, null); // function/module/global
             state.debugName = name.name();
             requireUsable(state, name.name(), false);
+            if (consuming && isActorConfinedBorrow(state)) {
+                throw error("actor self is a non-escapable mailbox capability; access its fields/methods inside the actor turn");
+            }
             if (consuming && mutexCriticalSectionDepth > 0 && state.kind == ValueKind.MUT_BORROW) {
                 throw error("protected with_lock/recover state cannot be moved by value; use it through its &mut critical-section borrow");
             }
@@ -312,9 +329,13 @@ public final class OwnershipChecker {
             Map<VarState, StateSnapshot> rightExit = stateSnapshot(scope);
 
             mergeBranchState(base, List.of(leftExit, rightExit));
-            return left.kind == ValueKind.COPY && right.kind == ValueKind.COPY
-                    ? left
-                    : new ValueInfo(left.type, ValueKind.MOVE_ONLY, null);
+            Ast.TypeRef joinedType = joinConditionalType(left.type, right.type);
+            return new ValueInfo(
+                    joinedType,
+                    left.kind == ValueKind.COPY && right.kind == ValueKind.COPY
+                            ? ValueKind.COPY
+                            : ValueKind.MOVE_ONLY,
+                    null);
         }
         if (expr instanceof Ast.CallExpr call) {
             return checkCall(call, scope);
@@ -344,12 +365,25 @@ public final class OwnershipChecker {
                 }
             }
             checkExpr(member.receiver(), scope, false);
-            return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
+            Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
+            Ast.FieldDecl field = klass == null ? null : findField(klass, member.member(), new LinkedHashSet<>());
+            Ast.TypeRef memberType = field == null ? Ast.TypeRef.inferred() : ownershipFieldType(field);
+            ValueKind memberKind = kindOfType(memberType);
+            if (consuming && isRootedAtActorSelf(member.receiver(), scope) && memberKind != ValueKind.COPY) {
+                throw error("cannot move actor-owned field '" + member.member()
+                        + "' out of its mailbox turn; return a copy/immutable value or explicit shared snapshot");
+            }
+            return new ValueInfo(memberType, memberKind, null);
         }
         if (expr instanceof Ast.IndexExpr indexed) {
-            checkExpr(indexed.receiver(), scope, false);
+            ValueInfo receiver = checkExpr(indexed.receiver(), scope, false);
             checkExpr(indexed.index(), scope, false);
-            return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
+            Ast.TypeRef elementType = collectionElementType(receiver.type);
+            ValueKind elementKind = kindOfType(elementType);
+            if (consuming && isRootedAtActorSelf(indexed.receiver(), scope) && elementKind != ValueKind.COPY) {
+                throw error("cannot move actor-owned indexed state out of its mailbox turn");
+            }
+            return new ValueInfo(elementType, elementKind, null);
         }
         if (expr instanceof Ast.NewExpr created) {
             for (Ast.Expr arg : created.arguments()) {
@@ -533,11 +567,17 @@ public final class OwnershipChecker {
                     }
                     VarState owner = borrowOwner(unary.operand(), scope);
                     validateBorrow(owner, mutable);
+                    if (isActorConfinedBorrow(owner)) {
+                        throw error("actor self borrow cannot cross an ordinary callable boundary");
+                    }
                     continue; // temporary borrow ends at call boundary
                 }
                 if (arg instanceof Ast.NameExpr name) {
                     VarState state = requireState(scope, name.name());
                     requireUsable(state, name.name(), false);
+                    if (isActorConfinedBorrow(state)) {
+                        throw error("actor self borrow cannot cross an ordinary callable boundary");
+                    }
                     if (mutable && state.kind != ValueKind.MUT_BORROW) {
                         throw error(callable + " argument " + (i + 1) + " requires &mut value");
                     }
@@ -904,6 +944,57 @@ public final class OwnershipChecker {
                 throw error("cannot move outer value '" + entry.getKey().debugName + "' from a repeating loop; borrow it or move it before entering the loop");
             }
         }
+    }
+
+    private boolean isRootedAtActorSelf(Ast.Expr expr, Scope scope) {
+        Ast.Expr current = expr;
+        while (true) {
+            if (current instanceof Ast.MemberExpr member) current = member.receiver();
+            else if (current instanceof Ast.IndexExpr indexed) current = indexed.receiver();
+            else break;
+        }
+        if (!(current instanceof Ast.NameExpr name)) return false;
+        VarState root = scope.lookup(name.name());
+        return root != null && isActorConfinedBorrow(root);
+    }
+
+    private boolean isActorConfinedBorrow(VarState state) {
+        VarState current = state;
+        Set<VarState> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        while (current != null && seen.add(current)) {
+            if (current.debugName.equals("self")
+                    && current.kind == ValueKind.MUT_BORROW
+                    && current.origin == Origin.PARAM) {
+                Ast.TypeRef type = current.type.isBorrow() ? current.type.borrowedTarget() : current.type;
+                Ast.ClassDecl klass = findClass(type.name());
+                return klass != null && klass.actorKind() != Ast.ActorKind.NONE;
+            }
+            current = current.borrowSource;
+        }
+        return false;
+    }
+
+    private Ast.TypeRef ownershipFieldType(Ast.FieldDecl field) {
+        if (field.type() != null) return field.type();
+        if (field.initializer() instanceof Ast.LiteralExpr literal) return inferLiteralType(literal.value());
+        return Ast.TypeRef.inferred();
+    }
+
+    private Ast.TypeRef collectionElementType(Ast.TypeRef type) {
+        if (type == null) return Ast.TypeRef.inferred();
+        if ((type.name().equals("Array") || type.name().equals("List")) && type.arguments().size() == 1) {
+            return type.arguments().getFirst();
+        }
+        return Ast.TypeRef.inferred();
+    }
+
+    private Ast.TypeRef joinConditionalType(Ast.TypeRef left, Ast.TypeRef right) {
+        if (left == null) return right == null ? Ast.TypeRef.inferred() : right;
+        if (right == null) return left;
+        if (left.equals(right)) return left;
+        if (left.name().equals("$infer$")) return right;
+        if (right.name().equals("$infer$")) return left;
+        return Ast.TypeRef.union(List.of(left, right));
     }
 
     private Ast.TypeRef destructureBindingType(Ast.DestructureStmt destructure, Ast.TypeRef source, int index, String name) {
