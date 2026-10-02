@@ -1,7 +1,5 @@
 package dev.oreslang.runtime;
 
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -52,10 +50,6 @@ public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_MESSAGE_GRAPH_DEPTH = 256;
     private static final int MAX_MESSAGE_GRAPH_NODES = 100_000;
     private static final long CLOSE_WAIT_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
-    private static final int UNTRUSTED_YIELD_QUANTUM = 64;
-    private static final long UNTRUSTED_FUEL_PER_MILLI = 256L;
-    private static final long UNTRUSTED_MIN_FUEL = 256L;
-    private static final ThreadMXBean THREAD_MX_BEAN = ManagementFactory.getThreadMXBean();
     private static final ThreadLocal<Boolean> ACTOR_CARRIER = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static final ThreadLocal<ActorExecutionContext> CURRENT_ACTOR_EXECUTION = new ThreadLocal<>();
 
@@ -103,23 +97,7 @@ public final class ActorRuntime implements AutoCloseable {
         return current == null ? Thread.currentThread() : current.executionDomain();
     }
 
-    public enum ActorKind { PRIVATE, SHARED, UNTRUSTED }
-
-    public static final class UntrustedActorQuotaExceededException extends SecurityException {
-        public enum Resource { FUEL, WALL_TIME, CPU_TIME }
-        private final Resource resource;
-
-        private UntrustedActorQuotaExceededException(Resource resource, String message) {
-            super(message);
-            this.resource = resource;
-        }
-
-        public Resource resource() { return resource; }
-    }
-
-    private static boolean isPrivateKind(ActorKind kind) {
-        return kind == ActorKind.PRIVATE || kind == ActorKind.UNTRUSTED;
-    }
+    public enum ActorKind { PRIVATE, SHARED }
 
     public record DispatcherConfig(
             int privateParallelism,
@@ -210,7 +188,6 @@ public final class ActorRuntime implements AutoCloseable {
     private final TurnExecutor turnExecutor;
     private final ExecutorService privateDispatcher;
     private final ExecutorService sharedDispatcher;
-    private final ExecutorService untrustedDispatcher;
     private final ThreadLocal<ActorCell<?>> currentActor = new ThreadLocal<>();
     private final ThreadLocal<SyncCell<?>> currentSyncCell = new ThreadLocal<>();
 
@@ -252,10 +229,6 @@ public final class ActorRuntime implements AutoCloseable {
                 dispatcherConfig.sharedParallelism(),
                 dispatcherConfig.maxActors(),
                 "ores-shared-actor-dispatcher-");
-        this.untrustedDispatcher = newDispatcher(
-                Math.max(1, dispatcherConfig.privateParallelism()),
-                dispatcherConfig.maxActors(),
-                "ores-untrusted-actor-dispatcher-");
     }
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
@@ -265,6 +238,32 @@ public final class ActorRuntime implements AutoCloseable {
     public long privateMemoryBytes() { return privateMemoryBytes.get(); }
     public long sharedMemoryBytes() { return sharedMemoryBytes.get(); }
     public long actorMemoryBytes() { return privateMemoryBytes.get() + sharedMemoryBytes.get(); }
+
+    /**
+     * Requires a capability using the policy effective for the current
+     * execution domain. Outside an actor turn this is the runtime ceiling;
+     * inside an actor turn it is the actor's derived policy.
+     *
+     * <p>This closes the gap between isolate-wide guest capability checks and
+     * actor-local restrictions. In particular, PRIVATE actors cannot regain
+     * SHARED_MEMORY or ACTOR_SHARE_READONLY merely because their parent
+     * developer context has those capabilities.</p>
+     */
+    public void requireEffectiveCapability(IsolatePolicy.Capability capability, String api) {
+        Objects.requireNonNull(capability);
+        Objects.requireNonNull(api);
+
+        ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
+        if (current == null) {
+            policyCeiling.require(capability, api);
+            return;
+        }
+        if (current.runtime() != this) {
+            throw new SecurityException(
+                    "actor capability check crossed actor-runtime boundaries for " + api);
+        }
+        current.policy().require(capability, api);
+    }
 
     /**
      * Logical actor-confined memory slice for one private actor.
@@ -350,7 +349,7 @@ public final class ActorRuntime implements AutoCloseable {
 
         private void requireCurrentOwner() {
             ActorCell<?> cell = currentActor.get();
-            if (cell == null || !isPrivateKind(cell.kind) || !cell.ref.id().equals(owner)) {
+            if (cell == null || cell.kind != ActorKind.PRIVATE || !cell.ref.id().equals(owner)) {
                 throw new IllegalStateException(
                         "private actor memory slice may only be reserved by its owning actor");
             }
@@ -838,21 +837,6 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
-     * Host/compiler entrypoint for hostile code. The supplied policy may only
-     * tighten the fixed untrusted baseline; capabilities are always empty and
-     * adversarial execution is always enabled.
-     */
-    public <M> ActorRef<M> spawnUntrusted(BehaviorFactory<M> behaviorFactory) {
-        return spawn(ActorKind.UNTRUSTED, IsolatePolicy.untrustedActor(), behaviorFactory);
-    }
-
-    public <M> ActorRef<M> spawnUntrusted(
-            IsolatePolicy requestedLimits,
-            BehaviorFactory<M> behaviorFactory) {
-        return spawn(ActorKind.UNTRUSTED, requestedLimits, behaviorFactory);
-    }
-
-    /**
      * Explicit host-only escape hatch for context-aware shared actor factories
      * that intentionally capture host objects. Compiler lowering must never use
      * this path. Adversarial policies reject it.
@@ -1060,30 +1044,12 @@ public final class ActorRuntime implements AutoCloseable {
         Objects.requireNonNull(kind);
         Objects.requireNonNull(policy);
         Objects.requireNonNull(behaviorFactory);
-
-        IsolatePolicy callerPolicy = currentActorPolicy();
-        if (callerPolicy != null) {
-            callerPolicy.require(IsolatePolicy.Capability.ACTOR_SPAWN, "actor spawn");
-        }
-
-        IsolatePolicy effectivePolicy;
-        if (kind == ActorKind.UNTRUSTED) {
-            IsolatePolicy baseline = IsolatePolicy.untrustedActor();
-            long heap = Math.min(policy.maxHeapBytes(), baseline.maxHeapBytes());
-            int mailbox = Math.min(policy.maxMailboxMessages(), baseline.maxMailboxMessages());
-            java.time.Duration wall = policy.maxWallTime().compareTo(baseline.maxWallTime()) < 0
-                    ? policy.maxWallTime()
-                    : baseline.maxWallTime();
-            effectivePolicy = new IsolatePolicy(java.util.Set.of(), heap, mailbox, wall, true);
-        } else if (kind == ActorKind.PRIVATE) {
-            effectivePolicy = policy.withoutCapabilities(
-                    IsolatePolicy.Capability.SHARED_MEMORY,
-                    IsolatePolicy.Capability.ACTOR_SHARE_READONLY);
-        } else {
-            effectivePolicy = policy;
-        }
-
-        requireWithinCeiling(effectivePolicy);
+        requireWithinCeiling(policy);
+        IsolatePolicy effectivePolicy = kind == ActorKind.PRIVATE
+                ? policy.withoutCapabilities(
+                        IsolatePolicy.Capability.SHARED_MEMORY,
+                        IsolatePolicy.Capability.ACTOR_SHARE_READONLY)
+                : policy;
         requireWithinCallerPolicy(effectivePolicy);
         if (kind == ActorKind.SHARED) {
             effectivePolicy.require(IsolatePolicy.Capability.SHARED_MEMORY, "shared actor spawn");
@@ -1170,11 +1136,8 @@ public final class ActorRuntime implements AutoCloseable {
 
     private void rejectPrivateActorSharedMemoryAccess(String operation) {
         ActorCell<?> current = currentActor.get();
-        if (current != null && isPrivateKind(current.kind)) {
-            throw new IllegalStateException(
-                    current.kind == ActorKind.UNTRUSTED
-                            ? "untrusted actors cannot access shared memory via " + operation
-                            : "private actors cannot access synchronized shared memory via " + operation);
+        if (current != null && current.kind == ActorKind.PRIVATE) {
+            throw new IllegalStateException("private actors cannot access synchronized shared memory via " + operation);
         }
     }
 
@@ -1278,11 +1241,6 @@ public final class ActorRuntime implements AutoCloseable {
     public void stop(ActorRef<?> ref) {
         requireCallerRuntimeAffinity("stop actors");
         Objects.requireNonNull(ref);
-        ActorCell<?> caller = currentActor.get();
-        if (caller != null && caller.kind == ActorKind.UNTRUSTED
-                && !caller.ref.id().equals(ref.id())) {
-            throw new SecurityException("untrusted actors cannot stop other actors");
-        }
         if (!ref.ownedBy(this)) {
             throw new IllegalArgumentException("ActorRef belongs to a different ActorRuntime");
         }
@@ -1318,9 +1276,6 @@ public final class ActorRuntime implements AutoCloseable {
     @SuppressWarnings("unchecked")
     public <M> void send(ActorRef<M> ref, M message) {
         requireCallerRuntimeAffinity("send messages");
-        if (currentActorKind() == ActorKind.UNTRUSTED) {
-            throw new SecurityException("untrusted actors cannot send actor messages");
-        }
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
         Objects.requireNonNull(ref);
         if (!ref.ownedBy(this)) {
@@ -1334,9 +1289,6 @@ public final class ActorRuntime implements AutoCloseable {
         boolean mailboxSlotTransferred = false;
         try {
         validateMessageGraph(message);
-        if (cell.kind == ActorKind.UNTRUSTED) {
-            rejectUntrustedInboundCapabilities(message, new IdentityHashMap<>(), 0);
-        }
         requireMutexTransport(cell, message, new IdentityHashMap<>(), 0);
         requireOwnedActorRefs(message, new IdentityHashMap<>(), 0);
         long runtimeRemaining = Math.max(0L, policyCeiling.maxHeapBytes() - actorMemoryBytes());
@@ -1372,9 +1324,9 @@ public final class ActorRuntime implements AutoCloseable {
 
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
 
-        Object prepared = isPrivateKind(cell.kind) ? isolateCopy(message) : freezeForTransport(message);
+        Object prepared = cell.kind == ActorKind.PRIVATE ? isolateCopy(message) : freezeForTransport(message);
         Runnable release;
-        if (isPrivateKind(cell.kind)) {
+        if (cell.kind == ActorKind.PRIVATE) {
             MemoryReservation reservation;
             try {
                 reservation = cell.memorySlice.reserveMailbox(prepared);
@@ -1436,55 +1388,7 @@ public final class ActorRuntime implements AutoCloseable {
         if (Thread.currentThread().isInterrupted()) {
             throw new CancellationException("actor execution interrupted");
         }
-
-        if (cell != null && cell.kind == ActorKind.UNTRUSTED) {
-            long remaining = --cell.untrustedFuelRemaining;
-            if (remaining < 0) {
-                throw new UntrustedActorQuotaExceededException(
-                        UntrustedActorQuotaExceededException.Resource.FUEL,
-                        "untrusted actor exhausted its instruction/fuel budget");
-            }
-
-            long now = System.nanoTime();
-            long maxNanos = cell.policy.maxWallTime().toNanos();
-            if (now - cell.turnStartedWallNanos > maxNanos) {
-                throw new UntrustedActorQuotaExceededException(
-                        UntrustedActorQuotaExceededException.Resource.WALL_TIME,
-                        "untrusted actor exceeded its wall-time budget");
-            }
-
-            long cpuNow = currentThreadCpuNanos();
-            if (cpuNow >= 0 && cell.turnStartedCpuNanos >= 0
-                    && cpuNow - cell.turnStartedCpuNanos > maxNanos) {
-                throw new UntrustedActorQuotaExceededException(
-                        UntrustedActorQuotaExceededException.Resource.CPU_TIME,
-                        "untrusted actor exceeded its CPU-time budget");
-            }
-
-            if (++cell.untrustedSafepoints % UNTRUSTED_YIELD_QUANTUM == 0) {
-                Thread.yield();
-            }
-            return;
-        }
-
         Thread.yield();
-    }
-
-    private static long currentThreadCpuNanos() {
-        if (!THREAD_MX_BEAN.isCurrentThreadCpuTimeSupported()
-                || !THREAD_MX_BEAN.isThreadCpuTimeEnabled()) {
-            return -1L;
-        }
-        return THREAD_MX_BEAN.getCurrentThreadCpuTime();
-    }
-
-    private static long untrustedFuelBudget(IsolatePolicy policy) {
-        long millis = Math.max(1L, policy.maxWallTime().toMillis());
-        try {
-            return Math.max(UNTRUSTED_MIN_FUEL, Math.multiplyExact(millis, UNTRUSTED_FUEL_PER_MILLI));
-        } catch (ArithmeticException overflow) {
-            return Long.MAX_VALUE;
-        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1530,7 +1434,7 @@ public final class ActorRuntime implements AutoCloseable {
                 throw new SecurityException("private actors cannot receive SharedMutex<T>");
             }
             ActorKind senderKind = currentActorKind();
-            if (senderKind != null && isPrivateKind(senderKind)) {
+            if (senderKind == ActorKind.PRIVATE) {
                 throw new SecurityException("private actors cannot send SharedMutex<T>");
             }
             IsolatePolicy senderPolicy = currentActorPolicy();
@@ -1752,44 +1656,6 @@ public final class ActorRuntime implements AutoCloseable {
     private void abortSharedMutexBindings(List<OresMutex.Shared<?>> reservations) {
         for (int i = reservations.size() - 1; i >= 0; i--) {
             reservations.get(i).abortRuntimePublication(this);
-        }
-    }
-
-    private static void rejectUntrustedInboundCapabilities(
-            Object value,
-            IdentityHashMap<Object, Boolean> visiting,
-            int depth) {
-        requireGraphDepth(depth);
-        if (value == null || isScalar(value)) return;
-        if (value instanceof ActorRuntime.ActorRef<?>
-                || value instanceof Shared<?>
-                || value instanceof SyncCell<?>
-                || value instanceof OresMutex.Lock<?>
-                || value instanceof OresMutex.Guard<?>) {
-            throw new SecurityException(
-                    "untrusted actors accept data-only messages; live actor/shared capabilities are forbidden");
-        }
-        if (visiting.put(value, Boolean.TRUE) != null) {
-            throw new IllegalArgumentException("cyclic values cannot cross untrusted actor boundaries");
-        }
-        try {
-            if (value instanceof List<?> list) {
-                for (Object item : list) rejectUntrustedInboundCapabilities(item, visiting, depth + 1);
-            } else if (value instanceof Set<?> set) {
-                for (Object item : set) rejectUntrustedInboundCapabilities(item, visiting, depth + 1);
-            } else if (value instanceof Map<?, ?> map) {
-                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                    rejectUntrustedInboundCapabilities(entry.getKey(), visiting, depth + 1);
-                    rejectUntrustedInboundCapabilities(entry.getValue(), visiting, depth + 1);
-                }
-            } else if (value.getClass().isArray()) {
-                int length = Array.getLength(value);
-                for (int i = 0; i < length; i++) {
-                    rejectUntrustedInboundCapabilities(Array.get(value, i), visiting, depth + 1);
-                }
-            }
-        } finally {
-            visiting.remove(value);
         }
     }
 
@@ -2388,7 +2254,6 @@ public final class ActorRuntime implements AutoCloseable {
             // reporting success until they actually leave the runtime.
             privateDispatcher.shutdownNow();
             sharedDispatcher.shutdownNow();
-            untrustedDispatcher.shutdownNow();
         }
 
         long deadline = System.nanoTime() + CLOSE_WAIT_NANOS;
@@ -2431,11 +2296,7 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     private ExecutorService dispatcherFor(ActorKind kind) {
-        return switch (kind) {
-            case PRIVATE -> privateDispatcher;
-            case SHARED -> sharedDispatcher;
-            case UNTRUSTED -> untrustedDispatcher;
-        };
+        return kind == ActorKind.PRIVATE ? privateDispatcher : sharedDispatcher;
     }
 
     private static ExecutorService newDispatcher(
@@ -2479,10 +2340,6 @@ public final class ActorRuntime implements AutoCloseable {
         private final Object executionDomain = new Object();
         private int activeTurns;
         private boolean finalized;
-        private long turnStartedWallNanos;
-        private long turnStartedCpuNanos = -1L;
-        private long untrustedFuelRemaining;
-        private long untrustedSafepoints;
         private Behavior<M> behavior;
 
         private ActorCell(
@@ -2497,7 +2354,7 @@ public final class ActorRuntime implements AutoCloseable {
             this.behaviorFactory = behaviorFactory;
             this.trustedFactory = trustedFactory;
             this.mailbox = new LinkedBlockingQueue<>(policy.maxMailboxMessages());
-            this.memorySlice = isPrivateKind(kind)
+            this.memorySlice = kind == ActorKind.PRIVATE
                     ? new ActorMemorySlice(ref.id(), policy.maxHeapBytes())
                     : null;
         }
@@ -2523,12 +2380,6 @@ public final class ActorRuntime implements AutoCloseable {
             synchronized (lifecycleLock) {
                 if (stopped.get() || finalized) return false;
                 activeTurns++;
-                if (kind == ActorKind.UNTRUSTED) {
-                    turnStartedWallNanos = System.nanoTime();
-                    turnStartedCpuNanos = currentThreadCpuNanos();
-                    untrustedFuelRemaining = untrustedFuelBudget(policy);
-                    untrustedSafepoints = 0L;
-                }
                 return true;
             }
         }
@@ -2652,7 +2503,7 @@ public final class ActorRuntime implements AutoCloseable {
                     Behavior<M> created = Objects.requireNonNull(
                             behaviorFactory.create(context),
                             "actor behaviorFactory returned null");
-                    if (isPrivateKind(kind) && !trustedFactory) {
+                    if (kind == ActorKind.PRIVATE && !trustedFactory) {
                         validatePrivateBehaviorState(ref.id(), created);
                     }
                     behavior = created;
@@ -2665,7 +2516,7 @@ public final class ActorRuntime implements AutoCloseable {
                     releaseMailboxSlot();
                     try (envelope) {
                         behavior.onMessage((M) envelope.value(), context);
-                        if (isPrivateKind(kind) && !trustedFactory) {
+                        if (kind == ActorKind.PRIVATE && !trustedFactory) {
                             // Private state that survives a mailbox turn must
                             // remain in actor-owned storage/capabilities. This
                             // catches behavior fields that were null/immutable
