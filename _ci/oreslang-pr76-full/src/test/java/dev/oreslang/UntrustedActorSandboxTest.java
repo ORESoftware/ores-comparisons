@@ -203,6 +203,36 @@ final class UntrustedActorSandboxTest {
     }
 
     @Test
+    void outboundMailboxDataFromUntrustedActorIsIndependentlyBounded() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer())) {
+            ActorRuntime.ActorRef<Object> parent =
+                    runtime.<Object>spawnPrivate(context -> (message, turn) -> { });
+
+            var sandbox = runtime.<Object>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    new ActorRuntime.UntrustedActorLimits(
+                            Duration.ofSeconds(5),
+                            100,
+                            16,
+                            1024),
+                    null,
+                    context -> (message, turn) -> {
+                        @SuppressWarnings("unchecked")
+                        ActorRuntime.ActorRef<Object> destination =
+                                (ActorRuntime.ActorRef<Object>) ((java.util.List<?>) message).getFirst();
+                        destination.send("x".repeat(17));
+                    });
+
+            sandbox.send(java.util.List.of(parent));
+            assertTrue(sandbox.awaitTermination(2, TimeUnit.SECONDS));
+            IllegalStateException failure = assertInstanceOf(
+                    IllegalStateException.class,
+                    sandbox.failure().orElseThrow());
+            assertTrue(failure.getMessage().contains("outbound mailbox payload exceeds 16 bytes"));
+        }
+    }
+
+    @Test
     void directHttpResponseBypassesMailboxAndIsByteBounded() throws Exception {
         RecordingTransport transport = new RecordingTransport();
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer())) {
