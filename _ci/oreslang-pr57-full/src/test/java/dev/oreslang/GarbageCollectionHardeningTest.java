@@ -47,6 +47,32 @@ final class GarbageCollectionHardeningTest {
     }
 
     @Test
+    void sharedActorGcRemainsActorScopedAndDoesNotCollectSharedProcessState() throws Exception {
+        RecordingCollector collector = new RecordingCollector();
+        try (ActorRuntime runtime = new ActorRuntime(
+                IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8),
+                ActorRuntime.TurnExecutor.direct(),
+                new ActorRuntime.GcConfig(0, 0),
+                collector)) {
+            var shared = runtime.<String>spawnShared(factory -> (message, context) -> {
+                context.gc();
+                context.self().stop();
+            });
+
+            shared.send("collect");
+            assertTrue(shared.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(shared.failure().isEmpty());
+            assertEquals(1, collector.actorCollections.size());
+            ActorCollection event = collector.actorCollections.getFirst();
+            assertEquals(shared.id(), event.actorId());
+            assertEquals(ActorRuntime.ActorKind.SHARED, event.kind());
+            assertEquals(ActorRuntime.GcReason.EXPLICIT, event.reason());
+            assertTrue(collector.processCollections.isEmpty());
+        }
+    }
+
+    @Test
     void processGcIsCapabilityGatedAndPrivateActorsCannotTriggerIt() throws Exception {
         RecordingCollector collector = new RecordingCollector();
         var config = new ActorRuntime.DispatcherConfig(1, 1, 8);
