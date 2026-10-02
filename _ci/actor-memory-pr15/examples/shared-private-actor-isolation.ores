@@ -40,7 +40,7 @@ shared actor SharedCounter {
 // - unqualified "actor" means private
 // - owns its mutable state exclusively
 // - receives a private actor memory slice at runtime
-// - SHARED_MEMORY capability is stripped from this actor domain
+// - SHARED_MEMORY and ACTOR_SHARE_READONLY are stripped from this actor domain
 actor PrivateCounter {
   let int value = 10;
 
