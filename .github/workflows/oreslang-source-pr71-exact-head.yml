@@ -20,7 +20,6 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          cache: maven
 
       - name: Checkout exact Oreslang PR 71 head
         shell: bash
