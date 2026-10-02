@@ -30,14 +30,10 @@ import java.util.Set;
  * - moving an outer value from a repeating loop is rejected conservatively.
  */
 public final class OwnershipChecker {
-    private record ResolvedMethod(Ast.ClassDecl owner, Ast.TypeRef ownerType, Ast.MethodDecl method) { }
-    private record ResolvedField(Ast.ClassDecl owner, Ast.TypeRef ownerType, Ast.FieldDecl field) { }
-    private record CallSignature(List<Ast.Param> parameters, Ast.TypeRef result) { }
     private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
     private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
     private final Set<String> ambiguousFunctions = new HashSet<>();
     private final Set<String> ambiguousClasses = new HashSet<>();
-    private int mutexCriticalSectionDepth;
 
     private OwnershipChecker(Ast.Program program) {
         index(program);
@@ -77,7 +73,7 @@ public final class OwnershipChecker {
     }
 
     private void checkFunction(Ast.FunctionDecl fn) {
-        Scope scope = new Scope(null, fn.nonLexical());
+        Scope scope = new Scope(null);
         for (Ast.Param param : fn.parameters()) {
             scope.define(param.name(), stateForParam(param));
         }
@@ -89,18 +85,10 @@ public final class OwnershipChecker {
         for (Ast.MethodDecl method : klass.methods()) {
             Scope scope = new Scope(null);
             if (!method.isStatic()) {
-                if (klass.actorKind() != Ast.ActorKind.NONE) {
-                    scope.define("self", new VarState(
-                            Ast.TypeRef.borrowed(Ast.TypeRef.simple(klass.name()), true),
-                            false,
-                            ValueKind.MUT_BORROW,
-                            Origin.PARAM));
-                } else {
-                    // Receiver is immutable unless a future explicit "mut self"
-                    // syntax is introduced. Methods can still mutate through an
-                    // explicit &mut parameter.
-                    scope.define("self", new VarState(Ast.TypeRef.simple(klass.name()), false, ValueKind.IMM_BORROW, Origin.PARAM));
-                }
+                // Receiver is immutable unless a future explicit "mut self"
+                // syntax is introduced. Methods can still mutate through an
+                // explicit &mut parameter.
+                scope.define("self", new VarState(Ast.TypeRef.simple(klass.name()), false, ValueKind.IMM_BORROW, Origin.PARAM));
             }
             for (Ast.Param param : method.parameters()) scope.define(param.name(), stateForParam(param));
             checkBlock(method.body(), scope, method.returnType());
@@ -128,56 +116,54 @@ public final class OwnershipChecker {
         }
         if (stmt instanceof Ast.DestructureStmt destructure) {
             ValueInfo source = checkExpr(destructure.initializer(), scope, true);
-            for (int i = 0; i < destructure.bindings().size(); i++) {
-                Ast.DestructureBinding binding = destructure.bindings().get(i);
-                if (binding.isDiscard()) continue;
-                Ast.TypeRef bindingType = destructureBindingType(destructure, source.type, i, binding.name());
-                ValueKind bindingKind = bindingType.name().equals("$infer$")
-                        ? (source.kind == ValueKind.COPY ? ValueKind.COPY : ValueKind.MOVE_ONLY)
-                        : kindOfType(bindingType);
+            for (Ast.DestructureBinding binding : destructure.bindings()) {
                 scope.define(binding.name(), new VarState(
-                        bindingType,
+                        Ast.TypeRef.inferred(),
                         binding.kind() == Ast.BindingKind.LET,
-                        bindingKind,
+                        source.kind == ValueKind.COPY ? ValueKind.COPY : ValueKind.MOVE_ONLY,
                         Origin.LOCAL));
             }
             return;
         }
         if (stmt instanceof Ast.ReturnStmt ret) {
             if (ret.value() != null) {
-                if (mutexCriticalSectionDepth > 0) {
-                    throw error("with_lock/recover critical-section callbacks cannot return a value");
-                }
                 if (ret.value() instanceof Ast.UnaryExpr unary && (unary.operator().equals("&") || unary.operator().equals("&mut"))) {
                     VarState owner = borrowOwner(unary.operand(), scope);
                     if (owner.origin == Origin.LOCAL) {
                         throw error("cannot return a borrow of local value '" + owner.debugName + "'; borrowed value would outlive its owner");
                     }
-                    if (isActorConfinedBorrow(owner)) {
-                        throw error("actor self cannot escape its mailbox turn as a returned borrow");
-                    }
                 }
-                ValueInfo returned = checkExpr(ret.value(), scope, true);
-                if (containsMutexGuardType(returned.type)) {
-                    throw error("MutexGuard values are lexical and cannot be returned from a function/routine");
-                }
+                checkExpr(ret.value(), scope, true);
             }
             return;
         }
         if (stmt instanceof Ast.ExprStmt expression) {
-            ValueInfo value = checkExpr(expression.expression(), scope, false);
-            if (containsMutexGuardType(value.type)) {
-                throw error("guard-bearing values cannot be discarded; bind the result with val and release/await it");
-            }
+            checkExpr(expression.expression(), scope, false);
             return;
         }
         if (stmt instanceof Ast.DeferStmt defer) {
-            ValueInfo value = checkExpr(defer.expression(), scope, false);
-            if (containsMutexGuardType(value.type)) {
-                throw error("defer cannot produce a guard-bearing value");
-            }
+            // The callable produced at registration is owned by the callable-level
+            // defer frame until it is invoked at exit.
+            checkExpr(defer.expression(), scope, true);
             return;
         }
+        if (stmt instanceof Ast.RecoverStmt recover) {
+            // Recovery handlers are retained by the current callable frame until
+            // failure unwind completes or the callable returns normally.
+            checkExpr(recover.handler(), scope, true);
+            return;
+        }
+        if (stmt instanceof Ast.PanicStmt panic) {
+            // The panic payload crosses the current callable boundary by value.
+            checkExpr(panic.value(), scope, true);
+            return;
+        }
+        if (stmt instanceof Ast.ThrowStmt thrown) {
+            // A thrown payload may cross lexical/callable boundaries by value.
+            checkExpr(thrown.value(), scope, true);
+            return;
+        }
+        if (stmt instanceof Ast.RaiseStmt || stmt instanceof Ast.StopStmt) return;
         if (stmt instanceof Ast.IfStmt conditional) {
             Map<VarState, StateSnapshot> base = stateSnapshot(scope);
             List<Map<VarState, StateSnapshot>> exits = new ArrayList<>();
@@ -262,16 +248,10 @@ public final class OwnershipChecker {
             return;
         }
 
-        Ast.TypeRef storedType = binding.declaredType() == null ? value.type : binding.declaredType();
-        if (binding.kind() == Ast.BindingKind.LET && containsMutexGuardType(storedType)) {
-            throw error("guard-bearing values are linear and cannot use let; bind them once with val");
-        }
-
-        ValueKind storedKind = binding.declaredType() == null ? value.kind : kindOfType(storedType);
         VarState state = new VarState(
-                storedType,
+                binding.declaredType() == null ? value.type : binding.declaredType(),
                 binding.kind() == Ast.BindingKind.LET,
-                storedKind,
+                value.kind,
                 Origin.LOCAL);
         state.borrowSource = value.borrowSource;
         scope.define(binding.name(), state);
@@ -283,21 +263,9 @@ public final class OwnershipChecker {
         }
         if (expr instanceof Ast.NameExpr name) {
             VarState state = scope.lookup(name.name());
-            if (state == null && name.name().equals("None")) {
-                return new ValueInfo(
-                        new Ast.TypeRef("Option", List.of(Ast.TypeRef.inferred()), false),
-                        ValueKind.MOVE_ONLY,
-                        null);
-            }
             if (state == null) return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.COPY, null); // function/module/global
             state.debugName = name.name();
             requireUsable(state, name.name(), false);
-            if (consuming && isActorConfinedBorrow(state)) {
-                throw error("actor self is a non-escapable mailbox capability; access its fields/methods inside the actor turn");
-            }
-            if (consuming && mutexCriticalSectionDepth > 0 && state.kind == ValueKind.MUT_BORROW) {
-                throw error("protected with_lock/recover state cannot be moved by value; use it through its &mut critical-section borrow");
-            }
             if (consuming && state.kind == ValueKind.MOVE_ONLY) move(state, name.name());
             if (consuming && state.kind == ValueKind.MUT_BORROW) move(state, name.name());
             return new ValueInfo(state.type, state.kind, state.borrowSource);
@@ -313,11 +281,7 @@ public final class OwnershipChecker {
         }
         if (expr instanceof Ast.AssignExpr assignment) {
             checkAssignmentTarget(assignment.target(), scope);
-            ValueInfo assigned = checkExpr(assignment.value(), scope, true);
-            if (containsMutexGuardType(assigned.type)) {
-                throw error("guard-bearing values cannot be assigned or overwritten; bind them once with val");
-            }
-            return assigned;
+            return checkExpr(assignment.value(), scope, true);
         }
         if (expr instanceof Ast.BinaryExpr binary) {
             checkExpr(binary.left(), scope, false);
@@ -336,364 +300,98 @@ public final class OwnershipChecker {
             Map<VarState, StateSnapshot> rightExit = stateSnapshot(scope);
 
             mergeBranchState(base, List.of(leftExit, rightExit));
-            Ast.TypeRef joinedType = joinConditionalType(left.type, right.type);
-            return new ValueInfo(
-                    joinedType,
-                    left.kind == ValueKind.COPY && right.kind == ValueKind.COPY
-                            ? ValueKind.COPY
-                            : ValueKind.MOVE_ONLY,
-                    null);
+            return left.kind == ValueKind.COPY && right.kind == ValueKind.COPY
+                    ? left
+                    : new ValueInfo(left.type, ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.CallExpr call) {
             return checkCall(call, scope);
         }
         if (expr instanceof Ast.MemberExpr member) {
-            if (member.receiver() instanceof Ast.NameExpr receiverName) {
-                VarState receiverState = scope.lookup(receiverName.name());
-                if (receiverState != null && isScopedMutexReceiver(receiverState)) {
-                    requireUsable(receiverState, receiverName.name(), false);
-                    Ast.TypeRef concreteReceiver = receiverType(member.receiver(), scope);
-                    Ast.ClassDecl klass = concreteReceiver == null ? null : findClass(concreteReceiver.name());
-                    if (klass != null) {
-                        ResolvedField target = findFieldTarget(klass, concreteReceiver, member.member(), new LinkedHashSet<>());
-                        if (target != null) {
-                            Ast.TypeRef fieldType = substituteType(
-                                    ownershipFieldType(target.field()),
-                                    genericBindings(target.owner().genericParameters(), target.ownerType().arguments()));
-                            if (!isCopyType(fieldType)) {
-                                throw error("cannot extract move-only field '" + target.owner().name() + "." + member.member()
-                                        + "' from protected mutex state; operate on it inside with_lock or replace the field as a whole");
-                            }
-                            return new ValueInfo(fieldType, ValueKind.COPY, null);
-                        }
-                        if (hasMethodNamed(klass, member.member(), new LinkedHashSet<>())) {
-                            throw error("cannot extract a bound method from protected mutex state; invoke it directly while the guard is live");
-                        }
-                    }
-                    if (isMutexGuardType(receiverState.type)) {
-                        throw error("unknown or non-extractable MutexGuard member '" + member.member() + "'");
-                    }
-                }
-            }
             checkExpr(member.receiver(), scope, false);
-            Ast.TypeRef concreteReceiver = receiverType(member.receiver(), scope);
-            Ast.ClassDecl klass = concreteReceiver == null ? null : findClass(concreteReceiver.name());
-            if (klass != null) {
-                ResolvedField target = findFieldTarget(klass, concreteReceiver, member.member(), new LinkedHashSet<>());
-                if (target != null) {
-                    Ast.TypeRef fieldType = substituteType(
-                            ownershipFieldType(target.field()),
-                            genericBindings(target.owner().genericParameters(), target.ownerType().arguments()));
-                    ValueKind fieldKind = kindOfType(fieldType);
-                    if (consuming && isRootedAtActorSelf(member.receiver(), scope) && fieldKind != ValueKind.COPY) {
-                        throw error("cannot move actor-owned field '" + member.member()
-                                + "' out of its mailbox turn; return a copy/immutable value or explicit shared snapshot");
-                    }
-                    return new ValueInfo(fieldType, fieldKind, null);
-                }
-            }
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.IndexExpr indexed) {
-            ValueInfo receiver = checkExpr(indexed.receiver(), scope, false);
+            checkExpr(indexed.receiver(), scope, false);
             checkExpr(indexed.index(), scope, false);
-            Ast.TypeRef elementType = collectionElementType(receiver.type);
-            ValueKind elementKind = elementType.name().equals("$infer$") ? ValueKind.MOVE_ONLY : kindOfType(elementType);
-            if (consuming && isRootedAtActorSelf(indexed.receiver(), scope) && elementKind != ValueKind.COPY) {
-                throw error("cannot move actor-owned indexed state out of its mailbox turn");
-            }
-            return new ValueInfo(elementType, elementKind, null);
+            return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.NewExpr created) {
-            List<Ast.TypeRef> argumentTypes = new ArrayList<>(created.arguments().size());
-            for (Ast.Expr arg : created.arguments()) {
-                ValueInfo info = checkExpr(arg, scope, true);
-                if (containsMutexGuardType(info.type)) {
-                    throw error("MutexGuard cannot be stored in a constructed object");
-                }
-                argumentTypes.add(info.type);
-            }
-            Ast.TypeRef constructedType = inferConstructedType(created, argumentTypes);
-            return new ValueInfo(constructedType, ValueKind.MOVE_ONLY, null);
+            for (Ast.Expr arg : created.arguments()) checkExpr(arg, scope, true);
+            return new ValueInfo(created.type(), ValueKind.MOVE_ONLY, null);
         }
-        if (expr instanceof Ast.AwaitExpr awaited) {
-            if (mutexCriticalSectionDepth > 0 || scope.hasLiveMutexGuard()) {
-                throw error("cannot await while holding a MutexGuard; release the guard before suspension");
-            }
-            ValueInfo awaitedValue = checkExpr(awaited.expression(), scope, consuming);
-            if (awaitedValue.type.name().equals("Future") && awaitedValue.type.arguments().size() == 1) {
-                Ast.TypeRef result = awaitedValue.type.arguments().getFirst();
-                return new ValueInfo(result, kindOfType(result), null);
-            }
-            return awaitedValue;
-        }
+        if (expr instanceof Ast.AwaitExpr awaited) return checkExpr(awaited.expression(), scope, consuming);
         if (expr instanceof Ast.ListExpr list) {
-            for (Ast.Expr item : list.elements()) {
-                ValueInfo info = checkExpr(item, scope, true);
-                if (containsMutexGuardType(info.type)) throw error("MutexGuard cannot be stored in an array/list");
-            }
+            for (Ast.Expr item : list.elements()) checkExpr(item, scope, true);
             return new ValueInfo(Ast.TypeRef.simple("Array"), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.TupleExpr tuple) {
             boolean copy = true;
             for (Ast.Expr item : tuple.elements()) {
                 ValueInfo info = checkExpr(item, scope, true);
-                if (containsMutexGuardType(info.type)) throw error("MutexGuard cannot be stored in a tuple");
                 copy &= info.kind == ValueKind.COPY;
             }
             return new ValueInfo(Ast.TypeRef.inferred(), copy ? ValueKind.COPY : ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.ObjectExpr object) {
-            for (Ast.ObjectField field : object.fields()) {
-                ValueInfo info = checkExpr(field.value(), scope, true);
-                if (containsMutexGuardType(info.type)) throw error("MutexGuard cannot be stored in an object/map");
-            }
+            for (Ast.ObjectField field : object.fields()) checkExpr(field.value(), scope, true);
             return new ValueInfo(Ast.TypeRef.simple("obj"), ValueKind.MOVE_ONLY, null);
         }
+        if (expr instanceof Ast.ActorExpr actor) return checkActor(actor, scope);
         if (expr instanceof Ast.LambdaExpr lambda) return checkLambda(lambda, scope, null);
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
     }
 
     private ValueInfo checkCall(Ast.CallExpr call, Scope scope) {
-        if (call.callee() instanceof Ast.MemberExpr factoryCall
-                && factoryCall.receiver() instanceof Ast.NameExpr factory
-                && (factory.name().equals("Mutex") || factory.name().equals("SharedMutex"))
-                && factoryCall.member().equals("new")
-                && call.arguments().size() == 1) {
-            ValueInfo owned = checkExpr(call.arguments().getFirst(), scope, true);
-            if (owned.type != null && owned.type.isBorrow()) {
-                throw error(factory.name()
-                        + ".new requires an owned value; borrowed values cannot become mutex state");
-            }
-            if (containsMutexGuardType(owned.type)) {
-                throw error(factory.name() + ".new cannot hide a guard-bearing value");
-            }
-            Ast.TypeRef mutexType = new Ast.TypeRef(factory.name(), List.of(owned.type), false);
-            return new ValueInfo(mutexType, factory.name().equals("SharedMutex") ? ValueKind.COPY : ValueKind.MOVE_ONLY, null);
-        }
-
-        if (call.callee() instanceof Ast.NameExpr name
-                && (name.name().equals("Some") || name.name().equals("Ok") || name.name().equals("Err"))) {
-            if (call.arguments().size() != 1) {
-                return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
-            }
-            ValueInfo payload = checkExpr(call.arguments().getFirst(), scope, true);
-            if (payload.kind == ValueKind.IMM_BORROW || payload.kind == ValueKind.MUT_BORROW
-                    || (payload.type != null && payload.type.isBorrow())) {
-                throw error(name.name()
-                        + " cannot store a borrow in an owned sum value until explicit lifetime parameters are supported");
-            }
-            if (name.name().equals("Some")) {
-                Ast.TypeRef type = new Ast.TypeRef("Option", List.of(payload.type), false);
-                return new ValueInfo(type, kindOfType(type), null);
-            }
-            Ast.TypeRef unknown = Ast.TypeRef.inferred();
-            Ast.TypeRef type = name.name().equals("Ok")
-                    ? new Ast.TypeRef("Result", List.of(payload.type, unknown), false)
-                    : new Ast.TypeRef("Result", List.of(unknown, payload.type), false);
-            return new ValueInfo(type, ValueKind.MOVE_ONLY, null);
+        if (isReadOnlyBuiltinCall(call.callee())) {
+            checkExpr(call.callee(), scope, false);
+            for (Ast.Expr arg : call.arguments()) checkExpr(arg, scope, false);
+            return new ValueInfo(Ast.TypeRef.simple("void"), ValueKind.COPY, null);
         }
 
         if (call.callee() instanceof Ast.NameExpr name) {
             Ast.FunctionDecl fn = findFunction(name.name());
             if (fn != null) {
-                CallSignature signature = specializeCall(
-                        fn.genericParameters(), fn.genericParameters(),
-                        fn.parameters(), fn.returnType(), call, scope, Map.of());
-                checkArguments(call.arguments(), signature.parameters(), scope, "function " + fn.name());
-                return new ValueInfo(signature.result(), kindOfType(signature.result()), null);
-            }
-        }
-
-        if (call.callee() instanceof Ast.MemberExpr qualified
-                && qualified.receiver() instanceof Ast.NameExpr namespace) {
-            Ast.FunctionDecl fn = findFunction(namespace.name() + "." + qualified.member());
-            if (fn != null) {
-                CallSignature signature = specializeCall(
-                        fn.genericParameters(), fn.genericParameters(),
-                        fn.parameters(), fn.returnType(), call, scope, Map.of());
-                checkArguments(
-                        call.arguments(),
-                        signature.parameters(),
-                        scope,
-                        "function " + namespace.name() + "." + qualified.member());
-                return new ValueInfo(signature.result(), kindOfType(signature.result()), null);
+                checkArguments(call.arguments(), fn.parameters(), scope, "function " + fn.name());
+                if (isActorCallable(fn)) {
+                    return new ValueInfo(Ast.TypeRef.simple("ActorTask"), ValueKind.COPY, null);
+                }
+                return new ValueInfo(fn.returnType(), kindOfType(fn.returnType()), null);
             }
         }
 
         if (call.callee() instanceof Ast.MemberExpr member) {
-            ValueInfo sumCall = checkBuiltinSumCall(member, call.arguments(), scope);
-            if (sumCall != null) return sumCall;
-
-            Ast.ClassDecl staticClass = classNamespaceOf(member.receiver(), scope);
-            if (staticClass != null) {
-                Ast.MethodDecl staticFunction = findStaticMethod(
-                        staticClass, member.member(), call.arguments().size(), new LinkedHashSet<>());
-                if (staticFunction != null) {
-                    CallSignature signature = specializeCall(
-                            staticFunction.genericParameters(),
-                            staticFunction.genericParameters(),
-                            staticFunction.parameters(),
-                            staticFunction.returnType(),
-                            call,
-                            scope,
-                            Map.of());
-                    checkArguments(
-                            call.arguments(),
-                            signature.parameters(),
-                            scope,
-                            "static function " + staticClass.name() + "." + staticFunction.name());
-                    return new ValueInfo(signature.result(), kindOfType(signature.result()), null);
-                }
-            }
-
-            if (member.receiver() instanceof Ast.NameExpr receiverName) {
-                VarState receiverState = scope.lookup(receiverName.name());
-                if (receiverState != null) {
-                    requireUsable(receiverState, receiverName.name(), false);
-                    Ast.TypeRef receiverType = receiverState.type;
-                    if ((receiverType.name().equals("Mutex") || receiverType.name().equals("SharedMutex"))
-                            && receiverType.arguments().size() == 1) {
-                        Ast.TypeRef element = receiverType.arguments().getFirst();
-                        if (member.member().equals("lock") && call.arguments().isEmpty()) {
-                            return new ValueInfo(new Ast.TypeRef("MutexGuard", List.of(element), false), ValueKind.MOVE_ONLY, null);
-                        }
-                        if (member.member().equals("try_lock") && call.arguments().isEmpty()) {
-                            Ast.TypeRef guard = new Ast.TypeRef("MutexGuard", List.of(element), false);
-                            return new ValueInfo(new Ast.TypeRef("Option", List.of(guard), false), ValueKind.MOVE_ONLY, null);
-                        }
-                        if (member.member().equals("lock_async") && call.arguments().isEmpty()) {
-                            Ast.TypeRef guard = new Ast.TypeRef("MutexGuard", List.of(element), false);
-                            return new ValueInfo(new Ast.TypeRef("Future", List.of(guard), false), ValueKind.MOVE_ONLY, null);
-                        }
-                        if ((member.member().equals("with_lock") || member.member().equals("recover"))
-                                && call.arguments().size() == 1) {
-                            if (!(call.arguments().getFirst() instanceof Ast.LambdaExpr lambda)) {
-                                throw error(member.member()
-                                        + " requires an inline lambda so protected mutex state remains lexical");
-                            }
-                            if (member.member().equals("recover") && !receiverType.name().equals("SharedMutex")) {
-                                throw error("recover is only available on SharedMutex<T>");
-                            }
-                            if (lambda.parameters().size() != 1) {
-                                throw error(member.member() + " callback must accept exactly one protected-value parameter");
-                            }
-                            Ast.Param original = lambda.parameters().getFirst();
-                            Ast.Param protectedParam = new Ast.Param(
-                                    Ast.TypeRef.borrowed(element, true),
-                                    original.name(),
-                                    original.structural(),
-                                    false);
-                            Ast.LambdaExpr protectedLambda = new Ast.LambdaExpr(
-                                    List.of(protectedParam), lambda.expressionBody(), lambda.blockBody());
-                            mutexCriticalSectionDepth++;
-                            try {
-                                checkLambda(protectedLambda, scope, null);
-                            } finally {
-                                mutexCriticalSectionDepth--;
-                            }
-                            return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
-                        }
-                    }
-                    if (isMutexGuardType(receiverType) && member.member().equals("release") && call.arguments().isEmpty()) {
-                        move(receiverState, receiverName.name());
-                        return new ValueInfo(Ast.TypeRef.simple("void"), ValueKind.COPY, null);
-                    }
-                    if (isMutexGuardType(receiverType) && member.member().equals("is_released") && call.arguments().isEmpty()) {
-                        return new ValueInfo(Ast.TypeRef.simple("bool"), ValueKind.COPY, null);
-                    }
-                }
-            }
             checkExpr(member.receiver(), scope, false);
-            Ast.TypeRef concreteReceiver = receiverType(member.receiver(), scope);
-            Ast.ClassDecl klass = concreteReceiver == null ? null : findClass(concreteReceiver.name());
-            ResolvedMethod target = klass == null ? null
-                    : findMethodTarget(klass, concreteReceiver, member.member(), call.arguments().size(), new LinkedHashSet<>());
-            if (target != null) {
-                Ast.MethodDecl method = target.method();
-                boolean protectedReceiver = false;
-                if (member.receiver() instanceof Ast.NameExpr receiverName) {
-                    VarState receiverState = scope.lookup(receiverName.name());
-                    protectedReceiver = receiverState != null && isScopedMutexReceiver(receiverState);
-                }
-                Map<String, Ast.TypeRef> ownerBindings = genericBindings(
-                        target.owner().genericParameters(), target.ownerType().arguments());
-                List<String> allGenerics = new ArrayList<>(target.owner().genericParameters());
-                allGenerics.addAll(method.genericParameters());
-                CallSignature signature = specializeCall(
-                        allGenerics, method.genericParameters(),
-                        method.parameters(), method.returnType(), call, scope, ownerBindings);
-                checkArguments(call.arguments(), signature.parameters(), scope, "method " + method.name());
-                if (protectedReceiver && !isCopyType(signature.result())
-                        && !signature.result().name().equals("void")) {
-                    throw error("method '" + target.owner().name() + "." + method.name()
-                            + "' cannot return move-only state through a mutex guard/critical-section borrow");
-                }
-                return new ValueInfo(signature.result(), kindOfType(signature.result()), null);
+            Ast.ClassDecl klass = classOfReceiver(member.receiver(), scope);
+            Ast.MethodDecl method = klass == null ? null : findMethod(klass, member.member(), call.arguments().size(), new LinkedHashSet<>());
+            if (method != null) {
+                checkArguments(call.arguments(), method.parameters(), scope, "method " + method.name());
+                return new ValueInfo(method.returnType(), kindOfType(method.returnType()), null);
             }
         }
 
         checkExpr(call.callee(), scope, false);
-        for (Ast.Expr arg : call.arguments()) {
-            ValueInfo argument = checkExpr(arg, scope, true);
-            if (containsMutexGuardType(argument.type)) {
-                throw error("guard-bearing values cannot cross an arbitrary call boundary");
-            }
-        }
+        for (Ast.Expr arg : call.arguments()) checkExpr(arg, scope, true);
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
     }
 
-    private ValueInfo checkBuiltinSumCall(Ast.MemberExpr member, List<Ast.Expr> arguments, Scope scope) {
-        boolean query = member.member().equals("is_some") || member.member().equals("is_none")
-                || member.member().equals("is_ok") || member.member().equals("is_err");
-        boolean extracting = member.member().equals("unwrap") || member.member().equals("unwrap_safe")
-                || member.member().equals("expect") || member.member().equals("unwrap_or");
-        if (!query && !extracting) return null;
+    private boolean isReadOnlyBuiltinCall(Ast.Expr callee) {
+        String path = memberPath(callee);
+        return path != null && (
+                path.equals("print")
+                || path.equals("stdio.print")
+                || path.equals("stdio.println")
+                || path.equals("stdio.stdout.write")
+                || path.equals("stdio.stdout.println"));
+    }
 
-        ValueInfo receiver = checkExpr(member.receiver(), scope, false);
-        Ast.TypeRef receiverType = receiver.type;
-        if (receiverType == null || receiverType.isBorrow()) return null;
-        boolean option = receiverType.name().equals("Option") && receiverType.arguments().size() == 1;
-        boolean result = receiverType.name().equals("Result") && receiverType.arguments().size() == 2;
-        if (!option && !result) return null;
-
-        if (query) {
-            for (Ast.Expr argument : arguments) checkExpr(argument, scope, true);
-            return new ValueInfo(Ast.TypeRef.simple("bool"), ValueKind.COPY, null);
+    private String memberPath(Ast.Expr expr) {
+        if (expr instanceof Ast.NameExpr name) return name.name();
+        if (expr instanceof Ast.MemberExpr member) {
+            String parent = memberPath(member.receiver());
+            return parent == null ? null : parent + "." + member.member();
         }
-
-        if (member.receiver() instanceof Ast.NameExpr receiverName) {
-            VarState state = scope.lookup(receiverName.name());
-            if (state != null && state.kind == ValueKind.MOVE_ONLY) move(state, receiverName.name());
-        }
-
-        Ast.TypeRef okType = option ? receiverType.arguments().getFirst() : receiverType.arguments().get(0);
-        if (okType.isBorrow()) {
-            throw error(member.member()
-                    + " cannot extract a borrow from an owned Option/Result until explicit lifetime parameters are supported");
-        }
-
-        if (member.member().equals("unwrap_or") && containsMutexGuardType(okType)) {
-            throw error("unwrap_or cannot eagerly discard a MutexGuard fallback; use explicit branching so every guard is released");
-        }
-        for (Ast.Expr argument : arguments) {
-            ValueInfo arg = checkExpr(argument, scope, true);
-            if (containsMutexGuardType(arg.type) && !member.member().equals("unwrap_or")) {
-                throw error(member.member() + " argument cannot contain MutexGuard");
-            }
-        }
-
-        if (member.member().equals("unwrap_safe")) {
-            if (option) {
-                Ast.TypeRef safe = new Ast.TypeRef(
-                        "Result",
-                        List.of(okType, Ast.TypeRef.simple("OptionUnwrapError")),
-                        false);
-                return new ValueInfo(safe, kindOfType(safe), null);
-            }
-            return new ValueInfo(receiverType, kindOfType(receiverType), null);
-        }
-        return new ValueInfo(okType, kindOfType(okType), null);
+        return null;
     }
 
     private void checkArguments(List<Ast.Expr> arguments, List<Ast.Param> params, Scope scope, String callable) {
@@ -702,12 +400,7 @@ public final class OwnershipChecker {
             Ast.Expr arg = arguments.get(i);
             Ast.Param param = params.get(i);
             if (param.structural() && !param.type().isBorrow()) {
-                ValueInfo argument = checkExpr(arg, scope, false);
-                if (containsMutexGuardType(argument.type)
-                        || (mutexCriticalSectionDepth > 0 && argument.type.isBorrow())) {
-                    throw error(callable + " argument " + (i + 1)
-                            + " cannot consume protected mutex state through a structural by-value parameter");
-                }
+                checkExpr(arg, scope, false);
                 continue;
             }
             if (param.type().isBorrow()) {
@@ -718,17 +411,11 @@ public final class OwnershipChecker {
                     }
                     VarState owner = borrowOwner(unary.operand(), scope);
                     validateBorrow(owner, mutable);
-                    if (isActorConfinedBorrow(owner)) {
-                        throw error("actor self borrow cannot cross an ordinary callable boundary");
-                    }
                     continue; // temporary borrow ends at call boundary
                 }
                 if (arg instanceof Ast.NameExpr name) {
                     VarState state = requireState(scope, name.name());
                     requireUsable(state, name.name(), false);
-                    if (isActorConfinedBorrow(state)) {
-                        throw error("actor self borrow cannot cross an ordinary callable boundary");
-                    }
                     if (mutable && state.kind != ValueKind.MUT_BORROW) {
                         throw error(callable + " argument " + (i + 1) + " requires &mut value");
                     }
@@ -739,10 +426,7 @@ public final class OwnershipChecker {
                 }
                 throw error(callable + " argument " + (i + 1) + " must be an explicit borrow");
             }
-            ValueInfo argument = checkExpr(arg, scope, true);
-            if (containsMutexGuardType(argument.type)) {
-                throw error(callable + " argument " + (i + 1) + " cannot consume a guard-bearing value");
-            }
+            checkExpr(arg, scope, true);
         }
     }
 
@@ -778,7 +462,6 @@ public final class OwnershipChecker {
         if (receiver instanceof Ast.NameExpr name) {
             VarState state = requireState(scope, name.name());
             requireUsable(state, name.name(), true);
-            if (isMutexGuardType(state.type)) return;
             boolean mutableBorrow = state.kind == ValueKind.MUT_BORROW || (state.type.isBorrow() && state.type.mutableBorrow());
             if (!state.mutable && !mutableBorrow) {
                 throw error("cannot mutate " + what + " through immutable parameter/binding '" + name.name() + "'; declare the owned parameter as 'mut' or pass '&mut'");
@@ -825,10 +508,36 @@ public final class OwnershipChecker {
         else owner.immutableBorrows++;
     }
 
+    private ValueInfo checkActor(Ast.ActorExpr actor, Scope outer) {
+        Ast.LambdaExpr behavior = actor.behavior();
+        CaptureSet captures = collectCaptures(behavior, outer, null);
+
+        if (actor.mode() == Ast.ActorMode.ISOLATE) {
+            for (Capture capture : captures.values.values()) {
+                VarState source = capture.source;
+                source.debugName = capture.name;
+                requireUsable(source, capture.name, capture.write);
+
+                if (capture.write || source.mutable || source.kind != ValueKind.COPY || source.type.isBorrow()) {
+                    throw error("isolate actor cannot capture mutable, borrowed, or move-only outer value '"
+                            + capture.name + "'; pass data through the mailbox instead");
+                }
+            }
+        }
+
+        checkLambda(behavior, outer, null);
+        Ast.TypeRef messageType = behavior.parameters().isEmpty()
+                ? Ast.TypeRef.inferred()
+                : behavior.parameters().getFirst().type();
+        return new ValueInfo(
+                new Ast.TypeRef("Actor", List.of(messageType), false),
+                ValueKind.COPY,
+                null);
+    }
+
     private ValueInfo checkLambda(Ast.LambdaExpr lambda, Scope outer, String recursiveBinding) {
-        boolean nonLexical = lambda.nonLexical() || outer.descendantsNonLexical();
-        CaptureSet captures = nonLexical ? new CaptureSet() : collectCaptures(lambda, outer, recursiveBinding);
-        Scope closure = new Scope(null, nonLexical);
+        CaptureSet captures = collectCaptures(lambda, outer, recursiveBinding);
+        Scope closure = new Scope(null);
 
         for (Capture capture : captures.values.values()) {
             VarState source = capture.source;
@@ -837,9 +546,6 @@ public final class OwnershipChecker {
 
             if (source.kind == ValueKind.IMM_BORROW || source.kind == ValueKind.MUT_BORROW || source.type.isBorrow()) {
                 throw error("closure cannot capture borrowed value '" + capture.name + "'; capture its owner by value or pass the borrow as a lambda parameter");
-            }
-            if (containsMutexGuardType(source.type)) {
-                throw error("closure cannot capture guard-bearing value '" + capture.name + "'; MutexGuard values are lexical");
             }
 
             if (capture.write) {
@@ -877,13 +583,22 @@ public final class OwnershipChecker {
                 blockLocals.add(binding.name());
             } else if (stmt instanceof Ast.DestructureStmt destructure) {
                 scanExpr(destructure.initializer(), blockLocals, outer, recursiveBinding, captures, false);
-                for (Ast.DestructureBinding binding : destructure.bindings()) {
-                    if (!binding.isDiscard()) blockLocals.add(binding.name());
-                }
+                for (Ast.DestructureBinding binding : destructure.bindings()) blockLocals.add(binding.name());
             } else if (stmt instanceof Ast.ReturnStmt ret && ret.value() != null) {
                 scanExpr(ret.value(), blockLocals, outer, recursiveBinding, captures, false);
             } else if (stmt instanceof Ast.ExprStmt e) scanExpr(e.expression(), blockLocals, outer, recursiveBinding, captures, false);
-            else if (stmt instanceof Ast.DeferStmt e) scanExpr(e.expression(), blockLocals, outer, recursiveBinding, captures, false);
+            else if (stmt instanceof Ast.DeferStmt e) {
+                scanExpr(e.expression(), blockLocals, outer, recursiveBinding, captures, false);
+            }
+            else if (stmt instanceof Ast.RecoverStmt e) {
+                scanExpr(e.handler(), blockLocals, outer, recursiveBinding, captures, false);
+            }
+            else if (stmt instanceof Ast.PanicStmt e) {
+                scanExpr(e.value(), blockLocals, outer, recursiveBinding, captures, false);
+            }
+            else if (stmt instanceof Ast.ThrowStmt e) {
+                scanExpr(e.value(), blockLocals, outer, recursiveBinding, captures, false);
+            }
             else if (stmt instanceof Ast.IfStmt s) {
                 for (Ast.IfBranch b : s.branches()) {
                     scanExpr(b.condition(), blockLocals, outer, recursiveBinding, captures, false);
@@ -942,25 +657,15 @@ public final class OwnershipChecker {
         else if (expr instanceof Ast.ListExpr e) for (Ast.Expr item : e.elements()) scanExpr(item, locals, outer, recursiveBinding, captures, false);
         else if (expr instanceof Ast.TupleExpr e) for (Ast.Expr item : e.elements()) scanExpr(item, locals, outer, recursiveBinding, captures, false);
         else if (expr instanceof Ast.ObjectExpr e) for (Ast.ObjectField field : e.fields()) scanExpr(field.value(), locals, outer, recursiveBinding, captures, false);
+        else if (expr instanceof Ast.ActorExpr) {
+            // Nested actor behavior performs its own capture analysis when checked.
+        }
         else if (expr instanceof Ast.LambdaExpr) {
             // Nested lambda performs its own capture analysis when checked.
         }
     }
 
-    private Ast.ClassDecl classNamespaceOf(Ast.Expr expr, Scope scope) {
-        if (expr instanceof Ast.NameExpr name) {
-            if (scope.lookup(name.name()) != null) return null;
-            return findClass(name.name());
-        }
-        if (expr instanceof Ast.MemberExpr member
-                && member.receiver() instanceof Ast.NameExpr namespace
-                && scope.lookup(namespace.name()) == null) {
-            return findClass(namespace.name() + "." + member.member());
-        }
-        return null;
-    }
-
-    private Ast.TypeRef receiverType(Ast.Expr receiver, Scope scope) {
+    private Ast.ClassDecl classOfReceiver(Ast.Expr receiver, Scope scope) {
         Ast.TypeRef type = null;
         if (receiver instanceof Ast.NameExpr name) {
             VarState state = scope.lookup(name.name());
@@ -968,227 +673,7 @@ public final class OwnershipChecker {
         } else if (receiver instanceof Ast.NewExpr created) type = created.type();
         if (type == null) return null;
         if (type.isBorrow()) type = type.borrowedTarget();
-        if (isMutexGuardType(type)) type = type.arguments().getFirst();
-        return type;
-    }
-
-    private Ast.ClassDecl classOfReceiver(Ast.Expr receiver, Scope scope) {
-        Ast.TypeRef type = receiverType(receiver, scope);
-        return type == null ? null : findClass(type.name());
-    }
-
-    private Map<String, Ast.TypeRef> genericBindings(List<String> names, List<Ast.TypeRef> arguments) {
-        Map<String, Ast.TypeRef> result = new HashMap<>();
-        if (names.size() != arguments.size()) return result;
-        for (int i = 0; i < names.size(); i++) result.put(names.get(i), arguments.get(i));
-        return result;
-    }
-
-    private Ast.TypeRef substituteType(Ast.TypeRef type, Map<String, Ast.TypeRef> bindings) {
-        if (type == null) return null;
-        if (type.isBorrow()) {
-            return Ast.TypeRef.borrowed(substituteType(type.borrowedTarget(), bindings), type.mutableBorrow());
-        }
-        Ast.TypeRef replacement = bindings.get(type.name());
-        if (replacement != null && type.arguments().isEmpty() && !type.inferArguments()) return replacement;
-        return new Ast.TypeRef(
-                type.name(),
-                type.arguments().stream().map(arg -> substituteType(arg, bindings)).toList(),
-                type.inferArguments());
-    }
-
-    private Ast.TypeRef concreteParentType(Ast.TypeRef parentRef, Ast.ClassDecl child, Ast.TypeRef childType) {
-        return substituteType(parentRef, genericBindings(child.genericParameters(), childType.arguments()));
-    }
-
-    private Ast.TypeRef inferConstructedType(Ast.NewExpr created, List<Ast.TypeRef> argumentTypes) {
-        if (!created.type().inferArguments()) return created.type();
-        Ast.ClassDecl klass = findClass(created.type().name());
-        if (klass == null || klass.genericParameters().isEmpty()) return created.type();
-
-        Ast.TypeRef patternType = new Ast.TypeRef(
-                created.type().name(),
-                klass.genericParameters().stream().map(Ast.TypeRef::simple).toList(),
-                false);
-        List<ResolvedField> fields = effectiveFieldTargets(klass, patternType, new LinkedHashSet<>());
-        Map<String, Ast.TypeRef> bindings = new HashMap<>();
-        Set<String> genericNames = Set.copyOf(klass.genericParameters());
-
-        for (int i = 0; i < Math.min(argumentTypes.size(), fields.size()); i++) {
-            ResolvedField target = fields.get(i);
-            Ast.TypeRef fieldPattern = substituteType(
-                    target.field().type(),
-                    genericBindings(target.owner().genericParameters(), target.ownerType().arguments()));
-            inferGenericBindings(fieldPattern, argumentTypes.get(i), genericNames, bindings, Set.of());
-        }
-
-        List<Ast.TypeRef> inferred = new ArrayList<>(klass.genericParameters().size());
-        for (String generic : klass.genericParameters()) {
-            Ast.TypeRef bound = bindings.get(generic);
-            if (bound == null || bound.name().equals("$infer$")) return created.type();
-            inferred.add(bound);
-        }
-        return new Ast.TypeRef(created.type().name(), inferred, false);
-    }
-
-    private List<ResolvedField> effectiveFieldTargets(
-            Ast.ClassDecl klass, Ast.TypeRef concreteType, Set<Ast.ClassDecl> stack) {
-        if (!stack.add(klass)) return List.of();
-        LinkedHashMap<String, ResolvedField> fields = new LinkedHashMap<>();
-        for (Ast.TypeRef parentRef : klass.parents()) {
-            Ast.ClassDecl parent = findClass(parentRef.name());
-            if (parent == null) continue;
-            Ast.TypeRef parentType = concreteParentType(parentRef, klass, concreteType);
-            for (ResolvedField field : effectiveFieldTargets(parent, parentType, stack)) {
-                fields.putIfAbsent(field.field().name(), field);
-            }
-        }
-        for (Ast.FieldDecl field : klass.fields()) {
-            fields.put(field.name(), new ResolvedField(klass, concreteType, field));
-        }
-        stack.remove(klass);
-        return List.copyOf(fields.values());
-    }
-
-    private ResolvedField findFieldTarget(
-            Ast.ClassDecl klass, Ast.TypeRef concreteType, String name, Set<Ast.ClassDecl> seen) {
-        if (!seen.add(klass)) return null;
-        for (Ast.FieldDecl field : klass.fields()) {
-            if (field.name().equals(name)) {
-                seen.remove(klass);
-                return new ResolvedField(klass, concreteType, field);
-            }
-        }
-        for (Ast.TypeRef parentRef : klass.parents()) {
-            Ast.ClassDecl parent = findClass(parentRef.name());
-            if (parent == null) continue;
-            Ast.TypeRef parentType = concreteParentType(parentRef, klass, concreteType);
-            ResolvedField found = findFieldTarget(parent, parentType, name, seen);
-            if (found != null) {
-                seen.remove(klass);
-                return found;
-            }
-        }
-        seen.remove(klass);
-        return null;
-    }
-
-    private Ast.MethodDecl findStaticMethod(
-            Ast.ClassDecl klass, String name, int arity, Set<Ast.ClassDecl> seen) {
-        if (!seen.add(klass)) return null;
-        for (Ast.MethodDecl method : klass.methods()) {
-            if (method.isStatic() && method.name().equals(name) && method.parameters().size() == arity) {
-                seen.remove(klass);
-                return method;
-            }
-        }
-        for (Ast.TypeRef parentRef : klass.parents()) {
-            Ast.ClassDecl parent = findClass(parentRef.name());
-            if (parent == null) continue;
-            Ast.MethodDecl found = findStaticMethod(parent, name, arity, seen);
-            if (found != null) {
-                seen.remove(klass);
-                return found;
-            }
-        }
-        seen.remove(klass);
-        return null;
-    }
-
-    private ResolvedMethod findMethodTarget(
-            Ast.ClassDecl klass, Ast.TypeRef concreteType, String name, int arity, Set<Ast.ClassDecl> seen) {
-        if (!seen.add(klass)) return null;
-        for (Ast.MethodDecl method : klass.methods()) {
-            if (!method.isStatic() && method.name().equals(name) && method.parameters().size() == arity) {
-                seen.remove(klass);
-                return new ResolvedMethod(klass, concreteType, method);
-            }
-        }
-        for (Ast.TypeRef parentRef : klass.parents()) {
-            Ast.ClassDecl parent = findClass(parentRef.name());
-            if (parent == null) continue;
-            Ast.TypeRef parentType = concreteParentType(parentRef, klass, concreteType);
-            ResolvedMethod found = findMethodTarget(parent, parentType, name, arity, seen);
-            if (found != null) {
-                seen.remove(klass);
-                return found;
-            }
-        }
-        seen.remove(klass);
-        return null;
-    }
-
-    private Ast.TypeRef syntacticType(Ast.Expr expr, Scope scope) {
-        if (expr instanceof Ast.LiteralExpr literal) return inferLiteralType(literal.value());
-        if (expr instanceof Ast.NameExpr name) {
-            VarState state = scope.lookup(name.name());
-            return state == null ? Ast.TypeRef.inferred() : state.type;
-        }
-        if (expr instanceof Ast.NewExpr created) return created.type();
-        if (expr instanceof Ast.UnaryExpr unary) {
-            Ast.TypeRef operand = syntacticType(unary.operand(), scope);
-            if (unary.operator().equals("&") || unary.operator().equals("&mut")) {
-                return Ast.TypeRef.borrowed(operand, unary.operator().equals("&mut"));
-            }
-            return operand;
-        }
-        if (expr instanceof Ast.TupleExpr tuple) {
-            return Ast.TypeRef.tupleType(tuple.elements().stream().map(item -> syntacticType(item, scope)).toList());
-        }
-        if (expr instanceof Ast.ListExpr list && !list.elements().isEmpty()) {
-            return new Ast.TypeRef("Array", List.of(syntacticType(list.elements().getFirst(), scope)), false);
-        }
-        return Ast.TypeRef.inferred();
-    }
-
-    private void inferGenericBindings(
-            Ast.TypeRef pattern,
-            Ast.TypeRef actual,
-            Set<String> genericNames,
-            Map<String, Ast.TypeRef> bindings,
-            Set<String> fixed) {
-        if (pattern == null || actual == null || actual.name().equals("$infer$")) return;
-        if (genericNames.contains(pattern.name()) && pattern.arguments().isEmpty() && !pattern.inferArguments()) {
-            if (!fixed.contains(pattern.name())) bindings.putIfAbsent(pattern.name(), actual);
-            return;
-        }
-        if (pattern.isBorrow() && actual.isBorrow()) {
-            inferGenericBindings(pattern.borrowedTarget(), actual.borrowedTarget(), genericNames, bindings, fixed);
-            return;
-        }
-        if (pattern.name().equals(actual.name()) && pattern.arguments().size() == actual.arguments().size()) {
-            for (int i = 0; i < pattern.arguments().size(); i++) {
-                inferGenericBindings(pattern.arguments().get(i), actual.arguments().get(i), genericNames, bindings, fixed);
-            }
-        }
-    }
-
-    private CallSignature specializeCall(
-            List<String> allGenericNames,
-            List<String> explicitGenericNames,
-            List<Ast.Param> parameters,
-            Ast.TypeRef result,
-            Ast.CallExpr call,
-            Scope scope,
-            Map<String, Ast.TypeRef> initialBindings) {
-        Map<String, Ast.TypeRef> bindings = new HashMap<>(initialBindings);
-        Set<String> fixed = new HashSet<>(initialBindings.keySet());
-        if (!call.typeArguments().isEmpty() && call.typeArguments().size() == explicitGenericNames.size()) {
-            for (int i = 0; i < explicitGenericNames.size(); i++) {
-                bindings.put(explicitGenericNames.get(i), call.typeArguments().get(i));
-                fixed.add(explicitGenericNames.get(i));
-            }
-        }
-        for (int i = 0; i < Math.min(parameters.size(), call.arguments().size()); i++) {
-            inferGenericBindings(parameters.get(i).type(), syntacticType(call.arguments().get(i), scope),
-                    Set.copyOf(allGenericNames), bindings, fixed);
-        }
-        List<Ast.Param> specialized = parameters.stream()
-                .map(param -> new Ast.Param(
-                        substituteType(param.type(), bindings),
-                        param.name(), param.structural(), param.mutable()))
-                .toList();
-        return new CallSignature(specialized, substituteType(result, bindings));
+        return findClass(type.name());
     }
 
     private Ast.FieldDecl findField(Ast.ClassDecl klass, String name, Set<Ast.ClassDecl> seen) {
@@ -1212,24 +697,30 @@ public final class OwnershipChecker {
         return null;
     }
 
-    private boolean hasMethodNamed(Ast.ClassDecl klass, String name, Set<Ast.ClassDecl> seen) {
-        if (!seen.add(klass)) return false;
+    private Ast.MethodDecl findMethod(Ast.ClassDecl klass, String name, int arity, Set<Ast.ClassDecl> seen) {
+        if (!seen.add(klass)) return null;
         for (Ast.MethodDecl method : klass.methods()) {
-            if (!method.isStatic() && method.name().equals(name)) {
+            if (!method.isStatic() && method.name().equals(name) && method.parameters().size() == arity) {
                 seen.remove(klass);
-                return true;
+                return method;
             }
         }
         for (Ast.TypeRef parent : klass.parents()) {
             Ast.ClassDecl p = findClass(parent.name());
             if (p == null) continue;
-            if (hasMethodNamed(p, name, seen)) {
+            Ast.MethodDecl found = findMethod(p, name, arity, seen);
+            if (found != null) {
                 seen.remove(klass);
-                return true;
+                return found;
             }
         }
         seen.remove(klass);
-        return false;
+        return null;
+    }
+
+    private boolean isActorCallable(Ast.FunctionDecl fn) {
+        return fn.annotations().stream().anyMatch(annotation ->
+                annotation.name().equals("__Actor") || annotation.name().equals("__ActorIsolate"));
     }
 
     private Ast.FunctionDecl findFunction(String name) {
@@ -1309,83 +800,6 @@ public final class OwnershipChecker {
         }
     }
 
-    private boolean isRootedAtActorSelf(Ast.Expr expr, Scope scope) {
-        Ast.Expr current = expr;
-        while (true) {
-            if (current instanceof Ast.MemberExpr member) current = member.receiver();
-            else if (current instanceof Ast.IndexExpr indexed) current = indexed.receiver();
-            else break;
-        }
-        if (!(current instanceof Ast.NameExpr name)) return false;
-        VarState root = scope.lookup(name.name());
-        return root != null && isActorConfinedBorrow(root);
-    }
-
-    private boolean isActorConfinedBorrow(VarState state) {
-        VarState current = state;
-        Set<VarState> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
-        while (current != null && seen.add(current)) {
-            if ("self".equals(current.debugName)
-                    && current.kind == ValueKind.MUT_BORROW
-                    && current.origin == Origin.PARAM) {
-                Ast.TypeRef type = current.type.isBorrow() ? current.type.borrowedTarget() : current.type;
-                Ast.ClassDecl klass = findClass(type.name());
-                return klass != null && klass.actorKind() != Ast.ActorKind.NONE;
-            }
-            current = current.borrowSource;
-        }
-        return false;
-    }
-
-    private Ast.TypeRef collectionElementType(Ast.TypeRef type) {
-        if (type == null) return Ast.TypeRef.inferred();
-        Ast.TypeRef concrete = type.isBorrow() ? type.borrowedTarget() : type;
-        if ((concrete.name().equals("Array") || concrete.name().equals("List")) && concrete.arguments().size() == 1) {
-            return concrete.arguments().getFirst();
-        }
-        if (concrete.isTupleType() && !concrete.arguments().isEmpty()) {
-            Ast.TypeRef first = concrete.arguments().getFirst();
-            boolean same = concrete.arguments().stream().allMatch(first::equals);
-            return same ? first : Ast.TypeRef.inferred();
-        }
-        return Ast.TypeRef.inferred();
-    }
-
-    private Ast.TypeRef destructureBindingType(Ast.DestructureStmt destructure, Ast.TypeRef source, int index, String name) {
-        if (source == null) return Ast.TypeRef.inferred();
-        if (destructure.kind() == Ast.DestructureKind.SEQUENCE) {
-            if (source.isTupleType() && index < source.arguments().size()) return source.arguments().get(index);
-            if ((source.name().equals("Array") || source.name().equals("List")) && source.arguments().size() == 1) {
-                return source.arguments().getFirst();
-            }
-        } else {
-            Ast.TypeRef concrete = source.isBorrow() ? source.borrowedTarget() : source;
-            if (concrete.isRecordType()) {
-                Ast.TypeRef member = concrete.recordMembers().get(name);
-                if (member != null) return member;
-            }
-            Ast.ClassDecl klass = findClass(concrete.name());
-            if (klass != null) {
-                ResolvedField target = findFieldTarget(klass, concrete, name, new LinkedHashSet<>());
-                if (target != null && target.field().visibility() == Ast.Visibility.PUBLIC) {
-                    return substituteType(
-                            target.field().type(),
-                            genericBindings(target.owner().genericParameters(), target.ownerType().arguments()));
-                }
-            }
-        }
-        return Ast.TypeRef.inferred();
-    }
-
-    private Ast.TypeRef joinConditionalType(Ast.TypeRef left, Ast.TypeRef right) {
-        if (left == null) return right == null ? Ast.TypeRef.inferred() : right;
-        if (right == null) return left;
-        if (left.equals(right)) return left;
-        if (left.name().equals("$infer$")) return right;
-        if (right.name().equals("$infer$")) return left;
-        return Ast.TypeRef.union(List.of(left, right));
-    }
-
     private ValueKind kindOfType(Ast.TypeRef type) {
         if (type == null) return ValueKind.MOVE_ONLY;
         if (type.isBorrow()) return type.mutableBorrow() ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW;
@@ -1394,54 +808,12 @@ public final class OwnershipChecker {
 
     private boolean isCopyType(Ast.TypeRef type) {
         if (type == null || type.isBorrow()) return false;
-        if (type.isUnion()) return type.arguments().stream().allMatch(this::isCopyType);
         return switch (type.name()) {
             case "i8","i16","i32","i64","u8","u16","u32","u64","int","uint","bigint",
                     "f32","f64","float","decimal","complex64","complex128","complex",
-                    "bool","Bool","string","String","void","SharedMutex","OptionUnwrapError" -> true;
-            case "Option" -> type.arguments().size() == 1 && isCopyType(type.arguments().getFirst());
-            case "Result" -> type.arguments().size() == 2
-                    && isCopyType(type.arguments().get(0))
-                    && isCopyType(type.arguments().get(1));
+                    "bool","Bool","string","String","void","Actor","ActorTask" -> true;
             default -> false;
         };
-    }
-
-    private boolean isScopedMutexReceiver(VarState state) {
-        return isMutexGuardType(state.type)
-                || (mutexCriticalSectionDepth > 0 && state.type.isBorrow() && state.type.mutableBorrow());
-    }
-
-    private static boolean isMutexGuardType(Ast.TypeRef type) {
-        return type != null && !type.isBorrow() && type.name().equals("MutexGuard") && type.arguments().size() == 1;
-    }
-
-    private static boolean containsMutexGuardType(Ast.TypeRef type) {
-        if (type == null) return false;
-        if (type.isBorrow()) return containsMutexGuardType(type.borrowedTarget());
-        if (isMutexGuardType(type)) return true;
-        for (Ast.TypeRef argument : type.arguments()) {
-            if (containsMutexGuardType(argument)) return true;
-        }
-        return false;
-    }
-
-    private static boolean containsAcquiredMutexGuardType(Ast.TypeRef type) {
-        if (type == null || type.isBorrow()) return false;
-        if (isMutexGuardType(type)) return true;
-        if (type.name().equals("Future")) return false;
-        for (Ast.TypeRef argument : type.arguments()) {
-            if (containsAcquiredMutexGuardType(argument)) return true;
-        }
-        return false;
-    }
-
-    private Ast.TypeRef ownershipFieldType(Ast.FieldDecl field) {
-        if (field.type() != null) return field.type();
-        if (field.initializer() instanceof Ast.LiteralExpr literal) {
-            return inferLiteralType(literal.value());
-        }
-        return Ast.TypeRef.inferred();
     }
 
     private Ast.TypeRef inferLiteralType(Object value) {
@@ -1492,16 +864,10 @@ public final class OwnershipChecker {
 
     private static final class Scope {
         private final Scope parent;
-        private final boolean descendantsNonLexical;
         private final Map<String,VarState> locals = new LinkedHashMap<>();
         private boolean closed;
 
-        private Scope(Scope parent) { this(parent, parent != null && parent.descendantsNonLexical); }
-        private Scope(Scope parent, boolean descendantsNonLexical) {
-            this.parent = parent;
-            this.descendantsNonLexical = descendantsNonLexical;
-        }
-        private boolean descendantsNonLexical() { return descendantsNonLexical; }
+        private Scope(Scope parent) { this.parent = parent; }
 
         private void define(String name, VarState state) {
             if (locals.putIfAbsent(name, state) != null) throw new IllegalArgumentException("Oreslang ownership error: duplicate binding '" + name + "'");
@@ -1518,13 +884,6 @@ public final class OwnershipChecker {
             if (parent != null) result.addAll(parent.visibleStates());
             result.addAll(locals.values());
             return result;
-        }
-
-        private boolean hasLiveMutexGuard() {
-            for (VarState state : visibleStates()) {
-                if (!state.moved && containsAcquiredMutexGuardType(state.type)) return true;
-            }
-            return false;
         }
 
         private void close() {
