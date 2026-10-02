@@ -1,0 +1,27 @@
+// Compile-valid but capability-invalid by design.
+// Used as a negative regression fixture for PRIVATE actor isolation.
+
+type SharedCounterCell = SharedMutex<int>;
+
+fnc make_shared_cell() => void {
+  val shared = SharedMutex.new(10);
+  stdio.println(shared.is_poisoned());
+  return;
+}
+
+actor InvalidPrivateCounter {
+  pub fnc accept_alias(SharedCounterCell cell) => void {
+    return;
+  }
+
+  pub fnc try_readonly_share() => void {
+    val shared = process.share_readonly(arr[1, 2, 3]);
+    stdio.println(shared);
+    return;
+  }
+
+  pub fnc try_helper_indirection() => void {
+    make_shared_cell();
+    return;
+  }
+}
