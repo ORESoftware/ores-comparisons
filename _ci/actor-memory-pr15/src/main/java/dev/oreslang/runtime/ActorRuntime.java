@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -447,7 +448,8 @@ public final class ActorRuntime implements AutoCloseable {
                         "untrusted actor HTTP response header-count limit exceeded: "
                                 + MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS);
             }
-            long bytes = (long) name.length() + value.length();
+            long bytes = (long) name.length()
+                    + value.getBytes(StandardCharsets.UTF_8).length;
             long nextBytes = headerBytes.addAndGet(bytes);
             if (nextBytes > MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES) {
                 headerBytes.addAndGet(-bytes);
@@ -1109,6 +1111,11 @@ public final class ActorRuntime implements AutoCloseable {
         public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
             Objects.requireNonNull(unit);
             if (timeout < 0) throw new IllegalArgumentException("timeout must be non-negative");
+            ActorExecutionContext caller = CURRENT_ACTOR_EXECUTION.get();
+            if (caller != null && caller.kind() == ActorKind.UNTRUSTED) {
+                throw new SecurityException(
+                        "untrusted actors cannot synchronously await actor termination; use messages/monitoring");
+            }
             ActorCell<?> cell = actors.get(id);
             if (cell == null) return true;
             cell.awaitFinalized(unit.toNanos(timeout));
@@ -1535,7 +1542,9 @@ public final class ActorRuntime implements AutoCloseable {
         Objects.requireNonNull(kind);
         Objects.requireNonNull(policy);
         Objects.requireNonNull(behaviorFactory);
-        requireWithinCeiling(policy);
+        if (kind != ActorKind.UNTRUSTED) {
+            requireWithinCeiling(policy);
+        }
         if (kind == ActorKind.UNTRUSTED && untrustedLimits == null) {
             throw new SecurityException("untrusted actor hard limits are required");
         }
@@ -1552,6 +1561,8 @@ public final class ActorRuntime implements AutoCloseable {
                 : policy;
         if (kind == ActorKind.UNTRUSTED) {
             effectivePolicy = restrictUntrustedPolicy(effectivePolicy, untrustedLimits);
+            effectivePolicy = intersectUntrustedWithRuntimeCeiling(effectivePolicy);
+            requireWithinCeiling(effectivePolicy);
         }
         requireWithinCallerPolicy(effectivePolicy);
         if (kind == ActorKind.SHARED) {
@@ -1619,6 +1630,22 @@ public final class ActorRuntime implements AutoCloseable {
                 stripped.maxHeapBytes(),
                 mailbox,
                 wall,
+                true);
+    }
+
+    private IsolatePolicy intersectUntrustedWithRuntimeCeiling(IsolatePolicy policy) {
+        java.util.Set<IsolatePolicy.Capability> caps =
+                policy.capabilities().isEmpty()
+                        ? java.util.Set.of()
+                        : new java.util.HashSet<>(policy.capabilities());
+        caps.retainAll(policyCeiling.capabilities());
+        return new IsolatePolicy(
+                caps,
+                Math.min(policy.maxHeapBytes(), policyCeiling.maxHeapBytes()),
+                Math.min(policy.maxMailboxMessages(), policyCeiling.maxMailboxMessages()),
+                policy.maxWallTime().compareTo(policyCeiling.maxWallTime()) <= 0
+                        ? policy.maxWallTime()
+                        : policyCeiling.maxWallTime(),
                 true);
     }
 
@@ -1795,6 +1822,13 @@ public final class ActorRuntime implements AutoCloseable {
         Objects.requireNonNull(ref);
         if (!ref.ownedBy(this)) {
             throw new IllegalArgumentException("ActorRef belongs to a different ActorRuntime");
+        }
+        ActorCell<?> caller = currentActor.get();
+        if (caller != null
+                && caller.kind == ActorKind.UNTRUSTED
+                && !caller.ref.id().equals(ref.id())) {
+            throw new SecurityException(
+                    "untrusted actors cannot stop other actors; ActorRef grants bounded messaging only");
         }
         ActorCell<?> cell = actors.get(ref.id());
         if (cell == null) return;

@@ -156,6 +156,78 @@ final class UntrustedActorRuntimeTest {
     }
 
     @Test
+    void runtimeCeilingAutomaticallyTightensUntrustedPolicy() throws Exception {
+        IsolatePolicy ceiling = new IsolatePolicy(
+                java.util.Set.of(),
+                16L * 1024 * 1024,
+                32,
+                Duration.ofMillis(70),
+                true);
+        try (ActorRuntime runtime = new ActorRuntime(ceiling)) {
+            var ref = runtime.<String>spawnUntrusted(
+                    ignored -> (message, turn) -> { });
+
+            assertTrue(ref.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(
+                    ActorRuntime.ActorLifetimeExceededException.class,
+                    ref.failure().orElseThrow());
+        }
+    }
+
+    @Test
+    void untrustedActorCannotStopAnotherActorThroughActorRef() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var victim = runtime.<Object>spawnPrivate(context -> (message, turn) -> { });
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 1024, 1024, 1024);
+
+            var sandbox = runtime.<Object>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    null,
+                    ignored -> (message, turn) -> {
+                        @SuppressWarnings("unchecked")
+                        ActorRuntime.ActorRef<Object> target =
+                                (ActorRuntime.ActorRef<Object>) message;
+                        target.stop();
+                    });
+
+            sandbox.send(victim);
+            assertTrue(sandbox.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(SecurityException.class, sandbox.failure().orElseThrow());
+            assertTrue(victim.isAlive(),
+                    "an explicit ActorRef must not grant termination authority to untrusted code");
+        }
+    }
+
+    @Test
+    void untrustedActorCannotBlockWaitingForAnotherActor() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var victim = runtime.<Object>spawnPrivate(context -> (message, turn) -> { });
+            var limits = new ActorRuntime.UntrustedActorLimits(
+                    Duration.ofSeconds(2), 100, 1024, 1024, 1024);
+
+            var sandbox = runtime.<Object>spawnUntrusted(
+                    IsolatePolicy.untrustedActor(),
+                    limits,
+                    null,
+                    null,
+                    ignored -> (message, turn) -> {
+                        @SuppressWarnings("unchecked")
+                        ActorRuntime.ActorRef<Object> target =
+                                (ActorRuntime.ActorRef<Object>) message;
+                        target.awaitTermination(1, TimeUnit.SECONDS);
+                    });
+
+            sandbox.send(victim);
+            assertTrue(sandbox.awaitTermination(2, TimeUnit.SECONDS));
+            assertInstanceOf(SecurityException.class, sandbox.failure().orElseThrow());
+            assertTrue(victim.isAlive());
+        }
+    }
+
+    @Test
     void outboundMailboxDataFromUntrustedActorIsCapped() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
             var target = runtime.<Object>spawnPrivate(() -> (message, turn) -> { });
