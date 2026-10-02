@@ -784,6 +784,84 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void unlinkedImportedFunctionCallsFailClosed() {
+        IllegalArgumentException call = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        import fnc {remote} from "./remote.ores";
+
+                        fnc bad() => void {
+                          remote();
+                          return;
+                        }
+                        """)));
+        assertTrue(call.getMessage().contains("cross-unit linker"));
+
+        IllegalArgumentException extracted = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        import fnc {remote} from "./remote.ores";
+
+                        fnc bad() => void {
+                          val callback = remote;
+                          return;
+                        }
+                        """)));
+        assertTrue(extracted.getMessage().contains("cannot be extracted"));
+    }
+
+    @Test
+    void unlinkedImportedClassMethodsFailClosedButConstructionRemainsOwned() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                import class {RemoteBox} from "./remote.ores";
+
+                fnc make() => RemoteBox {
+                  return new RemoteBox();
+                }
+                """)));
+
+        IllegalArgumentException method = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        import class {RemoteBox} from "./remote.ores";
+
+                        fnc bad(RemoteBox box) => void {
+                          box.touch();
+                          return;
+                        }
+                        """)));
+        assertTrue(method.getMessage().contains("linked receiver/parameter ownership metadata"));
+
+        IllegalArgumentException staticCall = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        import class {RemoteBox} from "./remote.ores";
+
+                        fnc bad() => void {
+                          RemoteBox.make();
+                          return;
+                        }
+                        """)));
+        assertTrue(staticCall.getMessage().contains("linked ownership metadata"));
+    }
+
+    @Test
+    void unlinkedImportedNamespaceCallsFailClosed() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        import * as remote from "./remote.ores";
+
+                        fnc bad() => void {
+                          remote.answer();
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("requires linked ownership metadata"));
+    }
+
+    @Test
     void pointerBorrowAndDereferenceSyntaxAreRejected() {
         IllegalArgumentException amp = assertThrows(
                 IllegalArgumentException.class,
