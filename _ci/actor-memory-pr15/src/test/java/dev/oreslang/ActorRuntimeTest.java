@@ -132,4 +132,76 @@ final class ActorRuntimeTest {
             assertNotNull(shared.value());
         }
     }
+
+    @Test
+    void actorRuntimeEnforcesConfiguredActorCeiling() {
+        try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(), 1)) {
+            runtime.<String>spawn(() -> (message, context) -> { });
+            IllegalStateException error = assertThrows(
+                    IllegalStateException.class,
+                    () -> runtime.<String>spawn(() -> (message, context) -> { }));
+            assertTrue(error.getMessage().contains("actor runtime limit exceeded"));
+            assertEquals(1, runtime.maxActors());
+        }
+    }
+
+    @Test
+    void actorCodeCannotCloseItsOwnRuntime() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch checked = new CountDownLatch(1);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+
+            var ref = runtime.<String>spawn(() -> (message, context) -> {
+                try {
+                    assertThrows(SecurityException.class, context.runtime()::close);
+                } catch (Throwable problem) {
+                    failure.set(problem);
+                } finally {
+                    checked.countDown();
+                }
+            });
+
+            ref.send("check");
+            assertTrue(checked.await(2, TimeUnit.SECONDS));
+            assertNull(failure.get());
+        }
+    }
+
+    @Test
+    void fullMailboxRejectsBeforeFreezingAnotherMessage() throws Exception {
+        IsolatePolicy oneQueuedMessage = new IsolatePolicy(
+                IsolatePolicy.developer().capabilities(),
+                IsolatePolicy.developer().maxHeapBytes(),
+                1,
+                IsolatePolicy.developer().maxWallTime(),
+                false);
+
+        try (ActorRuntime runtime = new ActorRuntime(oneQueuedMessage)) {
+            CountDownLatch processing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+
+            var ref = runtime.<Object>spawn(oneQueuedMessage, () -> (message, context) -> {
+                if ("first".equals(message)) {
+                    processing.countDown();
+                    release.await();
+                }
+            });
+
+            ref.send("first");
+            assertTrue(processing.await(2, TimeUnit.SECONDS));
+            ref.send("queued");
+
+            ActorRuntime.Sendable shouldNotFreeze = () -> {
+                throw new AssertionError("freezeForSend must not run when mailbox is already full");
+            };
+
+            IllegalStateException error = assertThrows(
+                    IllegalStateException.class,
+                    () -> ref.send(shouldNotFreeze));
+            assertTrue(error.getMessage().contains("mailbox limit exceeded"));
+
+            release.countDown();
+        }
+    }
+
 }
