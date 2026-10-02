@@ -259,6 +259,12 @@ public final class CapabilityChecker {
             require(policy, IsolatePolicy.Capability.STDOUT, "print");
         } else if (expr instanceof Ast.NameExpr n && n.name().equals("SharedMutex")) {
             require(policy, IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex");
+        } else if (expr instanceof Ast.NameExpr n) {
+            // Function values can be laundered through locals/callbacks before
+            // invocation. Check the referenced body at the point the function
+            // enters the actor's value graph, not only for direct call syntax.
+            Ast.FunctionDecl referenced = findFunction(n.name());
+            if (referenced != null) checkReferencedFunction(referenced, policy);
         }
         else if (expr instanceof Ast.CallExpr c) {
             String target = memberPath(c.callee());
@@ -273,6 +279,10 @@ public final class CapabilityChecker {
         } else if (expr instanceof Ast.MemberExpr m) {
             String path = memberPath(m);
             if (path != null) {
+                // Qualified module function values have the same laundering
+                // risk as unqualified function values.
+                Ast.FunctionDecl referenced = findFunction(path);
+                if (referenced != null) checkReferencedFunction(referenced, policy);
                 if (path.startsWith("stdio.") || path.equals("stdio")) require(policy, IsolatePolicy.Capability.STDOUT, path);
                 if (path.startsWith("process.descriptor") || path.equals("process.context_id")) require(policy, IsolatePolicy.Capability.PROCESS_INFO, path);
                 if (path.startsWith("process.share_readonly")) require(policy, IsolatePolicy.Capability.ACTOR_SHARE_READONLY, path);
