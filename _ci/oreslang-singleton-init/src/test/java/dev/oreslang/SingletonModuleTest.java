@@ -285,6 +285,77 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void processSingletonCodeCannotReenterCallerLocalHelpersOrAmbientApis() {
+        IllegalArgumentException ordinaryHelper = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc caller_local_helper() => int {
+                          return 7;
+                        }
+
+                        define singleton module process_effect_guard as
+                          pub fnc read() => int {
+                            return caller_local_helper();
+                          }
+                        end
+                        """)));
+        assertTrue(ordinaryHelper.getMessage().contains("ordinary helper function"));
+
+        IllegalArgumentException ambient = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module ambient_effect_guard as
+                          pub fnc read_context() => String {
+                            return process.context_id;
+                          }
+                        end
+                        """)));
+        assertTrue(ambient.getMessage().contains("ambient capability"));
+    }
+
+    @Test
+    void exportedProcessObjectMethodsCannotUseCallerAmbientEffects() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class AmbientFoo as
+                          pub context_id() => String {
+                            return process.context_id;
+                          }
+                        end
+
+                        define singleton module ambient_object_owner as
+                          pub val AmbientFoo foo = new AmbientFoo();
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("ambient capability"));
+    }
+
+    @Test
+    void singletonServicesMayCallOtherSingletonServicesWhenImmediatelyAwaited() throws Exception {
+        String output = eval("""
+                define singleton module service_a as
+                  pub fnc read() => int {
+                    return 40;
+                  }
+                end
+
+                define singleton module service_b as
+                  pub fnc read() => int {
+                    return await service_a.read() + 2;
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    stdio.println(await service_b.read());
+                    return;
+                  }
+                end
+                """, "singleton-service-dependency.ores");
+
+        assertTrue(output.contains("42"), output);
+    }
+
+    @Test
     void crossSingletonCallsMustBeImmediatelyAwaited() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
