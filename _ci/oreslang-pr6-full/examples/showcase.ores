@@ -39,7 +39,7 @@ define module app
     val info = obj{name: "oreslang", stable: true};
     [const first, let second] = (values[0], values[1]);
 
-    if first == 43, info.stable || false; do
+    if first == 43, info.stable | false; do
       stdio.println("oreslang-ok");
     else
       stdio.println("unexpected");
