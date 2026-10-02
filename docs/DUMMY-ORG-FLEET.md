@@ -27,6 +27,7 @@ Stacks that do not use BeamScale's Gleam → BEAM execution path receive at leas
 | --- | --- | --- | --- |
 | Graal Show | `ores-dummy-org-clojure-jvm-1` | Clojure | JVM |
 | Graal Show | `ores-dummy-org-java-jvm-1` | Java | JVM |
+| Graal Show | `ores-dummy-org-ruby-graal-1` | Ruby (Roda fixture) | Graal/TruffleRuby |
 | Iso Lattes | `ores-dummy-org-gleam-js-1` | Gleam | JavaScript |
 | Iso Lattes | `ores-dummy-org-typescript-js-1` | TypeScript | JavaScript |
 | Lunatic Lorry | `ores-dummy-org-rust-wasm-1` | Rust | WASM |
@@ -42,7 +43,7 @@ Stacks that do not use BeamScale's Gleam → BEAM execution path receive at leas
 
 TypeScript → WASM is intentionally forbidden in this matrix. TypeScript belongs in the JavaScript target lane; Rust and Zig are the governed WASM source lanes.
 
-Each complete runtime fixture org owns `.github` plus the same 19-role repository family, for 20 repositories total. Runtime-facing server and MCP repository names use the source-language extension (`.clj`, `.java`, `.gleam`, `.ts`, `.rs`, `.zig`, `.pony`, or `.cu`). `desktop-app.rs` remains Rust and `flutter` remains Flutter because those are client-shell roles rather than the server runtime under test.
+Each complete runtime fixture org owns `.github` plus the same 19-role repository family, for 20 repositories total. Runtime-facing server and MCP repository names use the source-language extension (`.clj`, `.java`, `.rb`, `.gleam`, `.ts`, `.rs`, `.zig`, `.pony`, or `.cu`). `desktop-app.rs` remains Rust and `flutter` remains Flutter because those are client-shell roles rather than the server runtime under test.
 
 ## Materialization versus executable proof
 
@@ -90,3 +91,13 @@ python3 scripts/verify_runtime_fixture_remote_reachability.py
 ```
 
 When a cross-repository read credential is present, CI verifies every currently materialized private fixture repository's `main` branch. Without that credential, the exact local gitlink and `.gitmodules` projections are still mandatory.
+
+
+## Graal Show Ruby framework references
+
+Ruby is intentionally represented in two ways:
+
+- `ores-dummy-org-ruby-graal-1` is the governed dummy-org lane and uses Roda in normal server mode, proving that Graal lambda generation is not Rails-specific. The comparison pins the complete 20-repository family; the API server contains the executable Roda → framework-free Graal lowering fixture.
+- `ores-ror-to-lambdas-demo/ores-ror.rb` plus `ores-ror-to-lambdas-demo/ores-ror.infra` are exact Rails reference gitlinks governed by `shared/graal-ruby-references.json`. They demonstrate the same app-native lowering contract with Rails as the authoring framework.
+
+In both cases the Graal worker artifact is expected to be framework-free Ruby; framework parsing/boot happens before admission, not inside the guest worker.

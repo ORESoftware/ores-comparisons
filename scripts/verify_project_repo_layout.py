@@ -30,6 +30,14 @@ for org in materialized_fixture_orgs:
     slug = org.removeprefix("ores-dummy-org-")
     fixture_repos_paths.add(ROOT / "stacks" / item["stack"] / "projects" / slug / "repos")
 
+graal_ruby_references = json.loads(
+    (ROOT / "shared/graal-ruby-references.json").read_text()
+)
+reference_gitlinks = {
+    ROOT / item["path"]
+    for item in graal_ruby_references.get("references", [])
+}
+
 index = subprocess.run(
     ["git", "ls-files", "--stage"],
     cwd=ROOT,
@@ -156,6 +164,9 @@ for submodule in sorted(gitlinks):
         continue
 
     if submodule.parent in fixture_repos_paths:
+        continue
+
+    if submodule in reference_gitlinks:
         continue
 
     errors.append(

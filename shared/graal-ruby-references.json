@@ -1,0 +1,21 @@
+{
+  "schema": "ores.comparisons.graal-ruby-references/v1",
+  "references": [
+    {
+      "id": "rails-demo-app",
+      "framework": "rails",
+      "role": "application",
+      "repository": "ores-ror-to-lambdas-demo/ores-ror.rb",
+      "branch": "main",
+      "path": "stacks/graal-show/references/rails-to-lambdas/repos/ores-ror.rb"
+    },
+    {
+      "id": "rails-demo-infra",
+      "framework": "rails",
+      "role": "graal-supervisor",
+      "repository": "ores-ror-to-lambdas-demo/ores-ror.infra",
+      "branch": "main",
+      "path": "stacks/graal-show/references/rails-to-lambdas/repos/ores-ror.infra"
+    }
+  ]
+}

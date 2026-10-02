@@ -3,14 +3,38 @@
   "faas_coverage": {
     "minimum_platforms": 7,
     "platforms": [
-      {"id": "scintilla-run", "stack_id": "scintilla-run"},
-      {"id": "iso-lattes", "stack_id": "iso-lattes"},
-      {"id": "lunatic-lorry", "stack_id": "lunatic-lorry"},
-      {"id": "wasm-xprs", "stack_id": "wasm-xprs"},
-      {"id": "litegraph", "stack_id": "litegraph"},
-      {"id": "beamscale", "stack_id": "beamscale"},
-      {"id": "graal-vm", "stack_id": "graal-show"},
-      {"id": "pony-expres", "stack_id": "pony-expres"}
+      {
+        "id": "scintilla-run",
+        "stack_id": "scintilla-run"
+      },
+      {
+        "id": "iso-lattes",
+        "stack_id": "iso-lattes"
+      },
+      {
+        "id": "lunatic-lorry",
+        "stack_id": "lunatic-lorry"
+      },
+      {
+        "id": "wasm-xprs",
+        "stack_id": "wasm-xprs"
+      },
+      {
+        "id": "litegraph",
+        "stack_id": "litegraph"
+      },
+      {
+        "id": "beamscale",
+        "stack_id": "beamscale"
+      },
+      {
+        "id": "graal-vm",
+        "stack_id": "graal-show"
+      },
+      {
+        "id": "pony-expres",
+        "stack_id": "pony-expres"
+      }
     ]
   },
   "stacks": [
@@ -23,7 +47,14 @@
       "topology_status": "materialized",
       "execution_model": "admitted Gleam -> Erlang/BEAM actor/lambda execution",
       "benchmark_executable": "bmscl",
-      "scenario_orgs": ["ores-dummy-org-1", "ores-dummy-org-2", "ores-dummy-org-3", "ores-dummy-org-4", "ores-dummy-org-5", "ores-dummy-org-6"],
+      "scenario_orgs": [
+        "ores-dummy-org-1",
+        "ores-dummy-org-2",
+        "ores-dummy-org-3",
+        "ores-dummy-org-4",
+        "ores-dummy-org-5",
+        "ores-dummy-org-6"
+      ],
       "runtime_fixture_orgs": []
     },
     {
@@ -35,7 +66,14 @@
       "topology_status": "materialized",
       "execution_model": "polyglot lambda/container/sub-process runtime",
       "benchmark_executable": "scintilla",
-      "scenario_orgs": ["ores-dummy-org-1", "ores-dummy-org-2", "ores-dummy-org-3", "ores-dummy-org-4", "ores-dummy-org-5", "ores-dummy-org-6"],
+      "scenario_orgs": [
+        "ores-dummy-org-1",
+        "ores-dummy-org-2",
+        "ores-dummy-org-3",
+        "ores-dummy-org-4",
+        "ores-dummy-org-5",
+        "ores-dummy-org-6"
+      ],
       "runtime_fixture_orgs": []
     },
     {
@@ -47,8 +85,18 @@
       "topology_status": "materialized",
       "execution_model": "Rust native servers, WASM/page assets, RPC/API generation",
       "benchmark_executable": "ores-stack",
-      "scenario_orgs": ["ores-dummy-org-1", "ores-dummy-org-2", "ores-dummy-org-3", "ores-dummy-org-4", "ores-dummy-org-5", "ores-dummy-org-6"],
-      "runtime_fixture_orgs": ["ores-dummy-org-rust-native-1", "ores-dummy-org-rust-wasm-3"]
+      "scenario_orgs": [
+        "ores-dummy-org-1",
+        "ores-dummy-org-2",
+        "ores-dummy-org-3",
+        "ores-dummy-org-4",
+        "ores-dummy-org-5",
+        "ores-dummy-org-6"
+      ],
+      "runtime_fixture_orgs": [
+        "ores-dummy-org-rust-native-1",
+        "ores-dummy-org-rust-wasm-3"
+      ]
     },
     {
       "id": "pony-expres",
@@ -60,7 +108,10 @@
       "execution_model": "Pony-native actor-oriented lambda/runtime target",
       "benchmark_executable": null,
       "scenario_orgs": [],
-      "runtime_fixture_orgs": ["ores-dummy-org-pony-native-1", "ores-dummy-org-pony-native-2"]
+      "runtime_fixture_orgs": [
+        "ores-dummy-org-pony-native-1",
+        "ores-dummy-org-pony-native-2"
+      ]
     },
     {
       "id": "wasm-xprs",
@@ -72,7 +123,10 @@
       "execution_model": "WebAssembly-first lambda/component runtime",
       "benchmark_executable": null,
       "scenario_orgs": [],
-      "runtime_fixture_orgs": ["ores-dummy-org-rust-wasm-2", "ores-dummy-org-zig-wasm-2"]
+      "runtime_fixture_orgs": [
+        "ores-dummy-org-rust-wasm-2",
+        "ores-dummy-org-zig-wasm-2"
+      ]
     },
     {
       "id": "iso-lattes",
@@ -84,7 +138,10 @@
       "execution_model": "isolate-oriented JavaScript/runtime execution",
       "benchmark_executable": null,
       "scenario_orgs": [],
-      "runtime_fixture_orgs": ["ores-dummy-org-gleam-js-1", "ores-dummy-org-typescript-js-1"]
+      "runtime_fixture_orgs": [
+        "ores-dummy-org-gleam-js-1",
+        "ores-dummy-org-typescript-js-1"
+      ]
     },
     {
       "id": "graal-show",
@@ -93,10 +150,14 @@
       "comparison_branch": "stack/graal-show",
       "status": "registered",
       "topology_status": "materialized",
-      "execution_model": "tenant+deployment OS process with bounded stateless, route, session, and opt-in route+session Graal isolate affinity; Native Image and Polyglot Engine modes benchmarked separately",
+      "execution_model": "tenant+deployment OS process with bounded stateless, route, session, and opt-in route+session Graal isolate affinity; JVM/Native Image plus GraalJS/GraalPy/TruffleRuby guest workers benchmarked separately",
       "benchmark_executable": null,
       "scenario_orgs": [],
-      "runtime_fixture_orgs": ["ores-dummy-org-clojure-jvm-1", "ores-dummy-org-java-jvm-1"]
+      "runtime_fixture_orgs": [
+        "ores-dummy-org-clojure-jvm-1",
+        "ores-dummy-org-java-jvm-1",
+        "ores-dummy-org-ruby-graal-1"
+      ]
     },
     {
       "id": "lunatic-lorry",
@@ -108,7 +169,10 @@
       "execution_model": "Lunatic WebAssembly process/actor runtime target",
       "benchmark_executable": null,
       "scenario_orgs": [],
-      "runtime_fixture_orgs": ["ores-dummy-org-rust-wasm-1", "ores-dummy-org-zig-wasm-1"]
+      "runtime_fixture_orgs": [
+        "ores-dummy-org-rust-wasm-1",
+        "ores-dummy-org-zig-wasm-1"
+      ]
     },
     {
       "id": "litegraph",
@@ -120,7 +184,10 @@
       "execution_model": "GPU-oriented lightweight isolate/actor lambda runtime",
       "benchmark_executable": null,
       "scenario_orgs": [],
-      "runtime_fixture_orgs": ["ores-dummy-org-rust-gpu-1", "ores-dummy-org-cuda-gpu-1"]
+      "runtime_fixture_orgs": [
+        "ores-dummy-org-rust-gpu-1",
+        "ores-dummy-org-cuda-gpu-1"
+      ]
     }
   ]
 }

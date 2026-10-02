@@ -85,7 +85,7 @@ def write_state(orgs: list[str]) -> None:
         "partial_orgs": {},
         "pending_orgs": [],
         "notes": (
-            "All 14 runtime fixture orgs are fully materialized as private Git submodules. "
+            f"All {len(orgs)} configured runtime fixture orgs are fully materialized as private Git submodules. "
             "Each complete org has .github plus the full 19-repo ores-cli family; Git index "
             "gitlinks pin exact main-branch commits and .gitmodules records the authenticated "
             "private HTTPS transport."
@@ -120,7 +120,8 @@ def main() -> int:
     args = parser.parse_args()
 
     pins, errors = build_plan()
-    expected = 14 * 20
+    expected_orgs = len(fixtures)
+    expected = expected_orgs * (len(roles) + 1)
     if errors:
         print("runtime fixture materialization FAILED")
         for error in errors:
@@ -131,8 +132,8 @@ def main() -> int:
         return 1
 
     orgs = sorted({pin["org"] for pin in pins})
-    if len(orgs) != 14:
-        print(f"runtime fixture materialization FAILED: expected 14 orgs, found {len(orgs)}")
+    if len(orgs) != expected_orgs:
+        print(f"runtime fixture materialization FAILED: expected {expected_orgs} orgs, found {len(orgs)}")
         return 1
 
     if args.apply:

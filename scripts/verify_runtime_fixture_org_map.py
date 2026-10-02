@@ -17,6 +17,7 @@ SCENARIO_SCHEMA = "ores.comparisons.dummy-org-map/v1"
 ALLOWED_SOURCE_TARGETS = {
     ("clojure", "jvm"): ".clj",
     ("java", "jvm"): ".java",
+    ("ruby", "graal"): ".rb",
     ("gleam", "js"): ".gleam",
     ("typescript", "js"): ".ts",
     ("rust", "wasm"): ".rs",
@@ -87,8 +88,12 @@ def main() -> int:
         fail(errors, "runtime fixture org names must be unique")
 
     all_org_names = {entry["org"] for entry in fleet.get("scenario_orgs", [])} | set(org_names)
-    if len(all_org_names) != 20:
-        fail(errors, f"dummy-org fleet must contain exactly 20 orgs, found {len(all_org_names)}")
+    expected_orgs = len(fleet.get("scenario_orgs", [])) + len(fixture_orgs)
+    if len(all_org_names) != expected_orgs:
+        fail(
+            errors,
+            f"dummy-org fleet must contain {expected_orgs} unique orgs, found {len(all_org_names)}",
+        )
 
     policy = fleet.get("runtime_fixture_policy", {})
     dedicated = set(policy.get("dedicated_stacks", []))
@@ -180,7 +185,7 @@ def main() -> int:
 
     print(
         "runtime fixture org verification OK: "
-        f"20 orgs total, {len(fixture_orgs)} runtime fixture orgs, "
+        f"{len(all_org_names)} orgs total, {len(fixture_orgs)} runtime fixture orgs, "
         f"{total_repos} governed runtime fixture repos"
     )
     return 0
