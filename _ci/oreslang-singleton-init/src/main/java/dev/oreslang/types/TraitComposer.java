@@ -1025,7 +1025,7 @@ public final class TraitComposer {
                             substitute(parameter.type(), substitutions),
                             parameter.name(),
                             parameter.structural(),
-                            parameter.mutable()))
+                            parameter.mode()))
                     .toList();
             return new Ast.LambdaExpr(
                     parameters,
@@ -1051,7 +1051,7 @@ public final class TraitComposer {
                             substitute(parameter.type(), effective),
                             parameter.name(),
                             parameter.structural(),
-                            parameter.mutable()))
+                            parameter.mode()))
                     .toList();
 
             List<Ast.Annotation> annotations = method.annotations().stream()
@@ -1239,7 +1239,7 @@ public final class TraitComposer {
                 Ast.Param b = right.parameters().get(i);
                 if (!a.type().equals(b.type())
                         || a.structural() != b.structural()
-                        || a.mutable() != b.mutable()) return false;
+                        || a.mode() != b.mode()) return false;
             }
             return true;
         }

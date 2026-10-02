@@ -74,6 +74,7 @@ public final class TypeChecker {
             } else {
                 if (imported.names().isEmpty()) throw new IllegalArgumentException("named import must select at least one name");
                 for (String name : imported.names()) {
+                    requireNotOwnershipIntrinsicBinding(name, "import");
                     if (!exposed.add(name)) throw new IllegalArgumentException("duplicate imported name '" + name + "'");
                     importedNames.add(name);
                     if (imported.kind() != Ast.ImportKind.CLASS) importedValues.add(name);
@@ -87,6 +88,7 @@ public final class TypeChecker {
             if (modules.putIfAbsent(module.name(), module) != null) throw new IllegalArgumentException("duplicate module '" + module.name() + "'");
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.FunctionDecl fn) {
+                    requireNotOwnershipIntrinsicBinding(fn.name(), "callable");
                     putQualified(functions, ambiguousFunctions, module.name(), fn.name(), fn, fn.kind() == Ast.CallableKind.ROUTINE ? "routine" : "function");
                     functionOwners.put(fn, module.name());
                 } else if (decl instanceof Ast.ClassDecl klass) {
@@ -154,6 +156,7 @@ public final class TypeChecker {
                 if (!assignable(actual, expected)) {
                     throw new IllegalArgumentException("module '" + module.name() + "' does not adhere to interface '" + ref.name() + "': expected " + expected + " but got " + actual);
                 }
+                validateModuleOwnershipContract(module, iface, new LinkedHashSet<>());
             }
         }
     }
@@ -174,6 +177,10 @@ public final class TypeChecker {
     }
 
     private void checkInterface(Ast.InterfaceDecl iface) {
+        validateInterfaceOwnershipConsistency(
+                iface,
+                new LinkedHashSet<>(),
+                new LinkedHashMap<>());
         Set<String> generics = uniqueGenerics(iface.genericParameters(), "interface " + iface.name());
         Set<String> memberKeys = new HashSet<>();
         for (Ast.TypeRef parentRef : iface.parents()) {
@@ -277,7 +284,10 @@ public final class TypeChecker {
     private void checkFunction(Ast.ModuleDecl module, Ast.FunctionDecl fn) {
         Set<String> generics = uniqueGenerics(fn.genericParameters(), (fn.kind() == Ast.CallableKind.ROUTINE ? "routine " : "function ") + fn.name());
         Env env = module.singleton() ? singletonModuleEnv(module) : moduleBindingEnv(module);
-        for (Ast.Param param : fn.parameters()) env.define(param.name(), resolveParam(param, generics, null), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+        for (Ast.Param param : fn.parameters()) {
+            requireNotOwnershipIntrinsicBinding(param.name(), "parameter");
+            env.define(param.name(), resolveParam(param, generics, null), Ast.BindingKind.VAL);
+        }
         Type returns = resolve(fn.returnType(), generics, null);
         validateSingletonTransportStatements(fn.body(), module.name());
         checkBlock(fn.body(), env, generics, returns, null);
@@ -587,14 +597,14 @@ public final class TypeChecker {
             if (locals.contains(name.name()) || name.name().equals("self")
                     || name.name().equals("Some") || name.name().equals("None")) return;
             if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("print")) {
-                throw processEffectError(where, "ambient capability '" + name.name() + "'");
+                throw processEffectError(where, "ambient caller capability '" + name.name() + "'");
             }
             if (importedNames.contains(name.name())) {
                 throw processEffectError(where, "imported dependency '" + name.name() + "'");
             }
             Ast.ModuleDecl referencedModule = modules.get(name.name());
             if (referencedModule != null && !referencedModule.singleton()) {
-                throw processEffectError(where, "caller/context-local module '" + referencedModule.name() + "'");
+                throw processEffectError(where, "actor/context-local module '" + referencedModule.name() + "'");
             }
             return;
         }
@@ -606,7 +616,7 @@ public final class TypeChecker {
                     String targetOwnerName = functionOwners.get(target);
                     Ast.ModuleDecl targetOwner = targetOwnerName == null ? null : modules.get(targetOwnerName);
                     if (targetOwner == null || !targetOwner.singleton()) {
-                        throw processEffectError(where, "ordinary helper function '" + name.name() + "'");
+                        throw processEffectError(where, "actor/context-local function '" + name.name() + "'");
                     }
                 }
             }
@@ -615,7 +625,7 @@ public final class TypeChecker {
                     && !locals.contains(receiver.name())) {
                 Ast.ModuleDecl targetModule = modules.get(receiver.name());
                 if (targetModule != null && !targetModule.singleton()) {
-                    throw processEffectError(where, "caller/context-local module '" + targetModule.name() + "'");
+                    throw processEffectError(where, "actor/context-local module '" + targetModule.name() + "'");
                 }
                 Ast.ClassDecl targetClass = findClass(receiver.name());
                 if (targetClass != null && targetClass != processClass) {
@@ -967,7 +977,10 @@ public final class TypeChecker {
             Type callableSelf = method.isStatic() ? null : self;
             Env env = new Env(classModuleEnv);
             if (!method.isStatic()) env.define("self", self, Ast.BindingKind.VAL);
-            for (Ast.Param param : method.parameters()) env.define(param.name(), resolveParam(param, generics, callableSelf), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+            for (Ast.Param param : method.parameters()) {
+                requireNotOwnershipIntrinsicBinding(param.name(), "method parameter");
+                env.define(param.name(), resolveParam(param, generics, callableSelf), Ast.BindingKind.VAL);
+            }
             Type returns = resolve(method.returnType(), generics, callableSelf);
             validateSingletonTransportStatements(method.body(), module);
             checkBlock(method.body(), env, generics, returns, callableSelf);
@@ -988,10 +1001,117 @@ public final class TypeChecker {
             if (!assignable(actual, expected)) {
                 throw new IllegalArgumentException("class '" + klass.name() + "' does not implement interface '" + interfaceRef.name() + "': expected " + expected + " but got " + actual);
             }
+            validateClassOwnershipContract(klass, iface, new LinkedHashSet<>());
+        }
+    }
+
+    private void validateInterfaceOwnershipConsistency(
+            Ast.InterfaceDecl iface,
+            Set<Ast.InterfaceDecl> stack,
+            Map<String, List<Ast.ParamMode>> modes) {
+        if (!stack.add(iface)) return;
+        for (Ast.TypeRef parentRef : iface.parents()) {
+            Ast.InterfaceDecl parent = findInterface(parentRef.name());
+            if (parent != null) {
+                validateInterfaceOwnershipConsistency(parent, stack, modes);
+            }
+        }
+        for (Ast.InterfaceMember member : iface.members()) {
+            if (!(member instanceof Ast.InterfaceFunctionDecl fn)) continue;
+            String key = methodKey(fn.name(), fn.parameters().size());
+            List<Ast.ParamMode> signature = fn.parameters().stream()
+                    .map(param -> param.structural() ? Ast.ParamMode.BORROW : param.mode())
+                    .toList();
+            List<Ast.ParamMode> previous = modes.putIfAbsent(key, signature);
+            if (previous != null && !previous.equals(signature)) {
+                throw new IllegalArgumentException(
+                        "interface ownership conflict for '" + key + "' in '" + iface.name()
+                                + "': inherited/declared modes " + previous + " vs " + signature);
+            }
+        }
+        stack.remove(iface);
+    }
+
+    private void validateClassOwnershipContract(
+            Ast.ClassDecl klass,
+            Ast.InterfaceDecl iface,
+            Set<Ast.InterfaceDecl> seen) {
+        if (!seen.add(iface)) return;
+        for (Ast.TypeRef parentRef : iface.parents()) {
+            Ast.InterfaceDecl parent = findInterface(parentRef.name());
+            if (parent != null) validateClassOwnershipContract(klass, parent, seen);
+        }
+        for (Ast.InterfaceMember member : iface.members()) {
+            if (!(member instanceof Ast.InterfaceFunctionDecl fn)) continue;
+            Ast.MethodDecl method = findMethod(
+                    klass,
+                    fn.name(),
+                    fn.parameters().size(),
+                    new LinkedHashSet<>());
+            if (method == null || method.visibility() != Ast.Visibility.PUBLIC) continue;
+            requireParameterOwnershipMatch(
+                    fn.parameters(),
+                    method.parameters(),
+                    "interface " + iface.name() + "." + fn.name()
+                            + " vs class " + klass.name() + "." + method.name());
+        }
+        seen.remove(iface);
+    }
+
+    private void validateModuleOwnershipContract(
+            Ast.ModuleDecl module,
+            Ast.InterfaceDecl iface,
+            Set<Ast.InterfaceDecl> seen) {
+        if (!seen.add(iface)) return;
+        for (Ast.TypeRef parentRef : iface.parents()) {
+            Ast.InterfaceDecl parent = findInterface(parentRef.name());
+            if (parent != null) validateModuleOwnershipContract(module, parent, seen);
+        }
+        for (Ast.InterfaceMember member : iface.members()) {
+            if (!(member instanceof Ast.InterfaceFunctionDecl expected)) continue;
+            Ast.FunctionDecl actual = null;
+            for (Ast.Decl declaration : module.declarations()) {
+                if (declaration instanceof Ast.FunctionDecl fn
+                        && fn.visibility() == Ast.Visibility.PUBLIC
+                        && fn.name().equals(expected.name())
+                        && fn.parameters().size() == expected.parameters().size()) {
+                    actual = fn;
+                    break;
+                }
+            }
+            if (actual != null) {
+                requireParameterOwnershipMatch(
+                        expected.parameters(),
+                        actual.parameters(),
+                        "interface " + iface.name() + "." + expected.name()
+                                + " vs module " + module.name() + "." + actual.name());
+            }
+        }
+        seen.remove(iface);
+    }
+
+    private void requireParameterOwnershipMatch(
+            List<Ast.Param> expected,
+            List<Ast.Param> actual,
+            String where) {
+        if (expected.size() != actual.size()) return;
+        for (int i = 0; i < expected.size(); i++) {
+            Ast.Param left = expected.get(i);
+            Ast.Param right = actual.get(i);
+            Ast.ParamMode expectedMode = left.structural() ? Ast.ParamMode.BORROW : left.mode();
+            Ast.ParamMode actualMode = right.structural() ? Ast.ParamMode.BORROW : right.mode();
+            if (expectedMode != actualMode) {
+                throw new IllegalArgumentException(
+                        "parameter ownership mismatch in " + where
+                                + " at argument " + (i + 1)
+                                + ": expected " + expectedMode.name().toLowerCase()
+                                + " but implementation uses " + actualMode.name().toLowerCase());
+            }
         }
     }
 
     private void checkModuleBinding(Ast.FieldDecl field) {
+        requireNotOwnershipIntrinsicBinding(field.name(), "module binding");
         if (field.initializer() == null) throw new IllegalArgumentException("module binding '" + field.name() + "' requires an initializer");
         Type actual = typeOf(field.initializer(), new Env(null), Set.of(), null);
         if (field.type() != null) requireAssignable(actual, resolve(field.type(), Set.of(), null), "initializer for " + field.name());
@@ -1007,6 +1127,7 @@ public final class TypeChecker {
 
     private void checkStatement(Ast.Stmt stmt, Env env, Set<String> generics, Type expectedReturn, Type self) {
         if (stmt instanceof Ast.BindingStmt binding) {
+            requireNotOwnershipIntrinsicBinding(binding.name(), "local binding");
             Type declaredAhead = binding.declaredType() == null ? null : resolve(binding.declaredType(), generics, self);
             boolean recursiveLambda = binding.initializer() instanceof Ast.LambdaExpr;
             if (recursiveLambda && declaredAhead instanceof Function) {
@@ -1035,10 +1156,14 @@ public final class TypeChecker {
                 if (tuple.elements().size() != destructure.bindings().size()) throw new IllegalArgumentException("destructure arity mismatch");
                 for (int i = 0; i < destructure.bindings().size(); i++) {
                     Ast.DestructureBinding binding = destructure.bindings().get(i);
+                    requireNotOwnershipIntrinsicBinding(binding.name(), "destructure binding");
                     env.define(binding.name(), tuple.elements().get(i), binding.kind());
                 }
             } else if (source instanceof ListType list) {
-                for (Ast.DestructureBinding binding : destructure.bindings()) env.define(binding.name(), list.element(), binding.kind());
+                for (Ast.DestructureBinding binding : destructure.bindings()) {
+                    requireNotOwnershipIntrinsicBinding(binding.name(), "destructure binding");
+                    env.define(binding.name(), list.element(), binding.kind());
+                }
             } else throw new IllegalArgumentException("destructuring requires a tuple or array/list value");
             return;
         }
@@ -1126,6 +1251,7 @@ public final class TypeChecker {
                     }
                     return singletonTransportType(fn);
                 }
+                requireExtractableOwnership(fn.parameters(), "function '" + fn.name() + "'");
                 return functionType(fn.parameters(), fn.returnType(), Set.copyOf(fn.genericParameters()), null);
             }
             throw new IllegalArgumentException("unknown name '" + name.name() + "'");
@@ -1163,8 +1289,6 @@ public final class TypeChecker {
         }
         if (expr instanceof Ast.UnaryExpr unary) {
             Type operand = typeOf(unary.operand(), env, generics, self);
-            if (unary.operator().equals("&")) return new Borrow(operand, false);
-            if (unary.operator().equals("&mut")) return new Borrow(operand, true);
             if (unary.operator().equals("!")) {
                 requireAssignable(operand, Primitive.BOOL, "! operand");
                 return Primitive.BOOL;
@@ -1194,9 +1318,48 @@ public final class TypeChecker {
             };
         }
         if (expr instanceof Ast.CallExpr call) {
+            if (call.callee() instanceof Ast.NameExpr intrinsic
+                    && (intrinsic.name().equals("borrow")
+                    || intrinsic.name().equals("copy")
+                    || intrinsic.name().equals("take")
+                    || intrinsic.name().equals("share"))) {
+                if (intrinsic.name().equals("share")) {
+                    throw new IllegalArgumentException(
+                            "share(...) is reserved for explicit shared capabilities; ordinary ownership cannot be converted implicitly");
+                }
+                if (call.arguments().size() != 1) {
+                    throw new IllegalArgumentException(intrinsic.name() + "(...) expects exactly one argument");
+                }
+                Type value = typeOf(call.arguments().getFirst(), env, generics, self);
+                return intrinsic.name().equals("borrow") ? new Borrow(value, false) : value;
+            }
             if (call.callee() instanceof Ast.NameExpr name && name.name().equals("Some")) {
                 if (call.arguments().size() != 1) throw new IllegalArgumentException("Some expects exactly one value");
                 return new Named("Option", List.of(typeOf(call.arguments().getFirst(), env, generics, self)));
+            }
+            if (call.callee() instanceof Ast.NameExpr name) {
+                Ast.FunctionDecl direct = findFunction(name.name());
+                if (direct != null) {
+                    if (direct.parameters().size() != call.arguments().size()) {
+                        throw new IllegalArgumentException("call arity mismatch for '" + direct.name() + "'");
+                    }
+                    Set<String> directGenerics = Set.copyOf(direct.genericParameters());
+                    for (int i = 0; i < call.arguments().size(); i++) {
+                        Type expected = resolveParam(direct.parameters().get(i), directGenerics, null);
+                        validateLambdaArgument(call.arguments().get(i), expected, env, generics, self);
+                        requireAssignable(
+                                deref(typeOf(call.arguments().get(i), env, generics, self)),
+                                deref(expected),
+                                "argument " + (i + 1));
+                    }
+                    Type result = resolve(direct.returnType(), directGenerics, null);
+                    String ownerName = functionOwners.get(direct);
+                    Ast.ModuleDecl owner = ownerName == null ? null : modules.get(ownerName);
+                    if (owner != null && owner.singleton() && !owner.name().equals(env.moduleName)) {
+                        return new Named("Future", List.of(result));
+                    }
+                    return result;
+                }
             }
             if (call.callee() instanceof Ast.MemberExpr member) {
                 Type receiver = deref(typeOf(member.receiver(), env, generics, self));
@@ -1298,7 +1461,7 @@ public final class TypeChecker {
                 if (member.member().equals("print") || member.member().equals("println")) return new Function(List.of(Unknown.INSTANCE), Primitive.VOID);
                 if (member.member().equals("stdout")) return new Named("stdio.stdout", List.of());
             }
-            Type receiver = typeOf(member.receiver(), env, generics, self);
+            Type receiver = deref(typeOf(member.receiver(), env, generics, self));
             if (receiver instanceof Named named && named.name().equals("stdio.stdout") && member.member().equals("write")) {
                 return new Function(List.of(Unknown.INSTANCE), Primitive.VOID);
             }
@@ -1325,6 +1488,9 @@ public final class TypeChecker {
                 List<Ast.MethodDecl> functions = findStaticFunctionsByName(klass, member.member(), new LinkedHashSet<>());
                 if (functions.size() == 1) {
                     Ast.MethodDecl fn = functions.getFirst();
+                    requireExtractableOwnership(
+                            fn.parameters(),
+                            "static function '" + klass.name() + "." + fn.name() + "'");
                     return functionType(fn.parameters(), fn.returnType(), Set.copyOf(fn.genericParameters()), null);
                 }
                 if (functions.size() > 1) throw new IllegalArgumentException("overloaded static function '" + member.member() + "' must be called so arity can select the overload");
@@ -1345,6 +1511,16 @@ public final class TypeChecker {
                     if (methods.size() == 1) {
                         Ast.MethodDecl method = methods.getFirst();
                         requireTraitMethodAccessible(method, named.name() + "." + member.member());
+                        if (method.explicitReceiverType() != null
+                                && method.explicitReceiverType().isBorrow()
+                                && method.explicitReceiverType().mutableBorrow()) {
+                            throw new IllegalArgumentException(
+                                    "mutable-receiver method value '" + member.member()
+                                            + "' cannot be extracted until Fnc models receiver ownership");
+                        }
+                        requireExtractableOwnership(
+                                method.parameters(),
+                                "method '" + named.name() + "." + method.name() + "'");
                         return functionType(method.parameters(), method.returnType(), Set.copyOf(method.genericParameters()), named);
                     }
                     if (methods.size() > 1) throw new IllegalArgumentException("overloaded method '" + member.member() + "' must be called so arity can select the overload");
@@ -1408,12 +1584,14 @@ public final class TypeChecker {
             return new Record(members);
         }
         if (expr instanceof Ast.LambdaExpr lambda) {
+            requireExtractableOwnership(lambda.parameters(), "lambda");
             Env lambdaEnv = new Env(env);
             List<Type> parameters = new ArrayList<>();
             for (Ast.Param param : lambda.parameters()) {
+                requireNotOwnershipIntrinsicBinding(param.name(), "lambda parameter");
                 Type type = resolveParam(param, generics, self);
                 parameters.add(type);
-                lambdaEnv.define(param.name(), type, param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                lambdaEnv.define(param.name(), type, Ast.BindingKind.VAL);
             }
             if (lambda.expressionBody() != null) {
                 throw new IllegalArgumentException("expression-body lambdas are not supported; lambdas require braces and explicit return");
@@ -1431,6 +1609,7 @@ public final class TypeChecker {
     }
 
     private void validateLambdaAgainstExpected(Ast.LambdaExpr lambda, Function expected, Env parent, Set<String> generics, Type self) {
+        requireExtractableOwnership(lambda.parameters(), "lambda");
         if (lambda.expressionBody() != null) {
             throw new IllegalArgumentException("lambdas always require a block body and explicit return for non-void results");
         }
@@ -1444,7 +1623,7 @@ public final class TypeChecker {
             Type declared = param.type().name().equals("$infer$") ? expectedParam : resolveParam(param, generics, self);
             requireAssignable(expectedParam, declared, "lambda parameter " + param.name());
             requireAssignable(declared, expectedParam, "lambda parameter " + param.name());
-            lambdaEnv.define(param.name(), declared, param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+            lambdaEnv.define(param.name(), declared, Ast.BindingKind.VAL);
         }
         checkBlock(lambda.blockBody(), lambdaEnv, generics, expected.result(), self);
         if (expected.result() != Primitive.VOID && !definitelyReturns(lambda.blockBody())) {
@@ -1872,6 +2051,32 @@ public final class TypeChecker {
             throw new IllegalArgumentException("conflicting member '" + name + "' in " + owner + ": " + existing + " vs " + type);
         }
         members.put(name, type);
+    }
+
+    private boolean isOwnershipIntrinsicName(String name) {
+        return name.equals("borrow")
+                || name.equals("take")
+                || name.equals("copy")
+                || name.equals("share");
+    }
+
+    private void requireNotOwnershipIntrinsicBinding(String name, String where) {
+        if (isOwnershipIntrinsicName(name)) {
+            throw new IllegalArgumentException(
+                    where + " cannot bind reserved ownership intrinsic name '" + name + "'");
+        }
+    }
+
+    private void requireExtractableOwnership(List<Ast.Param> params, String callable) {
+        for (Ast.Param param : params) {
+            Ast.ParamMode mode = param.structural() ? Ast.ParamMode.BORROW : param.mode();
+            if (mode != Ast.ParamMode.BORROW) {
+                throw new IllegalArgumentException(
+                        callable + " has " + mode.name().toLowerCase()
+                                + " parameter '" + param.name()
+                                + "' and cannot be extracted as a first-class Fnc until function types encode ownership modes");
+            }
+        }
     }
 
     private Function functionType(List<Ast.Param> params, Ast.TypeRef returns, Set<String> generics, Type self) {

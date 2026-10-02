@@ -21,12 +21,13 @@ import java.util.Set;
  * Current model:
  * - primitive immutable values are Copy;
  * - class/list/object/function values are move-only by default;
- * - by-value call/binding/return moves move-only values;
- * - &T permits shared immutable borrows;
- * - &mut T is exclusive and requires a mutable owner;
- * - Bar mut b makes an owned parameter mutable inside the callee;
+ * - ordinary parameters read-borrow for the duration of a call;
+ * - mut Type name parameters are exclusive temporary mutable borrows;
+ * - contextual take Type name parameters transfer ownership;
+ * - borrow(x) creates a stored immutable view; take(x) explicitly moves;
+ * - no pointer-style '&' or '*' ownership syntax is exposed;
  * - escaping closures own non-Copy captures and mutable captures;
- * - closures may not capture a borrow (pass it as a lambda parameter instead);
+ * - closures may not capture a borrow (use take when ownership must escape);
  * - moving an outer value from a repeating loop is rejected conservatively.
  */
 public final class OwnershipChecker {
@@ -142,10 +143,15 @@ public final class OwnershipChecker {
     }
 
     private VarState stateForParam(Ast.Param param) {
-        ValueKind kind = param.structural() && !param.type().isBorrow() ? ValueKind.IMM_BORROW : kindOfType(param.type());
-        boolean mutableOwner = param.mutable();
-        if (param.type().isBorrow() && param.type().mutableBorrow()) mutableOwner = false;
-        return new VarState(param.type(), mutableOwner, kind, Origin.PARAM);
+        ValueKind kind = switch (param.mode()) {
+            case BORROW -> ValueKind.IMM_BORROW;
+            case MUT -> ValueKind.MUT_BORROW;
+            case TAKE -> kindOfType(param.type());
+        };
+        if (param.structural()) kind = ValueKind.IMM_BORROW;
+        // Parameter bindings themselves are immutable. MUT grants exclusive
+        // mutation through the borrowed value; it does not permit rebinding.
+        return new VarState(param.type(), false, kind, Origin.PARAM);
     }
 
     private void checkBlock(List<Ast.Stmt> body, Scope parent, Ast.TypeRef returnType) {
@@ -172,13 +178,12 @@ public final class OwnershipChecker {
         }
         if (stmt instanceof Ast.ReturnStmt ret) {
             if (ret.value() != null) {
-                if (ret.value() instanceof Ast.UnaryExpr unary && (unary.operator().equals("&") || unary.operator().equals("&mut"))) {
-                    VarState owner = borrowOwner(unary.operand(), scope);
-                    if (owner.origin == Origin.LOCAL) {
-                        throw error("cannot return a borrow of local value '" + owner.debugName + "'; borrowed value would outlive its owner");
-                    }
+                ValueInfo returned = checkExpr(ret.value(), scope, true);
+                if (returned.kind == ValueKind.IMM_BORROW || returned.kind == ValueKind.MUT_BORROW) {
+                    throw error(
+                            "cannot return a borrowed value without explicit return provenance; "
+                                    + "return ownership with take or wait for the 'T from owner' return contract");
                 }
-                checkExpr(ret.value(), scope, true);
             }
             return;
         }
@@ -256,11 +261,10 @@ public final class OwnershipChecker {
         }
 
         ValueInfo value;
-        if (binding.initializer() instanceof Ast.UnaryExpr unary && (unary.operator().equals("&") || unary.operator().equals("&mut"))) {
-            boolean mutableBorrow = unary.operator().equals("&mut");
-            VarState owner = borrowOwner(unary.operand(), scope);
-            beginPersistentBorrow(owner, mutableBorrow);
-            value = new ValueInfo(Ast.TypeRef.borrowed(owner.type, mutableBorrow), mutableBorrow ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW, owner);
+        if (isIntrinsicCall(binding.initializer(), "borrow")) {
+            VarState owner = intrinsicOwner((Ast.CallExpr) binding.initializer(), scope, "borrow");
+            beginPersistentBorrow(owner, false);
+            value = new ValueInfo(Ast.TypeRef.borrowed(owner.type, false), ValueKind.IMM_BORROW, owner);
         } else if (binding.initializer() instanceof Ast.LambdaExpr lambda) {
             value = checkLambda(lambda, scope, binding.name());
         } else {
@@ -297,12 +301,6 @@ public final class OwnershipChecker {
             return new ValueInfo(state.type, state.kind, state.borrowSource);
         }
         if (expr instanceof Ast.UnaryExpr unary) {
-            if (unary.operator().equals("&") || unary.operator().equals("&mut")) {
-                boolean mutable = unary.operator().equals("&mut");
-                VarState owner = borrowOwner(unary.operand(), scope);
-                validateBorrow(owner, mutable);
-                return new ValueInfo(Ast.TypeRef.borrowed(owner.type, mutable), mutable ? ValueKind.MUT_BORROW : ValueKind.IMM_BORROW, owner);
-            }
             return checkExpr(unary.operand(), scope, false);
         }
         if (expr instanceof Ast.AssignExpr assignment) {
@@ -341,7 +339,7 @@ public final class OwnershipChecker {
                     && hasMutableReceiverMethod(klass, member.member(), new LinkedHashSet<>())) {
                 throw error("mutable-receiver method value '" + member.member()
                         + "' cannot be extracted; call it directly through a mutable owner"
-                        + " until persistent &mut bound-method lifetimes are modeled");
+                        + " until persistent exclusive bound-method lifetimes are modeled");
             }
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
@@ -376,8 +374,38 @@ public final class OwnershipChecker {
     }
 
     private ValueInfo checkCall(Ast.CallExpr call, Scope scope) {
-        if (call.callee() instanceof Ast.NameExpr name) {
-            Ast.FunctionDecl fn = findFunction(name.name());
+        if (call.callee() instanceof Ast.NameExpr intrinsic) {
+            if (intrinsic.name().equals("borrow")) {
+                VarState owner = intrinsicOwner(call, scope, "borrow");
+                validateBorrow(owner, false);
+                return new ValueInfo(Ast.TypeRef.borrowed(owner.type, false), ValueKind.IMM_BORROW, owner);
+            }
+            if (intrinsic.name().equals("take")) {
+                requireIntrinsicArity(call, "take", 1);
+                if (call.arguments().getFirst() instanceof Ast.NameExpr name) {
+                    VarState state = requireState(scope, name.name());
+                    if (state.kind == ValueKind.IMM_BORROW || state.kind == ValueKind.MUT_BORROW) {
+                        throw error("take(" + name.name() + ") cannot take ownership from a borrowed value");
+                    }
+                }
+                return checkExpr(call.arguments().getFirst(), scope, true);
+            }
+            if (intrinsic.name().equals("copy")) {
+                requireIntrinsicArity(call, "copy", 1);
+                ValueInfo source = checkExpr(call.arguments().getFirst(), scope, false);
+                if (source.kind == ValueKind.IMM_BORROW || source.kind == ValueKind.MUT_BORROW) {
+                    throw error("copy(...) requires an owned value, not a borrow");
+                }
+                if (source.kind != ValueKind.COPY) {
+                    throw error("copy(...) requires a type proven Copy; classes are not implicitly copyable and must opt into the class-copy contract");
+                }
+                return new ValueInfo(source.type, ValueKind.COPY, null);
+            }
+            if (intrinsic.name().equals("share")) {
+                throw error("share(...) is reserved for explicit shared capabilities; ordinary ownership cannot be converted to shared mutable state implicitly");
+            }
+
+            Ast.FunctionDecl fn = findFunction(intrinsic.name());
             if (fn != null) {
                 checkArguments(call.arguments(), fn.parameters(), scope, "function " + fn.name());
                 return new ValueInfo(fn.returnType(), kindOfType(fn.returnType()), null);
@@ -409,37 +437,61 @@ public final class OwnershipChecker {
 
     private void checkArguments(List<Ast.Expr> arguments, List<Ast.Param> params, Scope scope, String callable) {
         if (arguments.size() != params.size()) return; // arity is TypeChecker's responsibility
-        for (int i = 0; i < arguments.size(); i++) {
-            Ast.Expr arg = arguments.get(i);
-            Ast.Param param = params.get(i);
-            if (param.structural() && !param.type().isBorrow()) {
-                checkExpr(arg, scope, false);
-                continue;
-            }
-            if (param.type().isBorrow()) {
-                boolean mutable = param.type().mutableBorrow();
-                if (arg instanceof Ast.UnaryExpr unary && (unary.operator().equals("&") || unary.operator().equals("&mut"))) {
-                    if (mutable && !unary.operator().equals("&mut")) {
-                        throw error(callable + " argument " + (i + 1) + " requires &mut borrow");
+        List<TemporaryBorrow> temporaryBorrows = new ArrayList<>();
+        try {
+            for (int i = 0; i < arguments.size(); i++) {
+                Ast.Expr arg = arguments.get(i);
+                Ast.Param param = params.get(i);
+                Ast.ParamMode mode = param.structural() ? Ast.ParamMode.BORROW : param.mode();
+
+                if (mode == Ast.ParamMode.TAKE) {
+                    if (arg instanceof Ast.NameExpr name) {
+                        VarState state = requireState(scope, name.name());
+                        if (state.kind == ValueKind.IMM_BORROW || state.kind == ValueKind.MUT_BORROW) {
+                            throw error(callable + " argument " + (i + 1)
+                                    + " uses take but '" + name.name() + "' is borrowed");
+                        }
                     }
-                    VarState owner = borrowOwner(unary.operand(), scope);
-                    validateBorrow(owner, mutable);
-                    continue; // temporary borrow ends at call boundary
-                }
-                if (arg instanceof Ast.NameExpr name) {
-                    VarState state = requireState(scope, name.name());
-                    requireUsable(state, name.name(), false);
-                    if (mutable && state.kind != ValueKind.MUT_BORROW) {
-                        throw error(callable + " argument " + (i + 1) + " requires &mut value");
-                    }
-                    if (!mutable && state.kind != ValueKind.IMM_BORROW && state.kind != ValueKind.MUT_BORROW) {
-                        throw error(callable + " argument " + (i + 1) + " requires borrowed value; pass &" + name.name());
-                    }
+                    checkExpr(arg, scope, true);
                     continue;
                 }
-                throw error(callable + " argument " + (i + 1) + " must be an explicit borrow");
+
+                boolean mutable = mode == Ast.ParamMode.MUT;
+                if (arg instanceof Ast.NameExpr name) {
+                    VarState state = requireState(scope, name.name());
+                    requireUsable(state, name.name(), mutable);
+
+                    if (state.kind == ValueKind.IMM_BORROW) {
+                        if (mutable) {
+                            throw error(callable + " argument " + (i + 1)
+                                    + " requires exclusive mutable access but '" + name.name()
+                                    + "' is a read borrow");
+                        }
+                        continue; // shared reborrow
+                    }
+                    if (state.kind == ValueKind.MUT_BORROW) {
+                        continue; // reborrow from an already exclusive callee view
+                    }
+
+                    beginPersistentBorrow(state, mutable);
+                    temporaryBorrows.add(new TemporaryBorrow(state, mutable));
+                    continue;
+                }
+
+                if (mutable) {
+                    throw error(callable + " argument " + (i + 1)
+                            + " for a mut parameter must be a named mutable owner");
+                }
+
+                // Read-borrowing a temporary expression is safe for this call only.
+                checkExpr(arg, scope, false);
             }
-            checkExpr(arg, scope, true);
+        } finally {
+            for (int i = temporaryBorrows.size() - 1; i >= 0; i--) {
+                TemporaryBorrow temporary = temporaryBorrows.get(i);
+                if (temporary.mutable()) temporary.owner().mutableBorrowed = false;
+                else temporary.owner().immutableBorrows--;
+            }
         }
     }
 
@@ -475,24 +527,41 @@ public final class OwnershipChecker {
         if (receiver instanceof Ast.NameExpr name) {
             VarState state = requireState(scope, name.name());
             requireUsable(state, name.name(), true);
-            boolean mutableBorrow = state.kind == ValueKind.MUT_BORROW || (state.type.isBorrow() && state.type.mutableBorrow());
+            boolean mutableBorrow = state.kind == ValueKind.MUT_BORROW;
             if (!state.mutable && !mutableBorrow) {
-                throw error("cannot mutate " + what + " through immutable parameter/binding '" + name.name() + "'; declare the owned parameter as 'mut' or pass '&mut'");
+                throw error("cannot mutate " + what + " through immutable binding/read borrow '"
+                        + name.name() + "'; use a let owner or a mut parameter");
             }
-            if (state.kind == ValueKind.IMM_BORROW || (state.type.isBorrow() && !state.type.mutableBorrow())) {
-                throw error("cannot mutate " + what + " through immutable borrow '" + name.name() + "'");
+            if (state.kind == ValueKind.IMM_BORROW) {
+                throw error("cannot mutate " + what + " through read borrow '" + name.name() + "'");
             }
             if (state.kind != ValueKind.MUT_BORROW && (state.immutableBorrows > 0 || state.mutableBorrowed)) {
                 throw error("cannot mutate '" + name.name() + "' while borrowed");
             }
             return;
         }
-        if (receiver instanceof Ast.UnaryExpr unary && unary.operator().equals("&mut")) {
-            VarState owner = borrowOwner(unary.operand(), scope);
-            validateBorrow(owner, true);
-            return;
+        throw error("mutation target must be rooted in a let owner or mut parameter");
+    }
+
+    private boolean isIntrinsicCall(Ast.Expr expression, String name) {
+        return expression instanceof Ast.CallExpr call
+                && call.callee() instanceof Ast.NameExpr callee
+                && callee.name().equals(name);
+    }
+
+    private void requireIntrinsicArity(Ast.CallExpr call, String name, int expected) {
+        if (call.arguments().size() != expected) {
+            throw error(name + "(...) expects exactly " + expected + " argument(s)");
         }
-        throw error("mutation target must be rooted in a mutable local/parameter or &mut borrow");
+    }
+
+    private VarState intrinsicOwner(Ast.CallExpr call, Scope scope, String name) {
+        requireIntrinsicArity(call, name, 1);
+        Ast.Expr argument = call.arguments().getFirst();
+        if (!(argument instanceof Ast.NameExpr owner)) {
+            throw error(name + "(...) currently requires a named owner");
+        }
+        return borrowOwner(owner, scope);
     }
 
     private VarState borrowOwner(Ast.Expr operand, Scope scope) {
@@ -889,6 +958,8 @@ public final class OwnershipChecker {
             }
         }
     }
+
+    private record TemporaryBorrow(VarState owner, boolean mutable) { }
 
     private record StateSnapshot(boolean moved, int immutableBorrows, boolean mutableBorrowed) { }
 
