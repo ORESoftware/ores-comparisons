@@ -165,7 +165,7 @@ public final class Ast {
         }
     }
 
-    public sealed interface InterfaceMember permits InterfaceFunctionDecl { }
+    public sealed interface InterfaceMember permits InterfaceFunctionDecl, InterfaceFieldDecl { }
 
     public record InterfaceFunctionDecl(
             String name,
@@ -178,6 +178,9 @@ public final class Ast {
         }
     }
 
+    /** Compatibility-only node; InterfaceDecl rejects data members. */
+    public record InterfaceFieldDecl(String name, TypeRef type) implements InterfaceMember { }
+
 
     public record InterfaceDecl(
             String name,
@@ -189,6 +192,9 @@ public final class Ast {
             genericParameters = List.copyOf(genericParameters);
             parents = List.copyOf(parents);
             members = List.copyOf(members);
+            if (members.stream().anyMatch(member -> !(member instanceof InterfaceFunctionDecl))) {
+                throw new IllegalArgumentException("interfaces are storage-free method contracts; data members are not allowed");
+            }
         }
         public InterfaceDecl(String name, List<String> genericParameters, List<InterfaceMember> members) {
             this(name, Visibility.PRIVATE, genericParameters, List.of(), members);
