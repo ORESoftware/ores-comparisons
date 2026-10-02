@@ -805,6 +805,45 @@ public final class ActorRuntime implements AutoCloseable {
             duplicate.put(bytes);
         }
 
+        /**
+         * Streams request bytes directly into this actor-owned native region.
+         * The temporary ByteBuffer is a view over the FFM segment; no mailbox
+         * or heap byte-array staging is required.
+         */
+        public int readFrom(
+                HttpRequestCapability request,
+                int offset,
+                int length) throws IOException {
+            Objects.requireNonNull(request, "request");
+            return request.read(window(offset, length));
+        }
+
+        /**
+         * Streams bytes directly from this actor-owned native region to the
+         * response transport. A SocketChannel-backed transport can therefore
+         * write from native actor memory toward the kernel without a mailbox
+         * or intermediate heap-array copy.
+         */
+        public int writeTo(
+                HttpResponseCapability response,
+                int offset,
+                int length) throws IOException {
+            Objects.requireNonNull(response, "response");
+            return response.write(window(offset, length));
+        }
+
+        private ByteBuffer window(int offset, int length) {
+            if (offset < 0 || length < 0 || offset > capacity - length) {
+                throw new IndexOutOfBoundsException(
+                        "private memory window out of bounds: offset=" + offset
+                                + " length=" + length + " capacity=" + capacity);
+            }
+            ByteBuffer duplicate = openMemory().duplicate();
+            duplicate.position(offset);
+            duplicate.limit(offset + length);
+            return duplicate.slice().order(ByteOrder.LITTLE_ENDIAN);
+        }
+
         private ByteBuffer openMemory() {
             if (blockClosed.get() || slice.closed()) {
                 throw new IllegalStateException("private actor memory block is closed");
