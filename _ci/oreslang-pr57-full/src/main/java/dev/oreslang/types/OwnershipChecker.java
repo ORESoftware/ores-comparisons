@@ -74,7 +74,7 @@ public final class OwnershipChecker {
     }
 
     private void checkFunction(Ast.FunctionDecl fn) {
-        Scope scope = new Scope(null);
+        Scope scope = new Scope(null, fn.nonLexical());
         for (Ast.Param param : fn.parameters()) {
             scope.define(param.name(), stateForParam(param));
         }
@@ -675,8 +675,9 @@ public final class OwnershipChecker {
     }
 
     private ValueInfo checkLambda(Ast.LambdaExpr lambda, Scope outer, String recursiveBinding) {
-        CaptureSet captures = collectCaptures(lambda, outer, recursiveBinding);
-        Scope closure = new Scope(null);
+        boolean nonLexical = lambda.nonLexical() || outer.descendantsNonLexical();
+        CaptureSet captures = nonLexical ? new CaptureSet() : collectCaptures(lambda, outer, recursiveBinding);
+        Scope closure = new Scope(null, nonLexical);
 
         for (Capture capture : captures.values.values()) {
             VarState source = capture.source;
@@ -1105,10 +1106,16 @@ public final class OwnershipChecker {
 
     private static final class Scope {
         private final Scope parent;
+        private final boolean descendantsNonLexical;
         private final Map<String,VarState> locals = new LinkedHashMap<>();
         private boolean closed;
 
-        private Scope(Scope parent) { this.parent = parent; }
+        private Scope(Scope parent) { this(parent, parent != null && parent.descendantsNonLexical); }
+        private Scope(Scope parent, boolean descendantsNonLexical) {
+            this.parent = parent;
+            this.descendantsNonLexical = descendantsNonLexical;
+        }
+        private boolean descendantsNonLexical() { return descendantsNonLexical; }
 
         private void define(String name, VarState state) {
             if (locals.putIfAbsent(name, state) != null) throw new IllegalArgumentException("Oreslang ownership error: duplicate binding '" + name + "'");
