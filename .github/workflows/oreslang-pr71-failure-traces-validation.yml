@@ -1,0 +1,32 @@
+name: oreslang-pr71-failure-traces-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-pr71-failure-traces"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-pr71-full
+
+jobs:
+  full-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Runtime diagnostics
+        run: |
+          java --version
+          mvn --version
+      - name: Compile and test exact Oreslang PR 71 snapshot
+        run: mvn -B -ntp test
