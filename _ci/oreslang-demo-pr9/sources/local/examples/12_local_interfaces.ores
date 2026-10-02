@@ -1,0 +1,23 @@
+namespace local_interface_demo;
+
+pub fnc describe() => String {
+  interface Named {
+    fnc name() => String;
+  }
+
+  struct LocalUser is Named {
+    String label = "Ada";
+
+    pub name() => String {
+      return self.label;
+    }
+  }
+
+  val user = new LocalUser();
+  return user.name();
+}
+
+pub routine main() => void {
+  stdio.println(describe());
+  return;
+}
