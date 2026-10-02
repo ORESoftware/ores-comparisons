@@ -3,8 +3,10 @@ name: oreslang-pr68-gc-validation
 on:
   push:
     branches: ["ci/oreslang-pr68-gc-validation"]
-  pull_request:
-    branches: ["main"]
+
+concurrency:
+  group: oreslang-pr68-gc-validation
+  cancel-in-progress: true
 
 permissions:
   contents: read
