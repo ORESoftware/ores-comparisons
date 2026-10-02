@@ -1,8 +1,8 @@
-name: oreslang-mutex-pr19-validation
+name: oreslang-actor-memory-keywords-validation
 
 on:
   push:
-    branches: ["ci/oreslang-mutex-pr19"]
+    branches: ["ci/oreslang-actor-memory-keywords"]
   pull_request:
     branches: ["main"]
 
@@ -14,7 +14,7 @@ defaults:
     working-directory: _ci/actor-memory-pr15
 
 jobs:
-  mutex-runtime:
+  actor-runtime:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
         run: |
           java --version
           mvn --version
-      - name: Run mutex and actor isolation regression suite
+      - name: Run actor memory, mutex, and isolation regression suite
         run: mvn -B -ntp test
 
 
@@ -46,6 +46,6 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
-      - name: Compile full merged Oreslang source tree
+      - name: Compile full actor-memory integration source tree
         working-directory: _ci/oreslang-pr19-full
         run: mvn -B -ntp -DskipTests compile
