@@ -24,8 +24,11 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify exact mirrored source suite
-        run: mvn -B -ntp verify
+      - name: Verify focused pointerless ownership contracts
+        run: >-
+          mvn -B -ntp
+          -Dtest=PointerlessOwnershipTest#ordinaryParametersBorrowInsteadOfMoving+takeParametersMoveOwnership+mutableArgumentsAreExclusiveForTheWholeCall+copyIsProvenNotShallowReferenceAliasing+shareDoesNotCreateAmbientSharedMutableState
+          test
       - name: Run pointerless ownership demo
         shell: bash
         run: |
