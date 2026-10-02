@@ -1191,7 +1191,8 @@ public final class ActorRuntime implements AutoCloseable {
     private void afterActorMessage(ActorCell<?> cell) {
         long actorOrdinal = ++cell.completedMessages;
         long processOrdinal = completedActorMessages.incrementAndGet();
-        if (gcConfig.actorMessageInterval() > 0
+        if (!cell.stopped.get()
+                && gcConfig.actorMessageInterval() > 0
                 && actorOrdinal % gcConfig.actorMessageInterval() == 0) {
             collectActor(cell, GcReason.PERIODIC, false);
         }
