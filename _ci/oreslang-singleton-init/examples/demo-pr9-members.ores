@@ -1,0 +1,24 @@
+namespace member_static_demo;
+
+define class Counter as
+  pub value: int;
+  pub static total: int = 0;
+
+  constructor(int value) {
+    self.value = value;
+  }
+
+  pub read() => int {
+    return self.value;
+  }
+end
+
+pub routine main() => void {
+  val Counter counter = new Counter(7);
+  Counter.total = 42;
+
+  stdio.println(counter.read());
+  stdio.println(Counter.total);
+  stdio.println("member-static-ok");
+  return;
+}
