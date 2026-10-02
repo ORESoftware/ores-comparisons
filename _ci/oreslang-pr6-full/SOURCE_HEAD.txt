@@ -1,0 +1,4 @@
+source_repo=ores-truffle-oreslang/oreslang-source.java
+source_pr=6
+source_head=72ccff2b4c4cc5a7e70278c427c36bceb5e0b6ba
+validation_mode=exact Git-tree mirror; no cross-org token/secrets
