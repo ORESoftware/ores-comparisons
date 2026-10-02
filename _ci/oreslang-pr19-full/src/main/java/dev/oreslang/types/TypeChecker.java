@@ -694,6 +694,7 @@ public final class TypeChecker {
         checkBlock(lambda.blockBody(), lambdaEnv, generics, Primitive.VOID, self);
     }
 
+
     private void validateLambdaArgument(Ast.Expr argument, Type expected, Env env, Set<String> generics, Type self) {
         if (argument instanceof Ast.LambdaExpr lambda && expected instanceof Function fn) {
             validateLambdaAgainstExpected(lambda, fn, env, generics, self);
