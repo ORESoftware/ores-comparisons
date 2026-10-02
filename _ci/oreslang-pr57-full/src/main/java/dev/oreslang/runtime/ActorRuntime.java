@@ -3,6 +3,8 @@ package dev.oreslang.runtime;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -17,8 +19,6 @@ import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -48,7 +48,17 @@ import java.util.function.UnaryOperator;
  */
 public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_MESSAGE_GRAPH_DEPTH = 256;
+    private static final int MAX_MESSAGE_GRAPH_NODES = 100_000;
+    private static final long CLOSE_WAIT_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
     private static final ThreadLocal<Boolean> ACTOR_CARRIER = ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private static final ThreadLocal<ActorExecutionContext> CURRENT_ACTOR_EXECUTION = new ThreadLocal<>();
+
+    private record ActorExecutionContext(
+            ActorRuntime runtime,
+            ActorId actorId,
+            ActorKind kind,
+            IsolatePolicy policy,
+            Object executionDomain) { }
 
     @FunctionalInterface
     public interface TurnExecutor {
@@ -63,7 +73,84 @@ public final class ActorRuntime implements AutoCloseable {
         return Boolean.TRUE.equals(ACTOR_CARRIER.get());
     }
 
+    public static boolean inActorExecution() {
+        return CURRENT_ACTOR_EXECUTION.get() != null;
+    }
+
+    public static IsolatePolicy currentActorPolicy() {
+        ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
+        return current == null ? null : current.policy();
+    }
+
+    public static ActorRuntime currentActorRuntime() {
+        ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
+        return current == null ? null : current.runtime();
+    }
+
+    public static ActorKind currentActorKind() {
+        ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
+        return current == null ? null : current.kind();
+    }
+
+    public static Object currentExecutionDomain() {
+        ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
+        return current == null ? Thread.currentThread() : current.executionDomain();
+    }
+
     public enum ActorKind { PRIVATE, SHARED }
+
+    public enum GcReason { EXPLICIT, PERIODIC }
+
+    /**
+     * GC is secondary to ownership. Actor-local values should normally die
+     * deterministically when their lexical/actor lifetime ends; these
+     * checkpoints exist for VM/reflection/runtime-managed objects that need a
+     * tracing fallback.
+     */
+    public record GcConfig(long actorMessageInterval, long processMessageInterval) {
+        public GcConfig {
+            if (actorMessageInterval < 0) throw new IllegalArgumentException("actorMessageInterval cannot be negative");
+            if (processMessageInterval < 0) throw new IllegalArgumentException("processMessageInterval cannot be negative");
+        }
+
+        public static GcConfig defaults() {
+            return new GcConfig(256, 4096);
+        }
+    }
+
+    public interface GarbageCollector {
+        default void actorStarted(ActorId actorId, ActorKind kind, IsolatePolicy policy) { }
+        void collectActor(ActorId actorId, ActorKind kind, GcReason reason);
+        default void actorExited(ActorId actorId, ActorKind kind) { }
+        void collectProcess(GcReason reason);
+
+        static GarbageCollector hostDefault() {
+            return HostGarbageCollector.INSTANCE;
+        }
+    }
+
+    private enum HostGarbageCollector implements GarbageCollector {
+        INSTANCE;
+
+        @Override
+        public void collectActor(ActorId actorId, ActorKind kind, GcReason reason) {
+            // HotSpot/Graal JVM cannot trace only one actor graph. Never turn
+            // actor.gc() into a hidden process-wide System.gc().
+        }
+
+        @Override
+        public void collectProcess(GcReason reason) {
+            // Automatic VM maintenance remains the host VM's job. Only an
+            // explicit, capability-authorized process.gc() becomes a JVM hint.
+            if (reason == GcReason.EXPLICIT) System.gc();
+        }
+    }
+
+    public record GcStats(
+            long actorRequests,
+            long processRequests,
+            long actorCollections,
+            long processCollections) { }
 
     public record DispatcherConfig(
             int privateParallelism,
@@ -107,20 +194,6 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
-     * Non-blocking mailbox poll result. A dedicated result type preserves the
-     * distinction between "no message" and a legitimately transported null.
-     */
-    public record ReceiveResult<M>(boolean received, M message) {
-        public static <M> ReceiveResult<M> empty() {
-            return new ReceiveResult<>(false, null);
-        }
-
-        public static <M> ReceiveResult<M> of(M message) {
-            return new ReceiveResult<>(true, message);
-        }
-    }
-
-    /**
      * Deeply immutable runtime-owned shared value. The backing graph is frozen
      * once, quota-accounted once, and retained until runtime teardown.
      */
@@ -135,6 +208,7 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         public T value() {
+            rejectPrivateActorSharedMemoryAccess("Shared.value");
             if (sharedClosed.get()) throw new IllegalStateException("Shared value belongs to a closed actor runtime");
             return value;
         }
@@ -158,12 +232,21 @@ public final class ActorRuntime implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicLong privateMemoryBytes = new AtomicLong();
     private final AtomicLong sharedMemoryBytes = new AtomicLong();
+    private final AtomicLong actorGcRequests = new AtomicLong();
+    private final AtomicLong processGcRequests = new AtomicLong();
+    private final AtomicLong actorCollections = new AtomicLong();
+    private final AtomicLong processCollections = new AtomicLong();
+    private final AtomicLong completedActorMessages = new AtomicLong();
+    private final AtomicBoolean processGcInProgress = new AtomicBoolean();
     private final Object memoryBudgetLock = new Object();
+    private final Object runtimeLifecycleLock = new Object();
     private final Set<SyncCell<?>> syncCells = ConcurrentHashMap.newKeySet();
     private final Set<Shared<?>> sharedValues = ConcurrentHashMap.newKeySet();
     private final IsolatePolicy policyCeiling;
     private final DispatcherConfig dispatcherConfig;
     private final TurnExecutor turnExecutor;
+    private final GcConfig gcConfig;
+    private final GarbageCollector garbageCollector;
     private final ExecutorService privateDispatcher;
     private final ExecutorService sharedDispatcher;
     private final ThreadLocal<ActorCell<?>> currentActor = new ThreadLocal<>();
@@ -177,6 +260,17 @@ public final class ActorRuntime implements AutoCloseable {
         this(policyCeiling, DispatcherConfig.defaults(), TurnExecutor.direct());
     }
 
+    public ActorRuntime(IsolatePolicy policyCeiling, int maxActors) {
+        this(
+                policyCeiling,
+                new DispatcherConfig(
+                        DispatcherConfig.defaults().privateParallelism(),
+                        DispatcherConfig.defaults().sharedParallelism(),
+                        DispatcherConfig.defaults().throughput(),
+                        maxActors),
+                TurnExecutor.direct());
+    }
+
     public ActorRuntime(IsolatePolicy policyCeiling, DispatcherConfig dispatcherConfig) {
         this(policyCeiling, dispatcherConfig, TurnExecutor.direct());
     }
@@ -185,9 +279,20 @@ public final class ActorRuntime implements AutoCloseable {
             IsolatePolicy policyCeiling,
             DispatcherConfig dispatcherConfig,
             TurnExecutor turnExecutor) {
+        this(policyCeiling, dispatcherConfig, turnExecutor, GcConfig.defaults(), GarbageCollector.hostDefault());
+    }
+
+    public ActorRuntime(
+            IsolatePolicy policyCeiling,
+            DispatcherConfig dispatcherConfig,
+            TurnExecutor turnExecutor,
+            GcConfig gcConfig,
+            GarbageCollector garbageCollector) {
         this.policyCeiling = Objects.requireNonNull(policyCeiling);
         this.dispatcherConfig = Objects.requireNonNull(dispatcherConfig);
         this.turnExecutor = Objects.requireNonNull(turnExecutor);
+        this.gcConfig = Objects.requireNonNull(gcConfig);
+        this.garbageCollector = Objects.requireNonNull(garbageCollector);
         this.privateDispatcher = newDispatcher(
                 dispatcherConfig.privateParallelism(),
                 dispatcherConfig.maxActors(),
@@ -200,10 +305,19 @@ public final class ActorRuntime implements AutoCloseable {
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
     public DispatcherConfig dispatcherConfig() { return dispatcherConfig; }
+    public int maxActors() { return dispatcherConfig.maxActors(); }
     public int actorCount() { return actorCount.get(); }
     public long privateMemoryBytes() { return privateMemoryBytes.get(); }
     public long sharedMemoryBytes() { return sharedMemoryBytes.get(); }
     public long actorMemoryBytes() { return privateMemoryBytes.get() + sharedMemoryBytes.get(); }
+    public GcConfig gcConfig() { return gcConfig; }
+    public GcStats gcStats() {
+        return new GcStats(
+                actorGcRequests.get(),
+                processGcRequests.get(),
+                actorCollections.get(),
+                processCollections.get());
+    }
 
     /**
      * Logical actor-confined memory slice for one private actor.
@@ -218,6 +332,7 @@ public final class ActorRuntime implements AutoCloseable {
         private final long limitBytes;
         private final AtomicLong usedBytes = new AtomicLong();
         private final AtomicBoolean sliceClosed = new AtomicBoolean();
+        private final Set<PrivateMemoryBlock> blocks = ConcurrentHashMap.newKeySet();
 
         private ActorMemorySlice(ActorId owner, long limitBytes) {
             this.owner = Objects.requireNonNull(owner);
@@ -238,6 +353,26 @@ public final class ActorRuntime implements AutoCloseable {
         public MemoryReservation reserveHeap(long bytes) {
             requireCurrentOwner();
             return reserve(bytes, "private actor heap");
+        }
+
+        /**
+         * Allocate actor-confined direct memory. The raw ByteBuffer is never
+         * exposed; all reads/writes verify the owning ActorId. This gives
+         * compiler-lowered private actor state a genuinely unshared backing
+         * region while actors remain multiplexed over carrier threads.
+         */
+        public PrivateMemoryBlock allocatePrivateBytes(int bytes) {
+            requireCurrentOwner();
+            if (bytes < 0) throw new IllegalArgumentException("private memory block size cannot be negative");
+            MemoryReservation reservation = reserve(bytes, "private actor direct heap");
+            try {
+                PrivateMemoryBlock block = new PrivateMemoryBlock(this, reservation, bytes);
+                blocks.add(block);
+                return block;
+            } catch (RuntimeException | Error failure) {
+                reservation.close();
+                throw failure;
+            }
         }
 
         private MemoryReservation reserveMailbox(Object isolatedMessage) {
@@ -281,22 +416,140 @@ public final class ActorRuntime implements AutoCloseable {
                 usedBytes.addAndGet(bytes);
                 throw new IllegalStateException("private actor memory accounting underflow for " + owner);
             }
-            long aggregate = privateMemoryBytes.addAndGet(-bytes);
-            if (aggregate < 0) {
-                privateMemoryBytes.addAndGet(bytes);
+            try {
+                releasePrivateRuntimeBytes(bytes, owner);
+            } catch (RuntimeException failure) {
                 usedBytes.addAndGet(bytes);
-                throw new IllegalStateException("private actor aggregate memory accounting underflow");
+                throw failure;
             }
         }
 
         @Override
         public synchronized void close() {
             if (!sliceClosed.compareAndSet(false, true)) return;
+            for (PrivateMemoryBlock block : List.copyOf(blocks)) block.invalidateFromSlice();
+            blocks.clear();
             long bytes = usedBytes.getAndSet(0);
-            if (bytes != 0) {
-                long aggregate = privateMemoryBytes.addAndGet(-bytes);
-                if (aggregate < 0) privateMemoryBytes.set(0);
+            if (bytes != 0) releasePrivateRuntimeBytes(bytes, owner);
+        }
+
+        private void unregister(PrivateMemoryBlock block) {
+            blocks.remove(block);
+        }
+    }
+
+    /**
+     * Owner-checked direct memory owned by exactly one private actor.
+     *
+     * No mutable buffer reference escapes this wrapper. Closing the block or
+     * terminating the actor overwrites the entire region before invalidation.
+     */
+    public final class PrivateMemoryBlock implements AutoCloseable {
+        private final ActorMemorySlice slice;
+        private final MemoryReservation reservation;
+        private final int capacity;
+        private volatile ByteBuffer memory;
+        private final AtomicBoolean blockClosed = new AtomicBoolean();
+
+        private PrivateMemoryBlock(
+                ActorMemorySlice slice,
+                MemoryReservation reservation,
+                int bytes) {
+            this.slice = Objects.requireNonNull(slice);
+            this.reservation = Objects.requireNonNull(reservation);
+            this.capacity = bytes;
+            this.memory = ByteBuffer.allocateDirect(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        }
+
+        public int capacity() { return capacity; }
+        public ActorId owner() { return slice.owner(); }
+        public boolean closed() { return blockClosed.get(); }
+
+        public byte readByte(int index) {
+            return openMemory().get(index);
+        }
+
+        public void writeByte(int index, byte value) {
+            openMemory().put(index, value);
+        }
+
+        public int readInt(int index) {
+            return openMemory().getInt(index);
+        }
+
+        public void writeInt(int index, int value) {
+            openMemory().putInt(index, value);
+        }
+
+        public long readLong(int index) {
+            return openMemory().getLong(index);
+        }
+
+        public void writeLong(int index, long value) {
+            openMemory().putLong(index, value);
+        }
+
+        public double readDouble(int index) {
+            return openMemory().getDouble(index);
+        }
+
+        public void writeDouble(int index, double value) {
+            openMemory().putDouble(index, value);
+        }
+
+        public byte[] copyOut() {
+            ByteBuffer live = openMemory();
+            byte[] out = new byte[capacity];
+            ByteBuffer duplicate = live.duplicate();
+            duplicate.clear();
+            duplicate.get(out);
+            return out;
+        }
+
+        public void copyIn(byte[] bytes) {
+            Objects.requireNonNull(bytes);
+            ByteBuffer live = openMemory();
+            if (bytes.length != capacity) {
+                throw new IllegalArgumentException(
+                        "private memory copy size mismatch: expected " + capacity
+                                + " bytes but got " + bytes.length);
             }
+            ByteBuffer duplicate = live.duplicate();
+            duplicate.clear();
+            duplicate.put(bytes);
+        }
+
+        private ByteBuffer openMemory() {
+            if (blockClosed.get() || slice.closed()) {
+                throw new IllegalStateException("private actor memory block is closed");
+            }
+            slice.requireCurrentOwner();
+            ByteBuffer live = memory;
+            if (live == null) throw new IllegalStateException("private actor memory block is closed");
+            return live;
+        }
+
+        private void zeroAndDetachMemory() {
+            ByteBuffer live = memory;
+            if (live == null) return;
+            ByteBuffer duplicate = live.duplicate();
+            duplicate.clear();
+            while (duplicate.hasRemaining()) duplicate.put((byte) 0);
+            memory = null;
+        }
+
+        private void invalidateFromSlice() {
+            if (!blockClosed.compareAndSet(false, true)) return;
+            zeroAndDetachMemory();
+        }
+
+        @Override
+        public void close() {
+            openMemory(); // owner + liveness check before invalidation
+            if (!blockClosed.compareAndSet(false, true)) return;
+            zeroAndDetachMemory();
+            slice.unregister(this);
+            reservation.close();
         }
     }
 
@@ -325,8 +578,6 @@ public final class ActorRuntime implements AutoCloseable {
             if (release != null) release.run();
         }
     }
-
-    private enum ReceiveService { NONE, DELIVERED, WAITING }
 
     /**
      * Explicit synchronized shared-memory cell.
@@ -470,14 +721,8 @@ public final class ActorRuntime implements AutoCloseable {
         ActorKind kind();
         Optional<ActorMemorySlice> privateMemory();
 
-        /**
-         * Logical blocking receive. This never parks a dispatcher carrier:
-         * compiler/runtime lowering suspends on the returned completion.
-         */
-        CompletionStage<M> receive();
-
-        /** Immediate FIFO poll of the next mailbox message. */
-        ReceiveResult<M> tryReceive();
+        /** Request collection for this actor domain only. */
+        void gc();
     }
 
     public final class ActorRef<M> {
@@ -496,6 +741,15 @@ public final class ActorRuntime implements AutoCloseable {
         public boolean isAlive() { return ActorRuntime.this.isAlive(this); }
         public Optional<Throwable> failure() { return Optional.ofNullable(terminationCause.get()); }
 
+        public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+            Objects.requireNonNull(unit);
+            if (timeout < 0) throw new IllegalArgumentException("timeout must be non-negative");
+            ActorCell<?> cell = actors.get(id);
+            if (cell == null) return true;
+            cell.awaitFinalized(unit.toNanos(timeout));
+            return cell.finalized();
+        }
+
         public void send(M message) {
             ActorRuntime.this.send(this, message);
         }
@@ -510,9 +764,54 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
+    private void requireCallerRuntimeAffinity(String operation) {
+        ActorRuntime caller = currentActorRuntime();
+        if (caller != null && caller != this) {
+            throw new SecurityException(
+                    "actor cannot " + operation + " through another ActorRuntime");
+        }
+    }
+
+    private static void requireSupervisorContext(String operation) {
+        if (inActorExecution()) {
+            throw new SecurityException(
+                    "actor code cannot " + operation + "; this operation belongs to the host/supervisor");
+        }
+    }
+
+    private IsolatePolicy defaultSpawnPolicy() {
+        IsolatePolicy caller = currentActorPolicy();
+        return caller == null ? policyCeiling : caller;
+    }
+
+    private void requireWithinCallerPolicy(IsolatePolicy child) {
+        IsolatePolicy caller = currentActorPolicy();
+        if (caller == null) return;
+
+        if (!caller.capabilities().containsAll(child.capabilities())) {
+            java.util.Set<IsolatePolicy.Capability> excess = child.capabilities().isEmpty()
+                    ? java.util.EnumSet.noneOf(IsolatePolicy.Capability.class)
+                    : java.util.EnumSet.copyOf(child.capabilities());
+            excess.removeAll(caller.capabilities());
+            throw new SecurityException("child actor policy exceeds caller actor capabilities: " + excess);
+        }
+        if (child.maxHeapBytes() > caller.maxHeapBytes()) {
+            throw new SecurityException("child actor maxHeapBytes exceeds caller actor policy");
+        }
+        if (child.maxMailboxMessages() > caller.maxMailboxMessages()) {
+            throw new SecurityException("child actor mailbox limit exceeds caller actor policy");
+        }
+        if (child.maxWallTime().compareTo(caller.maxWallTime()) > 0) {
+            throw new SecurityException("child actor wall-time limit exceeds caller actor policy");
+        }
+        if (caller.adversarial() && !child.adversarial()) {
+            throw new SecurityException("child actor cannot weaken an adversarial caller policy");
+        }
+    }
+
     /** Backward-compatible default: an unqualified runtime actor is private. */
     public <M> ActorRef<M> spawn(Supplier<? extends Behavior<M>> behaviorFactory) {
-        return spawnPrivate(policyCeiling, behaviorFactory);
+        return spawnPrivate(defaultSpawnPolicy(), behaviorFactory);
     }
 
     public <M> ActorRef<M> spawn(
@@ -532,13 +831,19 @@ public final class ActorRuntime implements AutoCloseable {
     public <M> ActorRef<M> spawnPrivate(
             IsolatePolicy policy,
             Supplier<? extends Behavior<M>> behaviorFactory) {
+        requireSupervisorContext("use trusted Supplier private actor construction");
         Objects.requireNonNull(behaviorFactory);
         requireTrustedSupplierPolicy(policy);
-        return spawn(ActorKind.PRIVATE, policy, context -> behaviorFactory.get());
+        return spawnInternal(ActorKind.PRIVATE, policy, context -> behaviorFactory.get(), true);
     }
 
+    /**
+     * Isolation-safe private actor construction. The factory itself must be
+     * stateless/capture-free; mutable actor state must be created after the
+     * actor context is installed and stored in actor-owned memory.
+     */
     public <M> ActorRef<M> spawnPrivate(BehaviorFactory<M> behaviorFactory) {
-        return spawn(ActorKind.PRIVATE, policyCeiling, behaviorFactory);
+        return spawn(ActorKind.PRIVATE, defaultSpawnPolicy(), behaviorFactory);
     }
 
     public <M> ActorRef<M> spawnPrivate(
@@ -547,20 +852,39 @@ public final class ActorRuntime implements AutoCloseable {
         return spawn(ActorKind.PRIVATE, policy, behaviorFactory);
     }
 
+    /**
+     * Explicit host-only escape hatch for tests/embedding code that needs a
+     * context-aware factory with captured Java objects. Never used by Oreslang
+     * compiler lowering and forbidden for adversarial policies.
+     */
+    public <M> ActorRef<M> spawnPrivateTrusted(BehaviorFactory<M> behaviorFactory) {
+        return spawnPrivateTrusted(defaultSpawnPolicy(), behaviorFactory);
+    }
+
+    public <M> ActorRef<M> spawnPrivateTrusted(
+            IsolatePolicy policy,
+            BehaviorFactory<M> behaviorFactory) {
+        requireSupervisorContext("use trusted captured private actor construction");
+        Objects.requireNonNull(behaviorFactory);
+        requireTrustedSupplierPolicy(policy);
+        return spawnInternal(ActorKind.PRIVATE, policy, behaviorFactory, true);
+    }
+
     public <M> ActorRef<M> spawnShared(Supplier<? extends Behavior<M>> behaviorFactory) {
-        return spawnShared(policyCeiling, behaviorFactory);
+        return spawnShared(defaultSpawnPolicy(), behaviorFactory);
     }
 
     public <M> ActorRef<M> spawnShared(
             IsolatePolicy policy,
             Supplier<? extends Behavior<M>> behaviorFactory) {
+        requireSupervisorContext("use trusted Supplier shared actor construction");
         Objects.requireNonNull(behaviorFactory);
         requireTrustedSupplierPolicy(policy);
-        return spawn(ActorKind.SHARED, policy, context -> behaviorFactory.get());
+        return spawnInternal(ActorKind.SHARED, policy, context -> behaviorFactory.get(), true);
     }
 
     public <M> ActorRef<M> spawnShared(BehaviorFactory<M> behaviorFactory) {
-        return spawn(ActorKind.SHARED, policyCeiling, behaviorFactory);
+        return spawn(ActorKind.SHARED, defaultSpawnPolicy(), behaviorFactory);
     }
 
     public <M> ActorRef<M> spawnShared(
@@ -569,14 +893,115 @@ public final class ActorRuntime implements AutoCloseable {
         return spawn(ActorKind.SHARED, policy, behaviorFactory);
     }
 
+    /**
+     * Explicit host-only escape hatch for context-aware shared actor factories
+     * that intentionally capture host objects. Compiler lowering must never use
+     * this path. Adversarial policies reject it.
+     */
+    public <M> ActorRef<M> spawnSharedTrusted(BehaviorFactory<M> behaviorFactory) {
+        return spawnSharedTrusted(defaultSpawnPolicy(), behaviorFactory);
+    }
+
+    public <M> ActorRef<M> spawnSharedTrusted(
+            IsolatePolicy policy,
+            BehaviorFactory<M> behaviorFactory) {
+        requireSupervisorContext("use trusted captured shared actor construction");
+        Objects.requireNonNull(behaviorFactory);
+        requireTrustedSupplierPolicy(policy);
+        return spawnInternal(ActorKind.SHARED, policy, behaviorFactory, true);
+    }
+
     /** Compatibility path for trusted host callers. */
     public <M> ActorRef<M> spawn(
             ActorKind kind,
             IsolatePolicy policy,
             Supplier<? extends Behavior<M>> behaviorFactory) {
+        requireSupervisorContext("use trusted Supplier actor construction");
         Objects.requireNonNull(behaviorFactory);
         requireTrustedSupplierPolicy(policy);
-        return spawn(kind, policy, context -> behaviorFactory.get());
+        return spawnInternal(kind, policy, context -> behaviorFactory.get(), true);
+    }
+
+    private static void requireStatelessActorFactory(Object factory) {
+        for (java.lang.reflect.Field field : factory.getClass().getDeclaredFields()) {
+            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                throw new SecurityException(
+                        "actor BehaviorFactory must be stateless; captured host state must enter through explicit actor messages/capabilities");
+            }
+        }
+    }
+
+    private void validatePrivateBehaviorState(ActorId owner, Behavior<?> behavior) {
+        for (Class<?> type = behavior.getClass();
+             type != null && type != Object.class;
+             type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                if (!java.lang.reflect.Modifier.isFinal(field.getModifiers())) {
+                    throw new SecurityException(
+                            "private actor behavior field '" + field.getName()
+                                    + "' is mutable JVM state; persistent mutable state must use context.privateMemory()");
+                }
+                if (!field.trySetAccessible()) {
+                    throw new SecurityException(
+                            "private actor behavior contains inaccessible captured state: " + field.getName());
+                }
+                final Object value;
+                try {
+                    value = field.get(behavior);
+                } catch (IllegalAccessException impossible) {
+                    throw new SecurityException(
+                            "cannot inspect private actor behavior capture: " + field.getName(),
+                            impossible);
+                }
+                validatePrivateBehaviorCapture(owner, field.getName(), value);
+            }
+        }
+    }
+
+    private void validatePrivateBehaviorCapture(ActorId owner, String fieldName, Object value) {
+        if (value == null || isScalar(value) || value instanceof Class<?>) return;
+
+        if (value instanceof PrivateMemoryBlock block) {
+            if (!block.owner().equals(owner)) {
+                throw new SecurityException(
+                        "private actor behavior captured another actor's memory block in " + fieldName);
+            }
+            return;
+        }
+        if (value instanceof ActorMemorySlice slice) {
+            if (!slice.owner().equals(owner)) {
+                throw new SecurityException(
+                        "private actor behavior captured another actor's memory slice in " + fieldName);
+            }
+            return;
+        }
+        if (value instanceof MemoryReservation reservation) {
+            if (!reservation.owner().equals(owner)) {
+                throw new SecurityException(
+                        "private actor behavior captured another actor's memory reservation in " + fieldName);
+            }
+            return;
+        }
+        if (value instanceof ActorRef<?> ref) {
+            if (!ref.ownedBy(this)) {
+                throw new SecurityException(
+                        "private actor behavior captured an ActorRef from another runtime in " + fieldName);
+            }
+            return;
+        }
+        if (value instanceof ActorContext<?> actorContext) {
+            if (!actorContext.self().id().equals(owner) || actorContext.runtime() != this) {
+                throw new SecurityException(
+                        "private actor behavior captured a foreign actor context in " + fieldName);
+            }
+            return;
+        }
+
+        throw new SecurityException(
+                "private actor behavior captured mutable/non-private JVM state in "
+                        + fieldName + " (" + value.getClass().getName()
+                        + "); allocate persistent state through context.privateMemory()");
     }
 
     private void requireTrustedSupplierPolicy(IsolatePolicy policy) {
@@ -597,25 +1022,54 @@ public final class ActorRuntime implements AutoCloseable {
             ActorKind kind,
             IsolatePolicy policy,
             BehaviorFactory<M> behaviorFactory) {
-        if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+        return spawnInternal(kind, policy, behaviorFactory, false);
+    }
+
+    private <M> ActorRef<M> spawnInternal(
+            ActorKind kind,
+            IsolatePolicy policy,
+            BehaviorFactory<M> behaviorFactory,
+            boolean trustedFactory) {
+        requireCallerRuntimeAffinity("spawn actors");
         Objects.requireNonNull(kind);
         Objects.requireNonNull(policy);
         Objects.requireNonNull(behaviorFactory);
         requireWithinCeiling(policy);
+        IsolatePolicy effectivePolicy = kind == ActorKind.PRIVATE
+                ? policy.withoutCapabilities(
+                        IsolatePolicy.Capability.SHARED_MEMORY,
+                        IsolatePolicy.Capability.ACTOR_SHARE_READONLY,
+                        IsolatePolicy.Capability.PROCESS_GC)
+                : policy;
+        requireWithinCallerPolicy(effectivePolicy);
         if (kind == ActorKind.SHARED) {
-            policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "shared actor spawn");
+            effectivePolicy.require(IsolatePolicy.Capability.SHARED_MEMORY, "shared actor spawn");
         }
-        reserveActorSlot();
+        if (!trustedFactory) {
+            requireStatelessActorFactory(behaviorFactory);
+        }
 
-        ActorId id = ActorId.create();
-        ActorRef<M> ref = new ActorRef<>(id, kind);
-        try {
-            ActorCell<M> cell = new ActorCell<>(ref, kind, policy, behaviorFactory);
-            actors.put(id, cell);
-            return ref;
-        } catch (RuntimeException | Error failure) {
-            actorCount.decrementAndGet();
-            throw failure;
+        synchronized (runtimeLifecycleLock) {
+            if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+            reserveActorSlot();
+
+            ActorId id = ActorId.create();
+            ActorRef<M> ref = new ActorRef<>(id, kind);
+            ActorCell<M> cell = null;
+            boolean collectorStarted = false;
+            try {
+                cell = new ActorCell<>(
+                        ref, kind, effectivePolicy, behaviorFactory, trustedFactory);
+                garbageCollector.actorStarted(id, kind, effectivePolicy);
+                collectorStarted = true;
+                actors.put(id, cell);
+                return ref;
+            } catch (RuntimeException | Error failure) {
+                if (cell != null && cell.memorySlice != null) cell.memorySlice.close();
+                if (collectorStarted) safeActorExit(id, kind);
+                actorCount.decrementAndGet();
+                throw failure;
+            }
         }
     }
 
@@ -624,7 +1078,7 @@ public final class ActorRuntime implements AutoCloseable {
             int current = actorCount.get();
             if (current >= dispatcherConfig.maxActors()) {
                 throw new IllegalStateException(
-                        "actor runtime actor limit exceeded: " + dispatcherConfig.maxActors());
+                        "actor runtime limit exceeded: maximum " + dispatcherConfig.maxActors());
             }
             if (actorCount.compareAndSet(current, current + 1)) return;
         }
@@ -640,9 +1094,91 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
-    public <T> SyncCell<T> syncCell(T initialValue) {
+    /**
+     * Explicit actor-local collection request. It is valid only during the
+     * current actor's mailbox turn and never escalates to process-wide GC.
+     */
+    public void gcCurrentActor() {
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
-        policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SyncCell");
+        ActorCell<?> cell = currentActor.get();
+        if (cell == null || actors.get(cell.ref.id()) != cell || cell.stopped.get()) {
+            throw new IllegalStateException("actor.gc() requires a live current actor mailbox turn");
+        }
+        actorGcRequests.incrementAndGet();
+        collectActor(cell, GcReason.EXPLICIT, true);
+    }
+
+    /**
+     * Explicit process-wide collection hint. Private actors deliberately have
+     * PROCESS_GC stripped, so an isolate cannot induce whole-process pauses.
+     */
+    public void gcProcess() {
+        if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+        IsolatePolicy effective = currentActorPolicy();
+        if (effective == null) effective = policyCeiling;
+        effective.require(IsolatePolicy.Capability.PROCESS_GC, "process.gc");
+        processGcRequests.incrementAndGet();
+        collectProcess(GcReason.EXPLICIT, true);
+    }
+
+    private void afterActorMessage(ActorCell<?> cell) {
+        long actorOrdinal = ++cell.completedMessages;
+        long processOrdinal = completedActorMessages.incrementAndGet();
+        if (gcConfig.actorMessageInterval() > 0
+                && actorOrdinal % gcConfig.actorMessageInterval() == 0) {
+            collectActor(cell, GcReason.PERIODIC, false);
+        }
+        if (gcConfig.processMessageInterval() > 0
+                && processOrdinal % gcConfig.processMessageInterval() == 0) {
+            collectProcess(GcReason.PERIODIC, false);
+        }
+    }
+
+    private void collectActor(ActorCell<?> cell, GcReason reason, boolean propagateFailure) {
+        try {
+            garbageCollector.collectActor(cell.ref.id(), cell.kind, reason);
+            actorCollections.incrementAndGet();
+        } catch (VirtualMachineError | ThreadDeath | LinkageError fatal) {
+            throw fatal;
+        } catch (RuntimeException failure) {
+            if (propagateFailure) throw failure;
+        }
+    }
+
+    private void collectProcess(GcReason reason, boolean propagateFailure) {
+        if (!processGcInProgress.compareAndSet(false, true)) return;
+        try {
+            garbageCollector.collectProcess(reason);
+            processCollections.incrementAndGet();
+        } catch (VirtualMachineError | ThreadDeath | LinkageError fatal) {
+            throw fatal;
+        } catch (RuntimeException failure) {
+            if (propagateFailure) throw failure;
+        } finally {
+            processGcInProgress.set(false);
+        }
+    }
+
+    private void safeActorExit(ActorId actorId, ActorKind kind) {
+        try {
+            garbageCollector.actorExited(actorId, kind);
+        } catch (VirtualMachineError | ThreadDeath | LinkageError fatal) {
+            throw fatal;
+        } catch (RuntimeException ignored) {
+            // Cleanup/accounting must continue even if a pluggable collector's
+            // release hook reports an ordinary backend failure.
+        }
+    }
+
+    public <T> SyncCell<T> syncCell(T initialValue) {
+        requireCallerRuntimeAffinity("create shared SyncCell values");
+        if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+        IsolatePolicy callerPolicy = currentActorPolicy();
+        if (callerPolicy != null) {
+            callerPolicy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SyncCell");
+        } else {
+            policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SyncCell");
+        }
         rejectPrivateActorSharedMemoryAccess("SyncCell creation");
         SyncCell<T> cell = new SyncCell<>(initialValue);
         syncCells.add(cell);
@@ -704,6 +1240,19 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
+    private void releasePrivateRuntimeBytes(long bytes, ActorId owner) {
+        if (bytes == 0) return;
+        synchronized (memoryBudgetLock) {
+            long current = privateMemoryBytes.get();
+            if (bytes > current) {
+                throw new IllegalStateException(
+                        "private actor aggregate memory accounting underflow for " + owner
+                                + ": release=" + bytes + " privateUsed=" + current);
+            }
+            privateMemoryBytes.set(current - bytes);
+        }
+    }
+
     private void reserveSharedRuntimeBytes(long bytes, String purpose) {
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
         if (bytes < 0) throw new IllegalArgumentException("shared memory reservation cannot be negative");
@@ -757,14 +1306,40 @@ public final class ActorRuntime implements AutoCloseable {
 
     public boolean isAlive(ActorRef<?> ref) {
         Objects.requireNonNull(ref);
+        if (!ref.ownedBy(this)) return false;
         ActorCell<?> cell = actors.get(ref.id());
         return cell != null && !cell.stopped.get();
     }
 
     public void stop(ActorRef<?> ref) {
+        requireCallerRuntimeAffinity("stop actors");
         Objects.requireNonNull(ref);
+        if (!ref.ownedBy(this)) {
+            throw new IllegalArgumentException("ActorRef belongs to a different ActorRuntime");
+        }
         ActorCell<?> cell = actors.get(ref.id());
-        if (cell != null) cell.stop();
+        if (cell == null) return;
+
+        cell.stop();
+
+        // A host/supervisor stop is a synchronization point: once it returns,
+        // private actor memory and actor-count quota have been reclaimed. A
+        // self-stop from inside the actor turn cannot wait for itself; endTurn()
+        // finalizes it immediately after the current turn unwinds.
+        if (currentActor.get() == cell) return;
+
+        try {
+            cell.awaitFinalized(CLOSE_WAIT_NANOS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "interrupted while waiting for actor " + ref.id() + " to finalize",
+                    interrupted);
+        }
+        if (!cell.finalized()) {
+            throw new IllegalStateException(
+                    "actor " + ref.id() + " did not finalize within the stop deadline");
+        }
     }
 
     private ActorTerminatedException terminated(ActorRef<?> ref) {
@@ -773,15 +1348,22 @@ public final class ActorRuntime implements AutoCloseable {
 
     @SuppressWarnings("unchecked")
     public <M> void send(ActorRef<M> ref, M message) {
+        requireCallerRuntimeAffinity("send messages");
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
         Objects.requireNonNull(ref);
+        if (!ref.ownedBy(this)) {
+            throw new IllegalArgumentException("ActorRef belongs to a different ActorRuntime");
+        }
         ActorCell<M> cell = (ActorCell<M>) actors.get(ref.id());
         if (cell == null || cell.stopped.get()) throw terminated(ref);
-        requireOwnedActorRefs(message, new IdentityHashMap<>(), 0);
-        if (cell.mailbox.remainingCapacity() == 0) {
+        if (!cell.reserveMailboxSlot()) {
             throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
         }
-
+        boolean mailboxSlotTransferred = false;
+        try {
+        validateMessageGraph(message);
+        requireMutexTransport(cell, message, new IdentityHashMap<>(), 0);
+        requireOwnedActorRefs(message, new IdentityHashMap<>(), 0);
         long runtimeRemaining = Math.max(0L, policyCeiling.maxHeapBytes() - actorMemoryBytes());
         if (cell.kind == ActorKind.SHARED) {
             requireOwnedSharedHandles(message, new IdentityHashMap<>(), 0);
@@ -790,29 +1372,32 @@ public final class ActorRuntime implements AutoCloseable {
             try {
                 estimateSharedTransportBytes(message, new IdentityHashMap<>(), 0, allowed);
             } catch (IllegalStateException tooLarge) {
-                String scope = runtimeRemaining < actorRemaining
-                        ? "aggregate runtime limit exceeded"
-                        : "shared actor mailbox memory limit exceeded";
                 throw new IllegalStateException(
-                        scope + " for " + ref.id() + ": " + tooLarge.getMessage(),
+                        "shared actor mailbox memory limit exceeded for " + ref.id() + ": " + tooLarge.getMessage(),
                         tooLarge);
             }
         } else {
             long actorRemaining = cell.memorySlice.remainingBytes();
-            long allowed = Math.min(actorRemaining, runtimeRemaining);
             try {
-                estimatePrivateTransportBytes(message, new IdentityHashMap<>(), 0, allowed);
+                estimatePrivateTransportBytes(message, new IdentityHashMap<>(), 0, actorRemaining);
             } catch (IllegalStateException tooLarge) {
-                String scope = runtimeRemaining < actorRemaining
-                        ? "aggregate runtime limit exceeded"
-                        : "private actor mailbox limit exceeded";
                 throw new IllegalStateException(
-                        scope + " for " + ref.id() + ": " + tooLarge.getMessage(),
+                        "private actor mailbox limit exceeded for " + ref.id() + ": " + tooLarge.getMessage(),
                         tooLarge);
+            }
+            try {
+                estimatePrivateTransportBytes(message, new IdentityHashMap<>(), 0, runtimeRemaining);
+            } catch (IllegalStateException aggregateExceeded) {
+                throw new IllegalStateException(
+                        "private actor aggregate runtime limit exceeded for " + ref.id()
+                                + ": " + aggregateExceeded.getMessage(),
+                        aggregateExceeded);
             }
         }
 
-        Object prepared = cell.kind == ActorKind.PRIVATE ? isolateCopy(message) : freeze(message);
+        if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+
+        Object prepared = cell.kind == ActorKind.PRIVATE ? isolateCopy(message) : freezeForTransport(message);
         Runnable release;
         if (cell.kind == ActorKind.PRIVATE) {
             MemoryReservation reservation;
@@ -831,17 +1416,36 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         MessageEnvelope envelope = new MessageEnvelope(prepared, release);
-        synchronized (cell.lifecycleLock) {
-            if (closed.get() || cell.stopped.get()) {
-                envelope.close();
-                throw terminated(ref);
+        List<OresMutex.Shared<?>> sharedMutexReservations = List.of();
+        boolean admitted = false;
+        try {
+            synchronized (runtimeLifecycleLock) {
+                if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+                if (cell.kind == ActorKind.SHARED) {
+                    sharedMutexReservations = reserveSharedMutexBindings(prepared);
+                }
+                synchronized (cell.lifecycleLock) {
+                    if (cell.stopped.get()) {
+                        throw terminated(ref);
+                    }
+                    if (!cell.mailbox.offer(envelope)) {
+                        throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
+                    }
+                    mailboxSlotTransferred = true;
+                    admitted = true;
+                    commitSharedMutexBindings(sharedMutexReservations);
+                }
             }
-            if (!cell.mailbox.offer(envelope)) {
+        } finally {
+            if (!admitted) {
+                abortSharedMutexBindings(sharedMutexReservations);
                 envelope.close();
-                throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
             }
         }
         cell.schedule();
+        } finally {
+            if (!mailboxSlotTransferred) cell.releaseMailboxSlot();
+        }
     }
 
     /**
@@ -862,8 +1466,15 @@ public final class ActorRuntime implements AutoCloseable {
 
     @SuppressWarnings("unchecked")
     public <T> Shared<T> shareReadonly(T value) {
+        requireCallerRuntimeAffinity("share readonly values");
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
-        policyCeiling.require(IsolatePolicy.Capability.ACTOR_SHARE_READONLY, "shareReadonly");
+        IsolatePolicy callerPolicy = currentActorPolicy();
+        if (callerPolicy != null) {
+            callerPolicy.require(IsolatePolicy.Capability.ACTOR_SHARE_READONLY, "shareReadonly");
+        } else {
+            policyCeiling.require(IsolatePolicy.Capability.ACTOR_SHARE_READONLY, "shareReadonly");
+        }
+        rejectPrivateActorSharedMemoryAccess("shareReadonly");
         requireOwnedSharedHandles(value, new IdentityHashMap<>(), 0);
         Object frozen = freeze(value);
         rejectSharedMutableHandles(frozen, new IdentityHashMap<>(), 0);
@@ -876,6 +1487,66 @@ public final class ActorRuntime implements AutoCloseable {
             throw new IllegalStateException("actor runtime is closed");
         }
         return shared;
+    }
+
+    private void requireMutexTransport(
+            ActorCell<?> target,
+            Object value,
+            IdentityHashMap<Object, Boolean> visiting,
+            int depth) {
+        requireGraphDepth(depth);
+        if (value == null || isScalar(value) || value instanceof ActorRuntime.ActorRef<?>) return;
+        if (value instanceof OresMutex.Local<?>) {
+            throw new IllegalArgumentException("Mutex<T> is actor-local state and cannot cross actor mailboxes");
+        }
+        if (value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("MutexGuard<T> is lexical and cannot cross actor mailboxes");
+        }
+        if (value instanceof OresMutex.Shared<?> sharedMutex) {
+            if (target.kind != ActorKind.SHARED) {
+                throw new SecurityException("private actors cannot receive SharedMutex<T>");
+            }
+            ActorKind senderKind = currentActorKind();
+            if (senderKind == ActorKind.PRIVATE) {
+                throw new SecurityException("private actors cannot send SharedMutex<T>");
+            }
+            IsolatePolicy senderPolicy = currentActorPolicy();
+            if (senderPolicy != null) {
+                senderPolicy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor send");
+            } else {
+                policyCeiling.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex host send");
+            }
+            target.policy.require(IsolatePolicy.Capability.SHARED_MEMORY, "SharedMutex actor receive");
+            requireOwnedActorRefs(sharedMutex.transportValue(), new IdentityHashMap<>(), depth + 1);
+            return;
+        }
+        if (value instanceof Shared<?> shared) {
+            requireMutexTransport(target, shared.value(), visiting, depth + 1);
+            return;
+        }
+        if (value instanceof SyncCell<?>) return;
+        if (visiting.put(value, Boolean.TRUE) != null) {
+            throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
+        }
+        try {
+            if (value instanceof List<?> list) {
+                for (Object item : list) requireMutexTransport(target, item, visiting, depth + 1);
+            } else if (value instanceof Set<?> set) {
+                for (Object item : set) requireMutexTransport(target, item, visiting, depth + 1);
+            } else if (value instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    requireMutexTransport(target, entry.getKey(), visiting, depth + 1);
+                    requireMutexTransport(target, entry.getValue(), visiting, depth + 1);
+                }
+            } else if (value.getClass().isArray()) {
+                int length = Array.getLength(value);
+                for (int i = 0; i < length; i++) {
+                    requireMutexTransport(target, Array.get(value, i), visiting, depth + 1);
+                }
+            }
+        } finally {
+            visiting.remove(value);
+        }
     }
 
     private void requireOwnedActorRefs(
@@ -896,6 +1567,13 @@ public final class ActorRuntime implements AutoCloseable {
             return;
         }
         if (value instanceof SyncCell<?>) return;
+        if (value instanceof OresMutex.Shared<?> sharedMutex) {
+            requireOwnedActorRefs(sharedMutex.transportValue(), visiting, depth + 1);
+            return;
+        }
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
+        }
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
         }
@@ -949,6 +1627,13 @@ public final class ActorRuntime implements AutoCloseable {
             if (cell.closed()) throw new IllegalArgumentException("SyncCell is closed");
             return;
         }
+        if (value instanceof OresMutex.Shared<?>) {
+            // Runtime affinity is reserved atomically immediately before mailbox admission.
+            return;
+        }
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot cross shared-memory domains");
+        }
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
         }
@@ -973,6 +1658,80 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
+    private List<OresMutex.Shared<?>> reserveSharedMutexBindings(Object value) {
+        Set<OresMutex.Shared<?>> unique = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        collectSharedMutexes(value, unique, new IdentityHashMap<>(), 0);
+
+        List<OresMutex.Shared<?>> reserved = new ArrayList<>(unique.size());
+        try {
+            for (OresMutex.Shared<?> mutex : unique) {
+                if (!mutex.reserveRuntimePublication(this)) {
+                    throw new IllegalArgumentException(
+                            "SharedMutex may cross actor mailboxes only within its owning ActorRuntime");
+                }
+                reserved.add(mutex);
+            }
+            return List.copyOf(reserved);
+        } catch (RuntimeException | Error failure) {
+            abortSharedMutexBindings(reserved);
+            throw failure;
+        }
+    }
+
+    private static void collectSharedMutexes(
+            Object value,
+            Set<OresMutex.Shared<?>> out,
+            IdentityHashMap<Object, Boolean> visiting,
+            int depth) {
+        requireGraphDepth(depth);
+        if (value == null || isScalar(value)
+                || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof SyncCell<?>) return;
+        if (value instanceof OresMutex.Shared<?> sharedMutex) {
+            out.add(sharedMutex);
+            return;
+        }
+        if (value instanceof Shared<?> shared) {
+            collectSharedMutexes(shared.value(), out, visiting, depth + 1);
+            return;
+        }
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) return;
+        if (visiting.put(value, Boolean.TRUE) != null) {
+            throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
+        }
+        try {
+            if (value instanceof List<?> list) {
+                for (Object item : list) collectSharedMutexes(item, out, visiting, depth + 1);
+            } else if (value instanceof Set<?> set) {
+                for (Object item : set) collectSharedMutexes(item, out, visiting, depth + 1);
+            } else if (value instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    collectSharedMutexes(entry.getKey(), out, visiting, depth + 1);
+                    collectSharedMutexes(entry.getValue(), out, visiting, depth + 1);
+                }
+            } else if (value.getClass().isArray()) {
+                int length = Array.getLength(value);
+                for (int i = 0; i < length; i++) {
+                    collectSharedMutexes(Array.get(value, i), out, visiting, depth + 1);
+                }
+            }
+        } finally {
+            visiting.remove(value);
+        }
+    }
+
+    private void commitSharedMutexBindings(List<OresMutex.Shared<?>> reservations) {
+        for (OresMutex.Shared<?> mutex : reservations) {
+            mutex.commitRuntimePublication(this);
+        }
+    }
+
+    private void abortSharedMutexBindings(List<OresMutex.Shared<?>> reservations) {
+        for (int i = reservations.size() - 1; i >= 0; i--) {
+            reservations.get(i).abortRuntimePublication(this);
+        }
+    }
+
     private static void rejectSharedMutableHandles(
             Object value,
             IdentityHashMap<Object, Boolean> visiting,
@@ -981,6 +1740,12 @@ public final class ActorRuntime implements AutoCloseable {
         if (value == null || isScalar(value) || value instanceof ActorRuntime.ActorRef<?>) return;
         if (value instanceof ActorRuntime.SyncCell<?>) {
             throw new IllegalArgumentException("SyncCell is mutable shared state and cannot be wrapped as Shared");
+        }
+        if (value instanceof OresMutex.Shared<?>) {
+            throw new IllegalArgumentException("SharedMutex is mutable shared state and cannot be wrapped as Shared");
+        }
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot be wrapped as Shared");
         }
         if (value instanceof Shared<?> shared) {
             shared.value();
@@ -1013,6 +1778,66 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
+    private static void validateMessageGraph(Object value) {
+        validateMessageGraph(value, new IdentityHashMap<>(), 0, new long[]{0L});
+    }
+
+    private static void validateMessageGraph(
+            Object value,
+            IdentityHashMap<Object, Boolean> visiting,
+            int depth,
+            long[] nodes) {
+        requireGraphDepth(depth);
+        if (++nodes[0] > MAX_MESSAGE_GRAPH_NODES) {
+            throw new IllegalArgumentException(
+                    "actor message graph exceeds maximum node count " + MAX_MESSAGE_GRAPH_NODES);
+        }
+        if (value == null || isScalar(value)
+                || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof Shared<?>
+                || value instanceof SyncCell<?>
+                || value instanceof OresMutex.Shared<?>) {
+            return;
+        }
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            return; // transport-specific validation produces the semantic error.
+        }
+        if (visiting.put(value, Boolean.TRUE) != null) {
+            throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
+        }
+        try {
+            if (value instanceof List<?> list) {
+                requireGraphNodeCapacity(nodes[0], list.size());
+                for (Object item : list) validateMessageGraph(item, visiting, depth + 1, nodes);
+            } else if (value instanceof Set<?> set) {
+                requireGraphNodeCapacity(nodes[0], set.size());
+                for (Object item : set) validateMessageGraph(item, visiting, depth + 1, nodes);
+            } else if (value instanceof Map<?, ?> map) {
+                requireGraphNodeCapacity(nodes[0], Math.multiplyExact((long) map.size(), 2L));
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    validateMessageGraph(entry.getKey(), visiting, depth + 1, nodes);
+                    validateMessageGraph(entry.getValue(), visiting, depth + 1, nodes);
+                }
+            } else if (value.getClass().isArray()) {
+                int length = Array.getLength(value);
+                requireGraphNodeCapacity(nodes[0], length);
+                for (int i = 0; i < length; i++) {
+                    validateMessageGraph(Array.get(value, i), visiting, depth + 1, nodes);
+                }
+            }
+        } finally {
+            visiting.remove(value);
+        }
+    }
+
+    private static void requireGraphNodeCapacity(long alreadyVisited, long additionalNodes) {
+        if (additionalNodes < 0
+                || additionalNodes > (long) MAX_MESSAGE_GRAPH_NODES - alreadyVisited) {
+            throw new IllegalArgumentException(
+                    "actor message graph exceeds maximum node count " + MAX_MESSAGE_GRAPH_NODES);
+        }
+    }
+
     private static void requireGraphDepth(int depth) {
         if (depth > MAX_MESSAGE_GRAPH_DEPTH) {
             throw new IllegalArgumentException(
@@ -1025,7 +1850,52 @@ public final class ActorRuntime implements AutoCloseable {
      * Unknown host objects are rejected instead of being passed by reference.
      */
     public static Object freeze(Object value) {
+        validateMessageGraph(value);
+        rejectDataFreezeCapabilities(value, new IdentityHashMap<>(), 0);
         return freeze(value, new IdentityHashMap<>(), 0);
+    }
+
+    private static Object freezeForTransport(Object value) {
+        validateMessageGraph(value);
+        return freeze(value, new IdentityHashMap<>(), 0);
+    }
+
+    private static void rejectDataFreezeCapabilities(
+            Object value,
+            IdentityHashMap<Object, Boolean> visiting,
+            int depth) {
+        requireGraphDepth(depth);
+        if (value == null || isScalar(value)) return;
+        if (value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof Shared<?>
+                || value instanceof SyncCell<?>
+                || value instanceof OresMutex.Lock<?>
+                || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException(
+                    "freeze() accepts data values only; live actor/shared capabilities require explicit actor transport");
+        }
+        if (visiting.put(value, Boolean.TRUE) != null) {
+            throw new IllegalArgumentException("cyclic values cannot be frozen");
+        }
+        try {
+            if (value instanceof List<?> list) {
+                for (Object item : list) rejectDataFreezeCapabilities(item, visiting, depth + 1);
+            } else if (value instanceof Set<?> set) {
+                for (Object item : set) rejectDataFreezeCapabilities(item, visiting, depth + 1);
+            } else if (value instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    rejectDataFreezeCapabilities(entry.getKey(), visiting, depth + 1);
+                    rejectDataFreezeCapabilities(entry.getValue(), visiting, depth + 1);
+                }
+            } else if (value.getClass().isArray()) {
+                int length = Array.getLength(value);
+                for (int i = 0; i < length; i++) {
+                    rejectDataFreezeCapabilities(Array.get(value, i), visiting, depth + 1);
+                }
+            }
+        } finally {
+            visiting.remove(value);
+        }
     }
 
     private static Object freeze(
@@ -1040,6 +1910,10 @@ public final class ActorRuntime implements AutoCloseable {
         }
         if (value instanceof ActorRuntime.ActorRef<?> ref) return ref;
         if (value instanceof ActorRuntime.SyncCell<?> cell) return cell;
+        if (value instanceof OresMutex.Shared<?> sharedMutex) return sharedMutex;
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
+        }
 
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
@@ -1094,6 +1968,12 @@ public final class ActorRuntime implements AutoCloseable {
         if (value instanceof ActorRuntime.SyncCell<?>) {
             throw new IllegalArgumentException("private actors cannot receive shared SyncCell values");
         }
+        if (value instanceof OresMutex.Shared<?>) {
+            throw new IllegalArgumentException("private actors cannot receive SharedMutex<T>");
+        }
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
+        }
         if (value instanceof Shared<?> shared) return isolateCopy(shared.value(), visiting, depth + 1);
         if (value instanceof ActorRuntime.ActorRef<?> ref) return ref;
 
@@ -1145,6 +2025,10 @@ public final class ActorRuntime implements AutoCloseable {
         if (scalar >= 0) return requireWithinLimit(scalar, limit);
         if (value instanceof Shared<?>) return requireWithinLimit(48L, limit);
         if (value instanceof ActorRuntime.SyncCell<?>) return requireWithinLimit(64L, limit);
+        if (value instanceof OresMutex.Shared<?>) return requireWithinLimit(64L, limit);
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
+        }
         if (value instanceof ActorRuntime.ActorRef<?>) return requireWithinLimit(48L, limit);
 
         if (visiting.put(value, Boolean.TRUE) != null) {
@@ -1208,6 +2092,10 @@ public final class ActorRuntime implements AutoCloseable {
         if (scalar >= 0) return scalar;
         if (value instanceof Shared<?>) return 48L;
         if (value instanceof ActorRuntime.SyncCell<?>) return 64L;
+        if (value instanceof OresMutex.Shared<?>) return 64L;
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
+        }
         if (value instanceof ActorRuntime.ActorRef<?>) return 48L;
         if (seen.put(value, Boolean.TRUE) != null) return 0L;
 
@@ -1376,6 +2264,10 @@ public final class ActorRuntime implements AutoCloseable {
         if (value instanceof Enum<?>) return 24L;
         if (value instanceof ActorRuntime.ActorRef<?>) return 48L;
         if (value instanceof ActorRuntime.SyncCell<?>) return 64L;
+        if (value instanceof OresMutex.Shared<?>) return 64L;
+        if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
+            throw new IllegalArgumentException("actor-local mutex state cannot be frozen");
+        }
         if (value instanceof Shared<?> shared) return estimateFrozenBytes(shared.value(), seen, depth + 1);
 
         if (seen.put(value, Boolean.TRUE) != null) return 0L;
@@ -1419,26 +2311,61 @@ public final class ActorRuntime implements AutoCloseable {
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
+        requireSupervisorContext("close an ActorRuntime");
 
-        for (ActorCell<?> cell : List.copyOf(actors.values())) cell.stop();
-        actors.clear();
-        actorCount.set(0);
+        final boolean firstClose;
+        final List<ActorCell<?>> snapshot;
+        synchronized (runtimeLifecycleLock) {
+            firstClose = closed.compareAndSet(false, true);
+            snapshot = List.copyOf(actors.values());
+        }
+        for (ActorCell<?> cell : snapshot) cell.stop();
 
-        // Interrupt carrier workers before touching shared-cell lifecycle. A
-        // user callback may currently hold a SyncCell lock; runtime teardown
-        // must not wait indefinitely for user code.
-        privateDispatcher.shutdownNow();
-        sharedDispatcher.shutdownNow();
+        if (firstClose) {
+            // Interrupt carrier workers. Actor turns that deliberately consume
+            // the interrupt are still tracked below and prevent close from
+            // reporting success until they actually leave the runtime.
+            privateDispatcher.shutdownNow();
+            sharedDispatcher.shutdownNow();
+        }
+
+        long deadline = System.nanoTime() + CLOSE_WAIT_NANOS;
+        boolean interrupted = false;
+        List<ActorId> stillRunning = new ArrayList<>();
+        for (ActorCell<?> cell : snapshot) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining > 0) {
+                try {
+                    cell.awaitFinalized(remaining);
+                } catch (InterruptedException waitInterrupted) {
+                    interrupted = true;
+                    break;
+                }
+            }
+            if (!cell.finalized()) stillRunning.add(cell.ref.id());
+        }
 
         for (SyncCell<?> cell : List.copyOf(syncCells)) cell.invalidateFromRuntime();
         syncCells.clear();
         for (Shared<?> shared : List.copyOf(sharedValues)) shared.closeFromRuntime();
         sharedValues.clear();
-
-        // Runtime-owned shared handles are now invalid. Late releases from an
-        // interrupted actor are ignored once closed=true, so this is stable.
         sharedMemoryBytes.set(0L);
+
+        if (interrupted) Thread.currentThread().interrupt();
+        if (!stillRunning.isEmpty() || interrupted) {
+            if (interrupted) {
+                for (ActorCell<?> cell : snapshot) {
+                    if (!cell.finalized() && !stillRunning.contains(cell.ref.id())) {
+                        stillRunning.add(cell.ref.id());
+                    }
+                }
+            }
+            throw new IllegalStateException(
+                    "ActorRuntime close did not observe full actor termination: "
+                            + stillRunning.size() + " actor(s) still running");
+        }
+        actors.clear();
+        actorCount.set(0);
     }
 
     private ExecutorService dispatcherFor(ActorKind kind) {
@@ -1475,110 +2402,106 @@ public final class ActorRuntime implements AutoCloseable {
         private final ActorKind kind;
         private final IsolatePolicy policy;
         private final BehaviorFactory<M> behaviorFactory;
+        private final boolean trustedFactory;
         private final BlockingQueue<MessageEnvelope> mailbox;
         private final ActorMemorySlice memorySlice;
         private final AtomicBoolean scheduled = new AtomicBoolean();
         private final AtomicBoolean stopped = new AtomicBoolean();
+        private final AtomicInteger queuedMessages = new AtomicInteger();
         private final AtomicLong sharedMailboxBytes = new AtomicLong();
         private final Object lifecycleLock = new Object();
+        private final Object executionDomain = new Object();
+        private int activeTurns;
+        private boolean finalized;
+        private long completedMessages;
         private Behavior<M> behavior;
-        private CompletableFuture<M> pendingReceive;
 
         private ActorCell(
                 ActorRef<M> ref,
                 ActorKind kind,
                 IsolatePolicy policy,
-                BehaviorFactory<M> behaviorFactory) {
+                BehaviorFactory<M> behaviorFactory,
+                boolean trustedFactory) {
             this.ref = ref;
             this.kind = kind;
             this.policy = policy;
             this.behaviorFactory = behaviorFactory;
+            this.trustedFactory = trustedFactory;
             this.mailbox = new LinkedBlockingQueue<>(policy.maxMailboxMessages());
             this.memorySlice = kind == ActorKind.PRIVATE
                     ? new ActorMemorySlice(ref.id(), policy.maxHeapBytes())
                     : null;
         }
 
-        private void requireCurrentTurn(String operation) {
-            if (currentActor.get() != this) {
+        private boolean reserveMailboxSlot() {
+            while (true) {
+                int current = queuedMessages.get();
+                if (current >= policy.maxMailboxMessages()) return false;
+                if (queuedMessages.compareAndSet(current, current + 1)) return true;
+            }
+        }
+
+        private void releaseMailboxSlot() {
+            int remaining = queuedMessages.decrementAndGet();
+            if (remaining < 0) {
+                queuedMessages.incrementAndGet();
                 throw new IllegalStateException(
-                        operation + " may only be used by the owning actor during its mailbox turn");
+                        "actor mailbox accounting underflow for " + ref.id());
             }
         }
 
-        private CompletionStage<M> receive() {
-            requireCurrentTurn("actor.receive");
-            CompletableFuture<M> waiter;
+        private boolean beginTurn() {
             synchronized (lifecycleLock) {
-                if (stopped.get() || closed.get()) {
-                    return CompletableFuture.failedFuture(terminated(ref));
-                }
-                if (pendingReceive != null && !pendingReceive.isDone()) {
-                    throw new IllegalStateException(
-                            "actor.receive already has a pending receive; one actor may suspend on only one mailbox receive at a time");
-                }
-                pendingReceive = new CompletableFuture<>();
-                waiter = pendingReceive;
-            }
-
-            waiter.whenComplete((ignored, failure) -> {
-                if (!waiter.isCancelled()) return;
-                boolean shouldSchedule;
-                synchronized (lifecycleLock) {
-                    if (pendingReceive != waiter) return;
-                    pendingReceive = null;
-                    shouldSchedule = !mailbox.isEmpty() && !stopped.get() && !closed.get();
-                }
-                if (shouldSchedule) schedule();
-            });
-            return waiter;
-        }
-
-        @SuppressWarnings("unchecked")
-        private ReceiveResult<M> tryReceive() {
-            requireCurrentTurn("actor.try_receive");
-            MessageEnvelope envelope;
-            synchronized (lifecycleLock) {
-                if (stopped.get() || closed.get()) throw terminated(ref);
-                if (pendingReceive != null && !pendingReceive.isDone()) {
-                    throw new IllegalStateException(
-                            "actor.try_receive cannot race an outstanding actor.receive");
-                }
-                if (pendingReceive != null) pendingReceive = null;
-                envelope = mailbox.poll();
-            }
-            if (envelope == null) return ReceiveResult.empty();
-            try (envelope) {
-                return ReceiveResult.of((M) envelope.value());
+                if (stopped.get() || finalized) return false;
+                activeTurns++;
+                return true;
             }
         }
 
-        @SuppressWarnings("unchecked")
-        private ReceiveService servicePendingReceive() {
-            CompletableFuture<M> waiter;
-            MessageEnvelope envelope;
+        private void endTurn() {
             synchronized (lifecycleLock) {
-                waiter = pendingReceive;
-                if (waiter == null) return ReceiveService.NONE;
-                if (waiter.isDone()) {
-                    pendingReceive = null;
-                    return ReceiveService.NONE;
+                if (activeTurns <= 0) {
+                    throw new IllegalStateException("actor active-turn accounting underflow for " + ref.id());
                 }
-                envelope = mailbox.poll();
-                if (envelope == null) return ReceiveService.WAITING;
-                pendingReceive = null;
+                activeTurns--;
+                if (stopped.get() && activeTurns == 0) finalizeStopLocked();
+                lifecycleLock.notifyAll();
             }
+        }
 
-            try (envelope) {
-                waiter.complete((M) envelope.value());
+        private void finalizeStopLocked() {
+            if (finalized || activeTurns != 0) return;
+            finalized = true;
+            drainMailboxReservations();
+            if (memorySlice != null) memorySlice.close();
+            safeActorExit(ref.id(), kind);
+            unregisterActor(this);
+            lifecycleLock.notifyAll();
+        }
+
+        private boolean finalized() {
+            synchronized (lifecycleLock) {
+                return finalized;
             }
-            return ReceiveService.DELIVERED;
+        }
+
+        private void awaitFinalized(long remainingNanos) throws InterruptedException {
+            long deadline = System.nanoTime() + Math.max(0L, remainingNanos);
+            synchronized (lifecycleLock) {
+                while (!finalized) {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0) return;
+                    long millis = Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remaining));
+                    lifecycleLock.wait(millis);
+                }
+            }
         }
 
         private void reserveSharedMailbox(long bytes) {
             if (bytes < 0) throw new IllegalArgumentException("shared mailbox reservation cannot be negative");
             synchronized (lifecycleLock) {
-                if (stopped.get() || closed.get()) throw terminated(ref);
+                if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+                if (stopped.get()) throw terminated(ref);
                 long current = sharedMailboxBytes.get();
                 long next;
                 try {
@@ -1635,8 +2558,11 @@ public final class ActorRuntime implements AutoCloseable {
         @SuppressWarnings("unchecked")
         private void runBatchEntered() {
             currentActor.set(this);
+            CURRENT_ACTOR_EXECUTION.set(new ActorExecutionContext(
+                    ActorRuntime.this, ref.id(), kind, policy, executionDomain));
+            boolean turnActive = beginTurn();
             try {
-                if (stopped.get()) return;
+                if (!turnActive) return;
 
                 ActorContext<M> context = new ActorContext<>() {
                     @Override public ActorRef<M> self() { return ref; }
@@ -1646,34 +2572,36 @@ public final class ActorRuntime implements AutoCloseable {
                     @Override public Optional<ActorMemorySlice> privateMemory() {
                         return Optional.ofNullable(memorySlice);
                     }
-                    @Override public CompletionStage<M> receive() {
-                        return ActorCell.this.receive();
-                    }
-                    @Override public ReceiveResult<M> tryReceive() {
-                        return ActorCell.this.tryReceive();
-                    }
+                    @Override public void gc() { ActorRuntime.this.gcCurrentActor(); }
                 };
 
                 if (behavior == null) {
-                    behavior = Objects.requireNonNull(
+                    Behavior<M> created = Objects.requireNonNull(
                             behaviorFactory.create(context),
                             "actor behaviorFactory returned null");
+                    if (kind == ActorKind.PRIVATE && !trustedFactory) {
+                        validatePrivateBehaviorState(ref.id(), created);
+                    }
+                    behavior = created;
                 }
 
                 int processed = 0;
                 while (processed < dispatcherConfig.throughput() && !stopped.get()) {
-                    ReceiveService receiveService = servicePendingReceive();
-                    if (receiveService == ReceiveService.WAITING) break;
-                    if (receiveService == ReceiveService.DELIVERED) {
-                        processed++;
-                        continue;
-                    }
-
                     MessageEnvelope envelope = mailbox.poll();
                     if (envelope == null) break;
+                    releaseMailboxSlot();
                     try (envelope) {
                         behavior.onMessage((M) envelope.value(), context);
+                        if (kind == ActorKind.PRIVATE && !trustedFactory) {
+                            // Private state that survives a mailbox turn must
+                            // remain in actor-owned storage/capabilities. This
+                            // catches behavior fields that were null/immutable
+                            // at construction but later retain a mutable JVM
+                            // object across turns.
+                            validatePrivateBehaviorState(ref.id(), behavior);
+                        }
                     }
+                    afterActorMessage(this);
                     processed++;
                 }
             } catch (Throwable failure) {
@@ -1684,12 +2612,12 @@ public final class ActorRuntime implements AutoCloseable {
                 if (failure instanceof ThreadDeath fatal) throw fatal;
                 if (failure instanceof LinkageError fatal) throw fatal;
             } finally {
+                if (turnActive) endTurn();
+                CURRENT_ACTOR_EXECUTION.remove();
                 currentActor.remove();
                 scheduled.set(false);
 
-                if (stopped.get() || closed.get()) {
-                    unregisterActor(this);
-                } else if (!mailbox.isEmpty()) {
+                if (!stopped.get() && !closed.get() && !mailbox.isEmpty()) {
                     // Bounded batch/throughput handoff for dispatcher fairness.
                     schedule();
                 }
@@ -1698,34 +2626,27 @@ public final class ActorRuntime implements AutoCloseable {
 
         private void drainMailboxReservations() {
             MessageEnvelope envelope;
-            while ((envelope = mailbox.poll()) != null) envelope.close();
+            while ((envelope = mailbox.poll()) != null) {
+                releaseMailboxSlot();
+                envelope.close();
+            }
         }
 
         private void fail(Throwable failure) {
-            CompletableFuture<M> waiter;
             synchronized (lifecycleLock) {
                 ref.terminationCause.compareAndSet(null, failure);
                 stopped.set(true);
-                waiter = pendingReceive;
-                pendingReceive = null;
                 drainMailboxReservations();
-                if (memorySlice != null) memorySlice.close();
-                unregisterActor(this);
+                finalizeStopLocked();
             }
-            if (waiter != null) waiter.completeExceptionally(terminated(ref));
         }
 
         private void stop() {
-            CompletableFuture<M> waiter;
             synchronized (lifecycleLock) {
-                if (!stopped.compareAndSet(false, true)) return;
-                waiter = pendingReceive;
-                pendingReceive = null;
+                stopped.set(true);
                 drainMailboxReservations();
-                if (memorySlice != null) memorySlice.close();
-                unregisterActor(this);
+                finalizeStopLocked();
             }
-            if (waiter != null) waiter.completeExceptionally(terminated(ref));
         }
     }
 }
