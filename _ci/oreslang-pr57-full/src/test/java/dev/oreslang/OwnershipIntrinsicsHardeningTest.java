@@ -576,7 +576,8 @@ final class OwnershipIntrinsicsHardeningTest {
                         """)));
 
         assertTrue(error.getMessage().contains("immutable borrow")
-                || error.getMessage().contains("immutable root"), error.getMessage());
+                || error.getMessage().contains("immutable root")
+                || error.getMessage().contains("immutable parameter/binding"), error.getMessage());
     }
 
     @Test

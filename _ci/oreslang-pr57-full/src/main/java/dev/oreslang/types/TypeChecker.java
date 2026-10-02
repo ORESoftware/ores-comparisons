@@ -135,14 +135,20 @@ public final class TypeChecker {
                 String scope = module.name().equals(Parser.ROOT_MODULE) ? "source file" : "module '" + module.name() + "'";
                 throw new IllegalArgumentException(scope + " may declare at most one init routine");
             }
-            if (module.singleton()) validateSingletonModule(module);
+            if (module.singleton()) {
+                validateSingletonModule(module);
+            } else {
+                // Validate ordinary module/file fields as one declaration-ordered
+                // environment so later initializers can refer to earlier slots
+                // while forward references remain rejected.
+                moduleBindingEnv(module);
+            }
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.FunctionDecl fn) checkFunction(module, fn);
                 else if (decl instanceof Ast.InitDecl init) checkInit(module, init);
                 else if (decl instanceof Ast.ClassDecl klass) checkClass(module.name(), klass);
                 else if (decl instanceof Ast.InterfaceDecl iface) checkInterface(iface);
                 else if (decl instanceof Ast.TypeAliasDecl alias) resolve(alias.target(), Set.copyOf(alias.genericParameters()), null);
-                else if (decl instanceof Ast.FieldDecl field) checkModuleBinding(field);
             }
         }
     }

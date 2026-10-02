@@ -399,8 +399,21 @@ public final class Parser {
 
     private Ast.FieldDecl parseField(Ast.Visibility visibility) {
         Ast.BindingKind kind = parseBindingKind();
-        Ast.TypeRef type = parseTypeRef();
-        String name = consume(IDENT, "expected field name").lexeme();
+        Ast.TypeRef type;
+        String name;
+
+        // Support both type-first and Java/TS-style name-first fields:
+        //   let int value;
+        //   let value: int;
+        if (check(IDENT) && checkNext(COLON)) {
+            name = advance().lexeme();
+            consume(COLON, "expected ':' after field name");
+            type = parseTypeRef();
+        } else {
+            type = parseTypeRef();
+            name = consume(IDENT, "expected field name").lexeme();
+        }
+
         Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
         consumeStatementTerminator("field declaration should end with ';'");
         return new Ast.FieldDecl(name, visibility, kind, type, initializer);
