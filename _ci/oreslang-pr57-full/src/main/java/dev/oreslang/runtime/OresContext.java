@@ -52,10 +52,23 @@ public final class OresContext implements AutoCloseable {
     public ActorRuntime actors() { return actors; }
     public UUID contextId() { return contextId; }
     public IsolatePolicy isolatePolicy() { return isolatePolicy; }
+    public IsolatePolicy effectivePolicy() {
+        IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
+        return actorPolicy == null ? isolatePolicy : actorPolicy;
+    }
     public ExecutionProfile executionProfile() { return executionProfile; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
-        isolatePolicy.require(capability, api);
+        effectivePolicy().require(capability, api);
+    }
+
+    public void actorGc() {
+        actors.gcCurrentActor();
+    }
+
+    public void processGc() {
+        requireCapability(IsolatePolicy.Capability.PROCESS_GC, "process.gc");
+        actors.gcProcess();
     }
 
     /**
@@ -94,7 +107,11 @@ public final class OresContext implements AutoCloseable {
                 "language", "oreslang",
                 "execution_mode", executionProfile.mode().name(),
                 "platform", executionProfile.platform().name(),
-                "scheduler_safepoints", schedulerSafepoints.get());
+                "scheduler_safepoints", schedulerSafepoints.get(),
+                "actor_gc_requests", actors.gcStats().actorRequests(),
+                "process_gc_requests", actors.gcStats().processRequests(),
+                "actor_gc_collections", actors.gcStats().actorCollections(),
+                "process_gc_collections", actors.gcStats().processCollections());
     }
 
     @Override
