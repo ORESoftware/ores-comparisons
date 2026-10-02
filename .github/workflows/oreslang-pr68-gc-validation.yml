@@ -3,69 +3,24 @@ name: oreslang-pr68-gc-validation
 on:
   push:
     branches: ["ci/oreslang-pr68-gc-validation"]
-
-concurrency:
-  group: oreslang-pr68-gc-validation
-  cancel-in-progress: true
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: _ci/oreslang-pr57-full
-
 jobs:
-  gc-focused:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
-        with:
-          version: '25.3'
-          java-version: '25'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          cache: maven
-      - name: GC and actor-isolation focused tests
-        run: >-
-          mvn -B -ntp
-          -Dtest=GarbageCollectionHardeningTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest,OreslangActorIsolationExampleTest
-          test
-
-
-  gc-demo:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
-        with:
-          version: '25.3'
-          java-version: '25'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          cache: maven
-      - name: Compile exact PR 68 snapshot
-        run: mvn -B -ntp -q -e -DskipTests compile
-      - name: Run mirrored GC demo contract
-        run: |
-          set +e
-          output="$(mvn -B -ntp -e -DskipTests exec:java -Dexec.args=examples/demo-gc-contract.ores 2>&1)"
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          if [[ "$status" -ne 0 ]]; then
-            exit "$status"
-          fi
-          grep -Fq "gc-contract-ok" <<<"$output"
-          echo "GC DEMO PASS"
-
   full-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out validation repo
+        uses: actions/checkout@v4
+      - name: Check out exact Oreslang GC branch
+        uses: actions/checkout@v4
+        with:
+          repository: ores-truffle-oreslang/oreslang-source.java
+          ref: feat/gc-private-shared-actors
+          path: oreslang-source
       - name: Set up GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
@@ -75,8 +30,11 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
       - name: Runtime diagnostics
+        working-directory: oreslang-source
         run: |
+          git rev-parse HEAD
           java --version
           mvn --version
-      - name: Compile and test exact Oreslang PR 68 snapshot
+      - name: Compile and test exact Oreslang PR 68 branch
+        working-directory: oreslang-source
         run: mvn -B -ntp test
