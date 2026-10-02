@@ -8,13 +8,48 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 final class ActorRuntimeTest {
+    @Test
+    void actorLocalRuntimeStatePersistsPerActorAndNeverAliasesAcrossActors() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            AtomicInteger initializations = new AtomicInteger();
+            Map<ActorRuntime.ActorId, Integer> lastValue = new ConcurrentHashMap<>();
+            CountDownLatch delivered = new CountDownLatch(3);
+
+            java.util.function.Supplier<ActorRuntime.Behavior<String>> factory = () -> (message, context) -> {
+                assertEquals(context.self().id(), context.runtime().currentActorId());
+                AtomicInteger local = context.runtime().currentActorLocal(
+                        "module:test",
+                        () -> {
+                            initializations.incrementAndGet();
+                            return new AtomicInteger();
+                        });
+                lastValue.put(context.self().id(), local.incrementAndGet());
+                delivered.countDown();
+            };
+
+            var first = runtime.<String>spawn(factory);
+            var second = runtime.<String>spawn(factory);
+
+            first.send("one");
+            first.send("two");
+            second.send("one");
+
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+            assertEquals(2, initializations.get());
+            assertEquals(2, lastValue.get(first.id()));
+            assertEquals(1, lastValue.get(second.id()));
+        }
+    }
+
     @Test
     void freezesMessagesBeforeDelivery() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {

@@ -132,6 +132,11 @@ public final class TypeChecker {
     private void checkModuleAdherence(Ast.ModuleDecl module) {
         for (Ast.Annotation annotation : module.annotations()) {
             if (!annotation.name().equals("AdheresTo")) continue;
+            if (module.singleton()) {
+                throw new IllegalArgumentException("singleton module '" + module.name()
+                        + "' cannot use ordinary @AdheresTo interfaces because its external surface is asynchronous;"
+                        + " define a service/singleton interface kind before advertising synchronous conformance");
+            }
             if (annotation.arguments().isEmpty()) throw new IllegalArgumentException("@AdheresTo requires at least one interface");
             Record actual = moduleShape(module);
             for (Ast.TypeRef ref : annotation.arguments()) {
@@ -402,6 +407,11 @@ public final class TypeChecker {
             Ast.ModuleDecl owner,
             Ast.FieldDecl exportedField,
             Ast.ClassDecl klass) {
+        if (!klass.parents().isEmpty()) {
+            throw new IllegalArgumentException("exported singleton object '" + owner.name() + "."
+                    + exportedField.name()
+                    + "' cannot use class inheritance until inherited proxy methods are flattened and Send-checked");
+        }
         if (!klass.genericParameters().isEmpty()) {
             throw new IllegalArgumentException("exported singleton object '" + owner.name() + "." + exportedField.name()
                     + "' cannot use a generic class until proxy Send constraints are explicit");
@@ -1261,6 +1271,10 @@ public final class TypeChecker {
             validateSingletonTransportExpr(conditional.whenTrue(), currentModule);
             validateSingletonTransportExpr(conditional.whenFalse(), currentModule);
         } else if (expr instanceof Ast.MemberExpr member) {
+            if (isExternalSingletonFunctionMember(member, currentModule)) {
+                throw new IllegalArgumentException("singleton service function values cannot be extracted; call and await "
+                        + ((Ast.NameExpr) member.receiver()).name() + "." + member.member() + "(...) directly");
+            }
             validateSingletonTransportExpr(member.receiver(), currentModule);
         } else if (expr instanceof Ast.IndexExpr indexed) {
             validateSingletonTransportExpr(indexed.receiver(), currentModule);
@@ -1280,8 +1294,25 @@ public final class TypeChecker {
     }
 
     private void validateSingletonTransportCallChildren(Ast.CallExpr call, String currentModule) {
-        validateSingletonTransportExpr(call.callee(), currentModule);
+        // A recognized external singleton call is allowed only because the
+        // surrounding validator proved it is immediately awaited. Do not
+        // reinterpret its callee member as a first-class function extraction.
+        if (!isExternalSingletonCall(call, currentModule)) {
+            validateSingletonTransportExpr(call.callee(), currentModule);
+        }
         for (Ast.Expr argument : call.arguments()) validateSingletonTransportExpr(argument, currentModule);
+    }
+
+    private boolean isExternalSingletonFunctionMember(Ast.MemberExpr member, String currentModule) {
+        if (!(member.receiver() instanceof Ast.NameExpr namespace)) return false;
+        Ast.ModuleDecl owner = modules.get(namespace.name());
+        if (owner == null || !owner.singleton() || owner.name().equals(currentModule)) return false;
+        for (Ast.Decl decl : owner.declarations()) {
+            if (decl instanceof Ast.FunctionDecl fn
+                    && fn.visibility() == Ast.Visibility.PUBLIC
+                    && fn.name().equals(member.member())) return true;
+        }
+        return false;
     }
 
     private boolean isExternalSingletonCall(Ast.CallExpr call, String currentModule) {
