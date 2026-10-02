@@ -150,7 +150,7 @@
       "comparison_branch": "stack/graal-show",
       "status": "registered",
       "topology_status": "materialized",
-      "execution_model": "tenant+deployment OS process with bounded stateless, route, session, and opt-in route+session Graal isolate affinity; Native Image and Polyglot Engine modes benchmarked separately",
+      "execution_model": "tenant+deployment OS process with bounded stateless, route, session, and opt-in route+session Graal isolate affinity; JVM/Native Image plus GraalJS/GraalPy/TruffleRuby guest workers benchmarked separately",
       "benchmark_executable": null,
       "scenario_orgs": [],
       "runtime_fixture_orgs": [
