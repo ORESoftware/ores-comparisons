@@ -43,6 +43,9 @@ public final class OresMutex {
     }
 
     public static <T> Shared<T> shared(T value) {
+        if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.PRIVATE) {
+            throw new SecurityException("private actors cannot create SharedMutex<T>");
+        }
         IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
         if (actorPolicy != null) {
             actorPolicy.require(
@@ -294,7 +297,7 @@ public final class OresMutex {
      * distributed lock and must not be serialized across OS-process/Graal
      * isolate boundaries.
      */
-    public static final class Shared<T> implements Lock<T>, ActorRuntime.Sendable {
+    public static final class Shared<T> implements Lock<T> {
         private static final int MAX_ASYNC_WAITERS = 8_192;
         private static final int MAX_GLOBAL_ASYNC_WAITERS = 32_768;
         private static final AtomicInteger GLOBAL_ASYNC_WAITERS = new AtomicInteger();
@@ -374,6 +377,9 @@ public final class OresMutex {
         }
 
         private void requireActorAccess() {
+            if (ActorRuntime.currentActorKind() == ActorRuntime.ActorKind.PRIVATE) {
+                throw new SecurityException("private actors cannot access SharedMutex<T>");
+            }
             IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
             if (actorPolicy != null) {
                 actorPolicy.require(
@@ -846,10 +852,9 @@ public final class OresMutex {
             return poisoned.get();
         }
 
-        /** Shared mutex handles cross actor mailboxes by reference only when SHARED_MEMORY is permitted. */
-        @Override
-        public Object freezeForSend() {
-            return this;
+        /** Runtime transport inspects the protected payload for explicit capability/reference validation. */
+        Object transportValue() {
+            return value;
         }
 
         private final class SharedGuard implements Guard<T> {
