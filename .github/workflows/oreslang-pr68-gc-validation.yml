@@ -36,20 +36,7 @@ jobs:
   gc-demo:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out validation repo
-        uses: actions/checkout@v4
-      - name: Check out Oreslang demo
-        uses: actions/checkout@v4
-        with:
-          repository: ores-truffle-oreslang/oreslang-demo
-          ref: feat/gc-examples
-          path: demo
-      - name: Check out exact Oreslang PR 68 head
-        uses: actions/checkout@v4
-        with:
-          repository: ores-truffle-oreslang/oreslang-source.java
-          ref: 5efe3c7149ec32d3d0114aabdf4cd1ede3c7ae0e
-          path: source
+      - uses: actions/checkout@v4
       - name: Set up GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
@@ -58,11 +45,13 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
-      - name: Run GC example contract
+      - name: Compile exact PR 68 snapshot
+        run: mvn -B -ntp -q -e -DskipTests compile
+      - name: Run mirrored GC demo contract
         run: |
-          cd "$GITHUB_WORKSPACE"
-          ORESLANG_SOURCE_DIR="$GITHUB_WORKSPACE/source" \
-            bash demo/scripts/run.sh demo/examples/keywords/12_gc_contract.ores
+          output="$(mvn -B -ntp -q -e -DskipTests exec:java -Dexec.args=examples/demo-gc-contract.ores 2>&1)"
+          printf '%s\n' "$output"
+          grep -Fq "gc-contract-ok" <<<"$output"
 
   full-test:
     runs-on: ubuntu-latest
