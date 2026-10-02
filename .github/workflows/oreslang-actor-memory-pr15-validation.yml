@@ -1,8 +1,8 @@
-name: oreslang-actor-memory-pr15-validation
+name: oreslang-mutex-pr19-validation
 
 on:
   push:
-    branches: ["ci/oreslang-actor-memory-pr15"]
+    branches: ["ci/oreslang-mutex-pr19"]
 
 permissions:
   contents: read
@@ -12,7 +12,7 @@ defaults:
     working-directory: _ci/actor-memory-pr15
 
 jobs:
-  actor-memory:
+  mutex-runtime:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,5 +28,5 @@ jobs:
         run: |
           java --version
           mvn --version
-      - name: Run actor memory regression suite
+      - name: Run mutex and actor isolation regression suite
         run: mvn -B -ntp test
