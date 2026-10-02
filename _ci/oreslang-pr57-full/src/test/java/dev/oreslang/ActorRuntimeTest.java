@@ -481,10 +481,11 @@ final class ActorRuntimeTest {
     void actorMessageGraphDepthIsBounded() {
         Object nested = "leaf";
         for (int i = 0; i < 300; i++) nested = List.of(nested);
+        Object deeplyNested = nested;
 
         IllegalArgumentException failure = assertThrows(
                 IllegalArgumentException.class,
-                () -> ActorRuntime.freeze(nested));
+                () -> ActorRuntime.freeze(deeplyNested));
         assertTrue(failure.getMessage().contains("maximum nesting depth"));
     }
 
