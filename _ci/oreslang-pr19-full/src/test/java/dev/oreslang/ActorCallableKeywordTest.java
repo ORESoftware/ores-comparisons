@@ -130,9 +130,36 @@ final class ActorCallableKeywordTest {
     }
 
     @Test
+    void actorBoundaryTypesRejectLocalSynchronizationAndIsoSharedMemory() {
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                actor fnc invalid(Mutex<int> value) => void {
+                  return;
+                }
+                """)));
+
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                actor fnc invalid(MutexGuard<int> value) => void {
+                  return;
+                }
+                """)));
+
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                isoactor fnc invalid(SharedMutex<int> value) => void {
+                  return;
+                }
+                """)));
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                actor fnc valid(SharedMutex<int> value) => void {
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void synchronousNestedActorCallFromSharedActorIsRejected() {
-        IllegalStateException failure = assertThrows(
-                IllegalStateException.class,
+        RuntimeException failure = assertThrows(
+                RuntimeException.class,
                 () -> run("""
                         actor fnc child(int value) => int {
                           return value + 1;
