@@ -1061,6 +1061,93 @@ public final class TypeChecker {
         throw new IllegalArgumentException("assignment target '" + member.member() + "' is not a mutable data field");
     }
 
+    private void validateActorCallableBoundaryType(
+            Type type,
+            Ast.ActorKind actorKind,
+            boolean returnPosition,
+            String where) {
+        if (returnPosition && type == Primitive.VOID) return;
+        if (type == Primitive.VOID) {
+            throw new IllegalArgumentException(where + " cannot be void");
+        }
+        if (type == Unknown.INSTANCE || type instanceof Generic || type instanceof Borrow
+                || type instanceof Function || type instanceof ClassNamespace) {
+            throw new IllegalArgumentException(
+                    where + " must be a concrete owned/sendable data type; borrows, functions, and unresolved types cannot cross an actor boundary");
+        }
+        if (type instanceof Primitive || type instanceof StringLiteral) return;
+        if (type instanceof ListType list) {
+            validateActorCallableBoundaryType(list.element(), actorKind, false, where + " element");
+            return;
+        }
+        if (type instanceof Tuple tuple) {
+            for (int i = 0; i < tuple.elements().size(); i++) {
+                validateActorCallableBoundaryType(tuple.elements().get(i), actorKind, false, where + " tuple element " + i);
+            }
+            return;
+        }
+        if (type instanceof Union union) {
+            for (Type option : union.options()) {
+                validateActorCallableBoundaryType(option, actorKind, false, where + " union member");
+            }
+            return;
+        }
+        if (type instanceof Record record) {
+            for (Map.Entry<String, Type> member : record.members().entrySet()) {
+                validateActorCallableBoundaryType(member.getValue(), actorKind, false, where + " field '" + member.getKey() + "'");
+            }
+            return;
+        }
+        if (!(type instanceof Named named)) {
+            throw new IllegalArgumentException(where + " is not actor-boundary sendable: " + type);
+        }
+
+        if (named.name().equals("Mutex") || named.name().equals("MutexGuard") || named.name().equals("Future")) {
+            throw new IllegalArgumentException(
+                    where + " cannot use " + named.name() + " across an actor boundary");
+        }
+        if (named.name().equals("SharedMutex")) {
+            if (actorKind == Ast.ActorKind.PRIVATE) {
+                throw new IllegalArgumentException(
+                        where + " cannot use SharedMutex<T> with isoactor/private actors");
+            }
+            if (named.arguments().size() != 1
+                    || !isSharedSafe(named.arguments().getFirst(), new LinkedHashSet<>(), Map.of())) {
+                throw new IllegalArgumentException(
+                        where + " requires SharedMutex<T> to contain shared-safe owned data");
+            }
+            return;
+        }
+
+        for (Type argument : named.arguments()) {
+            validateActorCallableBoundaryType(argument, actorKind, false, where + " type argument");
+        }
+
+        // Built-in sum/container values are data-only when their arguments pass.
+        if (named.name().equals("Option") || named.name().equals("Result")
+                || named.name().equals("OptionUnwrapError")) {
+            return;
+        }
+
+        Ast.ClassDecl klass = findClass(named.name());
+        if (klass == null) {
+            // Runtime capability types (for example ActorId/ActorRef) are
+            // validated again by transport. Do not silently admit known
+            // mutable/suspending primitives above, but avoid rejecting opaque
+            // capability types solely because they have no source class body.
+            return;
+        }
+        if (klass.actorKind() != Ast.ActorKind.NONE) {
+            throw new IllegalArgumentException(
+                    where + " cannot transport an actor instance by value; pass an actor capability/reference");
+        }
+
+        if (!isSharedSafe(type, new LinkedHashSet<>(), Map.of())) {
+            throw new IllegalArgumentException(
+                    where + " contains state that is not safe to transport across an actor boundary");
+        }
+    }
+
     private boolean isSharedSafe(Type type, Set<Ast.ClassDecl> seen, Map<String, Type> genericBindings) {
         if (type == Unknown.INSTANCE || type instanceof Borrow || type instanceof Function || type instanceof ClassNamespace) return false;
         if (type instanceof Primitive primitive) return primitive != Primitive.VOID;
