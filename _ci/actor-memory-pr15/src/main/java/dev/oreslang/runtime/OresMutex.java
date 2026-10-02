@@ -1,9 +1,6 @@
 package dev.oreslang.runtime;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -27,57 +24,7 @@ import java.util.function.Function;
  * acquire/release ordering.</p>
  */
 public final class OresMutex {
-    /**
-     * Serializes first-runtime publication of SharedMutex handles. Publication
-     * has to be transactional with mailbox admission: a failed send must not
-     * permanently bind a handle to a runtime that never received it.
-     */
-    private static final Object RUNTIME_PUBLICATION_LOCK = new Object();
-
     private OresMutex() { }
-
-    static boolean publishToRuntime(
-            ActorRuntime runtime,
-            Iterable<Shared<?>> handles,
-            Runnable publication) {
-        Objects.requireNonNull(runtime, "runtime");
-        Objects.requireNonNull(handles, "handles");
-        Objects.requireNonNull(publication, "publication");
-
-        synchronized (RUNTIME_PUBLICATION_LOCK) {
-            Set<Shared<?>> unique =
-                    Collections.newSetFromMap(new IdentityHashMap<>());
-            for (Shared<?> handle : handles) {
-                if (handle == null || !unique.add(handle)) continue;
-                ActorRuntime existing = handle.owningRuntime.get();
-                if (existing != null && existing != runtime) return false;
-            }
-
-            ArrayList<Shared<?>> newlyBound = new ArrayList<>(unique.size());
-            try {
-                for (Shared<?> handle : unique) {
-                    if (handle.owningRuntime.get() == null) {
-                        // Record rollback intent before mutating ownership so an
-                        // allocation failure cannot strand a partially bound handle.
-                        newlyBound.add(handle);
-                        handle.owningRuntime.set(runtime);
-                    }
-                }
-
-                publication.run();
-                return true;
-            } catch (RuntimeException | Error failure) {
-                for (Shared<?> handle : newlyBound) {
-                    if (!handle.owningRuntime.compareAndSet(runtime, null)) {
-                        throw new IllegalStateException(
-                                "SharedMutex publication rollback lost runtime ownership",
-                                failure);
-                    }
-                }
-                throw failure;
-            }
-        }
-    }
 
     public static <T> Local<T> local(T value) {
         return new Local<>(value);
@@ -188,17 +135,6 @@ public final class OresMutex {
             return tryLock();
         }
 
-        private long saturatedNanos(Duration timeout) {
-            try {
-                return timeout.toNanos();
-            } catch (ArithmeticException overflow) {
-                // Positive Durations can exceed the representable nanosecond
-                // range. Treat them as effectively unbounded rather than
-                // failing before attempting an immediately available lock.
-                return Long.MAX_VALUE;
-            }
-        }
-
         @Override
         public CompletableFuture<Guard<T>> lockAsync() {
             try {
@@ -275,13 +211,11 @@ public final class OresMutex {
 
         boolean bindToRuntime(ActorRuntime runtime) {
             Objects.requireNonNull(runtime, "runtime");
-            synchronized (RUNTIME_PUBLICATION_LOCK) {
-                ActorRuntime existing = owningRuntime.get();
-                if (existing == runtime) return true;
-                if (existing != null) return false;
-                owningRuntime.set(runtime);
-                return true;
-            }
+            ActorRuntime existing = owningRuntime.get();
+            if (existing == runtime) return true;
+            if (existing != null) return false;
+            if (owningRuntime.compareAndSet(null, runtime)) return true;
+            return owningRuntime.get() == runtime;
         }
 
         private void requireActorAccess() {
@@ -374,22 +308,11 @@ public final class OresMutex {
         public Optional<Guard<T>> tryLock() {
             Object ownerDomain = reserveDomain(true);
             if (ownerDomain == null) return Optional.empty();
-            try {
-                // Semaphore.tryAcquire() barges even when the semaphore is fair.
-                // The zero-time timed form honors FIFO fairness while remaining
-                // nonblocking, so try_lock cannot indefinitely starve queued
-                // lock()/lock_async() waiters.
-                if (!permit.tryAcquire(0L, TimeUnit.NANOSECONDS)) {
-                    releaseDomain(ownerDomain);
-                    return Optional.empty();
-                }
-                return Optional.of(checkedGuardAfterAcquire(ownerDomain, true));
-            } catch (InterruptedException interrupted) {
+            if (!permit.tryAcquire()) {
                 releaseDomain(ownerDomain);
-                Thread.currentThread().interrupt();
-                throw new java.util.concurrent.CancellationException(
-                        "SharedMutex try_lock interrupted");
+                return Optional.empty();
             }
+            return Optional.of(checkedGuardAfterAcquire(ownerDomain, true));
         }
 
         @Override
@@ -400,7 +323,7 @@ public final class OresMutex {
             Object ownerDomain = reserveDomain(true);
             if (ownerDomain == null) return Optional.empty();
             try {
-                if (!permit.tryAcquire(saturatedNanos(timeout), TimeUnit.NANOSECONDS)) {
+                if (!permit.tryAcquire(timeout.toNanos(), TimeUnit.NANOSECONDS)) {
                     releaseDomain(ownerDomain);
                     return Optional.empty();
                 }
