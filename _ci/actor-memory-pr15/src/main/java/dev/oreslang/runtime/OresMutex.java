@@ -2,6 +2,8 @@ package dev.oreslang.runtime;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -43,23 +45,25 @@ public final class OresMutex {
         Objects.requireNonNull(publication, "publication");
 
         synchronized (RUNTIME_PUBLICATION_LOCK) {
-            ArrayList<Shared<?>> unique = new ArrayList<>();
+            Set<Shared<?>> unique =
+                    Collections.newSetFromMap(new IdentityHashMap<>());
             for (Shared<?> handle : handles) {
-                if (handle == null || unique.contains(handle)) continue;
+                if (handle == null || !unique.add(handle)) continue;
                 ActorRuntime existing = handle.owningRuntime.get();
                 if (existing != null && existing != runtime) return false;
-                unique.add(handle);
             }
 
-            ArrayList<Shared<?>> newlyBound = new ArrayList<>();
-            for (Shared<?> handle : unique) {
-                if (handle.owningRuntime.get() == null) {
-                    handle.owningRuntime.set(runtime);
-                    newlyBound.add(handle);
-                }
-            }
-
+            ArrayList<Shared<?>> newlyBound = new ArrayList<>(unique.size());
             try {
+                for (Shared<?> handle : unique) {
+                    if (handle.owningRuntime.get() == null) {
+                        // Record rollback intent before mutating ownership so an
+                        // allocation failure cannot strand a partially bound handle.
+                        newlyBound.add(handle);
+                        handle.owningRuntime.set(runtime);
+                    }
+                }
+
                 publication.run();
                 return true;
             } catch (RuntimeException | Error failure) {
