@@ -172,12 +172,43 @@ public final class OwnershipChecker {
         }
         if (stmt instanceof Ast.DestructureStmt destructure) {
             ValueInfo source = checkExpr(destructure.initializer(), scope, true);
-            for (Ast.DestructureBinding binding : destructure.bindings()) {
-                scope.define(binding.name(), new VarState(
-                        Ast.TypeRef.inferred(),
-                        binding.kind() == Ast.BindingKind.LET,
-                        source.kind == ValueKind.COPY ? ValueKind.COPY : ValueKind.MOVE_ONLY,
-                        Origin.LOCAL));
+            List<Ast.TypeRef> elementTypes = destructuredElementTypes(
+                    source.type,
+                    destructure.bindings().size());
+
+            for (int i = 0; i < destructure.bindings().size(); i++) {
+                Ast.DestructureBinding binding = destructure.bindings().get(i);
+                Ast.TypeRef elementType = elementTypes.get(i);
+
+                ValueKind elementKind;
+                VarState elementBorrowSource = null;
+
+                if (isCopyType(elementType)) {
+                    elementKind = ValueKind.COPY;
+                } else if (source.kind == ValueKind.IMM_BORROW
+                        || source.kind == ValueKind.MUT_BORROW) {
+                    // Destructuring never upgrades a borrowed aggregate into
+                    // owned elements. Non-Copy projections remain read borrows.
+                    elementKind = ValueKind.IMM_BORROW;
+                    elementBorrowSource = source.borrowSource;
+                } else if (source.kind == ValueKind.COPY) {
+                    elementKind = ValueKind.COPY;
+                } else {
+                    // The aggregate itself was consumed, so its non-Copy
+                    // elements may transfer into the new bindings.
+                    elementKind = ValueKind.MOVE_ONLY;
+                }
+
+                VarState state = new VarState(
+                        elementType,
+                        binding.kind() == Ast.BindingKind.LET && elementKind == ValueKind.MOVE_ONLY,
+                        elementKind,
+                        Origin.LOCAL);
+                state.borrowSource = elementBorrowSource;
+                if (elementBorrowSource != null && elementKind == ValueKind.IMM_BORROW) {
+                    beginPersistentBorrow(elementBorrowSource, false);
+                }
+                scope.define(binding.name(), state);
             }
             return;
         }
@@ -251,6 +282,27 @@ public final class OwnershipChecker {
             rejectLoopMoves(before, scope);
             loopScope.close();
         }
+    }
+
+    private List<Ast.TypeRef> destructuredElementTypes(Ast.TypeRef sourceType, int arity) {
+        Ast.TypeRef type = sourceType;
+        while (type != null && type.isBorrow()) type = type.borrowedTarget();
+
+        if (type != null && type.name().equals("Tuple") && type.arguments().size() == arity) {
+            return type.arguments();
+        }
+
+        if (type != null
+                && (type.name().equals("Array") || type.name().equals("List"))
+                && type.arguments().size() == 1) {
+            List<Ast.TypeRef> result = new ArrayList<>(arity);
+            for (int i = 0; i < arity; i++) result.add(type.arguments().getFirst());
+            return result;
+        }
+
+        List<Ast.TypeRef> unknown = new ArrayList<>(arity);
+        for (int i = 0; i < arity; i++) unknown.add(Ast.TypeRef.inferred());
+        return unknown;
     }
 
     private void checkBinding(Ast.BindingStmt binding, Scope scope) {
