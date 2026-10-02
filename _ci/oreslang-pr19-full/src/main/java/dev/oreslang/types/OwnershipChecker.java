@@ -352,7 +352,12 @@ public final class OwnershipChecker {
             return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.NewExpr created) {
-            for (Ast.Expr arg : created.arguments()) checkExpr(arg, scope, true);
+            for (Ast.Expr arg : created.arguments()) {
+                ValueInfo info = checkExpr(arg, scope, true);
+                if (containsMutexGuardType(info.type)) {
+                    throw error("MutexGuard cannot be stored in a constructed object");
+                }
+            }
             return new ValueInfo(created.type(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.AwaitExpr awaited) {
