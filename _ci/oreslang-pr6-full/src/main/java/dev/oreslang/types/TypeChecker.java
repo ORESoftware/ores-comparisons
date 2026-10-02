@@ -829,6 +829,10 @@ public final class TypeChecker {
     }
 
     private Type typeOfAgainstExpected(Ast.Expr expr, Type expected, Env env, Set<String> generics, Type self) {
+        if (expr instanceof Ast.LambdaExpr lambda && expected instanceof Function fn) {
+            validateLambdaAgainstExpected(lambda, fn, env, generics, self);
+            return fn;
+        }
         if (expected instanceof Tuple && expr instanceof Ast.ListExpr list) {
             return new Tuple(list.elements().stream().map(item -> typeOf(item, env, generics, self)).toList());
         }
