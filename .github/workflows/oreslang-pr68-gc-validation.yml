@@ -14,6 +14,24 @@ defaults:
     working-directory: _ci/oreslang-pr57-full
 
 jobs:
+  gc-focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: GC and actor-isolation focused tests
+        run: >-
+          mvn -B -ntp
+          -Dtest=GarbageCollectionHardeningTest,ActorRuntimeTest,ActorTransportHardeningTest,PrivateActorIsolationTest,SharedPrivateActorIsolationProofTest
+          test
+
   full-test:
     runs-on: ubuntu-latest
     steps:
