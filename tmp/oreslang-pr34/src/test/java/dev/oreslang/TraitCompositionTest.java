@@ -39,7 +39,7 @@ final class TraitCompositionTest {
                   define trait Counter is CounterApi as
                     private let int count = 10;
 
-                    pub bump() => int {
+                    pub bump(self &mut self)() => int {
                       self.count = self.count + 1;
                       return self.count;
                     }
@@ -77,7 +77,7 @@ final class TraitCompositionTest {
                   define trait Counter as
                     private let int count = 10;
 
-                    pub bump() => int {
+                    pub bump(self &mut self)() => int {
                       self.count = self.count + 1;
                       return self.count;
                     }

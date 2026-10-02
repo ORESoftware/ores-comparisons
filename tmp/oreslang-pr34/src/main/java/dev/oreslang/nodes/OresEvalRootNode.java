@@ -366,10 +366,14 @@ public final class OresEvalRootNode extends RootNode {
                 Ast.Param param = method.parameters().get(i);
                 env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
             }
+            Ast.ModuleDecl owner = ownerModule(receiver.klass);
+            predeclareLocalTypes(method.body(), env, owner == null ? null : owner.name());
             try {
                 executeBlock(method.body(), env);
                 return null;
-            } catch (ReturnSignal signal) { return signal.value; }
+            } catch (ReturnSignal signal) {
+                return coerceDeclaredAggregate(method.returnType(), signal.value, env);
+            }
         }
 
         private void executeBlock(List<Ast.Stmt> statements, Env parent) {
@@ -386,11 +390,18 @@ public final class OresEvalRootNode extends RootNode {
         private void executeStatement(Ast.Stmt stmt, Env env, ArrayDeque<Ast.Expr> deferred) {
             if (stmt instanceof Ast.TypeDeclStmt) return;
             if (stmt instanceof Ast.BindingStmt binding) {
-                Object value = coerceDeclaredAggregate(binding.declaredType(), eval(binding.initializer(), env), env);
                 if (binding.initializer() instanceof Ast.LambdaExpr) {
                     env.reserve(binding.name(), binding.kind());
+                    Object value = coerceDeclaredAggregate(
+                            binding.declaredType(),
+                            eval(binding.initializer(), env),
+                            env);
                     env.initialize(binding.name(), value);
                 } else {
+                    Object value = coerceDeclaredAggregate(
+                            binding.declaredType(),
+                            eval(binding.initializer(), env),
+                            env);
                     env.define(binding.name(), value, binding.kind());
                 }
                 return;
@@ -626,11 +637,13 @@ public final class OresEvalRootNode extends RootNode {
                 }
 
                 LinkedHashMap<String, Ast.Expr> supplied = new LinkedHashMap<>();
-                Set<String> declaredNames = new LinkedHashSet<>();
-                for (Ast.FieldDecl field : struct.fields()) declaredNames.add(field.name());
+                Set<String> callerFieldNames = new LinkedHashSet<>();
+                for (Ast.FieldDecl field : struct.fields()) {
+                    if (!field.composed()) callerFieldNames.add(field.name());
+                }
                 for (Ast.ObjectField field : created.fields()) {
-                    if (!declaredNames.contains(field.name())) {
-                        throw new IllegalArgumentException("unknown struct field " + struct.name() + "." + field.name());
+                    if (!callerFieldNames.contains(field.name())) {
+                        throw new IllegalArgumentException("unknown or trait-owned struct field " + struct.name() + "." + field.name());
                     }
                     if (supplied.putIfAbsent(field.name(), field.value()) != null) {
                         throw new IllegalArgumentException("duplicate struct field " + struct.name() + "." + field.name());
@@ -639,6 +652,13 @@ public final class OresEvalRootNode extends RootNode {
 
                 LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
                 for (Ast.FieldDecl field : struct.fields()) {
+                    if (field.composed()) {
+                        if (field.initializer() == null) {
+                            throw new IllegalArgumentException("composed trait state has no initializer " + struct.name() + "." + field.name());
+                        }
+                        fields.put(field.name(), eval(field.initializer(), env));
+                        continue;
+                    }
                     Ast.Expr value = supplied.get(field.name());
                     if (value != null) fields.put(field.name(), eval(value, env));
                     else if (field.initializer() != null) fields.put(field.name(), eval(field.initializer(), env));
@@ -702,12 +722,31 @@ public final class OresEvalRootNode extends RootNode {
             Ast.ClassDecl struct = runtimeClass(declaredType, env);
             if (struct == null || !struct.isStruct()) return value;
 
+            Set<String> callerFieldNames = new LinkedHashSet<>();
+            for (Ast.FieldDecl field : struct.fields()) if (!field.composed()) callerFieldNames.add(field.name());
+            for (Object key : map.keySet()) {
+                if (!(key instanceof String name) || !callerFieldNames.contains(name)) {
+                    throw new IllegalArgumentException("object value has unknown or trait-owned field for struct "
+                            + struct.name() + ": " + key);
+                }
+            }
+
             LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
             for (Ast.FieldDecl field : struct.fields()) {
-                if (!map.containsKey(field.name())) return value;
-                fields.put(field.name(), map.get(field.name()));
+                if (field.composed()) {
+                    if (field.initializer() == null) {
+                        throw new IllegalArgumentException("composed trait state has no initializer " + struct.name() + "." + field.name());
+                    }
+                    fields.put(field.name(), eval(field.initializer(), env));
+                } else if (map.containsKey(field.name())) {
+                    fields.put(field.name(), map.get(field.name()));
+                } else if (field.initializer() != null) {
+                    fields.put(field.name(), eval(field.initializer(), env));
+                } else {
+                    throw new IllegalArgumentException("object value is missing required struct field "
+                            + struct.name() + "." + field.name());
+                }
             }
-            if (map.size() != fields.size()) return value;
             return new OresObject(struct, fields);
         }
 
@@ -833,10 +872,14 @@ public final class OresEvalRootNode extends RootNode {
                 Ast.Param param = fn.parameters().get(i);
                 env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
             }
+            Ast.ModuleDecl owner = ownerModule(klass);
+            predeclareLocalTypes(fn.body(), env, owner == null ? null : owner.name());
             try {
                 executeBlock(fn.body(), env);
                 return null;
-            } catch (ReturnSignal signal) { return signal.value; }
+            } catch (ReturnSignal signal) {
+                return coerceDeclaredAggregate(fn.returnType(), signal.value, env);
+            }
         }
 
         /**

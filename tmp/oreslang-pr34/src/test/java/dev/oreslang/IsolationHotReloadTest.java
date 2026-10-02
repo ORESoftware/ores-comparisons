@@ -163,12 +163,17 @@ final class IsolationHotReloadTest {
     void allExplicitStructuralParameterSpellingsWork() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 pub interface Bar {
-                  marker: 'brand'
+                  fnc marker() => String;
                 }
 
                 pub interface Foo extends Bar {
-                  markerBrand: 'marking/branding'
+                  fnc markerBrand() => String;
                 }
+
+                define class Branded as
+                  pub marker() => String { return "brand"; }
+                  pub markerBrand() => String { return "marking/branding"; }
+                end
 
                 fnc first(y structural Foo) => void {
                   return;
@@ -184,7 +189,7 @@ final class IsolationHotReloadTest {
                 }
 
                 pub routine main() => void {
-                  val branded = obj{marker: "brand", markerBrand: "marking/branding"};
+                  val branded = new Branded();
                   first(branded);
                   second(branded);
                   third(branded);
@@ -197,13 +202,17 @@ final class IsolationHotReloadTest {
     void structuralPermissionIsNotImplicit() {
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
                 pub interface Foo {
-                  marker: 'brand'
+                  fnc marker() => String;
                 }
+
+                define class Branded as
+                  pub marker() => String { return "brand"; }
+                end
 
                 fnc nominal(Foo y) => void { return; }
 
                 pub routine main() => void {
-                  val branded = obj{marker: "brand"};
+                  val branded = new Branded();
                   nominal(branded);
                   return;
                 }

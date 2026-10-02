@@ -118,18 +118,24 @@ final class RoutineAndLoopTest {
     void structuralParametersAreOptInAndSupportBrandedInterfaces() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 pub interface Bar {
-                  markerBrand: 'marking/branding'
+                  fnc markerBrand() => String;
                 }
 
                 pub interface Foo extends Bar {
                 }
 
+                define class Branded as
+                  pub markerBrand() => String {
+                    return "marking/branding";
+                  }
+                end
+
                 fnc structural(@Structural Foo value) => String {
-                  return value.markerBrand;
+                  return value.markerBrand();
                 }
 
                 fnc main() => void {
-                  val branded = obj{markerBrand: "marking/branding"};
+                  val branded = new Branded();
                   stdio.println(structural(branded));
                   return;
                 }
@@ -137,15 +143,21 @@ final class RoutineAndLoopTest {
 
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
                 pub interface Foo {
-                  markerBrand: 'marking/branding'
+                  fnc markerBrand() => String;
                 }
 
+                define class Branded as
+                  pub markerBrand() => String {
+                    return "marking/branding";
+                  }
+                end
+
                 fnc nominal(Foo value) => String {
-                  return "ok";
+                  return value.markerBrand();
                 }
 
                 fnc main() => void {
-                  val branded = obj{markerBrand: "marking/branding"};
+                  val branded = new Branded();
                   stdio.println(nominal(branded));
                   return;
                 }
