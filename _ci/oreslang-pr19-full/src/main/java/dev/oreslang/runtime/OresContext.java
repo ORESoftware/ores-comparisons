@@ -1,5 +1,6 @@
 package dev.oreslang.runtime;
 
+import com.oracle.truffle.api.TruffleContext;
 import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.TruffleLanguage.ContextReference;
 import com.oracle.truffle.api.nodes.Node;
@@ -11,6 +12,7 @@ import java.io.PrintWriter;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 public final class OresContext implements AutoCloseable {
     private static final ContextReference<OresContext> REFERENCE = ContextReference.create(OresLanguage.class);
@@ -24,6 +26,7 @@ public final class OresContext implements AutoCloseable {
     private final AtomicLong schedulerSafepoints = new AtomicLong();
     private final IsolatePolicy isolatePolicy;
     private final ExecutionProfile executionProfile;
+    private final ReentrantLock adversarialActorTurnLock = new ReentrantLock(true);
 
     public OresContext(OresLanguage language, TruffleLanguage.Env env) {
         this.language = language;
@@ -32,7 +35,10 @@ public final class OresContext implements AutoCloseable {
         this.output = new PrintWriter(env.out(), true);
         this.isolatePolicy = IsolatePolicy.fromApplicationArguments(env.getApplicationArguments());
         this.executionProfile = IsolatePolicy.executionProfileFromApplicationArguments(env.getApplicationArguments());
-        this.actors = new ActorRuntime(isolatePolicy);
+        this.actors = new ActorRuntime(
+                isolatePolicy,
+                ActorRuntime.DispatcherConfig.defaults(),
+                this::executeActorTurn);
     }
 
     public static OresContext get(Node node) {
@@ -49,7 +55,11 @@ public final class OresContext implements AutoCloseable {
     public ExecutionProfile executionProfile() { return executionProfile; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
-        isolatePolicy.require(capability, api);
+        // Capability checks inside an actor turn must use that actor's effective
+        // policy, not merely the surrounding polyglot context policy. PRIVATE
+        // actors have sharing capabilities stripped by ActorRuntime even when
+        // the parent context is a permissive developer context.
+        actors.requireEffectiveCapability(capability, api);
     }
 
     /**
@@ -63,6 +73,23 @@ public final class OresContext implements AutoCloseable {
     }
 
     public long schedulerSafepoints() { return schedulerSafepoints.get(); }
+
+    private void executeActorTurn(Runnable turn) {
+        boolean serialize = isolatePolicy.adversarial();
+        if (serialize) adversarialActorTurnLock.lock();
+        TruffleContext truffleContext = env.getContext();
+        Object previous = null;
+        boolean entered = false;
+        try {
+            previous = truffleContext.enter(null);
+            entered = true;
+            turn.run();
+        } finally {
+            if (entered) truffleContext.leave(null, previous);
+            if (serialize) adversarialActorTurnLock.unlock();
+        }
+    }
+
 
     public Map<String, Object> processDescriptor() {
         return Map.of(
