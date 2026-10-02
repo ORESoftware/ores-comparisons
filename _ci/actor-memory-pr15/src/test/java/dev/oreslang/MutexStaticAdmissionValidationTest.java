@@ -149,4 +149,75 @@ final class MutexStaticAdmissionValidationTest {
                 "MutexGuard cannot be stored in a constructed object"));
     }
 
+
+    @Test
+    void ownershipRejectsBorrowedGuardEscapeThroughGenericConstructor() {
+        var program = Parser.parse("""
+                define module model
+                  define class Box<T>
+                    pub let T value;
+                  end
+
+                  define class Counter
+                    pub let int value = 0;
+                  end
+                end
+
+                define module app
+                  fnc bad() => void {
+                    val mutex = Mutex.new(new Counter());
+                    val guard = mutex.lock();
+                    val hidden = new Box<>(&guard);
+                    stdio.println(hidden);
+                    return;
+                  }
+                end
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(program));
+        assertTrue(error.getMessage().contains(
+                "MutexGuard cannot be stored in a constructed object"));
+    }
+
+    @Test
+    void mutexFactoriesRejectBorrowedPayloads() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app
+                          fnc bad() => void {
+                            val data = arr[1, 2, 3];
+                            val mutex = Mutex.new(&data);
+                            stdio.println(mutex);
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(error.getMessage().contains("requires owned data"));
+    }
+
+    @Test
+    void sharedSafeUnionsRequireEveryArmToBeSafe() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module app
+                  fnc good(SharedMutex<int | string> value) => void {
+                    return;
+                  }
+                end
+                """)));
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app
+                          fnc bad(SharedMutex<int | Mutex<int>> value) => void {
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(error.getMessage().contains("concrete shared-safe type"));
+    }
+
 }
