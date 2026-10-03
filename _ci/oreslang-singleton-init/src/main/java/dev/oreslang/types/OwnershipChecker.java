@@ -89,12 +89,37 @@ public final class OwnershipChecker {
 
     private void validate(Ast.Program program) {
         for (Ast.ModuleDecl module : program.modules()) {
+            checkPersistentFieldInitializers(module);
             for (Ast.Decl decl : module.declarations()) {
                 if (decl instanceof Ast.FunctionDecl fn) checkFunction(module, fn);
                 else if (decl instanceof Ast.InitDecl init) checkInit(module, init);
                 else if (decl instanceof Ast.ClassDecl klass) checkClass(module, klass);
             }
         }
+    }
+
+    private void checkPersistentFieldInitializers(Ast.ModuleDecl module) {
+        // Module fields and class default fields are storage boundaries too.
+        // They must not bypass move/borrow provenance before a callable begins.
+        Scope moduleScope = new Scope(null);
+        seedModuleState(module, moduleScope);
+
+        for (Ast.Decl decl : module.declarations()) {
+            if (decl instanceof Ast.FieldDecl field && field.initializer() != null) {
+                ValueInfo value = checkExpr(field.initializer(), moduleScope, true);
+                rejectBorrowStorage(value, "persistent module field '" + field.name() + "'");
+            } else if (decl instanceof Ast.ClassDecl klass) {
+                for (Ast.FieldDecl field : klass.fields()) {
+                    if (field.initializer() == null) continue;
+                    ValueInfo value = checkExpr(field.initializer(), moduleScope, true);
+                    rejectBorrowStorage(
+                            value,
+                            "default field '" + klass.name() + "." + field.name() + "'");
+                }
+            }
+        }
+
+        moduleScope.close();
     }
 
     private void checkInit(Ast.ModuleDecl module, Ast.InitDecl init) {

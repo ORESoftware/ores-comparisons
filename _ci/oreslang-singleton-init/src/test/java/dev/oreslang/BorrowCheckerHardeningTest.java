@@ -268,4 +268,43 @@ final class BorrowCheckerHardeningTest {
     }
 
 
+    @Test
+    void moduleFieldInitializerCannotAliasPersistentOwnerByMove() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                        end
+
+                        define module state as
+                          let Box primary = new Box();
+                          let Box alias = primary;
+                        end
+                        """)));
+
+        assertTrue(error.getMessage().contains("persistent module-owned state")
+                || error.getMessage().toLowerCase().contains("ownership"));
+    }
+
+    @Test
+    void classDefaultFieldCannotMovePersistentModuleState() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module state as
+                          define class Box as
+                          end
+
+                          let Box primary = new Box();
+
+                          define class Holder as
+                            pub val Box child = primary;
+                          end
+                        end
+                        """)));
+
+        assertTrue(error.getMessage() != null && !error.getMessage().isBlank());
+    }
+
+
 }
