@@ -2336,6 +2336,10 @@ public final class TypeChecker {
             this.moduleName = moduleName;
         }
         private void define(String name, Type type, Ast.BindingKind kind) {
+            if (name.equals("process")) {
+                throw new IllegalArgumentException(
+                        "binding name 'process' is reserved for the ambient process capability namespace");
+            }
             if (bindings.putIfAbsent(name, new Binding(type, kind)) != null) throw new IllegalArgumentException("duplicate binding '" + name + "'");
         }
         private Binding lookup(String name) {

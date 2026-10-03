@@ -2521,6 +2521,30 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void processCapabilityNamespaceCannotBeShadowed() {
+        IllegalArgumentException local = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module app as
+                          pub routine main() => void {
+                            val int process = 1;
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(local.getMessage().contains("reserved for the ambient process capability namespace"));
+
+        IllegalArgumentException parameter = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        pub fnc spoof(int process) => int {
+                          return process;
+                        }
+                        """)));
+        assertTrue(parameter.getMessage().contains("reserved for the ambient process capability namespace"));
+    }
+
+    @Test
     void singletonCollectionTokenCannotEscapeOrRunUnawaited() {
         IllegalArgumentException unawaited = assertThrows(
                 IllegalArgumentException.class,
@@ -2628,6 +2652,38 @@ final class SingletonModuleTest {
         String output = eval(program, "singleton-manual-collect-" + UUID.randomUUID() + ".ores");
         List<String> lines = output.lines().map(String::trim).filter(s -> !s.isEmpty()).toList();
         assertEquals(List.of("1", "true", "1"), lines);
+    }
+
+    @Test
+    void terminalWorkerFailureDoesNotDropPinnedStateBeforeExplicitCollection() {
+        String key = "terminal-pinned:" + UUID.randomUUID();
+        AtomicBoolean closed = new AtomicBoolean();
+
+        final class TestVmError extends VirtualMachineError {
+            private TestVmError() { super("synthetic terminal worker failure"); }
+        }
+        final class PinnedState implements AutoCloseable {
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        }
+
+        ProcessSingletonRegistry.Handle<PinnedState> handle =
+                ProcessSingletonRegistry.getOrCreate(key, PinnedState::new);
+
+        CompletionException failure = assertThrows(
+                CompletionException.class,
+                () -> handle.call(List.of(), (state, ignored) -> {
+                    throw new TestVmError();
+                }).toCompletableFuture().join());
+        assertTrue(causeChainContains(failure, "synthetic terminal worker failure"));
+        assertFalse(closed.get(),
+                "terminal worker failure must not implicitly collect pinned singleton state");
+
+        assertTrue(ProcessSingletonRegistry.collect(key).toCompletableFuture().join());
+        assertTrue(closed.get(),
+                "explicit collection must still clean up state retained after worker failure");
     }
 
     private static boolean causeChainContains(Throwable failure, String text) {
