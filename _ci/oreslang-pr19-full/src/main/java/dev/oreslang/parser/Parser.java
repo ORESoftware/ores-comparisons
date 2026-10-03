@@ -40,12 +40,12 @@ public final class Parser {
             Modifiers modifiers = parseModifiers();
 
             if (match(DEFINE)) {
-                if (modifiers.shared) {
-                    throw error(previous(), "'shared' must modify an actor declaration; use 'shared actor <Name>'");
+                if (modifiers.shared || modifiers.untrusted) {
+                    throw error(previous(), "actor modifiers 'shared'/'untrusted' must modify an actor declaration");
                 }
                 boolean afterDefineAbstract = match(ABSTRACT);
                 if (match(MODULE)) {
-                    if (modifiers.visibility != Ast.Visibility.PRIVATE || modifiers.async || modifiers.nonLexical || modifiers.isStatic || modifiers.isAbstract || modifiers.shared) {
+                    if (modifiers.visibility != Ast.Visibility.PRIVATE || modifiers.async || modifiers.nonLexical || modifiers.isStatic || modifiers.isAbstract || modifiers.shared || modifiers.untrusted) {
                         throw error(previous(), "modules do not accept function/class modifiers");
                     }
                     modules.add(parseModule(annotations));
@@ -127,7 +127,7 @@ public final class Parser {
         Modifiers modifiers = parseModifiers();
 
         if (match(DEFINE)) {
-            if (modifiers.shared) {
+            if (modifiers.shared || modifiers.untrusted) {
                 throw error(previous(), "'shared' must modify an actor declaration; use 'shared actor <Name>'");
             }
             boolean afterDefineAbstract = match(ABSTRACT);
@@ -149,7 +149,12 @@ public final class Parser {
 
     private Ast.Decl parseDeclarationAfterModifiers(List<Ast.Annotation> annotations, Modifiers modifiers) {
         if (match(ACTOR)) {
-            Ast.ActorKind actorKind = modifiers.shared ? Ast.ActorKind.SHARED : Ast.ActorKind.PRIVATE;
+            if (modifiers.shared && modifiers.untrusted) {
+                throw error(previous(), "actor cannot be both 'shared' and 'untrusted'");
+            }
+            Ast.ActorKind actorKind = modifiers.untrusted
+                    ? Ast.ActorKind.UNTRUSTED
+                    : modifiers.shared ? Ast.ActorKind.SHARED : Ast.ActorKind.PRIVATE;
             if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC, actorKind);
             if (modifiers.async || modifiers.nonLexical || modifiers.isStatic || modifiers.isAbstract) {
                 throw error(previous(), "actor declarations do not accept async, nlex, static, or abstract modifiers");
@@ -157,6 +162,7 @@ public final class Parser {
             return parseActorClass(actorKind);
         }
         if (modifiers.shared) throw error(previous(), "'shared' must modify an actor declaration or actor fnc");
+        if (modifiers.untrusted) throw error(previous(), "'untrusted' must modify an actor declaration or actor fnc");
         if (match(FNC)) return parseFunction(annotations, modifiers, Ast.CallableKind.FNC);
         if (match(ROUTINE)) return parseFunction(annotations, modifiers, Ast.CallableKind.ROUTINE);
         if (modifiers.nonLexical) throw error(peek(), "'nlex' applies only to fnc, routine, or lambda");
@@ -197,7 +203,6 @@ public final class Parser {
         List<String> generics = parseGenericParameters();
         List<Ast.TypeRef> parents = match(EXTENDS) ? parseTypeRefList() : List.of();
         List<Ast.TypeRef> interfaces = match(IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
-        consume(AS, "expected 'as' after class header");
         List<Ast.FieldDecl> fields = new ArrayList<>();
         List<Ast.MethodDecl> methods = new ArrayList<>();
 
@@ -237,6 +242,7 @@ public final class Parser {
             List<Ast.Annotation> annotations = parseAnnotations();
             Modifiers mods = parseModifiers();
             if (mods.shared) throw error(previous(), "'shared' is only valid on an actor declaration, not its members");
+            if (mods.untrusted) throw error(previous(), "'untrusted' is only valid on an actor declaration, not its members");
             if (mods.nonLexical) throw error(previous(), "'nlex' is unnecessary on actor members; actor methods already execute in the actor turn scope");
 
             if (isBindingKind(peek().type())) {
@@ -325,7 +331,7 @@ public final class Parser {
         }
         Ast.Expr initializer = match(EQUAL) ? parseExpression() : null;
         if (type == null && initializer == null) {
-            throw error(previous(), "inferred field '" + name + "' requires an initializer");
+            throw error(previous(), "inferred field declarations require an initializer");
         }
         consumeStatementTerminator("field declaration should end with ';'");
         return new Ast.FieldDecl(name, visibility, kind, type, initializer);
@@ -420,12 +426,14 @@ public final class Parser {
         boolean isStatic = false;
         boolean isAbstract = false;
         boolean shared = false;
+        boolean untrusted = false;
         boolean visibilitySeen = false;
         boolean asyncSeen = false;
         boolean nonLexicalSeen = false;
         boolean staticSeen = false;
         boolean abstractSeen = false;
         boolean sharedSeen = false;
+        boolean untrustedSeen = false;
 
         while (true) {
             if (match(PUB)) {
@@ -452,15 +460,19 @@ public final class Parser {
                 if (abstractSeen) throw error(previous(), "duplicate 'abstract' modifier");
                 abstractSeen = true;
                 isAbstract = true;
-            } else if (matchContextualShared()) {
+            } else if (match(SHARED)) {
                 if (sharedSeen) throw error(previous(), "duplicate 'shared' modifier");
                 sharedSeen = true;
                 shared = true;
+            } else if (match(UNTRUSTED)) {
+                if (untrustedSeen) throw error(previous(), "duplicate 'untrusted' modifier");
+                untrustedSeen = true;
+                untrusted = true;
             } else {
                 break;
             }
         }
-        return new Modifiers(visibility, async, nonLexical, isStatic, isAbstract, shared);
+        return new Modifiers(visibility, async, nonLexical, isStatic, isAbstract, shared, untrusted);
     }
 
     private Ast.TypeRef parseReturnType(List<Ast.Annotation> annotations) {
@@ -800,9 +812,6 @@ public final class Parser {
             if (isBindingKind(peek().type())) currentKind = parseBindingKind();
 
             if (isDiscardToken(peek())) {
-                if (kind == Ast.DestructureKind.OBJECT) {
-                    throw error(peek(), "bare '_' discard is only valid in sequence destructuring");
-                }
                 advance();
                 bindings.add(Ast.DestructureBinding.discard());
                 continue;
@@ -888,15 +897,14 @@ public final class Parser {
         return expression;
     }
 
-    private Ast.Expr normalizeLegacyConditionPipe(Ast.Expr expr) {
-        if (expr instanceof Ast.BinaryExpr binary) {
-            String operator = binary.operator().equals("|") ? "||" : binary.operator();
+    private Ast.Expr normalizeLegacyConditionPipe(Ast.Expr expression) {
+        if (expression instanceof Ast.BinaryExpr binary && binary.operator().equals("|")) {
             return new Ast.BinaryExpr(
-                    operator,
+                    "||",
                     normalizeLegacyConditionPipe(binary.left()),
                     normalizeLegacyConditionPipe(binary.right()));
         }
-        return expr;
+        return expression;
     }
 
     private Ast.TryStmt parseTry() {
@@ -1106,7 +1114,7 @@ public final class Parser {
             case IDENT,
                     DEFINE, CLASS, MODULE, NAMESPACE, IMPORT, FROM, AS, EXTENDS, IMPLEMENTS,
                     TRY, CATCH, FINALLY, END, FI, IF, DO, ELSE, THEN,
-                    NEW, DONE, AWAIT, ASYNC, NLEX, ACTOR, SHARED, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
+                    NEW, DONE, AWAIT, ASYNC, NLEX, ACTOR, SHARED, UNTRUSTED, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
                     INTERFACE, IMPL, ABSTRACT, VOID, STATIC, PUB, PRIVATE, STRUCTURAL, RETURN, DEFER,
                     VAL, CONST, LET, MUT, SELF, TRUE, FALSE, NULL, OBJ, ARR -> true;
             default -> false;
@@ -1258,15 +1266,6 @@ public final class Parser {
 
     private boolean isBindingKind(Token.Type type) { return type == CONST || type == VAL || type == LET; }
 
-    private boolean matchContextualShared() {
-        if (match(SHARED)) return true;
-        if (check(IDENT) && peek().lexeme().equals("shared")) {
-            advance();
-            return true;
-        }
-        return false;
-    }
-
     private boolean match(Token.Type... types) {
         for (Token.Type type : types) {
             if (check(type)) { advance(); return true; }
@@ -1330,5 +1329,5 @@ public final class Parser {
         return new IllegalArgumentException("Oreslang parse error at " + token.line() + ":" + token.column() + ": " + message);
     }
 
-    private record Modifiers(Ast.Visibility visibility, boolean async, boolean nonLexical, boolean isStatic, boolean isAbstract, boolean shared) { }
+    private record Modifiers(Ast.Visibility visibility, boolean async, boolean nonLexical, boolean isStatic, boolean isAbstract, boolean shared, boolean untrusted) { }
 }
