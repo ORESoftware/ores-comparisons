@@ -12,7 +12,7 @@ import dev.oreslang.runtime.OresValues.OptionValue;
 import dev.oreslang.runtime.CapabilityChecker;
 import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.ProcessSingletonRegistry;
-import dev.oreslang.types.OwnershipChecker;
+import dev.oreslang.types.TypeChecker;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -50,11 +50,12 @@ public final class OresEvalRootNode extends RootNode {
             String codeUnitDigest) {
         super(language);
         // Defense in depth: OresLanguage/OresCompiler already run the full
-        // type + ownership pipeline, but this public evaluator constructor must
-        // never become a host-side escape hatch around ownership admission.
-        // OwnershipChecker is intentionally safe to re-run on an immutable AST.
-        OwnershipChecker.check(program);
-        this.program = program;
+        // static pipeline, but this public evaluator constructor must never
+        // become a host-side escape hatch around type/ownership admission.
+        // Re-validation is intentionally fail-closed; callers cannot execute a
+        // hand-constructed AST that bypassed ownership-sensitive TypeChecker
+        // rules such as first-class Fnc contract erasure.
+        this.program = TypeChecker.check(program);
         this.codeUnitId = codeUnitId == null || codeUnitId.isBlank() ? "<anonymous>" : codeUnitId;
         this.codeUnitDigest = codeUnitDigest == null || codeUnitDigest.isBlank()
                 ? digestText(program.toString())

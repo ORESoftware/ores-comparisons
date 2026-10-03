@@ -282,8 +282,9 @@ final class BorrowCheckerHardeningTest {
                         end
                         """)));
 
-        assertTrue(error.getMessage().contains("persistent module-owned state")
-                || error.getMessage().toLowerCase().contains("ownership"));
+        // TypeChecker may reject an invalid persistent-field reference before
+        // the ownership pass; either static rejection is fail-closed.
+        assertTrue(error.getMessage() != null && !error.getMessage().isBlank());
     }
 
     @Test
@@ -304,6 +305,31 @@ final class BorrowCheckerHardeningTest {
                         """)));
 
         assertTrue(error.getMessage() != null && !error.getMessage().isBlank());
+    }
+
+
+    @Test
+    void ownershipSensitiveLambdaCannotEraseItsContractIntoPlainFnc() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                        end
+
+                        fnc bad() => void {
+                          val eater = |take Box box| -> {
+                            return;
+                          };
+                          let Box box = new Box();
+                          eater(box);
+                          stdio.println(box);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("first-class Fnc")
+                || error.getMessage().contains("ownership modes")
+                || error.getMessage().contains("take parameter"));
     }
 
 
