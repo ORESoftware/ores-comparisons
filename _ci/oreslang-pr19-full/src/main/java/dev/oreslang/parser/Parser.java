@@ -203,6 +203,7 @@ public final class Parser {
         List<String> generics = parseGenericParameters();
         List<Ast.TypeRef> parents = match(EXTENDS) ? parseTypeRefList() : List.of();
         List<Ast.TypeRef> interfaces = match(IMPLEMENTS, IMPL) ? parseTypeRefList() : List.of();
+        consume(AS, "expected 'as' after class header");
         List<Ast.FieldDecl> fields = new ArrayList<>();
         List<Ast.MethodDecl> methods = new ArrayList<>();
 
@@ -460,11 +461,11 @@ public final class Parser {
                 if (abstractSeen) throw error(previous(), "duplicate 'abstract' modifier");
                 abstractSeen = true;
                 isAbstract = true;
-            } else if (match(SHARED)) {
+            } else if (matchContextualModifier("shared", SHARED)) {
                 if (sharedSeen) throw error(previous(), "duplicate 'shared' modifier");
                 sharedSeen = true;
                 shared = true;
-            } else if (match(UNTRUSTED)) {
+            } else if (matchContextualModifier("untrusted", UNTRUSTED)) {
                 if (untrustedSeen) throw error(previous(), "duplicate 'untrusted' modifier");
                 untrustedSeen = true;
                 untrusted = true;
@@ -1265,6 +1266,15 @@ public final class Parser {
     }
 
     private boolean isBindingKind(Token.Type type) { return type == CONST || type == VAL || type == LET; }
+
+    private boolean matchContextualModifier(String lexeme, Token.Type legacyToken) {
+        if (match(legacyToken)) return true;
+        if (check(IDENT) && peek().lexeme().equals(lexeme)) {
+            advance();
+            return true;
+        }
+        return false;
+    }
 
     private boolean match(Token.Type... types) {
         for (Token.Type type : types) {
