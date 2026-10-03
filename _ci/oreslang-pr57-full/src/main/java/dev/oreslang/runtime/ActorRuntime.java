@@ -69,21 +69,27 @@ public final class ActorRuntime implements AutoCloseable {
             int privateParallelism,
             int sharedParallelism,
             int throughput,
-            int maxActors) {
+            int maxActors,
+            int operationBudget) {
         public DispatcherConfig {
             if (privateParallelism <= 0) throw new IllegalArgumentException("privateParallelism must be > 0");
             if (sharedParallelism <= 0) throw new IllegalArgumentException("sharedParallelism must be > 0");
             if (throughput <= 0) throw new IllegalArgumentException("throughput must be > 0");
             if (maxActors <= 0) throw new IllegalArgumentException("maxActors must be > 0");
+            if (operationBudget <= 0) throw new IllegalArgumentException("operationBudget must be > 0");
+        }
+
+        public DispatcherConfig(int privateParallelism, int sharedParallelism, int throughput, int maxActors) {
+            this(privateParallelism, sharedParallelism, throughput, maxActors, 4_096);
         }
 
         public DispatcherConfig(int privateParallelism, int sharedParallelism, int throughput) {
-            this(privateParallelism, sharedParallelism, throughput, 16_384);
+            this(privateParallelism, sharedParallelism, throughput, 16_384, 4_096);
         }
 
         public static DispatcherConfig defaults() {
             int cpus = Math.max(2, Runtime.getRuntime().availableProcessors());
-            return new DispatcherConfig(cpus, cpus, 64, 16_384);
+            return new DispatcherConfig(cpus, cpus, 64, 16_384, 4_096);
         }
     }
 
@@ -777,6 +783,9 @@ public final class ActorRuntime implements AutoCloseable {
         Objects.requireNonNull(ref);
         ActorCell<M> cell = (ActorCell<M>) actors.get(ref.id());
         if (cell == null || cell.stopped.get()) throw terminated(ref);
+        if (cell.policy.adversarial()) {
+            rejectTrustedSymbols(message, new IdentityHashMap<>(), 0);
+        }
         requireOwnedActorRefs(message, new IdentityHashMap<>(), 0);
         if (cell.mailbox.remainingCapacity() == 0) {
             throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
@@ -845,19 +854,43 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
-     * Cooperative scheduler hook used by compiler-injected loop safepoints.
-     * Carrier threads remain an implementation detail.
+     * Charge compiler/runtime work against the current actor turn.
+     *
+     * Returning true means the actor's operation quantum is exhausted. Generated
+     * actor continuations must persist their program counter/live frame and
+     * return to the dispatcher at that point. This is the semantic fairness
+     * mechanism; Thread.yield() is not relied on for correctness.
      */
-    public void schedulerSafepoint() {
+    public boolean chargeActorOperations(int operations) {
+        if (operations <= 0) throw new IllegalArgumentException("operations must be > 0");
         if (closed.get()) throw new CancellationException("actor runtime is closing");
         ActorCell<?> cell = currentActor.get();
-        if (cell != null && cell.stopped.get()) {
-            throw new CancellationException("actor execution stopped");
+        if (cell == null) {
+            throw new IllegalStateException("actor operation accounting requires an active actor turn");
         }
+        if (cell.stopped.get()) throw new CancellationException("actor execution stopped");
         if (Thread.currentThread().isInterrupted()) {
             throw new CancellationException("actor execution interrupted");
         }
-        Thread.yield();
+        return cell.chargeOperations(operations);
+    }
+
+    /**
+     * Compatibility scheduler hook for the current interpreter. Compiler-lowered
+     * actor state machines use chargeActorOperations(...) and suspend when it
+     * returns true; ordinary host execution merely hints to the JVM scheduler.
+     */
+    public void schedulerSafepoint() {
+        ActorCell<?> cell = currentActor.get();
+        if (cell == null) {
+            if (closed.get()) throw new CancellationException("actor runtime is closing");
+            if (Thread.currentThread().isInterrupted()) {
+                throw new CancellationException("actor execution interrupted");
+            }
+            Thread.yield();
+            return;
+        }
+        if (chargeActorOperations(1)) Thread.yield();
     }
 
     @SuppressWarnings("unchecked")
@@ -876,6 +909,46 @@ public final class ActorRuntime implements AutoCloseable {
             throw new IllegalStateException("actor runtime is closed");
         }
         return shared;
+    }
+
+    private static void rejectTrustedSymbols(
+            Object value,
+            IdentityHashMap<Object, Boolean> visiting,
+            int depth) {
+        requireGraphDepth(depth);
+        if (value == null) return;
+        if (value instanceof OresSymbol) {
+            throw new SecurityException(
+                    "trusted symbols cannot cross into an adversarial/untrusted actor");
+        }
+        if (isScalar(value) || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.SyncCell<?>) return;
+        if (value instanceof Shared<?> shared) {
+            rejectTrustedSymbols(shared.value(), visiting, depth + 1);
+            return;
+        }
+        if (visiting.put(value, Boolean.TRUE) != null) {
+            throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
+        }
+        try {
+            if (value instanceof List<?> list) {
+                for (Object item : list) rejectTrustedSymbols(item, visiting, depth + 1);
+            } else if (value instanceof Set<?> set) {
+                for (Object item : set) rejectTrustedSymbols(item, visiting, depth + 1);
+            } else if (value instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    rejectTrustedSymbols(entry.getKey(), visiting, depth + 1);
+                    rejectTrustedSymbols(entry.getValue(), visiting, depth + 1);
+                }
+            } else if (value.getClass().isArray()) {
+                int length = Array.getLength(value);
+                for (int i = 0; i < length; i++) {
+                    rejectTrustedSymbols(Array.get(value, i), visiting, depth + 1);
+                }
+            }
+        } finally {
+            visiting.remove(value);
+        }
     }
 
     private void requireOwnedActorRefs(
@@ -1321,6 +1394,7 @@ public final class ActorRuntime implements AutoCloseable {
         if (value instanceof BigInteger integer) return 32L + integer.toByteArray().length;
         if (value instanceof BigDecimal decimal) return 48L + decimal.unscaledValue().toByteArray().length;
         if (value instanceof String string) return 40L + (long) string.length() * 2L;
+        if (value instanceof OresSymbol symbol) return 64L + (long) symbol.name().length() * 2L;
         if (value instanceof UUID || value instanceof ActorId) return 40L;
         if (value instanceof Enum<?>) return 24L;
         return -1L;
@@ -1372,6 +1446,7 @@ public final class ActorRuntime implements AutoCloseable {
         if (value instanceof BigInteger integer) return 32L + integer.toByteArray().length;
         if (value instanceof BigDecimal decimal) return 48L + decimal.unscaledValue().toByteArray().length;
         if (value instanceof String string) return 40L + (long) string.length() * 2L;
+        if (value instanceof OresSymbol symbol) return 64L + (long) symbol.name().length() * 2L;
         if (value instanceof UUID || value instanceof ActorId) return 40L;
         if (value instanceof Enum<?>) return 24L;
         if (value instanceof ActorRuntime.ActorRef<?>) return 48L;
@@ -1411,7 +1486,7 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     private static boolean isScalar(Object value) {
-        return value == null || value instanceof String || value instanceof Boolean || value instanceof Character
+        return value == null || value instanceof String || value instanceof OresSymbol || value instanceof Boolean || value instanceof Character
                 || value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long
                 || value instanceof Float || value instanceof Double || value instanceof BigInteger || value instanceof BigDecimal
                 || value instanceof Enum<?> || value instanceof UUID || value instanceof ActorId;
@@ -1483,6 +1558,7 @@ public final class ActorRuntime implements AutoCloseable {
         private final Object lifecycleLock = new Object();
         private Behavior<M> behavior;
         private CompletableFuture<M> pendingReceive;
+        private int operationsRemaining;
 
         private ActorCell(
                 ActorRef<M> ref,
@@ -1504,6 +1580,14 @@ public final class ActorRuntime implements AutoCloseable {
                 throw new IllegalStateException(
                         operation + " may only be used by the owning actor during its mailbox turn");
             }
+        }
+
+        private boolean chargeOperations(int operations) {
+            requireCurrentTurn("actor operation accounting");
+            operationsRemaining -= operations;
+            if (operationsRemaining > 0) return false;
+            operationsRemaining = dispatcherConfig.operationBudget();
+            return true;
         }
 
         private CompletionStage<M> receive() {
@@ -1635,6 +1719,7 @@ public final class ActorRuntime implements AutoCloseable {
         @SuppressWarnings("unchecked")
         private void runBatchEntered() {
             currentActor.set(this);
+            operationsRemaining = dispatcherConfig.operationBudget();
             try {
                 if (stopped.get()) return;
 
