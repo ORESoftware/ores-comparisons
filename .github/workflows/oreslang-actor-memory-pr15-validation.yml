@@ -1,8 +1,8 @@
-name: oreslang-pr101-runtime-sharedsafe-validation
+name: oreslang-pr85-gpu-array-validation
 
 on:
   push:
-    branches: ["ci/oreslang-pr101-runtime-sharedsafe-20261002"]
+    branches: ["ci/oreslang-pr85-gpu-array-20261002"]
   pull_request:
     branches: ["main"]
 
