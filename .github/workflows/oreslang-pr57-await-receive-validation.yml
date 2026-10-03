@@ -1,8 +1,8 @@
-name: oreslang-pr57-await-receive-validation
+name: oreslang-pr67-symbol-hardening-validation
 
 on:
   push:
-    branches: ["ci/oreslang-pr57-await-receive"]
+    branches: ["ci/oreslang-pr67-symbol-hardening"]
   pull_request:
     branches: ["main"]
 
@@ -30,5 +30,5 @@ jobs:
         run: |
           java --version
           mvn --version
-      - name: Compile and test exact Oreslang PR 57 snapshot
+      - name: Compile and test exact Oreslang PR 67 symbol snapshot
         run: mvn -B -ntp test
