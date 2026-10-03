@@ -31,6 +31,7 @@ public final class OresEvalRootNode extends RootNode {
     public static final String LINK_ONLY_COMMAND = "__ores_internal_link_only__";
     public static final String INIT_ONLY_COMMAND = "__ores_internal_init_only__";
     public static final String MAIN_ONLY_COMMAND = "__ores_internal_main_only__";
+    public static final String INVOKE_PUBLIC_COMMAND = "__ores_internal_invoke_public__";
 
     private final Ast.Program program;
     private final String codeUnitId;
@@ -69,6 +70,12 @@ public final class OresEvalRootNode extends RootNode {
         if (isControl(arguments, MAIN_ONLY_COMMAND)) {
             current.link();
             return current.executeMain(new Object[0]);
+        }
+        if (arguments.length >= 2
+                && INVOKE_PUBLIC_COMMAND.equals(arguments[0])
+                && arguments[1] instanceof String functionName) {
+            current.link();
+            return current.invokePublic(functionName, java.util.Arrays.copyOfRange(arguments, 2, arguments.length));
         }
 
         // Backward-compatible single-source execution. Multi-file hosts use
@@ -250,6 +257,16 @@ public final class OresEvalRootNode extends RootNode {
             if (main == null) main = findFunction("main");
             if (main == null) return null;
             return callFunction(main, List.of(arguments));
+        }
+
+        private Object invokePublic(String name, Object[] arguments) {
+            Ast.FunctionDecl fn = findFunction(name);
+            if (fn == null || fn.visibility() != Ast.Visibility.PUBLIC) {
+                throw new IllegalArgumentException("code unit '" + codeUnitId
+                        + "' does not export public function '" + name + "'");
+            }
+            Object result = callFunction(fn, java.util.Arrays.asList(arguments));
+            return result instanceof HostObjectFacade host ? host.value() : result;
         }
 
         private Object callFunction(Ast.FunctionDecl fn, List<?> args) {
@@ -709,6 +726,12 @@ public final class OresEvalRootNode extends RootNode {
                 if (!map.containsKey(name)) throw new IllegalArgumentException("unknown obj member " + name);
                 return map.get(name);
             }
+            InteropLibrary foreign = InteropLibrary.getUncached(receiver);
+            if (foreign.hasMembers(receiver)) {
+                context.requireCapability(IsolatePolicy.Capability.JAVA_INTEROP,
+                        "Java host object member " + name);
+                return hostMember(receiver, "host object", name);
+            }
             throw new IllegalArgumentException("cannot access member '" + name + "' on " + receiver);
         }
 
@@ -963,8 +986,9 @@ public final class OresEvalRootNode extends RootNode {
             String candidate = normalizeUnitId(candidatePath.toString());
             if (!context.hasLinkedCodeUnit(candidate)
                     && !candidate.endsWith(".ores")
-                    && context.hasLinkedCodeUnit(candidate + ".ores")) {
-                candidate += ".ores";
+                    && !candidate.endsWith(".java")) {
+                if (context.hasLinkedCodeUnit(candidate + ".ores")) candidate += ".ores";
+                else if (context.hasLinkedCodeUnit(candidate + ".java")) candidate += ".java";
             }
             return candidate;
         }
