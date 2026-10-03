@@ -129,7 +129,7 @@ public final class TypeChecker {
                 else if (decl instanceof Ast.ClassDecl klass) checkClass(module.name(), klass);
                 else if (decl instanceof Ast.InterfaceDecl iface) checkInterface(iface);
                 else if (decl instanceof Ast.TypeAliasDecl alias) resolve(alias.target(), Set.copyOf(alias.genericParameters()), null);
-                else if (decl instanceof Ast.FieldDecl field) checkModuleBinding(field);
+                else if (decl instanceof Ast.FieldDecl field) checkModuleBinding(module, field);
             }
         }
     }
@@ -348,6 +348,11 @@ public final class TypeChecker {
                 initializedFields.add(field.name());
             }
 
+            if (decl instanceof Ast.FunctionDecl fn && fn.name().equals("main")) {
+                throw new IllegalArgumentException("singleton module '" + module.name()
+                        + "' cannot declare main; the process entrypoint must remain outside singleton actor ownership");
+            }
+
             if (decl instanceof Ast.FunctionDecl fn && fn.visibility() == Ast.Visibility.PUBLIC) {
                 if (fn.async()) {
                     throw new IllegalArgumentException("singleton callable '" + module.name() + "." + fn.name()
@@ -362,7 +367,7 @@ public final class TypeChecker {
                 for (Ast.Param param : fn.parameters()) {
                     if (param.mutable()) {
                         throw new IllegalArgumentException("singleton callable '" + module.name() + "." + fn.name()
-                                + "' cannot accept mut parameters because transported values are frozen snapshots");
+                                + "' cannot accept mut parameters because mailbox transport passes frozen snapshots");
                     }
                     if (param.structural()) {
                         throw new IllegalArgumentException("singleton callable '" + module.name() + "." + fn.name()
@@ -423,6 +428,18 @@ public final class TypeChecker {
                     + "' cannot use a generic class until proxy Send constraints are explicit");
         }
 
+        for (Ast.FieldDecl classField : klass.fields()) {
+            if (classField.type() == null) {
+                throw new IllegalArgumentException("singleton proxy storage field '" + klass.name() + "."
+                        + classField.name() + "' requires an explicit process-stable type");
+            }
+            if (containsTypeAlias(classField.type())) {
+                throw new IllegalArgumentException("singleton proxy storage field '" + klass.name() + "."
+                        + classField.name()
+                        + "' cannot use type aliases in process-lifetime state; spell the storage type explicitly");
+            }
+        }
+
         for (Ast.MethodDecl method : klass.methods()) {
             if (method.isStatic() || method.visibility() != Ast.Visibility.PUBLIC) continue;
             if (method.async()) {
@@ -434,9 +451,13 @@ public final class TypeChecker {
                         + "' cannot be generic until proxy Send constraints are explicit");
             }
             for (Ast.Param param : method.parameters()) {
-                if (param.mutable() || param.structural()) {
+                if (param.mutable()) {
                     throw new IllegalArgumentException("singleton proxy method '" + klass.name() + "." + method.name()
-                            + "' cannot use mut or structural transported parameters");
+                            + "' cannot accept mut transported parameters because mailbox transport passes frozen snapshots");
+                }
+                if (param.structural()) {
+                    throw new IllegalArgumentException("singleton proxy method '" + klass.name() + "." + method.name()
+                            + "' cannot use structural transported parameters");
                 }
                 Type parameter = resolveParam(param, Set.of(), nominalClassType(klass));
                 if (!isActorSendableType(parameter, false)) {
@@ -584,14 +605,36 @@ public final class TypeChecker {
             if (locals.contains(name.name()) || name.name().equals("self")
                     || name.name().equals("Some") || name.name().equals("None")) return;
             if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("print")) {
-                throw processEffectError(where, "ambient capability '" + name.name() + "'");
+                throw processEffectError(where, "ambient caller capability '" + name.name() + "' (ambient capability)");
             }
             if (importedNames.contains(name.name())) {
                 throw processEffectError(where, "imported dependency '" + name.name() + "'");
             }
             Ast.ModuleDecl referencedModule = modules.get(name.name());
             if (referencedModule != null && !referencedModule.singleton()) {
-                throw processEffectError(where, "caller/context-local module '" + referencedModule.name() + "'");
+                throw processEffectError(where, "actor/context-local module '" + referencedModule.name() + "' (caller/context-local module)");
+            }
+
+            Ast.FunctionDecl referencedFunction = findFunction(name.name());
+            if (referencedFunction != null) {
+                String ownerName = functionOwners.get(referencedFunction);
+                Ast.ModuleDecl functionOwner = ownerName == null ? null : modules.get(ownerName);
+                if (functionOwner == null || !functionOwner.singleton()
+                        || !functionOwner.name().equals(processOwner.name())) {
+                    throw processEffectError(where,
+                            "ordinary/foreign function value '" + name.name() + "'");
+                }
+            }
+
+            Ast.ClassDecl referencedClass = findClass(name.name());
+            if (referencedClass != null && referencedClass != processClass) {
+                String ownerName = classOwners.get(referencedClass);
+                Ast.ModuleDecl classOwner = ownerName == null ? null : modules.get(ownerName);
+                if (classOwner == null || !classOwner.singleton()
+                        || !classOwner.name().equals(processOwner.name())) {
+                    throw processEffectError(where,
+                            "ordinary/foreign class namespace '" + name.name() + "'");
+                }
             }
             return;
         }
@@ -603,7 +646,7 @@ public final class TypeChecker {
                     String targetOwnerName = functionOwners.get(target);
                     Ast.ModuleDecl targetOwner = targetOwnerName == null ? null : modules.get(targetOwnerName);
                     if (targetOwner == null || !targetOwner.singleton()) {
-                        throw processEffectError(where, "ordinary helper function '" + name.name() + "'");
+                        throw processEffectError(where, "actor/context-local function '" + name.name() + "' (ordinary helper function)");
                     }
                 }
             }
@@ -612,7 +655,7 @@ public final class TypeChecker {
                     && !locals.contains(receiver.name())) {
                 Ast.ModuleDecl targetModule = modules.get(receiver.name());
                 if (targetModule != null && !targetModule.singleton()) {
-                    throw processEffectError(where, "caller/context-local module '" + targetModule.name() + "'");
+                    throw processEffectError(where, "actor/context-local module '" + targetModule.name() + "' (caller/context-local module)");
                 }
                 Ast.ClassDecl targetClass = findClass(receiver.name());
                 if (targetClass != null && targetClass != processClass) {
@@ -932,6 +975,7 @@ public final class TypeChecker {
         for (Ast.FieldDecl field : klass.fields()) {
             Type fieldType = resolve(field.type(), classGenerics, self);
             if (field.initializer() != null) {
+                validateSingletonTransportExpr(field.initializer(), module);
                 Type actual = typeOf(field.initializer(), new Env(classModuleEnv), classGenerics, self);
                 requireAssignable(actual, fieldType, "field initializer " + klass.name() + "." + field.name());
             }
@@ -981,13 +1025,36 @@ public final class TypeChecker {
         }
     }
 
-    private void checkModuleBinding(Ast.FieldDecl field) {
+    private void checkModuleBinding(Ast.ModuleDecl module, Ast.FieldDecl field) {
         if (field.initializer() == null) throw new IllegalArgumentException("module binding '" + field.name() + "' requires an initializer");
-        Type actual = typeOf(field.initializer(), new Env(null), Set.of(), null);
+        validateSingletonTransportExpr(field.initializer(), module.name());
+
+        Env initializerEnv = module.singleton()
+                ? singletonInitializerEnvBefore(module, field)
+                : new Env(null, module.name());
+        Type actual = typeOf(field.initializer(), initializerEnv, Set.of(), null);
         if (field.type() != null) requireAssignable(actual, resolve(field.type(), Set.of(), null), "initializer for " + field.name());
         if (field.bindingKind() == Ast.BindingKind.CONST && !constant(field.initializer())) {
             throw new IllegalArgumentException("const '" + field.name() + "' needs a compile-time constant initializer");
         }
+    }
+
+    private Env singletonInitializerEnvBefore(Ast.ModuleDecl module, Ast.FieldDecl target) {
+        Env env = new Env(null, module.name());
+        for (Ast.Decl decl : module.declarations()) {
+            if (!(decl instanceof Ast.FieldDecl field)) continue;
+            if (field == target) break;
+            if (field.initializer() == null) {
+                throw new IllegalArgumentException("singleton module binding '" + module.name() + "."
+                        + field.name() + "' requires an initializer");
+            }
+
+            Type actual = typeOf(field.initializer(), env, Set.of(), null);
+            Type declared = field.type() == null ? actual : resolve(field.type(), Set.of(), null);
+            requireAssignable(actual, declared, "initializer for " + module.name() + "." + field.name());
+            env.define(field.name(), declared, field.bindingKind());
+        }
+        return env;
     }
 
     private void checkBlock(List<Ast.Stmt> body, Env parent, Set<String> generics, Type expectedReturn, Type self) {
@@ -1469,6 +1536,26 @@ public final class TypeChecker {
     }
 
     private void validateSingletonTransportExpr(Ast.Expr expr, String currentModule) {
+        if (expr instanceof Ast.NameExpr name) {
+            Ast.ModuleDecl module = modules.get(name.name());
+            if (module != null && module.singleton() && !module.name().equals(currentModule)) {
+                throw new IllegalArgumentException("singleton module handles cannot be extracted; access and await "
+                        + module.name() + " members directly");
+            }
+
+            Ast.FunctionDecl function = findFunction(name.name());
+            if (function != null) {
+                String ownerName = functionOwners.get(function);
+                Ast.ModuleDecl owner = ownerName == null ? null : modules.get(ownerName);
+                if (owner != null && owner.singleton() && !owner.name().equals(currentModule)
+                        && function.visibility() == Ast.Visibility.PUBLIC) {
+                    throw new IllegalArgumentException("singleton service function values cannot be extracted; call and await "
+                            + owner.name() + "." + function.name() + "(...) directly");
+                }
+            }
+            return;
+        }
+
         if (expr instanceof Ast.AwaitExpr awaited) {
             if (awaited.expression() instanceof Ast.CallExpr call && isExternalSingletonCall(call, currentModule)) {
                 validateSingletonTransportCallChildren(call, currentModule);
@@ -1498,9 +1585,19 @@ public final class TypeChecker {
             validateSingletonTransportExpr(conditional.whenTrue(), currentModule);
             validateSingletonTransportExpr(conditional.whenFalse(), currentModule);
         } else if (expr instanceof Ast.MemberExpr member) {
+            if (member.receiver() instanceof Ast.MemberExpr exported
+                    && isExternalSingletonProxyFieldMember(exported, currentModule)) {
+                Ast.NameExpr namespace = (Ast.NameExpr) exported.receiver();
+                throw new IllegalArgumentException("singleton object fields are actor-private; invoke a public method on "
+                        + namespace.name() + "." + exported.member());
+            }
             if (isExternalSingletonFunctionMember(member, currentModule)) {
                 throw new IllegalArgumentException("singleton service function values cannot be extracted; call and await "
                         + ((Ast.NameExpr) member.receiver()).name() + "." + member.member() + "(...) directly");
+            }
+            if (isExternalSingletonProxyFieldMember(member, currentModule)) {
+                throw new IllegalArgumentException("singleton object proxy handles cannot be extracted; call and await a method on "
+                        + ((Ast.NameExpr) member.receiver()).name() + "." + member.member() + " directly");
             }
             validateSingletonTransportExpr(member.receiver(), currentModule);
         } else if (expr instanceof Ast.IndexExpr indexed) {
@@ -1528,6 +1625,21 @@ public final class TypeChecker {
             validateSingletonTransportExpr(call.callee(), currentModule);
         }
         for (Ast.Expr argument : call.arguments()) validateSingletonTransportExpr(argument, currentModule);
+    }
+
+    private boolean isExternalSingletonProxyFieldMember(Ast.MemberExpr member, String currentModule) {
+        if (!(member.receiver() instanceof Ast.NameExpr namespace)) return false;
+        Ast.ModuleDecl owner = modules.get(namespace.name());
+        if (owner == null || !owner.singleton() || owner.name().equals(currentModule)) return false;
+        for (Ast.Decl decl : owner.declarations()) {
+            if (decl instanceof Ast.FieldDecl field
+                    && field.visibility() == Ast.Visibility.PUBLIC
+                    && field.name().equals(member.member())
+                    && singletonProxyClass(field) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isExternalSingletonFunctionMember(Ast.MemberExpr member, String currentModule) {
