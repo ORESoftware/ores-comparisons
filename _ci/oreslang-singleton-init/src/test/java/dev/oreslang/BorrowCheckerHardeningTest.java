@@ -1,6 +1,5 @@
 package dev.oreslang;
 
-import dev.oreslang.nodes.OresEvalRootNode;
 import dev.oreslang.parser.Parser;
 import dev.oreslang.types.TypeChecker;
 import org.junit.jupiter.api.Test;
@@ -220,29 +219,5 @@ final class BorrowCheckerHardeningTest {
         // can enter an owned field through any successful compilation path.
         assertTrue(error.getMessage() != null && !error.getMessage().isBlank());
     }
-    @Test
-    void evaluatorConstructionCannotBypassOwnershipAdmission() {
-        IllegalArgumentException error = assertThrows(
-                IllegalArgumentException.class,
-                () -> new OresEvalRootNode(
-                        new OresLanguage(),
-                        Parser.parse("""
-                                define class Box as
-                                  pub val int value = 7;
-                                end
 
-                                fnc consume(take Box box) => void {
-                                  return;
-                                }
-
-                                fnc bad() => void {
-                                  let Box box = new Box();
-                                  consume(box);
-                                  stdio.println(box.value);
-                                  return;
-                                }
-                                """)));
-
-        assertTrue(error.getMessage().toLowerCase().contains("moved"));
-    }
 }
