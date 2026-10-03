@@ -1,10 +1,14 @@
 package dev.oreslang.runtime;
 
+import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -21,8 +25,11 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +57,17 @@ public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_MESSAGE_GRAPH_DEPTH = 256;
     private static final int MAX_MESSAGE_GRAPH_NODES = 100_000;
     private static final long CLOSE_WAIT_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
+    public static final Duration HARD_MAX_UNTRUSTED_LIFETIME = Duration.ofSeconds(300);
+    private static final long DEFAULT_UNTRUSTED_FUEL_PER_TURN = 100_000L;
+    private static final long DEFAULT_UNTRUSTED_MAILBOX_RETURN_BYTES = 1024L * 1024L;
+    private static final long DEFAULT_UNTRUSTED_HTTP_REQUEST_BYTES = 16L * 1024L * 1024L;
+    private static final long DEFAULT_UNTRUSTED_HTTP_RESPONSE_BYTES = 16L * 1024L * 1024L;
+    private static final int MAX_UNTRUSTED_HTTP_REQUEST_HEADER_LOOKUPS = 128;
+    private static final long MAX_UNTRUSTED_HTTP_REQUEST_METADATA_BYTES = 64L * 1024L;
+    private static final long MAX_UNTRUSTED_HTTP_REQUEST_PATH_BYTES = 8L * 1024L;
+    private static final long MAX_UNTRUSTED_HTTP_REQUEST_HEADER_VALUE_BYTES = 16L * 1024L;
+    private static final int MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS = 128;
+    private static final long MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES = 64L * 1024L;
     private static final ThreadLocal<Boolean> ACTOR_CARRIER = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static final ThreadLocal<ActorExecutionContext> CURRENT_ACTOR_EXECUTION = new ThreadLocal<>();
 
@@ -92,33 +110,203 @@ public final class ActorRuntime implements AutoCloseable {
         return current == null ? null : current.kind();
     }
 
+    /**
+     * Control-plane aborts must bypass guest catch/recover semantics.
+     * They are scheduler/sandbox decisions, not application exceptions.
+     */
+    public static boolean isActorControlAbort(Throwable failure) {
+        if (failure instanceof ActorBudgetExceededException
+                || failure instanceof ActorLifetimeExceededException) {
+            return true;
+        }
+        return failure instanceof CancellationException
+                && currentActorKind() == ActorKind.UNTRUSTED;
+    }
+
     public static Object currentExecutionDomain() {
         ActorExecutionContext current = CURRENT_ACTOR_EXECUTION.get();
         return current == null ? Thread.currentThread() : current.executionDomain();
     }
 
-    public enum ActorKind { PRIVATE, SHARED }
+    public enum ActorKind {
+        PRIVATE,
+        SHARED,
+        UNTRUSTED;
+
+        public boolean memoryIsolated() {
+            return this != SHARED;
+        }
+
+        public boolean untrusted() {
+            return this == UNTRUSTED;
+        }
+    }
 
     public record DispatcherConfig(
             int privateParallelism,
             int sharedParallelism,
+            int untrustedParallelism,
             int throughput,
             int maxActors) {
         public DispatcherConfig {
             if (privateParallelism <= 0) throw new IllegalArgumentException("privateParallelism must be > 0");
             if (sharedParallelism <= 0) throw new IllegalArgumentException("sharedParallelism must be > 0");
+            if (untrustedParallelism <= 0) throw new IllegalArgumentException("untrustedParallelism must be > 0");
             if (throughput <= 0) throw new IllegalArgumentException("throughput must be > 0");
             if (maxActors <= 0) throw new IllegalArgumentException("maxActors must be > 0");
         }
 
+        /** Backward-compatible constructor: untrusted work gets its own pool sized like private work. */
+        public DispatcherConfig(int privateParallelism, int sharedParallelism, int throughput, int maxActors) {
+            this(privateParallelism, sharedParallelism, privateParallelism, throughput, maxActors);
+        }
+
         public DispatcherConfig(int privateParallelism, int sharedParallelism, int throughput) {
-            this(privateParallelism, sharedParallelism, throughput, 16_384);
+            this(privateParallelism, sharedParallelism, privateParallelism, throughput, 16_384);
+        }
+
+        /**
+         * Mailbox quantum for one dispatcher turn. Adversarial actors always
+         * surrender the carrier after one message; trusted actors may amortize
+         * scheduling overhead with a bounded batch.
+         */
+        public int throughputFor(ActorKind kind) {
+            Objects.requireNonNull(kind, "kind");
+            return kind == ActorKind.UNTRUSTED ? 1 : throughput;
         }
 
         public static DispatcherConfig defaults() {
-            int cpus = Math.max(2, Runtime.getRuntime().availableProcessors());
-            return new DispatcherConfig(cpus, cpus, 64, 16_384);
+            int cpus = Math.max(1, Runtime.getRuntime().availableProcessors());
+
+            // Keep the total number of hot actor workers near the CPU count
+            // instead of independently allocating N CPUs to every trust lane.
+            // Each lane still gets at least one worker so a blocked/hostile lane
+            // cannot consume all execution capacity from another lane.
+            int shared = Math.max(1, cpus / 2);
+            int remaining = Math.max(0, cpus - shared);
+            int isolated = Math.max(1, (remaining + 1) / 2);
+            int untrusted = Math.max(1, remaining - Math.min(remaining, isolated));
+            return new DispatcherConfig(isolated, shared, untrusted, 64, 16_384);
         }
+
+        public DispatcherConfig withMaxActors(int replacementMaxActors) {
+            return new DispatcherConfig(
+                    privateParallelism,
+                    sharedParallelism,
+                    untrustedParallelism,
+                    throughput,
+                    replacementMaxActors);
+        }
+    }
+
+    public record DispatcherStats(
+            ActorKind kind,
+            int parallelism,
+            int activeWorkers,
+            int queuedTasks,
+            long completedDispatches,
+            long starvationEvents,
+            long maxQueueWaitNanos) { }
+
+    /**
+     * Hard sandbox limits for one untrusted actor. The 300 second lifetime is
+     * an absolute ceiling, not a hint, and mailbox return data is deliberately
+     * much smaller than direct HTTP streaming data.
+     */
+    public record UntrustedActorLimits(
+            Duration maxLifetime,
+            long fuelPerTurn,
+            long maxMailboxReturnBytes,
+            long maxHttpRequestBytes,
+            long maxHttpResponseBytes) {
+        public UntrustedActorLimits {
+            Objects.requireNonNull(maxLifetime, "maxLifetime");
+            if (maxLifetime.isZero() || maxLifetime.isNegative()) {
+                throw new IllegalArgumentException("untrusted actor maxLifetime must be positive");
+            }
+            if (maxLifetime.compareTo(HARD_MAX_UNTRUSTED_LIFETIME) > 0) {
+                throw new IllegalArgumentException(
+                        "untrusted actor maxLifetime cannot exceed " + HARD_MAX_UNTRUSTED_LIFETIME.toSeconds() + " seconds");
+            }
+            if (fuelPerTurn <= 0) throw new IllegalArgumentException("untrusted actor fuelPerTurn must be positive");
+            if (maxMailboxReturnBytes <= 0) throw new IllegalArgumentException("maxMailboxReturnBytes must be positive");
+            if (maxHttpRequestBytes <= 0) throw new IllegalArgumentException("maxHttpRequestBytes must be positive");
+            if (maxHttpResponseBytes <= 0) throw new IllegalArgumentException("maxHttpResponseBytes must be positive");
+        }
+
+        /** Backward-compatible constructor for response-only hosts. */
+        public UntrustedActorLimits(
+                Duration maxLifetime,
+                long fuelPerTurn,
+                long maxMailboxReturnBytes,
+                long maxHttpResponseBytes) {
+            this(
+                    maxLifetime,
+                    fuelPerTurn,
+                    maxMailboxReturnBytes,
+                    DEFAULT_UNTRUSTED_HTTP_REQUEST_BYTES,
+                    maxHttpResponseBytes);
+        }
+
+        public static UntrustedActorLimits defaults() {
+            return new UntrustedActorLimits(
+                    HARD_MAX_UNTRUSTED_LIFETIME,
+                    DEFAULT_UNTRUSTED_FUEL_PER_TURN,
+                    DEFAULT_UNTRUSTED_MAILBOX_RETURN_BYTES,
+                    DEFAULT_UNTRUSTED_HTTP_REQUEST_BYTES,
+                    DEFAULT_UNTRUSTED_HTTP_RESPONSE_BYTES);
+        }
+    }
+
+    public static final class ActorBudgetExceededException extends RuntimeException {
+        public ActorBudgetExceededException(String message) { super(message); }
+    }
+
+    public static final class ActorLifetimeExceededException extends RuntimeException {
+        public ActorLifetimeExceededException(String message) { super(message); }
+    }
+
+    public static final class HttpRequestLimitExceededException extends RuntimeException {
+        public HttpRequestLimitExceededException(String message) { super(message); }
+    }
+
+    public static final class HttpResponseLimitExceededException extends RuntimeException {
+        public HttpResponseLimitExceededException(String message) { super(message); }
+    }
+
+    /**
+     * Host-provided adapter for exactly one HTTP request stream. This is
+     * intentionally narrower than NETWORK authority: the host retains the
+     * socket/parser and exposes only the already-accepted request.
+     */
+    public interface HttpRequestTransport {
+        String method();
+        String path();
+        default Optional<String> header(String name) { return Optional.empty(); }
+
+        /**
+         * Reads request-body bytes into target. Return -1 at EOF, 0 when a
+         * non-blocking transport would wait, or a positive byte count.
+         */
+        int read(ByteBuffer target) throws IOException;
+
+        default void cancel(Throwable cause) { }
+    }
+
+    /**
+     * Host-provided adapter for exactly one HTTP response stream. Implementors
+     * may write to a SocketChannel/event-loop stream directly; the untrusted
+     * actor never receives a raw file descriptor or general NETWORK authority.
+     *
+     * Implementations must be non-blocking or otherwise scheduler-aware.
+     */
+    public interface HttpResponseTransport {
+        default void status(int statusCode) throws IOException { }
+        default void header(String name, String value) throws IOException { }
+        int write(ByteBuffer source) throws IOException;
+        default void flush() throws IOException { }
+        default void complete() throws IOException { }
+        default void abort(Throwable cause) { }
     }
 
     public record ActorId(UUID value) {
@@ -138,6 +326,337 @@ public final class ActorRuntime implements AutoCloseable {
 
         public ActorId actorId() { return actorId; }
         public ActorKind actorKind() { return actorKind; }
+    }
+
+    /**
+     * Owner-bound, non-Sendable HTTP request capability. It reads from the
+     * host's already-admitted HTTP request stream without copying request-body
+     * chunks through the actor mailbox.
+     */
+    public final class HttpRequestCapability {
+        private final ActorId owner;
+        private final HttpRequestTransport transport;
+        private final long maxBytes;
+        private final AtomicLong readBytes = new AtomicLong();
+        private final AtomicLong metadataBytes = new AtomicLong();
+        private final AtomicInteger headerLookups = new AtomicInteger();
+        private final AtomicReference<String> cachedMethod = new AtomicReference<>();
+        private final AtomicReference<String> cachedPath = new AtomicReference<>();
+        private final AtomicBoolean eof = new AtomicBoolean();
+
+        private HttpRequestCapability(
+                ActorId owner,
+                HttpRequestTransport transport,
+                long maxBytes) {
+            this.owner = Objects.requireNonNull(owner);
+            this.transport = Objects.requireNonNull(transport);
+            this.maxBytes = maxBytes;
+        }
+
+        public long maxBytes() { return maxBytes; }
+        public long readBytes() { return readBytes.get(); }
+        public long remainingBytes() { return Math.max(0L, maxBytes - readBytes.get()); }
+        public long metadataBytes() { return metadataBytes.get(); }
+        public int headerLookups() { return headerLookups.get(); }
+        public boolean eof() { return eof.get(); }
+
+        private ActorCell<?> requireOwner(String operation) {
+            ActorCell<?> cell = currentActor.get();
+            if (cell == null || cell.kind != ActorKind.UNTRUSTED || !cell.ref.id().equals(owner)) {
+                throw new SecurityException(
+                        "HTTP request capability may only be used by its owning untrusted actor: " + operation);
+            }
+            cell.checkUntrustedBudget(1);
+            return cell;
+        }
+
+        public String method() {
+            requireOwner("method");
+            String cached = cachedMethod.get();
+            if (cached != null) return cached;
+
+            String method = Objects.requireNonNull(transport.method(), "HTTP request method");
+            if (!method.matches("[!#$%&'*+.^_|~0-9A-Za-z-]{1,32}")) {
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request method is invalid or too large");
+            }
+            chargeRequestMetadata(method.getBytes(StandardCharsets.UTF_8).length);
+            cachedMethod.compareAndSet(null, method);
+            return cachedMethod.get();
+        }
+
+        public String path() {
+            requireOwner("path");
+            String cached = cachedPath.get();
+            if (cached != null) return cached;
+
+            String path = Objects.requireNonNull(transport.path(), "HTTP request path");
+            if (path.indexOf('\r') >= 0 || path.indexOf('\n') >= 0) {
+                throw new IllegalArgumentException("HTTP request path cannot contain CR/LF");
+            }
+            long bytes = path.getBytes(StandardCharsets.UTF_8).length;
+            if (bytes > MAX_UNTRUSTED_HTTP_REQUEST_PATH_BYTES) {
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request path exceeds "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_PATH_BYTES + " bytes");
+            }
+            chargeRequestMetadata(bytes);
+            cachedPath.compareAndSet(null, path);
+            return cachedPath.get();
+        }
+
+        public Optional<String> header(String name) {
+            requireOwner("header");
+            Objects.requireNonNull(name, "header name");
+            if (!name.matches("[!#$%&'*+.^_|~0-9A-Za-z-]{1,256}")) {
+                throw new IllegalArgumentException("invalid or oversized HTTP request header name");
+            }
+            int lookups = headerLookups.incrementAndGet();
+            if (lookups > MAX_UNTRUSTED_HTTP_REQUEST_HEADER_LOOKUPS) {
+                headerLookups.decrementAndGet();
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request header lookup limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_HEADER_LOOKUPS);
+            }
+
+            Optional<String> result = Objects.requireNonNull(
+                    transport.header(name),
+                    "HTTP request header result");
+            if (result.isEmpty()) {
+                chargeRequestMetadata(name.length());
+                return result;
+            }
+
+            String value = Objects.requireNonNull(result.orElseThrow(), "HTTP request header value");
+            if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+                throw new IllegalArgumentException("HTTP request header value cannot contain CR/LF");
+            }
+            long valueBytes = value.getBytes(StandardCharsets.UTF_8).length;
+            if (valueBytes > MAX_UNTRUSTED_HTTP_REQUEST_HEADER_VALUE_BYTES) {
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request header value exceeds "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_HEADER_VALUE_BYTES + " bytes");
+            }
+            chargeRequestMetadata((long) name.length() + valueBytes);
+            return Optional.of(value);
+        }
+
+        private void chargeRequestMetadata(long bytes) {
+            if (bytes < 0) throw new IllegalArgumentException("HTTP request metadata bytes cannot be negative");
+            long next = metadataBytes.addAndGet(bytes);
+            if (next > MAX_UNTRUSTED_HTTP_REQUEST_METADATA_BYTES) {
+                metadataBytes.addAndGet(-bytes);
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request metadata limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_REQUEST_METADATA_BYTES + " bytes");
+            }
+        }
+
+        /**
+         * Reads directly from the host request-body stream. A larger caller
+         * buffer is temporarily windowed to the remaining sandbox quota.
+         */
+        public int read(ByteBuffer target) throws IOException {
+            requireOwner("read");
+            Objects.requireNonNull(target, "target");
+            if (eof.get()) return -1;
+            if (!target.hasRemaining()) return 0;
+
+            long remaining = remainingBytes();
+            if (remaining == 0L) {
+                throw new HttpRequestLimitExceededException(
+                        "untrusted actor HTTP request limit exceeded: max=" + maxBytes);
+            }
+
+            int originalLimit = target.limit();
+            int permitted = (int) Math.min((long) target.remaining(), remaining);
+            int beforePosition = target.position();
+            target.limit(beforePosition + permitted);
+            final int read;
+            try {
+                read = transport.read(target);
+            } finally {
+                target.limit(originalLimit);
+            }
+
+            if (read == -1) {
+                if (target.position() != beforePosition) {
+                    throw new IllegalStateException(
+                            "HTTP request transport advanced buffer position while reporting EOF");
+                }
+                eof.set(true);
+                return -1;
+            }
+            if (read < 0 || read > permitted || target.position() != beforePosition + read) {
+                throw new IllegalStateException(
+                        "HTTP request transport violated ByteBuffer read contract");
+            }
+            readBytes.addAndGet(read);
+            return read;
+        }
+
+        private void cancelFromRuntime(Throwable cause) {
+            if (eof.compareAndSet(false, true)) {
+                try {
+                    transport.cancel(cause);
+                } catch (RuntimeException ignored) {
+                    // Actor teardown must not be retained by a bad host adapter.
+                }
+            }
+        }
+    }
+
+    /**
+     * Owner-bound, non-Sendable HTTP response capability. This deliberately
+     * bypasses actor mailboxes for response body bytes while preserving a hard
+     * byte limit and actor ownership check on every operation.
+     */
+    public final class HttpResponseCapability {
+        private final ActorId owner;
+        private final HttpResponseTransport transport;
+        private final long maxBytes;
+        private final AtomicLong writtenBytes = new AtomicLong();
+        private final AtomicLong headerBytes = new AtomicLong();
+        private final AtomicInteger headerCount = new AtomicInteger();
+        private final AtomicBoolean statusSet = new AtomicBoolean();
+        private final AtomicBoolean responseStarted = new AtomicBoolean();
+        private final AtomicBoolean completed = new AtomicBoolean();
+
+        private HttpResponseCapability(
+                ActorId owner,
+                HttpResponseTransport transport,
+                long maxBytes) {
+            this.owner = Objects.requireNonNull(owner);
+            this.transport = Objects.requireNonNull(transport);
+            this.maxBytes = maxBytes;
+        }
+
+        public long maxBytes() { return maxBytes; }
+        public long writtenBytes() { return writtenBytes.get(); }
+        public long remainingBytes() { return Math.max(0L, maxBytes - writtenBytes.get()); }
+        public long headerBytes() { return headerBytes.get(); }
+        public int headerCount() { return headerCount.get(); }
+        public boolean completed() { return completed.get(); }
+        public boolean responseStarted() { return responseStarted.get(); }
+
+        private ActorCell<?> requireOwner(String operation) {
+            ActorCell<?> cell = currentActor.get();
+            if (cell == null || cell.kind != ActorKind.UNTRUSTED || !cell.ref.id().equals(owner)) {
+                throw new SecurityException(
+                        "HTTP response capability may only be used by its owning untrusted actor: " + operation);
+            }
+            cell.checkUntrustedBudget(1);
+            if (completed.get()) {
+                throw new IllegalStateException("HTTP response is already completed");
+            }
+            return cell;
+        }
+
+        public void status(int statusCode) throws IOException {
+            requireOwner("status");
+            if (responseStarted.get()) {
+                throw new IllegalStateException("HTTP status cannot change after response streaming starts");
+            }
+            if (statusCode < 100 || statusCode > 599) {
+                throw new IllegalArgumentException("invalid HTTP status code " + statusCode);
+            }
+            if (!statusSet.compareAndSet(false, true)) {
+                throw new IllegalStateException("HTTP response status may be set only once");
+            }
+            transport.status(statusCode);
+        }
+
+        public void header(String name, String value) throws IOException {
+            requireOwner("header");
+            if (responseStarted.get()) {
+                throw new IllegalStateException("HTTP headers cannot change after response streaming starts");
+            }
+            Objects.requireNonNull(name, "header name");
+            Objects.requireNonNull(value, "header value");
+            if (name.length() > 256) {
+                throw new HttpResponseLimitExceededException("HTTP response header name exceeds 256 characters");
+            }
+            if (value.length() > MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES) {
+                throw new HttpResponseLimitExceededException(
+                        "HTTP response header value exceeds metadata ceiling");
+            }
+            if (!name.matches("[!#$%&'*+.^_|~0-9A-Za-z-]+")) {
+                throw new IllegalArgumentException("invalid HTTP header name");
+            }
+            if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+                throw new IllegalArgumentException("HTTP header value cannot contain CR/LF");
+            }
+            int nextCount = headerCount.incrementAndGet();
+            if (nextCount > MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS) {
+                headerCount.decrementAndGet();
+                throw new HttpResponseLimitExceededException(
+                        "untrusted actor HTTP response header-count limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_RESPONSE_HEADERS);
+            }
+            long bytes = (long) name.length()
+                    + value.getBytes(StandardCharsets.UTF_8).length;
+            long nextBytes = headerBytes.addAndGet(bytes);
+            if (nextBytes > MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES) {
+                headerBytes.addAndGet(-bytes);
+                headerCount.decrementAndGet();
+                throw new HttpResponseLimitExceededException(
+                        "untrusted actor HTTP response header-byte limit exceeded: "
+                                + MAX_UNTRUSTED_HTTP_RESPONSE_HEADER_BYTES);
+            }
+            transport.header(name, value);
+        }
+
+        /**
+         * Writes directly through the host's response transport. No actor
+         * mailbox copy is performed. The transport may be backed directly by a
+         * SocketChannel/HTTP stream. Partial non-blocking writes are allowed.
+         */
+        public int write(ByteBuffer source) throws IOException {
+            requireOwner("write");
+            Objects.requireNonNull(source, "source");
+            int requested = source.remaining();
+            if (requested == 0) return 0;
+            long remaining = remainingBytes();
+            if (requested > remaining) {
+                throw new HttpResponseLimitExceededException(
+                        "untrusted actor HTTP response limit exceeded: requested="
+                                + requested + " remaining=" + remaining + " max=" + maxBytes);
+            }
+            responseStarted.set(true);
+            int before = source.remaining();
+            int written = transport.write(source);
+            if (written < 0 || written > before || source.remaining() != before - written) {
+                throw new IllegalStateException(
+                        "HTTP response transport violated ByteBuffer write contract");
+            }
+            writtenBytes.addAndGet(written);
+            return written;
+        }
+
+        public void flush() throws IOException {
+            requireOwner("flush");
+            responseStarted.set(true);
+            transport.flush();
+        }
+
+        public void complete() throws IOException {
+            requireOwner("complete");
+            responseStarted.set(true);
+            if (completed.compareAndSet(false, true)) {
+                transport.complete();
+            }
+        }
+
+        private void abortFromRuntime(Throwable cause) {
+            if (completed.compareAndSet(false, true)) {
+                try {
+                    transport.abort(cause);
+                } catch (RuntimeException ignored) {
+                    // Teardown must not retain actor memory because a host
+                    // response adapter misbehaved during abort.
+                }
+            }
+        }
     }
 
     /**
@@ -183,11 +702,24 @@ public final class ActorRuntime implements AutoCloseable {
     private final Object runtimeLifecycleLock = new Object();
     private final Set<SyncCell<?>> syncCells = ConcurrentHashMap.newKeySet();
     private final Set<Shared<?>> sharedValues = ConcurrentHashMap.newKeySet();
+    private static final long STARVATION_THRESHOLD_NANOS = TimeUnit.SECONDS.toNanos(1);
+    private static final int PROCESS_TASKS_PER_SHARED_WORKER = 2;
+
     private final IsolatePolicy policyCeiling;
     private final DispatcherConfig dispatcherConfig;
     private final TurnExecutor turnExecutor;
-    private final ExecutorService privateDispatcher;
-    private final ExecutorService sharedDispatcher;
+    private final ThreadPoolExecutor privateDispatcher;
+    private final ThreadPoolExecutor sharedDispatcher;
+    private final ThreadPoolExecutor untrustedDispatcher;
+    private final ScheduledThreadPoolExecutor untrustedWatchdog;
+    private final AtomicLong privateStarvationEvents = new AtomicLong();
+    private final AtomicLong sharedStarvationEvents = new AtomicLong();
+    private final AtomicLong untrustedStarvationEvents = new AtomicLong();
+    private final AtomicLong privateMaxQueueWaitNanos = new AtomicLong();
+    private final AtomicLong sharedMaxQueueWaitNanos = new AtomicLong();
+    private final AtomicLong untrustedMaxQueueWaitNanos = new AtomicLong();
+    private final int maxProcessTasksInFlight;
+    private final AtomicInteger processTasksInFlight = new AtomicInteger();
     private final ThreadLocal<ActorCell<?>> currentActor = new ThreadLocal<>();
     private final ThreadLocal<SyncCell<?>> currentSyncCell = new ThreadLocal<>();
 
@@ -202,11 +734,7 @@ public final class ActorRuntime implements AutoCloseable {
     public ActorRuntime(IsolatePolicy policyCeiling, int maxActors) {
         this(
                 policyCeiling,
-                new DispatcherConfig(
-                        DispatcherConfig.defaults().privateParallelism(),
-                        DispatcherConfig.defaults().sharedParallelism(),
-                        DispatcherConfig.defaults().throughput(),
-                        maxActors),
+                DispatcherConfig.defaults().withMaxActors(maxActors),
                 TurnExecutor.direct());
     }
 
@@ -221,14 +749,25 @@ public final class ActorRuntime implements AutoCloseable {
         this.policyCeiling = Objects.requireNonNull(policyCeiling);
         this.dispatcherConfig = Objects.requireNonNull(dispatcherConfig);
         this.turnExecutor = Objects.requireNonNull(turnExecutor);
+        this.maxProcessTasksInFlight = Math.max(
+                1,
+                Math.multiplyExact(
+                        dispatcherConfig.sharedParallelism(),
+                        PROCESS_TASKS_PER_SHARED_WORKER));
         this.privateDispatcher = newDispatcher(
                 dispatcherConfig.privateParallelism(),
                 dispatcherConfig.maxActors(),
                 "ores-private-actor-dispatcher-");
         this.sharedDispatcher = newDispatcher(
                 dispatcherConfig.sharedParallelism(),
-                dispatcherConfig.maxActors(),
+                Math.addExact(dispatcherConfig.maxActors(), maxProcessTasksInFlight),
                 "ores-shared-actor-dispatcher-");
+        this.untrustedDispatcher = newDispatcher(
+                dispatcherConfig.untrustedParallelism(),
+                dispatcherConfig.maxActors(),
+                "ores-untrusted-actor-dispatcher-");
+        this.untrustedWatchdog = newUntrustedWatchdog(
+                namedFactory("ores-untrusted-watchdog-"));
     }
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
@@ -238,6 +777,79 @@ public final class ActorRuntime implements AutoCloseable {
     public long privateMemoryBytes() { return privateMemoryBytes.get(); }
     public long sharedMemoryBytes() { return sharedMemoryBytes.get(); }
     public long actorMemoryBytes() { return privateMemoryBytes.get() + sharedMemoryBytes.get(); }
+
+    /** Runtime observability: canceled deadlines are removed immediately. */
+    public int pendingUntrustedDeadlineCount() {
+        return untrustedWatchdog.getQueue().size();
+    }
+
+    /**
+     * Snapshot one scheduler lane without exposing the executor itself.
+     * queuedActors counts ready actor drain tasks, never mailbox messages.
+     */
+    public DispatcherStats dispatcherStats(ActorKind kind) {
+        Objects.requireNonNull(kind, "kind");
+        ThreadPoolExecutor executor = dispatcherFor(kind);
+        AtomicLong starvation = starvationEventsFor(kind);
+        AtomicLong maxWait = maxQueueWaitFor(kind);
+        return new DispatcherStats(
+                kind,
+                executor.getCorePoolSize(),
+                executor.getActiveCount(),
+                executor.getQueue().size(),
+                executor.getCompletedTaskCount(),
+                starvation.get(),
+                maxWait.get());
+    }
+
+    /**
+     * Trusted host/main-process work shares the SHARED lane by design.
+     * Actor turns already consume this lane according to their actor kind and
+     * may not enqueue arbitrary process tasks as a scheduler-amplification path.
+     */
+    public java.util.concurrent.CompletableFuture<Void> submitProcessTask(Runnable task) {
+        Objects.requireNonNull(task, "task");
+        if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+        if (CURRENT_ACTOR_EXECUTION.get() != null) {
+            throw new SecurityException(
+                    "actor turns cannot submit host/main process-lane work");
+        }
+        reserveProcessTask();
+        try {
+            return java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    task.run();
+                } finally {
+                    releaseProcessTask();
+                }
+            }, sharedDispatcher);
+        } catch (RuntimeException | Error failure) {
+            releaseProcessTask();
+            throw failure;
+        }
+    }
+
+    public int maxProcessTasksInFlight() { return maxProcessTasksInFlight; }
+    public int processTasksInFlight() { return processTasksInFlight.get(); }
+
+    private void reserveProcessTask() {
+        while (true) {
+            int current = processTasksInFlight.get();
+            if (current >= maxProcessTasksInFlight) {
+                throw new RejectedExecutionException(
+                        "main-process task limit exceeded: " + maxProcessTasksInFlight);
+            }
+            if (processTasksInFlight.compareAndSet(current, current + 1)) return;
+        }
+    }
+
+    private void releaseProcessTask() {
+        int remaining = processTasksInFlight.decrementAndGet();
+        if (remaining < 0) {
+            processTasksInFlight.incrementAndGet();
+            throw new IllegalStateException("main-process task accounting underflow");
+        }
+    }
 
     /**
      * Logical actor-confined memory slice for one private actor.
@@ -276,10 +888,11 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         /**
-         * Allocate actor-confined direct memory. The raw ByteBuffer is never
-         * exposed; all reads/writes verify the owning ActorId. This gives
-         * compiler-lowered private actor state a genuinely unshared backing
-         * region while actors remain multiplexed over carrier threads.
+         * Allocate actor-confined native memory from a closeable FFM arena.
+         * The ByteBuffer view never escapes this wrapper; every access verifies
+         * the owning ActorId. Arena.close() deterministically releases the
+         * native region at block/actor teardown instead of relying on a direct
+         * buffer cleaner or ordinary JVM GC timing.
          */
         public PrivateMemoryBlock allocatePrivateBytes(int bytes) {
             requireCurrentOwner();
@@ -323,7 +936,7 @@ public final class ActorRuntime implements AutoCloseable {
 
         private void requireCurrentOwner() {
             ActorCell<?> cell = currentActor.get();
-            if (cell == null || cell.kind != ActorKind.PRIVATE || !cell.ref.id().equals(owner)) {
+            if (cell == null || !cell.kind.memoryIsolated() || !cell.ref.id().equals(owner)) {
                 throw new IllegalStateException(
                         "private actor memory slice may only be reserved by its owning actor");
             }
@@ -368,6 +981,7 @@ public final class ActorRuntime implements AutoCloseable {
         private final ActorMemorySlice slice;
         private final MemoryReservation reservation;
         private final int capacity;
+        private volatile Arena arena;
         private volatile ByteBuffer memory;
         private final AtomicBoolean blockClosed = new AtomicBoolean();
 
@@ -378,7 +992,16 @@ public final class ActorRuntime implements AutoCloseable {
             this.slice = Objects.requireNonNull(slice);
             this.reservation = Objects.requireNonNull(reservation);
             this.capacity = bytes;
-            this.memory = ByteBuffer.allocateDirect(bytes).order(ByteOrder.LITTLE_ENDIAN);
+            Arena allocatedArena = Arena.ofShared();
+            try {
+                this.memory = allocatedArena.allocate(bytes)
+                        .asByteBuffer()
+                        .order(ByteOrder.LITTLE_ENDIAN);
+                this.arena = allocatedArena;
+            } catch (RuntimeException | Error failure) {
+                allocatedArena.close();
+                throw failure;
+            }
         }
 
         public int capacity() { return capacity; }
@@ -439,6 +1062,45 @@ public final class ActorRuntime implements AutoCloseable {
             duplicate.put(bytes);
         }
 
+        /**
+         * Streams request bytes directly into this actor-owned native region.
+         * The temporary ByteBuffer is a view over the FFM segment; no mailbox
+         * or heap byte-array staging is required.
+         */
+        public int readFrom(
+                HttpRequestCapability request,
+                int offset,
+                int length) throws IOException {
+            Objects.requireNonNull(request, "request");
+            return request.read(window(offset, length));
+        }
+
+        /**
+         * Streams bytes directly from this actor-owned native region to the
+         * response transport. A SocketChannel-backed transport can therefore
+         * write from native actor memory toward the kernel without a mailbox
+         * or intermediate heap-array copy.
+         */
+        public int writeTo(
+                HttpResponseCapability response,
+                int offset,
+                int length) throws IOException {
+            Objects.requireNonNull(response, "response");
+            return response.write(window(offset, length));
+        }
+
+        private ByteBuffer window(int offset, int length) {
+            if (offset < 0 || length < 0 || offset > capacity - length) {
+                throw new IndexOutOfBoundsException(
+                        "private memory window out of bounds: offset=" + offset
+                                + " length=" + length + " capacity=" + capacity);
+            }
+            ByteBuffer duplicate = openMemory().duplicate();
+            duplicate.position(offset);
+            duplicate.limit(offset + length);
+            return duplicate.slice().order(ByteOrder.LITTLE_ENDIAN);
+        }
+
         private ByteBuffer openMemory() {
             if (blockClosed.get() || slice.closed()) {
                 throw new IllegalStateException("private actor memory block is closed");
@@ -451,11 +1113,17 @@ public final class ActorRuntime implements AutoCloseable {
 
         private void zeroAndDetachMemory() {
             ByteBuffer live = memory;
-            if (live == null) return;
-            ByteBuffer duplicate = live.duplicate();
-            duplicate.clear();
-            while (duplicate.hasRemaining()) duplicate.put((byte) 0);
+            Arena liveArena = arena;
             memory = null;
+            arena = null;
+            if (live != null) {
+                ByteBuffer duplicate = live.duplicate();
+                duplicate.clear();
+                while (duplicate.hasRemaining()) duplicate.put((byte) 0);
+            }
+            if (liveArena != null) {
+                liveArena.close();
+            }
         }
 
         private void invalidateFromSlice() {
@@ -640,6 +1308,21 @@ public final class ActorRuntime implements AutoCloseable {
         IsolatePolicy policy();
         ActorKind kind();
         Optional<ActorMemorySlice> privateMemory();
+
+        /** Present only for an UNTRUSTED actor explicitly bound to one HTTP request. */
+        Optional<HttpRequestCapability> httpRequest();
+
+        /** Present only for an UNTRUSTED actor explicitly bound to one HTTP response. */
+        Optional<HttpResponseCapability> httpResponse();
+
+        /** Mandatory compiler/runtime scheduling checkpoint. */
+        void checkpoint();
+
+        /** Remaining per-message execution fuel, or Long.MAX_VALUE for trusted actors. */
+        long fuelRemaining();
+
+        /** Remaining hard lifetime; trusted actors report their policy wall-time. */
+        Duration remainingLifetime();
     }
 
     public final class ActorRef<M> {
@@ -656,11 +1339,25 @@ public final class ActorRuntime implements AutoCloseable {
         public ActorKind kind() { return kind; }
         private boolean ownedBy(ActorRuntime runtime) { return ActorRuntime.this == runtime; }
         public boolean isAlive() { return ActorRuntime.this.isAlive(this); }
-        public Optional<Throwable> failure() { return Optional.ofNullable(terminationCause.get()); }
+        public Optional<Throwable> failure() {
+            ActorExecutionContext caller = CURRENT_ACTOR_EXECUTION.get();
+            if (caller != null
+                    && caller.kind() == ActorKind.UNTRUSTED
+                    && !caller.actorId().equals(id)) {
+                throw new SecurityException(
+                        "untrusted actors cannot inspect another actor's raw failure object");
+            }
+            return Optional.ofNullable(terminationCause.get());
+        }
 
         public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
             Objects.requireNonNull(unit);
             if (timeout < 0) throw new IllegalArgumentException("timeout must be non-negative");
+            ActorExecutionContext caller = CURRENT_ACTOR_EXECUTION.get();
+            if (caller != null && caller.kind() == ActorKind.UNTRUSTED) {
+                throw new SecurityException(
+                        "untrusted actors cannot synchronously await actor termination; use messages/monitoring");
+            }
             ActorCell<?> cell = actors.get(id);
             if (cell == null) return true;
             cell.awaitFinalized(unit.toNanos(timeout));
@@ -675,9 +1372,39 @@ public final class ActorRuntime implements AutoCloseable {
             ActorRuntime.this.stop(this);
         }
 
+        /** Narrow this reference to send-only authority. */
+        public Recipient<M> recipient() {
+            return new Recipient<>(this);
+        }
+
         @Override
         public String toString() {
             return "ActorRef[" + kind + ":" + id.value() + "]";
+        }
+    }
+
+    /**
+     * Send-only actor capability inspired by Actix Recipient<M>.
+     * It deliberately exposes no lifecycle, waiting, or failure-inspection API.
+     */
+    public final class Recipient<M> {
+        private final ActorRef<M> target;
+
+        private Recipient(ActorRef<M> target) {
+            this.target = Objects.requireNonNull(target);
+        }
+
+        private boolean ownedBy(ActorRuntime runtime) {
+            return target.ownedBy(runtime);
+        }
+
+        public void send(M message) {
+            ActorRuntime.this.send(target, message);
+        }
+
+        @Override
+        public String toString() {
+            return "Recipient[" + target.kind + ":" + target.id.value() + "]";
         }
     }
 
@@ -828,6 +1555,52 @@ public final class ActorRuntime implements AutoCloseable {
         return spawnInternal(ActorKind.SHARED, policy, behaviorFactory, true);
     }
 
+    /**
+     * Host/supervisor entry point for code that must be treated as malicious.
+     * Untrusted actors are always memory-isolated, adversarial, capture-free,
+     * lifetime-bounded, fuel-metered, and placed on a dedicated dispatcher.
+     */
+    public <M> ActorRef<M> spawnUntrusted(BehaviorFactory<M> behaviorFactory) {
+        return spawnUntrusted(
+                IsolatePolicy.untrustedActor(),
+                UntrustedActorLimits.defaults(),
+                null,
+                behaviorFactory);
+    }
+
+    public <M> ActorRef<M> spawnUntrusted(
+            IsolatePolicy policy,
+            UntrustedActorLimits limits,
+            HttpResponseTransport responseTransport,
+            BehaviorFactory<M> behaviorFactory) {
+        return spawnUntrusted(
+                policy,
+                limits,
+                null,
+                responseTransport,
+                behaviorFactory);
+    }
+
+    public <M> ActorRef<M> spawnUntrusted(
+            IsolatePolicy policy,
+            UntrustedActorLimits limits,
+            HttpRequestTransport requestTransport,
+            HttpResponseTransport responseTransport,
+            BehaviorFactory<M> behaviorFactory) {
+        requireSupervisorContext("spawn untrusted actors");
+        Objects.requireNonNull(policy);
+        Objects.requireNonNull(limits);
+        Objects.requireNonNull(behaviorFactory);
+        return spawnInternal(
+                ActorKind.UNTRUSTED,
+                policy,
+                behaviorFactory,
+                false,
+                limits,
+                requestTransport,
+                responseTransport);
+    }
+
     /** Compatibility path for trusted host callers. */
     public <M> ActorRef<M> spawn(
             ActorKind kind,
@@ -835,6 +1608,10 @@ public final class ActorRuntime implements AutoCloseable {
             Supplier<? extends Behavior<M>> behaviorFactory) {
         requireSupervisorContext("use trusted Supplier actor construction");
         Objects.requireNonNull(behaviorFactory);
+        if (kind == ActorKind.UNTRUSTED) {
+            throw new SecurityException(
+                    "UNTRUSTED actors require spawnUntrusted with a capture-free BehaviorFactory");
+        }
         requireTrustedSupplierPolicy(policy);
         return spawnInternal(kind, policy, context -> behaviorFactory.get(), true);
     }
@@ -974,6 +1751,13 @@ public final class ActorRuntime implements AutoCloseable {
             }
             return;
         }
+        if (value instanceof Recipient<?> recipient) {
+            if (!recipient.ownedBy(this)) {
+                throw new SecurityException(
+                        "private actor behavior captured a Recipient from another runtime in " + fieldName);
+            }
+            return;
+        }
         if (value instanceof ActorContext<?> actorContext) {
             if (!actorContext.self().id().equals(owner) || actorContext.runtime() != this) {
                 throw new SecurityException(
@@ -1006,6 +1790,10 @@ public final class ActorRuntime implements AutoCloseable {
             ActorKind kind,
             IsolatePolicy policy,
             BehaviorFactory<M> behaviorFactory) {
+        if (kind == ActorKind.UNTRUSTED) {
+            throw new SecurityException(
+                    "UNTRUSTED actors require spawnUntrusted so hard limits cannot be omitted");
+        }
         return spawnInternal(kind, policy, behaviorFactory, false);
     }
 
@@ -1014,19 +1802,53 @@ public final class ActorRuntime implements AutoCloseable {
             IsolatePolicy policy,
             BehaviorFactory<M> behaviorFactory,
             boolean trustedFactory) {
+        return spawnInternal(kind, policy, behaviorFactory, trustedFactory, null, null, null);
+    }
+
+    private <M> ActorRef<M> spawnInternal(
+            ActorKind kind,
+            IsolatePolicy policy,
+            BehaviorFactory<M> behaviorFactory,
+            boolean trustedFactory,
+            UntrustedActorLimits untrustedLimits,
+            HttpRequestTransport requestTransport,
+            HttpResponseTransport responseTransport) {
         requireCallerRuntimeAffinity("spawn actors");
+        ActorCell<?> callerCell = currentActor.get();
+        if (callerCell != null && callerCell.kind == ActorKind.UNTRUSTED) {
+            throw new SecurityException("untrusted actors cannot spawn child actors");
+        }
         Objects.requireNonNull(kind);
         Objects.requireNonNull(policy);
         Objects.requireNonNull(behaviorFactory);
-        requireWithinCeiling(policy);
-        IsolatePolicy effectivePolicy = kind == ActorKind.PRIVATE
+        if (kind != ActorKind.UNTRUSTED) {
+            requireWithinCeiling(policy);
+        }
+        if (kind == ActorKind.UNTRUSTED && untrustedLimits == null) {
+            throw new SecurityException("untrusted actor hard limits are required");
+        }
+        if (kind != ActorKind.UNTRUSTED
+                && (untrustedLimits != null || requestTransport != null || responseTransport != null)) {
+            throw new IllegalArgumentException(
+                    "untrusted limits/HTTP capabilities may only be attached to UNTRUSTED actors");
+        }
+
+        IsolatePolicy effectivePolicy = kind.memoryIsolated()
                 ? policy.withoutCapabilities(
                         IsolatePolicy.Capability.SHARED_MEMORY,
                         IsolatePolicy.Capability.ACTOR_SHARE_READONLY)
                 : policy;
+        if (kind == ActorKind.UNTRUSTED) {
+            effectivePolicy = restrictUntrustedPolicy(effectivePolicy, untrustedLimits);
+            effectivePolicy = intersectUntrustedWithRuntimeCeiling(effectivePolicy);
+            requireWithinCeiling(effectivePolicy);
+        }
         requireWithinCallerPolicy(effectivePolicy);
         if (kind == ActorKind.SHARED) {
             effectivePolicy.require(IsolatePolicy.Capability.SHARED_MEMORY, "shared actor spawn");
+        }
+        if (kind == ActorKind.UNTRUSTED && trustedFactory) {
+            throw new SecurityException("untrusted actor factories can never use the trusted/capturing path");
         }
         if (!trustedFactory) {
             requireStatelessActorFactory(behaviorFactory);
@@ -1040,14 +1862,68 @@ public final class ActorRuntime implements AutoCloseable {
             ActorRef<M> ref = new ActorRef<>(id, kind);
             try {
                 ActorCell<M> cell = new ActorCell<>(
-                    ref, kind, effectivePolicy, behaviorFactory, trustedFactory);
+                    ref,
+                    kind,
+                    effectivePolicy,
+                    behaviorFactory,
+                    trustedFactory,
+                    untrustedLimits,
+                    requestTransport,
+                    responseTransport);
                 actors.put(id, cell);
+                cell.armLifetimeLimit();
                 return ref;
             } catch (RuntimeException | Error failure) {
                 actorCount.decrementAndGet();
                 throw failure;
             }
         }
+    }
+
+    private IsolatePolicy restrictUntrustedPolicy(
+            IsolatePolicy policy,
+            UntrustedActorLimits limits) {
+        IsolatePolicy stripped = policy.withoutCapabilities(
+                IsolatePolicy.Capability.STDIN,
+                IsolatePolicy.Capability.STDOUT,
+                IsolatePolicy.Capability.PROCESS_INFO,
+                IsolatePolicy.Capability.ACTOR_SHARE_READONLY,
+                IsolatePolicy.Capability.SHARED_MEMORY,
+                IsolatePolicy.Capability.NETWORK,
+                IsolatePolicy.Capability.FILESYSTEM_READ,
+                IsolatePolicy.Capability.FILESYSTEM_WRITE,
+                IsolatePolicy.Capability.ENVIRONMENT,
+                IsolatePolicy.Capability.HOT_CODE_LOAD,
+                IsolatePolicy.Capability.FFI,
+                IsolatePolicy.Capability.NATIVE,
+                IsolatePolicy.Capability.REFLECTION,
+                IsolatePolicy.Capability.CHILD_PROCESS,
+                IsolatePolicy.Capability.THREAD_CREATE,
+                IsolatePolicy.Capability.POLYGLOT);
+        Duration wall = stripped.maxWallTime().compareTo(limits.maxLifetime()) <= 0
+                ? stripped.maxWallTime()
+                : limits.maxLifetime();
+        int mailbox = Math.min(stripped.maxMailboxMessages(), 256);
+        return new IsolatePolicy(
+                stripped.capabilities(),
+                stripped.maxHeapBytes(),
+                mailbox,
+                wall,
+                true);
+    }
+
+    private IsolatePolicy intersectUntrustedWithRuntimeCeiling(IsolatePolicy policy) {
+        java.util.Set<IsolatePolicy.Capability> caps =
+                new java.util.HashSet<>(policy.capabilities());
+        caps.retainAll(policyCeiling.capabilities());
+        return new IsolatePolicy(
+                caps,
+                Math.min(policy.maxHeapBytes(), policyCeiling.maxHeapBytes()),
+                Math.min(policy.maxMailboxMessages(), policyCeiling.maxMailboxMessages()),
+                policy.maxWallTime().compareTo(policyCeiling.maxWallTime()) <= 0
+                        ? policy.maxWallTime()
+                        : policyCeiling.maxWallTime(),
+                true);
     }
 
     private void reserveActorSlot() {
@@ -1110,8 +1986,14 @@ public final class ActorRuntime implements AutoCloseable {
 
     private void rejectPrivateActorSharedMemoryAccess(String operation) {
         ActorCell<?> current = currentActor.get();
-        if (current != null && current.kind == ActorKind.PRIVATE) {
-            throw new IllegalStateException("private actors cannot access synchronized shared memory via " + operation);
+        if (current == null) return;
+        if (current.kind == ActorKind.PRIVATE) {
+            throw new IllegalStateException(
+                    "private actors cannot access synchronized shared memory via " + operation);
+        }
+        if (current.kind == ActorKind.UNTRUSTED) {
+            throw new IllegalStateException(
+                    "untrusted actors cannot access synchronized shared memory via " + operation);
         }
     }
 
@@ -1209,7 +2091,10 @@ public final class ActorRuntime implements AutoCloseable {
         Objects.requireNonNull(ref);
         if (!ref.ownedBy(this)) return false;
         ActorCell<?> cell = actors.get(ref.id());
-        return cell != null && !cell.stopped.get();
+        // A stopped actor may still be finishing its current mailbox turn and
+        // deterministic teardown. Keep it alive until finalization has closed
+        // private memory, drained reservations, and unregistered the cell.
+        return cell != null && !cell.finalized();
     }
 
     public void stop(ActorRef<?> ref) {
@@ -1217,6 +2102,13 @@ public final class ActorRuntime implements AutoCloseable {
         Objects.requireNonNull(ref);
         if (!ref.ownedBy(this)) {
             throw new IllegalArgumentException("ActorRef belongs to a different ActorRuntime");
+        }
+        ActorCell<?> caller = currentActor.get();
+        if (caller != null
+                && caller.kind == ActorKind.UNTRUSTED
+                && !caller.ref.id().equals(ref.id())) {
+            throw new SecurityException(
+                    "untrusted actors cannot stop other actors; ActorRef grants bounded messaging only");
         }
         ActorCell<?> cell = actors.get(ref.id());
         if (cell == null) return;
@@ -1244,7 +2136,14 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     private ActorTerminatedException terminated(ActorRef<?> ref) {
-        return new ActorTerminatedException(ref.id(), ref.kind(), ref.terminationCause.get());
+        Throwable cause = ref.terminationCause.get();
+        ActorCell<?> caller = currentActor.get();
+        if (caller != null
+                && caller.kind == ActorKind.UNTRUSTED
+                && !caller.ref.id().equals(ref.id())) {
+            cause = null;
+        }
+        return new ActorTerminatedException(ref.id(), ref.kind(), cause);
     }
 
     @SuppressWarnings("unchecked")
@@ -1257,6 +2156,25 @@ public final class ActorRuntime implements AutoCloseable {
         }
         ActorCell<M> cell = (ActorCell<M>) actors.get(ref.id());
         if (cell == null || cell.stopped.get()) throw terminated(ref);
+
+        ActorCell<?> sender = currentActor.get();
+        if (sender != null && sender.kind == ActorKind.UNTRUSTED) {
+            sender.checkUntrustedBudget(1);
+            try {
+                estimatePrivateTransportBytes(
+                        message,
+                        new IdentityHashMap<>(),
+                        0,
+                        sender.untrustedLimits.maxMailboxReturnBytes());
+            } catch (IllegalStateException tooLarge) {
+                throw new IllegalStateException(
+                        "untrusted actor outbound mailbox payload exceeds "
+                                + sender.untrustedLimits.maxMailboxReturnBytes()
+                                + " bytes; stream large HTTP responses through context.httpResponse()",
+                        tooLarge);
+            }
+        }
+
         if (!cell.reserveMailboxSlot()) {
             throw new IllegalStateException("actor mailbox limit exceeded for " + ref.id());
         }
@@ -1298,9 +2216,9 @@ public final class ActorRuntime implements AutoCloseable {
 
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
 
-        Object prepared = cell.kind == ActorKind.PRIVATE ? isolateCopy(message) : freezeForTransport(message);
+        Object prepared = cell.kind.memoryIsolated() ? isolateCopy(message) : freezeForTransport(message);
         Runnable release;
-        if (cell.kind == ActorKind.PRIVATE) {
+        if (cell.kind.memoryIsolated()) {
             MemoryReservation reservation;
             try {
                 reservation = cell.memorySlice.reserveMailbox(prepared);
@@ -1356,13 +2274,22 @@ public final class ActorRuntime implements AutoCloseable {
     public void schedulerSafepoint() {
         if (closed.get()) throw new CancellationException("actor runtime is closing");
         ActorCell<?> cell = currentActor.get();
-        if (cell != null && cell.stopped.get()) {
-            throw new CancellationException("actor execution stopped");
+        if (cell != null) {
+            if (cell.stopped.get()) {
+                throw new CancellationException("actor execution stopped");
+            }
+            cell.checkUntrustedBudget(1);
         }
         if (Thread.currentThread().isInterrupted()) {
             throw new CancellationException("actor execution interrupted");
         }
-        Thread.yield();
+        // Trusted actors retain cooperative yielding. UNTRUSTED actors are
+        // enforced by fuel/deadline checks and periodically yield as a courtesy
+        // to the dedicated sandbox dispatcher.
+        if (cell == null || cell.kind != ActorKind.UNTRUSTED
+                || (cell.fuelRemaining.get() & 1023L) == 0L) {
+            Thread.yield();
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1396,7 +2323,9 @@ public final class ActorRuntime implements AutoCloseable {
             IdentityHashMap<Object, Boolean> visiting,
             int depth) {
         requireGraphDepth(depth);
-        if (value == null || isScalar(value) || value instanceof ActorRuntime.ActorRef<?>) return;
+        if (value == null || isScalar(value)
+                || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>) return;
         if (value instanceof OresMutex.Local<?>) {
             throw new IllegalArgumentException("Mutex<T> is actor-local state and cannot cross actor mailboxes");
         }
@@ -1405,11 +2334,11 @@ public final class ActorRuntime implements AutoCloseable {
         }
         if (value instanceof OresMutex.Shared<?> sharedMutex) {
             if (target.kind != ActorKind.SHARED) {
-                throw new SecurityException("private actors cannot receive SharedMutex<T>");
+                throw new SecurityException("memory-isolated actors cannot receive SharedMutex<T>");
             }
             ActorKind senderKind = currentActorKind();
-            if (senderKind == ActorKind.PRIVATE) {
-                throw new SecurityException("private actors cannot send SharedMutex<T>");
+            if (senderKind != null && senderKind != ActorKind.SHARED) {
+                throw new SecurityException("memory-isolated actors cannot send SharedMutex<T>");
             }
             IsolatePolicy senderPolicy = currentActorPolicy();
             if (senderPolicy != null) {
@@ -1463,6 +2392,13 @@ public final class ActorRuntime implements AutoCloseable {
             }
             return;
         }
+        if (value instanceof ActorRuntime.Recipient<?> recipient) {
+            if (!recipient.ownedBy(this)) {
+                throw new IllegalArgumentException(
+                        "Recipient belongs to a different ActorRuntime; cross-runtime actor channels require an explicit bridge");
+            }
+            return;
+        }
         if (value instanceof Shared<?> shared) {
             requireOwnedActorRefs(shared.value(), visiting, depth + 1);
             return;
@@ -1509,6 +2445,13 @@ public final class ActorRuntime implements AutoCloseable {
             if (!ref.ownedBy(this)) {
                 throw new IllegalArgumentException(
                         "ActorRef belongs to a different ActorRuntime; cross-runtime actor channels require an explicit bridge");
+            }
+            return;
+        }
+        if (value instanceof ActorRuntime.Recipient<?> recipient) {
+            if (!recipient.ownedBy(this)) {
+                throw new IllegalArgumentException(
+                        "Recipient belongs to a different ActorRuntime; cross-runtime actor channels require an explicit bridge");
             }
             return;
         }
@@ -1587,6 +2530,7 @@ public final class ActorRuntime implements AutoCloseable {
         requireGraphDepth(depth);
         if (value == null || isScalar(value)
                 || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>
                 || value instanceof SyncCell<?>) return;
         if (value instanceof OresMutex.Shared<?> sharedMutex) {
             out.add(sharedMutex);
@@ -1638,7 +2582,9 @@ public final class ActorRuntime implements AutoCloseable {
             IdentityHashMap<Object, Boolean> visiting,
             int depth) {
         requireGraphDepth(depth);
-        if (value == null || isScalar(value) || value instanceof ActorRuntime.ActorRef<?>) return;
+        if (value == null || isScalar(value)
+                || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>) return;
         if (value instanceof ActorRuntime.SyncCell<?>) {
             throw new IllegalArgumentException("SyncCell is mutable shared state and cannot be wrapped as Shared");
         }
@@ -1695,6 +2641,7 @@ public final class ActorRuntime implements AutoCloseable {
         }
         if (value == null || isScalar(value)
                 || value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>
                 || value instanceof Shared<?>
                 || value instanceof SyncCell<?>
                 || value instanceof OresMutex.Shared<?>) {
@@ -1768,6 +2715,7 @@ public final class ActorRuntime implements AutoCloseable {
         requireGraphDepth(depth);
         if (value == null || isScalar(value)) return;
         if (value instanceof ActorRuntime.ActorRef<?>
+                || value instanceof ActorRuntime.Recipient<?>
                 || value instanceof Shared<?>
                 || value instanceof SyncCell<?>
                 || value instanceof OresMutex.Lock<?>
@@ -1810,6 +2758,7 @@ public final class ActorRuntime implements AutoCloseable {
             return shared;
         }
         if (value instanceof ActorRuntime.ActorRef<?> ref) return ref;
+        if (value instanceof ActorRuntime.Recipient<?> recipient) return recipient;
         if (value instanceof ActorRuntime.SyncCell<?> cell) return cell;
         if (value instanceof OresMutex.Shared<?> sharedMutex) return sharedMutex;
         if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
@@ -1877,6 +2826,7 @@ public final class ActorRuntime implements AutoCloseable {
         }
         if (value instanceof Shared<?> shared) return isolateCopy(shared.value(), visiting, depth + 1);
         if (value instanceof ActorRuntime.ActorRef<?> ref) return ref;
+        if (value instanceof ActorRuntime.Recipient<?> recipient) return recipient;
 
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross private actor boundaries");
@@ -1931,6 +2881,7 @@ public final class ActorRuntime implements AutoCloseable {
             throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
         }
         if (value instanceof ActorRuntime.ActorRef<?>) return requireWithinLimit(48L, limit);
+        if (value instanceof ActorRuntime.Recipient<?>) return requireWithinLimit(48L, limit);
 
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross actor boundaries");
@@ -1998,6 +2949,7 @@ public final class ActorRuntime implements AutoCloseable {
             throw new IllegalArgumentException("actor-local mutex state cannot cross actor boundaries");
         }
         if (value instanceof ActorRuntime.ActorRef<?>) return 48L;
+        if (value instanceof ActorRuntime.Recipient<?>) return 48L;
         if (seen.put(value, Boolean.TRUE) != null) return 0L;
 
         long bytes = 24L;
@@ -2049,6 +3001,7 @@ public final class ActorRuntime implements AutoCloseable {
             return estimatePrivateTransportBytes(shared.value(), visiting, depth + 1, limit);
         }
         if (value instanceof ActorRuntime.ActorRef<?>) return requireWithinLimit(48L, limit);
+        if (value instanceof ActorRuntime.Recipient<?>) return requireWithinLimit(48L, limit);
 
         if (visiting.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic values cannot cross private actor boundaries");
@@ -2164,6 +3117,7 @@ public final class ActorRuntime implements AutoCloseable {
         if (value instanceof UUID || value instanceof ActorId) return 40L;
         if (value instanceof Enum<?>) return 24L;
         if (value instanceof ActorRuntime.ActorRef<?>) return 48L;
+        if (value instanceof ActorRuntime.Recipient<?>) return 48L;
         if (value instanceof ActorRuntime.SyncCell<?>) return 64L;
         if (value instanceof OresMutex.Shared<?>) return 64L;
         if (value instanceof OresMutex.Local<?> || value instanceof OresMutex.Guard<?>) {
@@ -2228,6 +3182,8 @@ public final class ActorRuntime implements AutoCloseable {
             // reporting success until they actually leave the runtime.
             privateDispatcher.shutdownNow();
             sharedDispatcher.shutdownNow();
+            untrustedDispatcher.shutdownNow();
+            untrustedWatchdog.shutdownNow();
         }
 
         long deadline = System.nanoTime() + CLOSE_WAIT_NANOS;
@@ -2269,11 +3225,47 @@ public final class ActorRuntime implements AutoCloseable {
         actorCount.set(0);
     }
 
-    private ExecutorService dispatcherFor(ActorKind kind) {
-        return kind == ActorKind.PRIVATE ? privateDispatcher : sharedDispatcher;
+    private ThreadPoolExecutor dispatcherFor(ActorKind kind) {
+        return switch (kind) {
+            case PRIVATE -> privateDispatcher;
+            case SHARED -> sharedDispatcher;
+            case UNTRUSTED -> untrustedDispatcher;
+        };
     }
 
-    private static ExecutorService newDispatcher(
+    private AtomicLong starvationEventsFor(ActorKind kind) {
+        return switch (kind) {
+            case PRIVATE -> privateStarvationEvents;
+            case SHARED -> sharedStarvationEvents;
+            case UNTRUSTED -> untrustedStarvationEvents;
+        };
+    }
+
+    private AtomicLong maxQueueWaitFor(ActorKind kind) {
+        return switch (kind) {
+            case PRIVATE -> privateMaxQueueWaitNanos;
+            case SHARED -> sharedMaxQueueWaitNanos;
+            case UNTRUSTED -> untrustedMaxQueueWaitNanos;
+        };
+    }
+
+    private void recordQueueWait(ActorKind kind, long waitedNanos) {
+        if (waitedNanos < 0) return;
+        maxQueueWaitFor(kind).accumulateAndGet(waitedNanos, Math::max);
+        if (waitedNanos >= STARVATION_THRESHOLD_NANOS) {
+            starvationEventsFor(kind).incrementAndGet();
+        }
+    }
+
+    private static ScheduledThreadPoolExecutor newUntrustedWatchdog(ThreadFactory threadFactory) {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, threadFactory);
+        executor.setRemoveOnCancelPolicy(true);
+        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        return executor;
+    }
+
+    private static ThreadPoolExecutor newDispatcher(
             int parallelism,
             int readyQueueCapacity,
             String threadPrefix) {
@@ -2282,7 +3274,9 @@ public final class ActorRuntime implements AutoCloseable {
                 parallelism,
                 0L,
                 TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(readyQueueCapacity),
+                // FIFO tasks plus fair queue-lock acquisition keeps a flood of
+                // producers from repeatedly barging ahead of waiting peers.
+                new ArrayBlockingQueue<>(readyQueueCapacity, true),
                 namedFactory(threadPrefix),
                 new ThreadPoolExecutor.AbortPolicy());
         // Core workers are created lazily on first scheduled actor turn.
@@ -2306,9 +3300,19 @@ public final class ActorRuntime implements AutoCloseable {
         private final boolean trustedFactory;
         private final BlockingQueue<MessageEnvelope> mailbox;
         private final ActorMemorySlice memorySlice;
+        private final UntrustedActorLimits untrustedLimits;
+        private final HttpRequestCapability httpRequest;
+        private final HttpResponseCapability httpResponse;
+        private final AtomicLong fuelRemaining = new AtomicLong(Long.MAX_VALUE);
+        private final long createdNanos;
+        private final Duration hardLifetime;
+        private final long deadlineNanos;
+        private volatile Thread activeCarrier;
+        private volatile ScheduledFuture<?> lifetimeFuture;
         private final AtomicBoolean scheduled = new AtomicBoolean();
         private final AtomicBoolean stopped = new AtomicBoolean();
         private final AtomicInteger queuedMessages = new AtomicInteger();
+        private final AtomicLong readySinceNanos = new AtomicLong();
         private final AtomicLong sharedMailboxBytes = new AtomicLong();
         private final Object lifecycleLock = new Object();
         private final Object executionDomain = new Object();
@@ -2321,16 +3325,104 @@ public final class ActorRuntime implements AutoCloseable {
                 ActorKind kind,
                 IsolatePolicy policy,
                 BehaviorFactory<M> behaviorFactory,
-                boolean trustedFactory) {
+                boolean trustedFactory,
+                UntrustedActorLimits untrustedLimits,
+                HttpRequestTransport requestTransport,
+                HttpResponseTransport responseTransport) {
             this.ref = ref;
             this.kind = kind;
             this.policy = policy;
             this.behaviorFactory = behaviorFactory;
             this.trustedFactory = trustedFactory;
             this.mailbox = new LinkedBlockingQueue<>(policy.maxMailboxMessages());
-            this.memorySlice = kind == ActorKind.PRIVATE
+            this.memorySlice = kind.memoryIsolated()
                     ? new ActorMemorySlice(ref.id(), policy.maxHeapBytes())
                     : null;
+            this.untrustedLimits = untrustedLimits;
+            this.createdNanos = System.nanoTime();
+            if (kind == ActorKind.UNTRUSTED) {
+                if (untrustedLimits == null) {
+                    throw new IllegalArgumentException("UNTRUSTED actor requires limits");
+                }
+                this.hardLifetime = policy.maxWallTime().compareTo(untrustedLimits.maxLifetime()) <= 0
+                        ? policy.maxWallTime()
+                        : untrustedLimits.maxLifetime();
+                long lifetimeNanos = hardLifetime.toNanos();
+                this.deadlineNanos = lifetimeNanos >= Long.MAX_VALUE - createdNanos
+                        ? Long.MAX_VALUE
+                        : createdNanos + lifetimeNanos;
+                this.fuelRemaining.set(untrustedLimits.fuelPerTurn());
+                this.httpRequest = requestTransport == null
+                        ? null
+                        : new HttpRequestCapability(
+                                ref.id(),
+                                requestTransport,
+                                untrustedLimits.maxHttpRequestBytes());
+                this.httpResponse = responseTransport == null
+                        ? null
+                        : new HttpResponseCapability(
+                                ref.id(),
+                                responseTransport,
+                                untrustedLimits.maxHttpResponseBytes());
+            } else {
+                this.hardLifetime = policy.maxWallTime();
+                this.deadlineNanos = Long.MAX_VALUE;
+                this.httpRequest = null;
+                this.httpResponse = null;
+            }
+        }
+
+        private void armLifetimeLimit() {
+            if (kind != ActorKind.UNTRUSTED) return;
+            long delay = Math.max(1L, deadlineNanos - System.nanoTime());
+            lifetimeFuture = untrustedWatchdog.schedule(
+                    this::expireUntrusted,
+                    delay,
+                    TimeUnit.NANOSECONDS);
+        }
+
+        private void expireUntrusted() {
+            Thread carrier;
+            synchronized (lifecycleLock) {
+                if (finalized || stopped.get()) return;
+                ActorLifetimeExceededException failure = new ActorLifetimeExceededException(
+                        "untrusted actor exceeded hard lifetime of "
+                                + hardLifetime.toSeconds() + " seconds");
+                ref.terminationCause.compareAndSet(null, failure);
+                stopped.set(true);
+                drainMailboxReservations();
+                carrier = activeCarrier;
+                finalizeStopLocked();
+            }
+            if (carrier != null) carrier.interrupt();
+        }
+
+        private void beginMessageBudget() {
+            if (kind != ActorKind.UNTRUSTED) return;
+            fuelRemaining.set(untrustedLimits.fuelPerTurn());
+            checkUntrustedBudget(0);
+        }
+
+        private void checkUntrustedBudget(long cost) {
+            if (kind != ActorKind.UNTRUSTED) return;
+            if (cost < 0) throw new IllegalArgumentException("budget cost cannot be negative");
+            if (System.nanoTime() - deadlineNanos >= 0) {
+                throw new ActorLifetimeExceededException(
+                        "untrusted actor exceeded hard lifetime of "
+                                + untrustedLimits.maxLifetime().toSeconds() + " seconds");
+            }
+            long remaining = cost == 0 ? fuelRemaining.get() : fuelRemaining.addAndGet(-cost);
+            if (remaining < 0) {
+                throw new ActorBudgetExceededException(
+                        "untrusted actor exhausted per-turn execution fuel "
+                                + untrustedLimits.fuelPerTurn());
+            }
+        }
+
+        private Duration remainingLifetime() {
+            if (kind != ActorKind.UNTRUSTED) return policy.maxWallTime();
+            long remaining = Math.max(0L, deadlineNanos - System.nanoTime());
+            return Duration.ofNanos(remaining);
         }
 
         private boolean reserveMailboxSlot() {
@@ -2372,8 +3464,22 @@ public final class ActorRuntime implements AutoCloseable {
         private void finalizeStopLocked() {
             if (finalized || activeTurns != 0) return;
             finalized = true;
+            ScheduledFuture<?> timer = lifetimeFuture;
+            lifetimeFuture = null;
+            if (timer != null) timer.cancel(false);
             drainMailboxReservations();
-            if (memorySlice != null) memorySlice.close();
+            behavior = null;
+            if (httpRequest != null) {
+                httpRequest.cancelFromRuntime(ref.terminationCause.get());
+            }
+            if (httpResponse != null) {
+                httpResponse.abortFromRuntime(ref.terminationCause.get());
+            }
+            if (memorySlice != null) {
+                // ActorMemorySlice.close() zeroes owned direct-memory blocks,
+                // releases every reservation, and makes leaked handles fail.
+                memorySlice.close();
+            }
             unregisterActor(this);
             lifecycleLock.notifyAll();
         }
@@ -2430,9 +3536,11 @@ public final class ActorRuntime implements AutoCloseable {
         private void schedule() {
             if (stopped.get() || closed.get()) return;
             if (!scheduled.compareAndSet(false, true)) return;
+            readySinceNanos.set(System.nanoTime());
             try {
                 dispatcherFor(kind).execute(this::runBatch);
             } catch (RejectedExecutionException rejected) {
+                readySinceNanos.set(0L);
                 scheduled.set(false);
                 stop();
                 if (!closed.get()) throw rejected;
@@ -2440,6 +3548,10 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         private void runBatch() {
+            long enqueuedAt = readySinceNanos.getAndSet(0L);
+            if (enqueuedAt != 0L) {
+                recordQueueWait(kind, Math.max(0L, System.nanoTime() - enqueuedAt));
+            }
             ACTOR_CARRIER.set(Boolean.TRUE);
             try {
                 turnExecutor.execute(this::runBatchEntered);
@@ -2456,6 +3568,7 @@ public final class ActorRuntime implements AutoCloseable {
 
         @SuppressWarnings("unchecked")
         private void runBatchEntered() {
+            activeCarrier = Thread.currentThread();
             currentActor.set(this);
             CURRENT_ACTOR_EXECUTION.set(new ActorExecutionContext(
                     ActorRuntime.this, ref.id(), kind, policy, executionDomain));
@@ -2471,26 +3584,45 @@ public final class ActorRuntime implements AutoCloseable {
                     @Override public Optional<ActorMemorySlice> privateMemory() {
                         return Optional.ofNullable(memorySlice);
                     }
+                    @Override public Optional<HttpRequestCapability> httpRequest() {
+                        return Optional.ofNullable(httpRequest);
+                    }
+                    @Override public Optional<HttpResponseCapability> httpResponse() {
+                        return Optional.ofNullable(httpResponse);
+                    }
+                    @Override public void checkpoint() {
+                        ActorRuntime.this.schedulerSafepoint();
+                    }
+                    @Override public long fuelRemaining() {
+                        return kind == ActorKind.UNTRUSTED
+                                ? ActorCell.this.fuelRemaining.get()
+                                : Long.MAX_VALUE;
+                    }
+                    @Override public Duration remainingLifetime() {
+                        return ActorCell.this.remainingLifetime();
+                    }
                 };
 
                 if (behavior == null) {
+                    beginMessageBudget();
                     Behavior<M> created = Objects.requireNonNull(
                             behaviorFactory.create(context),
                             "actor behaviorFactory returned null");
-                    if (kind == ActorKind.PRIVATE && !trustedFactory) {
+                    if (kind.memoryIsolated() && !trustedFactory) {
                         validatePrivateBehaviorState(ref.id(), created);
                     }
                     behavior = created;
                 }
 
                 int processed = 0;
-                while (processed < dispatcherConfig.throughput() && !stopped.get()) {
+                while (processed < dispatcherConfig.throughputFor(kind) && !stopped.get()) {
                     MessageEnvelope envelope = mailbox.poll();
                     if (envelope == null) break;
                     releaseMailboxSlot();
                     try (envelope) {
+                        beginMessageBudget();
                         behavior.onMessage((M) envelope.value(), context);
-                        if (kind == ActorKind.PRIVATE && !trustedFactory) {
+                        if (kind.memoryIsolated() && !trustedFactory) {
                             // Private state that survives a mailbox turn must
                             // remain in actor-owned storage/capabilities. This
                             // catches behavior fields that were null/immutable
@@ -2510,8 +3642,14 @@ public final class ActorRuntime implements AutoCloseable {
                 if (failure instanceof LinkageError fatal) throw fatal;
             } finally {
                 if (turnActive) endTurn();
+                activeCarrier = null;
                 CURRENT_ACTOR_EXECUTION.remove();
                 currentActor.remove();
+                if (kind == ActorKind.UNTRUSTED) {
+                    // Watchdog interruption is a control signal for this turn;
+                    // do not leak it into the pooled sandbox carrier.
+                    Thread.interrupted();
+                }
                 scheduled.set(false);
 
                 if (!stopped.get() && !closed.get() && !mailbox.isEmpty()) {
