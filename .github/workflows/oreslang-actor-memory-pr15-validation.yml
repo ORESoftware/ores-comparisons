@@ -1,8 +1,8 @@
-name: oreslang-actor-memory-keywords-validation
+name: oreslang-pr71-current-validation
 
 on:
   push:
-    branches: ["ci/oreslang-actor-memory-keywords"]
+    branches: ["ci/oreslang-pr71-current-20261002"]
   pull_request:
     branches: ["main"]
 
@@ -11,7 +11,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: _ci/actor-memory-pr15
+    working-directory: _ci/oreslang-pr19-full
 
 jobs:
   actor-runtime:
