@@ -34,13 +34,14 @@ final class ImportGraph {
                 ? (parent == null ? Path.of(raw) : parent.resolve(raw)).normalize()
                 : Path.of(raw).normalize();
         String candidate = normalizeUnitId(candidatePath.toString());
-        if (!available.contains(candidate) && !candidate.endsWith(".ores") && available.contains(candidate + ".ores")) {
-            candidate += ".ores";
+        if (!available.contains(candidate) && !candidate.endsWith(".ores") && !candidate.endsWith(".java")) {
+            if (available.contains(candidate + ".ores")) candidate += ".ores";
+            else if (available.contains(candidate + ".java")) candidate += ".java";
         }
         if (available.contains(candidate)) return candidate;
         if (raw.startsWith(".")) {
             throw new IllegalArgumentException("relative import '" + imported.path() + "' from '" + unitId
-                    + "' does not resolve to a supplied Oreslang source unit");
+                    + "' does not resolve to a supplied Oreslang/mixed source unit");
         }
         return null;
     }
