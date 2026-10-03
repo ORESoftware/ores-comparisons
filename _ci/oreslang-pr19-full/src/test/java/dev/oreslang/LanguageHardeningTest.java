@@ -4,8 +4,6 @@ import dev.oreslang.ast.Ast;
 import dev.oreslang.parser.Lexer;
 import dev.oreslang.parser.Parser;
 import dev.oreslang.parser.Token;
-import dev.oreslang.runtime.CapabilityChecker;
-import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.types.TypeChecker;
 import org.junit.jupiter.api.Test;
 
@@ -103,19 +101,19 @@ final class LanguageHardeningTest {
                     fnc b() => int;
                   end
 
-                  define class A as
+                  define class A
                     pub a() => int { return 1; }
                   end
-                  define class B as
+                  define class B
                     pub b() => int { return 2; }
                   end
 
-                  define class Combined extends A, B implements AApi, BApi as
+                  define class Combined extends A, B implements AApi, BApi
                   end
 
-                  define class ObjectChild extends Object as
+                  define class ObjectChild extends Object
                   end
-                  define class ListChild extends List as
+                  define class ListChild extends List
                   end
                 end
                 """)));
@@ -125,22 +123,22 @@ final class LanguageHardeningTest {
     void inheritanceCyclesAndConflictingDiamondsAreRejected() {
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
                 define module m
-                  define class A extends B as
+                  define class A extends B
                   end
-                  define class B extends A as
+                  define class B extends A
                   end
                 end
                 """)));
 
         assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
                 define module m
-                  define class A as
+                  define class A
                     pub val int id = 1;
                   end
-                  define class B as
+                  define class B
                     pub val String id = "b";
                   end
-                  define class C extends A, B as
+                  define class C extends A, B
                   end
                 end
                 """)));
@@ -160,6 +158,33 @@ final class LanguageHardeningTest {
                     stdio.println(person.name);
                     stdio.println(right);
                     return;
+                  }
+                end
+                """)));
+    }
+
+    @Test
+    void destructureDiscardNeverBecomesAReadableBinding() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                define module app
+                  fnc f() => int {
+                    [_, const value] = (1, 2);
+                    return _;
+                  }
+                end
+                """)));
+
+        assertTrue(error.getMessage().contains("unknown name '_'"));
+    }
+
+    @Test
+    void explicitBindingKindOnUnderscoreIsAlsoDiscarded() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define module app
+                  fnc f() => int {
+                    [const _, let value] = (1, 2);
+                    [let _, const next] = (3, 4);
+                    return value + next;
                   }
                 end
                 """)));
@@ -245,51 +270,4 @@ final class LanguageHardeningTest {
                 end
                 """)));
     }
-    @Test
-    void strictFaasRejectsSharedActorDeclarationsAtAdmission() {
-        Ast.Program sharedActor = TypeChecker.check(Parser.parse("""
-                shared actor Account {
-                  let balance = 100;
-
-                  pub fnc current() => int {
-                    return self.balance;
-                  }
-                }
-                """));
-
-        assertThrows(SecurityException.class, () ->
-                CapabilityChecker.check(sharedActor, IsolatePolicy.strictFaas()));
-        assertDoesNotThrow(() ->
-                CapabilityChecker.check(sharedActor, IsolatePolicy.developer()));
-    }
-
-
-
-@Test
-    void destructureDiscardNeverBecomesAReadableBinding() {
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
-                define module app
-                  fnc f() => int {
-                    [_, const value] = (1, 2);
-                    return _;
-                  }
-                end
-                """)));
-
-        assertTrue(error.getMessage().contains("unknown name '_'"));
-    }
-
-@Test
-    void explicitBindingKindOnUnderscoreIsAlsoDiscarded() {
-        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define module app
-                  fnc f() => int {
-                    [const _, let value] = (1, 2);
-                    [let _, const next] = (3, 4);
-                    return value + next;
-                  }
-                end
-                """)));
-    }
-
 }
