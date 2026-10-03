@@ -19,6 +19,9 @@ public final class Lexer {
         KEYWORDS.put("else", ELSE); KEYWORDS.put("then", THEN); KEYWORDS.put("new", NEW); KEYWORDS.put("done", DONE);
         KEYWORDS.put("await", AWAIT); KEYWORDS.put("async", ASYNC); KEYWORDS.put("actor", ACTOR); KEYWORDS.put("shared", SHARED); KEYWORDS.put("def", DEF); KEYWORDS.put("fnc", FNC); KEYWORDS.put("routine", ROUTINE);
         KEYWORDS.put("for", FOR); KEYWORDS.put("of", OF); KEYWORDS.put("yield", YIELD); KEYWORDS.put("super", SUPER); KEYWORDS.put("elseif", ELSEIF); KEYWORDS.put("switch", SWITCH);
+        KEYWORDS.put("channel", CHANNEL); KEYWORDS.put("send", SEND); KEYWORDS.put("try_send", TRY_SEND);
+        KEYWORDS.put("receive", RECEIVE); KEYWORDS.put("try_receive", TRY_RECEIVE); KEYWORDS.put("select", SELECT);
+        KEYWORDS.put("case", CASE); KEYWORDS.put("default", DEFAULT); KEYWORDS.put("loop", LOOP);
         KEYWORDS.put("type", TYPE); KEYWORDS.put("typeof", TYPEOF); KEYWORDS.put("interface", INTERFACE); KEYWORDS.put("impl", IMPL); KEYWORDS.put("abstract", ABSTRACT);
         KEYWORDS.put("void", VOID); KEYWORDS.put("static", STATIC); KEYWORDS.put("pub", PUB); KEYWORDS.put("private", PRIVATE);
         KEYWORDS.put("return", RETURN); KEYWORDS.put("defer", DEFER); KEYWORDS.put("val", VAL); KEYWORDS.put("const", CONST);
