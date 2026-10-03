@@ -868,6 +868,18 @@ public final class TypeChecker {
                 requireAssignable(index, Primitive.STRING, "DynamicStruct key");
                 return dynamic.arguments().getFirst();
             }
+            if (receiver instanceof Record record) {
+                requireAssignable(index, Primitive.STRING, "object/map key");
+                if (index instanceof StringLiteral key) {
+                    Type member = record.members().get(key.value());
+                    if (member == null) {
+                        throw new IllegalArgumentException("unknown object/map key '" + key.value() + "'");
+                    }
+                    return member;
+                }
+                if (record.members().isEmpty()) return Unknown.INSTANCE;
+                return record.members().values().stream().reduce(Unknown.INSTANCE, this::commonType);
+            }
             requireAssignable(index, Primitive.INT, "array/list index");
             if (receiver instanceof ListType list) return list.element();
             if (receiver instanceof Tuple tuple) return tuple.elements().stream().reduce(Unknown.INSTANCE, this::commonType);
