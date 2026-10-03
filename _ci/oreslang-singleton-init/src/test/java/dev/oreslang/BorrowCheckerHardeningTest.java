@@ -220,4 +220,52 @@ final class BorrowCheckerHardeningTest {
         assertTrue(error.getMessage() != null && !error.getMessage().isBlank());
     }
 
+    @Test
+    void repeatingForConditionCannotConsumePersistentOwner() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                        end
+
+                        fnc consume_and_continue(take Box box) => bool {
+                          return true;
+                        }
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          for (; consume_and_continue(box); ) {
+                          }
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("repeating loop")
+                || error.getMessage().contains("moved"));
+    }
+
+    @Test
+    void repeatingForUpdateCannotConsumeInitializerLocal() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                        end
+
+                        fnc consume(take Box box) => void {
+                          return;
+                        }
+
+                        fnc bad() => void {
+                          for (let Box box = new Box(); true; consume(box)) {
+                          }
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("repeating loop")
+                || error.getMessage().contains("moved"));
+    }
+
+
 }

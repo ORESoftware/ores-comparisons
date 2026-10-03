@@ -330,11 +330,17 @@ public final class OwnershipChecker {
         if (stmt instanceof Ast.ForStmt loop) {
             Scope loopScope = new Scope(scope);
             if (loop.initializer() != null) checkStatement(loop.initializer(), loopScope, returnType);
+
+            // Initializer executes once. Condition, body, and update form the
+            // repeating region, so snapshot *before* the condition and include
+            // initializer-local bindings as well as outer bindings. Any move
+            // from that persistent state could be repeated on a later
+            // iteration and is rejected conservatively.
+            Map<VarState,Boolean> beforeRepeatedRegion = movedSnapshot(loopScope);
             if (loop.condition() != null) checkExpr(loop.condition(), loopScope, false);
-            Map<VarState,Boolean> before = movedSnapshot(scope);
             checkBlock(loop.body(), loopScope, returnType);
             if (loop.update() != null) checkExpr(loop.update(), loopScope, false);
-            rejectLoopMoves(before, scope);
+            rejectLoopMoves(beforeRepeatedRegion, loopScope);
             loopScope.close();
         }
     }
