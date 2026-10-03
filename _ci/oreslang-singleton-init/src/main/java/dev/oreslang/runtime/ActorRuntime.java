@@ -3,6 +3,7 @@ package dev.oreslang.runtime;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -16,6 +17,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
@@ -29,10 +31,12 @@ import java.util.function.Supplier;
  * Frozen values rather than sharing Java object references.
  */
 public final class ActorRuntime implements AutoCloseable {
+    private static final Duration MAX_CLOSE_WAIT = Duration.ofSeconds(5);
     private static final int MAX_FREEZE_DEPTH = 256;
     private static final int MAX_FREEZE_NODES = 100_000;
     private static final long MAX_FREEZE_BYTES = 16L * 1024 * 1024;
     private static final ThreadLocal<ActorExecution> CURRENT_ACTOR = new ThreadLocal<>();
+    private static final ThreadLocal<Long> CURRENT_ACTOR_DEADLINE_NANOS = new ThreadLocal<>();
 
     private final Map<ActorId, ActorCell<?>> actors = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -65,6 +69,36 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
+     * Returns the remaining wall-time budget for the currently executing actor
+     * message, capped by {@code fallback}. Off-actor callers simply receive the
+     * fallback. This lets blocking actor RPCs inherit the message deadline
+     * instead of accidentally minting a fresh full policy budget.
+     */
+    public Duration remainingCurrentActorWallTime(Duration fallback) {
+        java.util.Objects.requireNonNull(fallback, "fallback");
+        if (fallback.isZero() || fallback.isNegative()) {
+            throw new IllegalArgumentException("fallback wall time must be positive");
+        }
+
+        ActorExecution execution = CURRENT_ACTOR.get();
+        Long deadline = CURRENT_ACTOR_DEADLINE_NANOS.get();
+        if (execution == null || execution.runtime != this || deadline == null) return fallback;
+
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw new ExecutionTerminated("actor message wall-time budget exceeded");
+        }
+
+        long fallbackNanos;
+        try {
+            fallbackNanos = fallback.toNanos();
+        } catch (ArithmeticException overflow) {
+            fallbackNanos = Long.MAX_VALUE / 4;
+        }
+        return Duration.ofNanos(Math.min(remaining, Math.max(1L, fallbackNanos)));
+    }
+
+    /**
      * Actor-cell-local host storage. Values live exactly as long as the actor
      * cell and are never shared with another actor. Intended for compiler/runtime
      * lowering such as per-actor module/init state, not direct guest access.
@@ -73,6 +107,7 @@ public final class ActorRuntime implements AutoCloseable {
      */
     @SuppressWarnings("unchecked")
     public <T> T currentActorLocal(Object key, Supplier<? extends T> initializer) {
+        if (closed.get()) throw new ExecutionTerminated("actor runtime is closing");
         java.util.Objects.requireNonNull(key, "key");
         java.util.Objects.requireNonNull(initializer, "initializer");
         ActorExecution execution = CURRENT_ACTOR.get();
@@ -81,11 +116,12 @@ public final class ActorRuntime implements AutoCloseable {
         Object existing = execution.locals.get(key);
         if (existing != null) return (T) existing;
         if (!execution.initializingLocals.add(key)) {
-            throw new IllegalStateException("actor-local initialization cycle for " + key);
+            throw new IllegalStateException(
+                    "actor-local initialization cycle for " + diagnosticKey(key));
         }
         try {
             T value = java.util.Objects.requireNonNull(initializer.get(),
-                    "actor-local initializer returned null for " + key);
+                    "actor-local initializer returned null for " + diagnosticKey(key));
             execution.locals.put(key, value);
             return value;
         } finally {
@@ -139,6 +175,8 @@ public final class ActorRuntime implements AutoCloseable {
 
     public <M> ActorRef<M> spawn(IsolatePolicy policy, Supplier<? extends Behavior<M>> behaviorFactory) {
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+        java.util.Objects.requireNonNull(policy, "policy");
+        java.util.Objects.requireNonNull(behaviorFactory, "behaviorFactory");
         requireWithinCeiling(policy);
         ActorId id = ActorId.create();
         ActorRef<M> ref = new ActorRef<>(id);
@@ -171,6 +209,9 @@ public final class ActorRuntime implements AutoCloseable {
     @SuppressWarnings("unchecked")
     public <M> void send(ActorRef<M> ref, M message) {
         if (closed.get()) throw new IllegalStateException("actor runtime is closed");
+        if (!ref.belongsTo(this)) {
+            throw new IllegalArgumentException("ActorRef belongs to a different ActorRuntime");
+        }
         ActorCell<M> cell = (ActorCell<M>) actors.get(ref.id());
         if (cell == null) throw new IllegalStateException("unknown actor " + ref.id());
         Object frozen = freezeForThisRuntime(message);
@@ -190,13 +231,21 @@ public final class ActorRuntime implements AutoCloseable {
      * hook rather than guest-accessible thread control.
      */
     public void schedulerSafepoint() {
-        if (closed.get()) throw new CancellationException("actor runtime is closing");
-        if (Thread.currentThread().isInterrupted()) throw new CancellationException("actor execution interrupted");
+        if (closed.get()) throw new ExecutionTerminated("actor runtime is closing");
+        if (Thread.currentThread().isInterrupted()) throw new ExecutionTerminated("actor execution interrupted");
+
+        ActorExecution execution = CURRENT_ACTOR.get();
+        Long deadline = CURRENT_ACTOR_DEADLINE_NANOS.get();
+        if (execution != null && execution.runtime == this && deadline != null
+                && System.nanoTime() - deadline >= 0) {
+            throw new ExecutionTerminated("actor message wall-time budget exceeded");
+        }
         Thread.yield();
     }
 
     @SuppressWarnings("unchecked")
     public <T> Shared<T> shareReadonly(T value) {
+        if (closed.get()) throw new ExecutionTerminated("actor runtime is closing");
         return new Shared<>((T) freezeForThisRuntime(value));
     }
 
@@ -332,6 +381,80 @@ public final class ActorRuntime implements AutoCloseable {
                 + " is not Sendable; mutable host objects cannot cross actor boundaries");
     }
 
+    /**
+     * Materializes a receiver-owned mutable copy from a value that has already
+     * passed freeze(). This is used by actor RPC boundaries where Oreslang
+     * by-value aggregates must become owned by the receiving actor rather than
+     * retaining the transport's unmodifiable container representation.
+     *
+     * Shared<T> deliberately remains shared/read-only.
+     */
+    public static Object materializeOwned(Object value) {
+        return materializeFrozen(freeze(value));
+    }
+
+    static Object materializeFrozen(Object value) {
+        if (value == null
+                || value instanceof String
+                || value instanceof Boolean
+                || value instanceof Character
+                || value instanceof Byte
+                || value instanceof Short
+                || value instanceof Integer
+                || value instanceof Long
+                || value instanceof Float
+                || value instanceof Double
+                || value instanceof BigInteger
+                || value instanceof BigDecimal
+                || value instanceof Enum<?>
+                || value instanceof UUID
+                || value instanceof ActorId
+                || value instanceof OresValues.Complex) {
+            return value;
+        }
+        if (value instanceof OresValues.OptionValue option) {
+            return option.present()
+                    ? new OresValues.OptionValue(true, materializeFrozen(option.value()))
+                    : option;
+        }
+        if (value instanceof Shared<?>) return value;
+        if (value instanceof ActorRef<?>) {
+            throw new IllegalArgumentException(
+                    "context-free actor RPC cannot materialize a live ActorRef capability");
+        }
+        if (value instanceof List<?> list) {
+            ArrayList<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) copy.add(materializeFrozen(item));
+            return copy;
+        }
+        if (value instanceof Set<?> set) {
+            LinkedHashSet<Object> copy = new LinkedHashSet<>();
+            for (Object item : set) {
+                Object owned = materializeFrozen(item);
+                if (!copy.add(owned)) {
+                    throw new IllegalArgumentException(
+                            "actor-owned set elements collide during transport materialization");
+                }
+            }
+            return copy;
+        }
+        if (value instanceof Map<?, ?> map) {
+            LinkedHashMap<Object, Object> copy = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                Object key = materializeFrozen(entry.getKey());
+                Object item = materializeFrozen(entry.getValue());
+                if (copy.containsKey(key)) {
+                    throw new IllegalArgumentException(
+                            "actor-owned map keys collide during transport materialization");
+                }
+                copy.put(key, item);
+            }
+            return copy;
+        }
+        throw new IllegalArgumentException(
+                "frozen transport contains unsupported value " + value.getClass().getName());
+    }
+
     private static void enterComposite(Object value, IdentityHashMap<Object, Boolean> path) {
         if (path.put(value, Boolean.TRUE) != null) {
             throw new IllegalArgumentException("cyclic actor message graphs are not Sendable");
@@ -356,10 +479,40 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
+    private static String diagnosticKey(Object key) {
+        return key.getClass().getSimpleName() + "#"
+                + Integer.toUnsignedString(key.hashCode(), 16);
+    }
+
+    private static long deadlineAfter(Duration duration) {
+        long delta;
+        try {
+            delta = duration.toNanos();
+        } catch (ArithmeticException overflow) {
+            delta = Long.MAX_VALUE / 4;
+        }
+        delta = Math.max(1L, Math.min(delta, Long.MAX_VALUE / 4));
+        return System.nanoTime() + delta;
+    }
+
+    private static <T> void restoreThreadLocal(ThreadLocal<T> local, T previous) {
+        if (previous == null) local.remove();
+        else local.set(previous);
+    }
+
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        for (ActorCell<?> cell : actors.values()) cell.stop();
+
+        List<ActorCell<?>> snapshot = new ArrayList<>(actors.values());
+        for (ActorCell<?> cell : snapshot) cell.stop();
+
+        Duration requested = policyCeiling.maxWallTime();
+        Duration budget = requested.compareTo(MAX_CLOSE_WAIT) > 0 ? MAX_CLOSE_WAIT : requested;
+        long deadline = deadlineAfter(budget);
+        for (ActorCell<?> cell : snapshot) {
+            if (!cell.awaitStopped(deadline)) break;
+        }
         actors.clear();
     }
 
@@ -367,7 +520,7 @@ public final class ActorRuntime implements AutoCloseable {
         private static final Object STOP = new Object();
         private final ActorRef<M> ref;
         private final IsolatePolicy policy;
-        private final Supplier<? extends Behavior<M>> behaviorFactory;
+        private Supplier<? extends Behavior<M>> behaviorFactory;
         private final BlockingQueue<Object> mailbox;
         private volatile Thread thread;
 
@@ -391,8 +544,11 @@ public final class ActorRuntime implements AutoCloseable {
                     new HashMap<>(),
                     new LinkedHashSet<>()));
             try {
+                Supplier<? extends Behavior<M>> factory = behaviorFactory;
+                behaviorFactory = null; // do not retain the lowering/evaluator closure for the actor lifetime
                 final Behavior<M> behavior = java.util.Objects.requireNonNull(
-                        behaviorFactory.get(), "actor behavior factory returned null");
+                        java.util.Objects.requireNonNull(factory, "actor behavior factory").get(),
+                        "actor behavior factory returned null");
                 final ActorContext<M> context = new ActorContext<>() {
                     @Override public ActorRef<M> self() { return ref; }
                     @Override public ActorRuntime runtime() { return ActorRuntime.this; }
@@ -401,7 +557,15 @@ public final class ActorRuntime implements AutoCloseable {
                 while (true) {
                     Object message = mailbox.take();
                     if (message == STOP) return;
-                    behavior.onMessage((M) message, context);
+
+                    Long previousDeadline = CURRENT_ACTOR_DEADLINE_NANOS.get();
+                    CURRENT_ACTOR_DEADLINE_NANOS.set(deadlineAfter(policy.maxWallTime()));
+                    try {
+                        behavior.onMessage((M) message, context);
+                        schedulerSafepoint();
+                    } finally {
+                        restoreThreadLocal(CURRENT_ACTOR_DEADLINE_NANOS, previousDeadline);
+                    }
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
@@ -412,6 +576,7 @@ public final class ActorRuntime implements AutoCloseable {
                 // so subsequent sends fail immediately instead of targeting a
                 // dead actor left behind in the runtime registry.
             } finally {
+                CURRENT_ACTOR_DEADLINE_NANOS.remove();
                 if (previous == null) CURRENT_ACTOR.remove();
                 else CURRENT_ACTOR.set(previous);
                 actors.remove(ref.id(), this);
@@ -422,6 +587,29 @@ public final class ActorRuntime implements AutoCloseable {
             mailbox.offer(STOP);
             Thread t = thread;
             if (t != null) t.interrupt();
+        }
+
+        private boolean awaitStopped(long deadlineNanos) {
+            Thread t = thread;
+            if (t == null || t == Thread.currentThread() || !t.isAlive()) return true;
+
+            while (t.isAlive()) {
+                long remaining = deadlineNanos - System.nanoTime();
+                if (remaining <= 0) {
+                    t.interrupt();
+                    return false;
+                }
+                long millis = Math.max(1L, Math.min(
+                        TimeUnit.NANOSECONDS.toMillis(remaining),
+                        250L));
+                try {
+                    t.join(millis);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return true;
         }
     }
 }
