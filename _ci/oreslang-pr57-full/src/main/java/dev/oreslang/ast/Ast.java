@@ -333,8 +333,8 @@ public final class Ast {
     public record Imaginary(double coefficient) { }
 
     /**
-     * Source-level symbol literal payload. Runtime evaluation materializes this
-     * as an OresSymbol; no global atom/intern table is involved.
+     * Source-level symbol literal payload. Trusted runtime evaluation resolves this
+     * through the bounded process symbol interner; untrusted isolates reject it.
      */
     public record Symbol(String name) {
         public static final int MAX_NAME_LENGTH = 128;

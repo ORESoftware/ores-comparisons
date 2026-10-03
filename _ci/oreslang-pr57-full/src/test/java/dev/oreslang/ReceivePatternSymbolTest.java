@@ -4,6 +4,8 @@ import dev.oreslang.ast.Ast;
 import dev.oreslang.parser.Parser;
 import dev.oreslang.runtime.ActorRuntime;
 import dev.oreslang.runtime.OresSymbol;
+import dev.oreslang.runtime.CapabilityChecker;
+import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.PatternSupport;
 import dev.oreslang.types.OwnershipChecker;
 import dev.oreslang.types.TypeChecker;
@@ -152,10 +154,32 @@ final class ReceivePatternSymbolTest {
 
         OresSymbol first = OresSymbol.of("ping");
         OresSymbol second = OresSymbol.of("ping");
+        assertSame(first, second, "equal symbol names must resolve to one process-wide canonical identity");
         assertEquals(first, second);
-        assertNotSame(first, second, "symbols are ordinary GC-able values, not required global intern entries");
         assertNotEquals(first, "ping");
         assertEquals(":ping", first.toString());
+    }
+
+    @Test
+    void untrustedPoliciesCannotCreateOrReceiveProcessSymbols() {
+        Ast.Program program = TypeChecker.check(Parser.parse("""
+                pub fnc protocol_tag() => Symbol {
+                  return :ping;
+                }
+                """));
+        SecurityException denied = assertThrows(
+                SecurityException.class,
+                () -> CapabilityChecker.check(program, IsolatePolicy.strictFaas()));
+        assertTrue(denied.getMessage().contains("symbols"));
+
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var ref = runtime.<Object>spawnPrivate(
+                    IsolatePolicy.strictFaas(),
+                    context -> (message, actorContext) -> { });
+            SecurityException transportDenied =
+                    assertThrows(SecurityException.class, () -> ref.send(OresSymbol.of("ping")));
+            assertTrue(transportDenied.getMessage().contains("symbols"));
+        }
     }
 
     @Test

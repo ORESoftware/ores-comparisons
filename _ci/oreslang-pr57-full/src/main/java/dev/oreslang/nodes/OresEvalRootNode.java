@@ -218,7 +218,7 @@ public final class OresEvalRootNode extends RootNode {
             if (expr instanceof Ast.LiteralExpr literal) {
                 if (literal.value() == null) throw new IllegalArgumentException("standalone null values are forbidden");
                 if (literal.value() instanceof Ast.Imaginary imaginary) return new Complex(0.0, imaginary.coefficient());
-                if (literal.value() instanceof Ast.Symbol symbol) return OresSymbol.of(symbol.name());
+                if (literal.value() instanceof Ast.Symbol symbol) return OresSymbol.of(symbol.name(), context.isolatePolicy());
                 return literal.value();
             }
             if (expr instanceof Ast.NameExpr name) {

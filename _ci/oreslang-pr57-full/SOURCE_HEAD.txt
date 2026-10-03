@@ -1,4 +1,5 @@
 ores-truffle-oreslang/oreslang-source.java
 PR #67
-head 9af61f0bcc6d07a219e893488707773493c09bfc
+head 918adf765d2007e57a73bfa55e5ad921778c09d6
 base PR #57 @ cf0a27613f6f953e7314822bb9539cef3c21582a
+audit: canonical pinned symbols + untrusted exclusion + allocation-free pattern matching

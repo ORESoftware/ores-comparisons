@@ -52,7 +52,10 @@ public final class CapabilityChecker {
             } else if (stmt instanceof Ast.ReceiveLoopStmt s) {
                 checkStatements(s.body(), policy);
             } else if (stmt instanceof Ast.ReceivePatternLoopStmt s) {
-                for (Ast.ReceiveCase branch : s.cases()) checkStatements(branch.body(), policy);
+                for (Ast.ReceiveCase branch : s.cases()) {
+                    checkPattern(branch.pattern(), policy);
+                    checkStatements(branch.body(), policy);
+                }
                 checkStatements(s.defaultBody(), policy);
             } else if (stmt instanceof Ast.SelectStmt s) {
                 for (Ast.SelectCase branch : s.cases()) {
@@ -72,8 +75,32 @@ public final class CapabilityChecker {
         }
     }
 
+    private static void checkPattern(Ast.Pattern pattern, IsolatePolicy policy) {
+        if (pattern instanceof Ast.LiteralPattern literal
+                && literal.value() instanceof Ast.Symbol) {
+            requireTrustedSymbolPolicy(policy);
+            return;
+        }
+        if (pattern instanceof Ast.TuplePattern tuple) {
+            for (Ast.Pattern element : tuple.elements()) checkPattern(element, policy);
+            return;
+        }
+        if (pattern instanceof Ast.ListPattern list) {
+            for (Ast.Pattern element : list.elements()) checkPattern(element, policy);
+        }
+    }
+
+    private static void requireTrustedSymbolPolicy(IsolatePolicy policy) {
+        if (policy.adversarial()) {
+            throw new SecurityException(
+                    "process-wide symbols are unavailable to adversarial/untrusted isolates");
+        }
+    }
+
     private static void checkExpr(Ast.Expr expr, IsolatePolicy policy) {
-        if (expr instanceof Ast.NameExpr n && n.name().equals("print")) require(policy, IsolatePolicy.Capability.STDOUT, "print");
+        if (expr instanceof Ast.LiteralExpr literal && literal.value() instanceof Ast.Symbol) {
+            requireTrustedSymbolPolicy(policy);
+        } else if (expr instanceof Ast.NameExpr n && n.name().equals("print")) require(policy, IsolatePolicy.Capability.STDOUT, "print");
         else if (expr instanceof Ast.CallExpr c) {
             checkExpr(c.callee(), policy);
             for (Ast.Expr arg : c.arguments()) checkExpr(arg, policy);

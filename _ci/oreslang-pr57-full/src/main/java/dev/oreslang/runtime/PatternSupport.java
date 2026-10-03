@@ -42,7 +42,11 @@ public final class PatternSupport {
         }
 
         if (pattern instanceof Ast.LiteralPattern literal) {
-            return valueEquals(runtimeLiteral(literal.value()), value);
+            if (literal.value() instanceof Ast.Symbol symbol) {
+                return value instanceof OresSymbol runtimeSymbol
+                        && runtimeSymbol.name().equals(symbol.name());
+            }
+            return valueEquals(literal.value(), value);
         }
 
         List<Ast.Pattern> elements;
@@ -68,11 +72,6 @@ public final class PatternSupport {
             return true;
         }
         return valueEquals(captures.get(name), value);
-    }
-
-    private static Object runtimeLiteral(Object value) {
-        if (value instanceof Ast.Symbol symbol) return OresSymbol.of(symbol.name());
-        return value;
     }
 
     private static List<?> sequence(Object value) {
