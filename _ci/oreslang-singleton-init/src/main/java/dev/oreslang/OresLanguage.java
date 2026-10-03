@@ -70,6 +70,19 @@ public final class OresLanguage extends TruffleLanguage<OresContext> {
         return new OresInteropRootNode(this, evaluator).getCallTarget();
     }
 
+    private static String normalizeLogicalIdentity(String name) {
+        if (name == null || name.isBlank()) return name;
+        try {
+            String normalized = Path.of(name.replace('\\', '/'))
+                    .normalize()
+                    .toString()
+                    .replace('\\', '/');
+            return normalized.isBlank() ? name : normalized;
+        } catch (InvalidPathException invalidPath) {
+            return name;
+        }
+    }
+
     private static String sourceDigest(String source) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
