@@ -37,7 +37,7 @@ public final class Ast {
 
     public enum Visibility { PRIVATE, PUBLIC }
     public enum CallableKind { FNC, ROUTINE }
-    public enum ActorKind { NONE, PRIVATE, SHARED }
+    public enum ActorKind { NONE, PRIVATE, SHARED, UNTRUSTED }
 
     public record Annotation(String name, List<TypeRef> arguments) {
         public Annotation { arguments = List.copyOf(arguments); }
@@ -327,9 +327,11 @@ public final class Ast {
                 throw new IllegalArgumentException("call type arguments require an explicit <...> marker");
             }
         }
+
         public CallExpr(Expr callee, List<Expr> arguments) {
             this(callee, List.of(), false, arguments);
         }
+
         public CallExpr(Expr callee, List<TypeRef> typeArguments, List<Expr> arguments) {
             this(callee, typeArguments, true, arguments);
         }
