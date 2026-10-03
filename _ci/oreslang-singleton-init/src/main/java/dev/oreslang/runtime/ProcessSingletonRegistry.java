@@ -47,6 +47,7 @@ public final class ProcessSingletonRegistry {
     private static final int MAX_PROCESS_SINGLETONS = 4_096;
     private static final int MAX_KEY_CHARS = 2_048;
     private static final Duration DEFAULT_WALL_TIME = Duration.ofMinutes(10);
+    private static final Duration DEFAULT_INITIALIZATION_WALL_TIME = Duration.ofSeconds(30);
     private static final ScheduledThreadPoolExecutor TIMEOUTS = timeoutExecutor();
 
     private static final Map<String, Cell> CELLS = new ConcurrentHashMap<>();
@@ -62,6 +63,7 @@ public final class ProcessSingletonRegistry {
 
     private static final ThreadLocal<String> CURRENT_CELL = new ThreadLocal<>();
     private static final ThreadLocal<Long> CURRENT_DEADLINE_NANOS = new ThreadLocal<>();
+    private static final ThreadLocal<Request> CURRENT_REQUEST = new ThreadLocal<>();
 
     private ProcessSingletonRegistry() { }
 
@@ -82,10 +84,21 @@ public final class ProcessSingletonRegistry {
     }
 
     public static <S> Handle<S> getOrCreate(String key, Supplier<? extends S> stateFactory) {
+        return getOrCreate(key, DEFAULT_INITIALIZATION_WALL_TIME, stateFactory);
+    }
+
+    public static <S> Handle<S> getOrCreate(
+            String key,
+            Duration initializationWallTime,
+            Supplier<? extends S> stateFactory) {
         String normalized = Objects.requireNonNull(key, "key").trim();
         if (normalized.isEmpty()) throw new IllegalArgumentException("singleton key cannot be blank");
         if (normalized.length() > MAX_KEY_CHARS) {
             throw new IllegalArgumentException("singleton key exceeds " + MAX_KEY_CHARS + " characters");
+        }
+        Objects.requireNonNull(initializationWallTime, "initializationWallTime");
+        if (initializationWallTime.isZero() || initializationWallTime.isNegative()) {
+            throw new IllegalArgumentException("initializationWallTime must be positive");
         }
         Objects.requireNonNull(stateFactory, "stateFactory");
 
@@ -96,7 +109,7 @@ public final class ProcessSingletonRegistry {
                 if (existing == null && CELLS.size() >= MAX_PROCESS_SINGLETONS) {
                     throw new IllegalStateException("process singleton limit exceeded: " + MAX_PROCESS_SINGLETONS);
                 }
-                cell = new Cell(normalized, stateFactory);
+                cell = new Cell(normalized, initializationWallTime, stateFactory);
                 CELLS.put(normalized, cell);
             } else {
                 cell = existing;
@@ -129,11 +142,39 @@ public final class ProcessSingletonRegistry {
      * caller's wall-time budget indefinitely.
      */
     public static void checkExecutionBudget() {
+        Request request = CURRENT_REQUEST.get();
+        if (request != null && request.reply.isCancelled()) {
+            throw new ExecutionTerminated("singleton call was cancelled for "
+                    + diagnosticId(CURRENT_CELL.get()));
+        }
+
         Long deadline = CURRENT_DEADLINE_NANOS.get();
         if (deadline == null) return;
         if (System.nanoTime() - deadline >= 0) {
-            throw new CancellationException("singleton call wall-time budget exceeded for "
+            throw new ExecutionTerminated("singleton call wall-time budget exceeded for "
                     + diagnosticId(CURRENT_CELL.get()));
+        }
+    }
+
+    /**
+     * Linearizes a singleton state commit against explicit caller cancellation.
+     * If cancellation wins first, the commit is rejected. If commit wins first,
+     * a later cancellation cannot retroactively roll back already-published
+     * state.
+     */
+    public static void commitIfActive(Runnable commit) {
+        Objects.requireNonNull(commit, "commit");
+        Request request = CURRENT_REQUEST.get();
+        if (request == null) {
+            checkExecutionBudget();
+            commit.run();
+            return;
+        }
+
+        synchronized (request.reply.commitLock()) {
+            checkExecutionBudget();
+            commit.run();
+            request.reply.markCommitted();
         }
     }
 
@@ -176,8 +217,24 @@ public final class ProcessSingletonRegistry {
             Throwable terminal = cell.terminalFailure;
             if (terminal != null) return CompletableFuture.failedFuture(terminal);
 
-            List<Object> frozen = new ArrayList<>(arguments.size());
-            for (Object argument : arguments) frozen.add(ActorRuntime.freeze(argument));
+            long deadline = effectiveDeadline(callerWallTime);
+            if (expired(deadline)) {
+                return CompletableFuture.failedFuture(
+                        new TimeoutException("singleton call wall-time budget expired before argument transport"));
+            }
+
+            checkExecutionBudget();
+            Object frozenGraph = ActorRuntime.freeze(arguments);
+            checkExecutionBudget();
+            if (expired(deadline)) {
+                return CompletableFuture.failedFuture(
+                        new TimeoutException("singleton call wall-time budget expired during argument transport"));
+            }
+            if (!(frozenGraph instanceof List<?> frozenList)) {
+                throw new IllegalStateException("singleton argument transport did not freeze to a list");
+            }
+            @SuppressWarnings("unchecked")
+            List<Object> frozen = (List<Object>) frozenList;
 
             String caller = CURRENT_CELL.get();
             WaitEdge waitEdge;
@@ -187,12 +244,16 @@ public final class ProcessSingletonRegistry {
                 return CompletableFuture.failedFuture(failure);
             }
 
-            CompletableFuture<Object> reply = new CompletableFuture<>();
+            ReplyFuture reply = new ReplyFuture();
             if (waitEdge != null) reply.whenComplete((ignored, failure) -> waitEdge.close());
 
-            long deadline = deadlineAfter(callerWallTime);
+            if (expired(deadline)) {
+                if (waitEdge != null) waitEdge.close();
+                return CompletableFuture.failedFuture(
+                        new TimeoutException("singleton call inherited an expired parent deadline"));
+            }
             Request request = new Request(
-                    List.copyOf(frozen),
+                    frozen,
                     (state, args) -> operation.apply(cast(state), args),
                     reply,
                     deadline);
@@ -217,24 +278,34 @@ public final class ProcessSingletonRegistry {
                 return reply;
             }
 
+            // Terminal failure can race the pre-enqueue check. If the actor has
+            // already exited, remove this late request immediately rather than
+            // leaving it stranded until the queue timeout fires.
+            terminal = cell.terminalFailure;
+            if (terminal != null && cell.mailbox.remove(request)) {
+                cell.releaseQueuedSlot();
+                request.failBeforeRun(terminal);
+                return reply;
+            }
+
             /*
              * A queued request may time out promptly, but a running request is
              * never completed by the timer thread. Once RUNNING, deadline
              * enforcement belongs exclusively to the serial actor and its
              * cooperative safepoints/transaction commit.
              */
-            long timeoutMillis;
-            try {
-                timeoutMillis = Math.max(1L, callerWallTime.toMillis());
-            } catch (ArithmeticException overflow) {
-                timeoutMillis = Long.MAX_VALUE;
-            }
+            long timeoutDelayNanos = Math.max(1L, deadline - System.nanoTime());
             ScheduledFuture<?> timeoutTask = TIMEOUTS.schedule(() -> {
                 if (!request.expireQueued(cell.diagnosticId)) return;
                 if (cell.mailbox.remove(request)) cell.releaseQueuedSlot();
-            }, timeoutMillis, TimeUnit.MILLISECONDS);
+            }, timeoutDelayNanos, TimeUnit.NANOSECONDS);
             request.timeoutTask(timeoutTask);
-            reply.whenComplete((ignored, failure) -> request.cancelTimeoutTask());
+            reply.whenComplete((ignored, failure) -> {
+                request.cancelTimeoutTask();
+                if (reply.isCancelled() && request.cancelQueued()) {
+                    if (cell.mailbox.remove(request)) cell.releaseQueuedSlot();
+                }
+            });
             return reply;
         }
 
@@ -249,6 +320,27 @@ public final class ProcessSingletonRegistry {
         Object apply(Object state, List<Object> arguments) throws Exception;
     }
 
+    private static final class ReplyFuture extends CompletableFuture<Object> {
+        private final Object commitLock = new Object();
+        private boolean committed;
+
+        private Object commitLock() {
+            return commitLock;
+        }
+
+        private void markCommitted() {
+            committed = true; // caller holds commitLock
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            synchronized (commitLock) {
+                if (committed) return false;
+                return super.cancel(mayInterruptIfRunning);
+            }
+        }
+    }
+
     private static final class Request {
         private static final int QUEUED = 0;
         private static final int RUNNING = 1;
@@ -257,7 +349,7 @@ public final class ProcessSingletonRegistry {
 
         private final List<Object> arguments;
         private final ErasedOperation operation;
-        private final CompletableFuture<Object> reply;
+        private final ReplyFuture reply;
         private final long deadlineNanos;
         private final AtomicInteger phase = new AtomicInteger(QUEUED);
         private volatile ScheduledFuture<?> timeoutTask;
@@ -265,7 +357,7 @@ public final class ProcessSingletonRegistry {
         private Request(
                 List<Object> arguments,
                 ErasedOperation operation,
-                CompletableFuture<Object> reply,
+                ReplyFuture reply,
                 long deadlineNanos) {
             this.arguments = arguments;
             this.operation = operation;
@@ -288,6 +380,10 @@ public final class ProcessSingletonRegistry {
             phase.compareAndSet(RUNNING, DONE);
         }
 
+        private boolean cancelQueued() {
+            return phase.compareAndSet(QUEUED, DONE);
+        }
+
         private void failBeforeRun(Throwable failure) {
             if (phase.compareAndSet(QUEUED, DONE)) {
                 reply.completeExceptionally(failure);
@@ -296,6 +392,10 @@ public final class ProcessSingletonRegistry {
 
         private void timeoutTask(ScheduledFuture<?> task) {
             this.timeoutTask = task;
+            // A very fast request can complete between scheduling and this
+            // assignment. Cancel here as well as in the completion callback so
+            // completed requests do not retain delayed timeout tasks.
+            if (reply.isDone()) task.cancel(false);
         }
 
         private void cancelTimeoutTask() {
@@ -311,13 +411,15 @@ public final class ProcessSingletonRegistry {
         private final BlockingQueue<Request> mailbox = new LinkedBlockingQueue<>(MAILBOX_CAPACITY);
         private final AtomicInteger queuedRequests = new AtomicInteger();
         private final AtomicBoolean started = new AtomicBoolean();
+        private final Duration initializationWallTime;
         private volatile Supplier<?> stateFactory;
         private volatile Throwable terminalFailure;
         private volatile boolean initialized;
 
-        private Cell(String key, Supplier<?> stateFactory) {
+        private Cell(String key, Duration initializationWallTime, Supplier<?> stateFactory) {
             this.key = key;
             this.diagnosticId = diagnosticId(key);
+            this.initializationWallTime = initializationWallTime;
             this.stateFactory = stateFactory;
         }
 
@@ -355,13 +457,22 @@ public final class ProcessSingletonRegistry {
             Object state;
             Supplier<?> factory = stateFactory;
             stateFactory = null; // do not retain the first isolate/evaluator after initialization
+            String initializationPreviousCell = CURRENT_CELL.get();
+            Long initializationPreviousDeadline = CURRENT_DEADLINE_NANOS.get();
+            CURRENT_CELL.set(key);
+            CURRENT_DEADLINE_NANOS.set(effectiveDeadline(initializationWallTime));
             try {
+                checkExecutionBudget();
                 state = Objects.requireNonNull(factory.get(),
-                        "singleton state factory returned null for " + key);
+                        "singleton state factory returned null for " + diagnosticId);
+                checkExecutionBudget();
                 initialized = true;
             } catch (Throwable failure) {
                 failTerminal(failure);
                 return;
+            } finally {
+                restoreThreadLocal(CURRENT_CELL, initializationPreviousCell);
+                restoreThreadLocal(CURRENT_DEADLINE_NANOS, initializationPreviousDeadline);
             }
 
             while (true) {
@@ -395,11 +506,17 @@ public final class ProcessSingletonRegistry {
 
                 String previousCell = CURRENT_CELL.get();
                 Long previousDeadline = CURRENT_DEADLINE_NANOS.get();
+                Request previousRequest = CURRENT_REQUEST.get();
                 CURRENT_CELL.set(key);
                 CURRENT_DEADLINE_NANOS.set(request.deadlineNanos);
+                CURRENT_REQUEST.set(request);
                 try {
                     checkExecutionBudget();
-                    Object result = request.operation.apply(state, request.arguments);
+                    @SuppressWarnings("unchecked")
+                    List<Object> ownedArguments =
+                            (List<Object>) ActorRuntime.materializeFrozen(request.arguments);
+                    checkExecutionBudget();
+                    Object result = request.operation.apply(state, ownedArguments);
                     checkExecutionBudget();
                     if (!request.reply.isDone()) request.reply.complete(ActorRuntime.freeze(result));
                 } catch (VirtualMachineError fatal) {
@@ -412,6 +529,7 @@ public final class ProcessSingletonRegistry {
                     request.finish();
                     restoreThreadLocal(CURRENT_CELL, previousCell);
                     restoreThreadLocal(CURRENT_DEADLINE_NANOS, previousDeadline);
+                    restoreThreadLocal(CURRENT_REQUEST, previousRequest);
                 }
             }
         }
@@ -490,7 +608,7 @@ public final class ProcessSingletonRegistry {
         return Integer.toUnsignedString(key.hashCode(), 16);
     }
 
-    private static long deadlineAfter(Duration duration) {
+    private static long effectiveDeadline(Duration duration) {
         long delta;
         try {
             delta = duration.toNanos();
@@ -499,15 +617,23 @@ public final class ProcessSingletonRegistry {
         }
         /*
          * nanoTime() is an arbitrary signed origin and may wrap. Deadline
-         * comparisons use subtraction, which is safe as long as the interval
+         * comparisons use subtraction, which is safe as long as each interval
          * stays below 2^63 ns; clamp pathological host policies accordingly.
          */
         delta = Math.max(1L, Math.min(delta, Long.MAX_VALUE / 4));
-        return System.nanoTime() + delta;
+        long now = System.nanoTime();
+
+        Long inheritedDeadline = CURRENT_DEADLINE_NANOS.get();
+        if (inheritedDeadline != null) {
+            long remaining = inheritedDeadline - now;
+            if (remaining <= 0) return now;
+            delta = Math.min(delta, remaining);
+        }
+        return now + delta;
     }
 
     private static boolean expired(long deadline) {
-        return deadline != Long.MAX_VALUE && System.nanoTime() - deadline >= 0;
+        return System.nanoTime() - deadline >= 0;
     }
 
     private static <T> void restoreThreadLocal(ThreadLocal<T> local, T previous) {
