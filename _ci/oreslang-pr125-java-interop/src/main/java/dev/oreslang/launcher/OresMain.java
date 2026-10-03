@@ -50,11 +50,11 @@ public final class OresMain {
             } else if (arg.startsWith("--")) {
                 throw new IllegalArgumentException("unknown option: " + arg);
             } else if (filename == null) filename = arg;
-            else throw new IllegalArgumentException("only one .ores file may be supplied");
+            else throw new IllegalArgumentException("only one .ores or .java source file may be supplied");
         }
 
         if (filename == null) {
-            System.err.println("usage: oreslang-compiler [--check] [--strict-isolate] [--mode=aot|jit|hybrid] [--platform=server|windows|macos|linux|android|ios] [--allow=CAP,...] [--allow-host-class=java.util.ArrayList ...] <file.ores>");
+            System.err.println("usage: oreslang-compiler [--check] [--strict-isolate] [--mode=aot|jit|hybrid] [--platform=server|windows|macos|linux|android|ios] [--allow=CAP,...] [--allow-host-class=java.util.ArrayList ...] <file.ores|file.java>");
             System.exit(2);
             return;
         }
