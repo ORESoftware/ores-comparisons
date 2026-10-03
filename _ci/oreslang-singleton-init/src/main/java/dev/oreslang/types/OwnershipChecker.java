@@ -246,7 +246,12 @@ public final class OwnershipChecker {
             return;
         }
         if (stmt instanceof Ast.DeferStmt defer) {
+            // defer executes at lexical block exit, not at registration time.
+            // Validate it now, then retain every non-Copy capture as a scoped
+            // borrow so later statements cannot move/mutate data the deferred
+            // expression will still access.
             checkExpr(defer.expression(), scope, false);
+            reserveDeferredCaptures(defer.expression(), scope);
             return;
         }
         if (stmt instanceof Ast.IfStmt conditional) {
@@ -285,10 +290,38 @@ public final class OwnershipChecker {
             return;
         }
         if (stmt instanceof Ast.ForOfStmt loop) {
-            checkExpr(loop.iterable(), scope, false);
+            boolean consumingIterable = isIntrinsicCall(loop.iterable(), "take");
+            ValueInfo iterable = checkExpr(loop.iterable(), scope, consumingIterable);
+            Ast.TypeRef elementType = iterableElementType(loop.iterable(), scope);
+            if (elementType == null) elementType = Ast.TypeRef.inferred();
+
+            ValueKind elementKind = isCopyType(elementType)
+                    ? ValueKind.COPY
+                    : consumingIterable ? ValueKind.MOVE_ONLY : ValueKind.IMM_BORROW;
+
+            VarState iterableOwner = null;
+            if (!consumingIterable) {
+                if (loop.iterable() instanceof Ast.NameExpr name) {
+                    iterableOwner = scope.lookup(name.name());
+                }
+                if (iterableOwner == null) iterableOwner = iterable.borrowSource;
+                if (iterableOwner == null) iterableOwner = projectionOwner(loop.iterable(), scope);
+            }
+
             Map<VarState,Boolean> before = movedSnapshot(scope);
             Scope loopScope = new Scope(scope);
-            loopScope.define(loop.bindingName(), new VarState(Ast.TypeRef.inferred(), loop.bindingKind() == Ast.BindingKind.LET, ValueKind.MOVE_ONLY, Origin.LOCAL));
+            VarState elementState = new VarState(
+                    elementType,
+                    loop.bindingKind() == Ast.BindingKind.LET
+                            && elementKind != ValueKind.IMM_BORROW
+                            && elementKind != ValueKind.MUT_BORROW,
+                    elementKind,
+                    Origin.LOCAL);
+            if (elementKind == ValueKind.IMM_BORROW && iterableOwner != null) {
+                beginPersistentBorrow(iterableOwner, false);
+                elementState.borrowSource = iterableOwner;
+            }
+            loopScope.define(loop.bindingName(), elementState);
             checkBlock(loop.body(), loopScope, returnType);
             loopScope.close();
             rejectLoopMoves(before, scope);
@@ -391,7 +424,9 @@ public final class OwnershipChecker {
         }
         if (expr instanceof Ast.AssignExpr assignment) {
             checkAssignmentTarget(assignment.target(), scope);
-            return checkExpr(assignment.value(), scope, true);
+            ValueInfo assigned = checkExpr(assignment.value(), scope, true);
+            rejectBorrowStorage(assigned, "assignment");
+            return assigned;
         }
         if (expr instanceof Ast.BinaryExpr binary) {
             checkExpr(binary.left(), scope, false);
@@ -538,7 +573,10 @@ public final class OwnershipChecker {
             return new ValueInfo(Ast.TypeRef.borrowed(effectiveType, false), ValueKind.IMM_BORROW, owner);
         }
         if (expr instanceof Ast.NewExpr created) {
-            for (Ast.Expr arg : created.arguments()) checkExpr(arg, scope, true);
+            for (Ast.Expr arg : created.arguments()) {
+                ValueInfo value = checkExpr(arg, scope, true);
+                rejectBorrowStorage(value, "constructor field");
+            }
             return new ValueInfo(created.type(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.AwaitExpr awaited) return checkExpr(awaited.expression(), scope, consuming);
@@ -547,6 +585,7 @@ public final class OwnershipChecker {
             boolean uniform = true;
             for (Ast.Expr item : list.elements()) {
                 ValueInfo info = checkExpr(item, scope, true);
+                rejectBorrowStorage(info, "list/array element");
                 if (elementType == null) elementType = info.type;
                 else uniform &= elementType.equals(info.type);
             }
@@ -560,6 +599,7 @@ public final class OwnershipChecker {
             List<Ast.TypeRef> elementTypes = new ArrayList<>();
             for (Ast.Expr item : tuple.elements()) {
                 ValueInfo info = checkExpr(item, scope, true);
+                rejectBorrowStorage(info, "tuple element");
                 copy &= info.kind == ValueKind.COPY;
                 elementTypes.add(info.type);
             }
@@ -572,6 +612,7 @@ public final class OwnershipChecker {
             List<Ast.TypeRef> fields = new ArrayList<>();
             for (Ast.ObjectField field : object.fields()) {
                 ValueInfo value = checkExpr(field.value(), scope, true);
+                rejectBorrowStorage(value, "object field '" + field.name() + "'");
                 fields.add(new Ast.TypeRef(
                         "$objfield$" + field.name(),
                         List.of(value.type),
@@ -797,7 +838,7 @@ public final class OwnershipChecker {
 
                 if (mode == Ast.ParamMode.TAKE) {
                     ValueInfo taken = checkExpr(arg, scope, true);
-                    if (taken.kind == ValueKind.IMM_BORROW || taken.kind == ValueKind.MUT_BORROW) {
+                    if (isBorrowed(taken)) {
                         throw error(callable + " argument " + (i + 1)
                                 + " requires ownership but the supplied value is borrowed");
                     }
@@ -805,37 +846,48 @@ public final class OwnershipChecker {
                 }
 
                 boolean mutable = mode == Ast.ParamMode.MUT;
-                if (arg instanceof Ast.NameExpr name) {
+                if (mutable) {
+                    if (!(arg instanceof Ast.NameExpr name)) {
+                        throw error(callable + " argument " + (i + 1)
+                                + " for a mut parameter must be a named mutable owner");
+                    }
                     VarState state = scope.lookup(name.name());
                     if (state == null) {
-                        // Builtins/global Copy values such as None are not local
-                        // ownership roots. TypeChecker validates their value type;
-                        // ownership only needs to reject mutable borrowing here.
-                        if (mutable) {
-                            throw error(callable + " argument " + (i + 1)
-                                    + " for a mut parameter must be a named mutable owner");
-                        }
-                        checkExpr(arg, scope, false);
-                        continue;
+                        throw error(callable + " argument " + (i + 1)
+                                + " for a mut parameter must be a named mutable owner");
                     }
-                    requireUsable(state, name.name(), mutable);
-
-                    if (!mutable && state.kind == ValueKind.COPY) {
-                        continue; // Copy values cross ordinary parameters by copy.
-                    }
-
-                    beginTemporaryBorrow(state, mutable, callable, i + 1, name.name());
-                    temporaryBorrows.add(new TemporaryBorrow(state, mutable));
+                    requireUsable(state, name.name(), true);
+                    beginTemporaryBorrow(state, true, callable, i + 1, name.name());
+                    temporaryBorrows.add(new TemporaryBorrow(state, true));
                     continue;
                 }
 
-                if (mutable) {
-                    throw error(callable + " argument " + (i + 1)
-                            + " for a mut parameter must be a named mutable owner");
+                ValueInfo read = checkExpr(arg, scope, false);
+                VarState owner = null;
+                String ownerName = "<projection>";
+
+                if (arg instanceof Ast.NameExpr name) {
+                    VarState state = scope.lookup(name.name());
+                    if (state == null) continue; // global/builtin Copy-like value
+                    requireUsable(state, name.name(), false);
+                    if (state.kind == ValueKind.COPY) continue;
+                    owner = state;
+                    ownerName = name.name();
+                } else if (read.borrowSource != null) {
+                    owner = read.borrowSource;
+                    ownerName = owner.debugName;
+                } else {
+                    VarState projected = projectionOwner(arg, scope);
+                    if (projected != null && projected.kind != ValueKind.COPY) {
+                        owner = projected;
+                        ownerName = projected.debugName;
+                    }
                 }
 
-                // Read-borrowing a temporary expression is safe for this call only.
-                checkExpr(arg, scope, false);
+                if (owner != null) {
+                    beginTemporaryBorrow(owner, false, callable, i + 1, ownerName);
+                    temporaryBorrows.add(new TemporaryBorrow(owner, false));
+                }
             }
         } finally {
             for (int i = temporaryBorrows.size() - 1; i >= 0; i--) {
@@ -858,7 +910,7 @@ public final class OwnershipChecker {
             if (state.mutableBorrowed) {
                 throw error("cannot read-borrow '" + name + "' while an exclusive reborrow is active");
             }
-            state.immutableBorrows++;
+            incrementImmutableBorrow(state);
             return;
         }
 
@@ -872,7 +924,7 @@ public final class OwnershipChecker {
                 if (state.mutableBorrowed) {
                     throw error("cannot read-borrow '" + name + "' while an exclusive reborrow is active");
                 }
-                state.immutableBorrows++;
+                incrementImmutableBorrow(state);
             }
             return;
         }
@@ -881,8 +933,20 @@ public final class OwnershipChecker {
     }
 
     private void endTemporaryBorrow(TemporaryBorrow temporary) {
-        if (temporary.mutable()) temporary.owner().mutableBorrowed = false;
-        else temporary.owner().immutableBorrows--;
+        VarState owner = temporary.owner();
+        if (temporary.mutable()) {
+            if (!owner.mutableBorrowed) {
+                throw new IllegalStateException("Oreslang ownership checker invariant: releasing inactive mutable borrow of '"
+                        + owner.debugName + "'");
+            }
+            owner.mutableBorrowed = false;
+        } else {
+            if (owner.immutableBorrows <= 0) {
+                throw new IllegalStateException("Oreslang ownership checker invariant: immutable borrow underflow for '"
+                        + owner.debugName + "'");
+            }
+            owner.immutableBorrows--;
+        }
     }
 
     private void checkOptionMatch(Ast.MatchStmt matched, Scope scope, Ast.TypeRef returnType) {
@@ -939,7 +1003,7 @@ public final class OwnershipChecker {
             }
             mergeBranchState(base, exits);
         } finally {
-            if (reservedOwner != null) reservedOwner.immutableBorrows--;
+            if (reservedOwner != null) endTemporaryBorrow(new TemporaryBorrow(reservedOwner, false));
         }
     }
 
@@ -1044,7 +1108,59 @@ public final class OwnershipChecker {
     private void beginPersistentBorrow(VarState owner, boolean mutable) {
         validateBorrow(owner, mutable);
         if (mutable) owner.mutableBorrowed = true;
-        else owner.immutableBorrows++;
+        else incrementImmutableBorrow(owner);
+    }
+
+    private void incrementImmutableBorrow(VarState owner) {
+        if (owner.immutableBorrows == Integer.MAX_VALUE) {
+            throw error("immutable borrow count overflow for '" + owner.debugName + "'");
+        }
+        owner.immutableBorrows++;
+    }
+
+    private boolean isBorrowed(ValueInfo value) {
+        return value.kind == ValueKind.IMM_BORROW || value.kind == ValueKind.MUT_BORROW;
+    }
+
+    private void rejectBorrowStorage(ValueInfo value, String where) {
+        if (isBorrowed(value)) {
+            throw error("cannot store a borrowed value in " + where
+                    + " until aggregate/slot borrow provenance is represented explicitly");
+        }
+    }
+
+    private void reserveDeferredCaptures(Ast.Expr expression, Scope scope) {
+        CaptureSet captures = new CaptureSet();
+        scanExpr(expression, Set.of(), scope, null, captures, false);
+        for (Capture capture : captures.values.values()) {
+            VarState source = capture.source;
+            source.debugName = capture.name;
+            if (source.kind == ValueKind.COPY) continue;
+            requireUsable(source, capture.name, capture.write);
+            beginTemporaryBorrow(
+                    source,
+                    capture.write,
+                    "defer",
+                    0,
+                    capture.name);
+            scope.holdBorrow(new TemporaryBorrow(source, capture.write));
+        }
+    }
+
+    private Ast.TypeRef iterableElementType(Ast.Expr iterable, Scope scope) {
+        Ast.TypeRef type = ownershipTypeOfExpr(iterable, scope);
+        while (type != null && type.isBorrow()) type = type.borrowedTarget();
+        if (type == null) return null;
+        if ((type.name().equals("Array") || type.name().equals("List"))
+                && type.arguments().size() == 1) {
+            return type.arguments().getFirst();
+        }
+        if (type.name().equals("Tuple") && !type.arguments().isEmpty()) {
+            Ast.TypeRef first = type.arguments().getFirst();
+            boolean uniform = type.arguments().stream().allMatch(first::equals);
+            return uniform ? first : null;
+        }
+        return null;
     }
 
     private ValueInfo checkLambda(Ast.LambdaExpr lambda, Scope outer, String recursiveBinding) {
@@ -1165,8 +1281,18 @@ public final class OwnershipChecker {
         else if (expr instanceof Ast.ListExpr e) for (Ast.Expr item : e.elements()) scanExpr(item, locals, outer, recursiveBinding, captures, false);
         else if (expr instanceof Ast.TupleExpr e) for (Ast.Expr item : e.elements()) scanExpr(item, locals, outer, recursiveBinding, captures, false);
         else if (expr instanceof Ast.ObjectExpr e) for (Ast.ObjectField field : e.fields()) scanExpr(field.value(), locals, outer, recursiveBinding, captures, false);
-        else if (expr instanceof Ast.LambdaExpr) {
-            // Nested lambda performs its own capture analysis when checked.
+        else if (expr instanceof Ast.LambdaExpr lambda) {
+            // A nested closure's free variables are also transitive captures of
+            // this closure. Otherwise an outer escaping closure could leave a
+            // grandchild closure holding a reference to a dead/moved owner.
+            Set<String> nestedLocals = new HashSet<>(locals);
+            for (Ast.Param param : lambda.parameters()) nestedLocals.add(param.name());
+            if (lambda.expressionBody() != null) {
+                scanExpr(lambda.expressionBody(), nestedLocals, outer, recursiveBinding, captures, false);
+            }
+            if (lambda.blockBody() != null) {
+                scanStatements(lambda.blockBody(), nestedLocals, outer, recursiveBinding, captures);
+            }
         }
     }
 
@@ -1643,6 +1769,7 @@ public final class OwnershipChecker {
     private static final class Scope {
         private final Scope parent;
         private final Map<String,VarState> locals = new LinkedHashMap<>();
+        private final List<TemporaryBorrow> heldBorrows = new ArrayList<>();
         private boolean closed;
 
         private Scope(Scope parent) { this.parent = parent; }
@@ -1664,13 +1791,49 @@ public final class OwnershipChecker {
             return result;
         }
 
+        private void holdBorrow(TemporaryBorrow borrow) {
+            heldBorrows.add(borrow);
+        }
+
         private void close() {
             if (closed) return;
             closed = true;
+
+            // Deferred-expression captures are live until block exit, so release
+            // those reborrows before retiring local borrow bindings themselves.
+            for (int i = heldBorrows.size() - 1; i >= 0; i--) {
+                TemporaryBorrow held = heldBorrows.get(i);
+                VarState owner = held.owner();
+                if (held.mutable()) {
+                    if (!owner.mutableBorrowed) {
+                        throw new IllegalStateException("Oreslang ownership checker invariant: releasing inactive scoped mutable borrow of '"
+                                + owner.debugName + "'");
+                    }
+                    owner.mutableBorrowed = false;
+                } else {
+                    if (owner.immutableBorrows <= 0) {
+                        throw new IllegalStateException("Oreslang ownership checker invariant: scoped immutable borrow underflow for '"
+                                + owner.debugName + "'");
+                    }
+                    owner.immutableBorrows--;
+                }
+            }
+
             for (VarState state : locals.values()) {
                 if (state.borrowSource != null) {
-                    if (state.kind == ValueKind.MUT_BORROW) state.borrowSource.mutableBorrowed = false;
-                    else if (state.kind == ValueKind.IMM_BORROW) state.borrowSource.immutableBorrows--;
+                    if (state.kind == ValueKind.MUT_BORROW) {
+                        if (!state.borrowSource.mutableBorrowed) {
+                            throw new IllegalStateException("Oreslang ownership checker invariant: releasing inactive mutable borrow source for '"
+                                    + state.debugName + "'");
+                        }
+                        state.borrowSource.mutableBorrowed = false;
+                    } else if (state.kind == ValueKind.IMM_BORROW) {
+                        if (state.borrowSource.immutableBorrows <= 0) {
+                            throw new IllegalStateException("Oreslang ownership checker invariant: immutable borrow source underflow for '"
+                                    + state.debugName + "'");
+                        }
+                        state.borrowSource.immutableBorrows--;
+                    }
                 }
             }
         }

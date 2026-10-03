@@ -23,6 +23,7 @@ public final class OresContext implements AutoCloseable {
     private final BufferedReader input;
     private final PrintWriter output;
     private final ActorRuntime actors;
+    private final GcRuntime gc;
     private final UUID contextId = UUID.randomUUID();
     private final AtomicLong schedulerSafepoints = new AtomicLong();
     private final IsolatePolicy isolatePolicy;
@@ -41,7 +42,8 @@ public final class OresContext implements AutoCloseable {
         this.executionProfile = IsolatePolicy.executionProfileFromApplicationArguments(env.getApplicationArguments());
         this.graalIsolated = IsolatePolicy.graalIsolatedFromApplicationArguments(env.getApplicationArguments());
         this.codeGeneration = codeGenerationFromApplicationArguments(env.getApplicationArguments());
-        this.actors = new ActorRuntime(isolatePolicy);
+        this.gc = GcRuntime.fromApplicationArguments(env.getApplicationArguments());
+        this.actors = new ActorRuntime(isolatePolicy, gc);
     }
 
     public static OresContext get(Node node) {
@@ -53,6 +55,7 @@ public final class OresContext implements AutoCloseable {
     public BufferedReader input() { return input; }
     public PrintWriter output() { return output; }
     public ActorRuntime actors() { return actors; }
+    public GcRuntime gc() { return gc; }
     public UUID contextId() { return contextId; }
     public IsolatePolicy isolatePolicy() { return isolatePolicy; }
     public ExecutionProfile executionProfile() { return executionProfile; }
@@ -102,6 +105,23 @@ public final class OresContext implements AutoCloseable {
         schedulerSafepoints.incrementAndGet();
         ProcessSingletonRegistry.checkExecutionBudget();
         actors.schedulerSafepoint();
+        if (actors.currentActorId() == null) {
+            gc.safepoint(GcRuntime.Scope.PROCESS,
+                    () -> GcRuntime.scavengeValues(contextLocals.values()));
+        }
+    }
+
+    /** Explicit process-scoped cleanup. Actor-owned roots are signalled, never walked cross-actor. */
+    public GcRuntime.Report processGc() {
+        requireCapability(IsolatePolicy.Capability.GC_CONTROL, "process.gc");
+        int scavenged = GcRuntime.scavengeValues(contextLocals.values());
+        actors.requestProcessGc();
+        return gc.manual(GcRuntime.Scope.PROCESS, scavenged);
+    }
+
+    /** Explicit current-actor cleanup; fails closed outside an actor turn. */
+    public GcRuntime.Report actorGc() {
+        return actors.gcCurrentActor();
     }
 
     public long schedulerSafepoints() { return schedulerSafepoints.get(); }
@@ -124,14 +144,24 @@ public final class OresContext implements AutoCloseable {
                 "execution_mode", executionProfile.mode().name(),
                 "platform", executionProfile.platform().name(),
                 "graal_isolated", graalIsolated,
-                "scheduler_safepoints", schedulerSafepoints.get());
+                "scheduler_safepoints", schedulerSafepoints.get(),
+                "gc", gc.descriptor());
     }
 
     @Override
     public void close() {
         actors.close();
-        contextLocals.clear();
-        initializingContextLocals.clear();
-        output.flush();
+        RuntimeException cleanupFailure = null;
+        try {
+            GcRuntime.closeOwnedValues(contextLocals.values());
+        } catch (RuntimeException failure) {
+            cleanupFailure = failure;
+        } finally {
+            contextLocals.clear();
+            initializingContextLocals.clear();
+            gc.close();
+            output.flush();
+        }
+        if (cleanupFailure != null) throw cleanupFailure;
     }
 }
