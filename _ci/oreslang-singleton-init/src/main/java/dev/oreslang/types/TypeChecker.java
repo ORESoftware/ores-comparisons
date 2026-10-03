@@ -1578,9 +1578,15 @@ public final class TypeChecker {
         }
 
         if (expr instanceof Ast.AwaitExpr awaited) {
-            if (awaited.expression() instanceof Ast.CallExpr call && isExternalSingletonCall(call, currentModule)) {
-                validateSingletonTransportCallChildren(call, currentModule);
-                return;
+            if (awaited.expression() instanceof Ast.CallExpr call) {
+                if (isExternalSingletonCall(call, currentModule)) {
+                    validateSingletonTransportCallChildren(call, currentModule);
+                    return;
+                }
+                if (isSingletonCollectionCall(call)) {
+                    validateSingletonCollectionCall(call);
+                    return;
+                }
             }
             validateSingletonTransportExpr(awaited.expression(), currentModule);
             return;
@@ -1589,6 +1595,10 @@ public final class TypeChecker {
             if (isExternalSingletonCall(call, currentModule)) {
                 throw new IllegalArgumentException("cross-singleton calls must be immediately awaited so they cannot outlive"
                         + " the caller context or leave an untracked mailbox wait");
+            }
+            if (isSingletonCollectionCall(call)) {
+                throw new IllegalArgumentException(
+                        "process.collect_singleton must be immediately awaited so teardown completes before execution continues");
             }
             validateSingletonTransportCallChildren(call, currentModule);
             return;
@@ -1636,6 +1646,34 @@ public final class TypeChecker {
             if (lambda.expressionBody() != null) validateSingletonTransportExpr(lambda.expressionBody(), currentModule);
             if (lambda.blockBody() != null) validateSingletonTransportStatements(lambda.blockBody(), currentModule);
         }
+    }
+
+    private boolean isSingletonCollectionCall(Ast.CallExpr call) {
+        if (!(call.callee() instanceof Ast.MemberExpr member)) return false;
+        return member.receiver() instanceof Ast.NameExpr receiver
+                && receiver.name().equals("process")
+                && member.member().equals("collect_singleton");
+    }
+
+    private void validateSingletonCollectionCall(Ast.CallExpr call) {
+        if (call.arguments().size() != 1) {
+            throw new IllegalArgumentException(
+                    "process.collect_singleton expects exactly one singleton module");
+        }
+        Ast.Expr target = call.arguments().getFirst();
+        if (!(target instanceof Ast.NameExpr moduleName)) {
+            throw new IllegalArgumentException(
+                    "process.collect_singleton expects a singleton module namespace");
+        }
+        Ast.ModuleDecl module = modules.get(moduleName.name());
+        if (module == null || !module.singleton()) {
+            throw new IllegalArgumentException(
+                    "process.collect_singleton target must be a singleton module: "
+                            + moduleName.name());
+        }
+        // This is the one intentional use of a singleton module namespace as a
+        // lifecycle token. It is consumed by the builtin and never materializes
+        // as a first-class module handle.
     }
 
     private void validateSingletonTransportCallChildren(Ast.CallExpr call, String currentModule) {

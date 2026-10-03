@@ -580,14 +580,17 @@ final class SingletonModuleTest {
                         """)));
         assertTrue(classBoundary.getMessage().contains("not statically Sendable"));
 
-        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                define singleton module mutable_boundary as
-                  pub fnc consume(Array<int> mut values) => void {
-                    values[0] = 2;
-                    return;
-                  }
-                end
-                """)));
+        IllegalArgumentException mutableBoundary = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module mutable_boundary as
+                          pub fnc consume(Array<int> mut values) => void {
+                            values[0] = 2;
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(mutableBoundary.getMessage().contains("cannot accept mut parameters"));
     }
 
     @Test
@@ -2515,6 +2518,43 @@ final class SingletonModuleTest {
                 List.of(),
                 (state, ignored) -> state.value.get())
                 .toCompletableFuture().join()).longValue());
+    }
+
+    @Test
+    void singletonCollectionTokenCannotEscapeOrRunUnawaited() {
+        IllegalArgumentException unawaited = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module lifecycle_target as
+                          let int value = 1;
+                          pub fnc read() => int { return value; }
+                        end
+
+                        define module app as
+                          pub routine main() => void {
+                            process.collect_singleton(lifecycle_target);
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(unawaited.getMessage().contains("immediately awaited"));
+
+        IllegalArgumentException indirect = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define singleton module lifecycle_target_2 as
+                          let int value = 1;
+                          pub fnc read() => int { return value; }
+                        end
+
+                        define module app as
+                          pub routine main() => void {
+                            val x = lifecycle_target_2;
+                            return;
+                          }
+                        end
+                        """)));
+        assertTrue(indirect.getMessage().contains("singleton module handles cannot be extracted"));
     }
 
     @Test
