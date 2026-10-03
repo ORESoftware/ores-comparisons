@@ -1,8 +1,8 @@
-name: oreslang-pr85-gpu-array-validation
+name: oreslang-pr98-gpu-simt-validation
 
 on:
   push:
-    branches: ["ci/oreslang-pr85-gpu-array-20261002"]
+    branches: ["ci/oreslang-pr98-gpu-simt-20261002"]
   pull_request:
     branches: ["main"]
 
