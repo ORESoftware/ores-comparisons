@@ -232,6 +232,9 @@ final class ReceivePatternSymbolTest {
             assertTrue(delivered.await(2, TimeUnit.SECONDS));
             assertEquals(message, observed.get());
             assertNotSame(message, observed.get(), "private actor transport must isolate the aggregate");
+            List<?> received = assertInstanceOf(List.class, observed.get());
+            assertSame(message.getFirst(), received.getFirst(),
+                    "trusted actor transport must preserve canonical Symbol identity");
         }
     }
 
