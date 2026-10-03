@@ -202,7 +202,8 @@ public final class CapabilityChecker {
         return parent.withoutCapabilities(
                 IsolatePolicy.Capability.SHARED_MEMORY,
                 IsolatePolicy.Capability.ACTOR_SHARE_READONLY,
-                IsolatePolicy.Capability.JAVA_INTEROP);
+                IsolatePolicy.Capability.JAVA_INTEROP,
+                IsolatePolicy.Capability.JAVA_SOURCE_INTEROP);
     }
 
     private void checkCallableTypes(
