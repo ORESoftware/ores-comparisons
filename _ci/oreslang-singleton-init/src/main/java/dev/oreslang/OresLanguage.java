@@ -11,6 +11,8 @@ import dev.oreslang.runtime.OresContext;
 import org.graalvm.polyglot.SandboxPolicy;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 
@@ -43,7 +45,23 @@ public final class OresLanguage extends TruffleLanguage<OresContext> {
         String text = source.getCharacters().toString();
         Ast.Program program = OresCompiler.parseAndTypeCheck(text);
         String codeUnitId = source.getPath();
-        if (codeUnitId == null || codeUnitId.isBlank()) codeUnitId = source.getName();
+        if (codeUnitId != null && !codeUnitId.isBlank()) {
+            codeUnitId = normalizePathIdentity(codeUnitId);
+        } else if (source.getURI() != null
+                && "file".equalsIgnoreCase(source.getURI().getScheme())) {
+            try {
+                codeUnitId = Path.of(source.getURI())
+                        .toAbsolutePath()
+                        .normalize()
+                        .toString()
+                        .replace('\\', '/');
+            } catch (RuntimeException invalidPath) {
+                throw new IllegalArgumentException("invalid Oreslang source URI identity", invalidPath);
+            }
+        } else {
+            codeUnitId = normalizeLogicalIdentity(source.getName());
+        }
+        if (codeUnitId == null || codeUnitId.isBlank()) codeUnitId = "<anonymous>";
         RootCallTarget evaluator = new OresEvalRootNode(
                 this,
                 program,
