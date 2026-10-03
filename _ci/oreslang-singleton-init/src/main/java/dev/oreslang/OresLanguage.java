@@ -83,6 +83,18 @@ public final class OresLanguage extends TruffleLanguage<OresContext> {
         }
     }
 
+    private static String normalizePathIdentity(String path) {
+        try {
+            return Path.of(path.replace('\\', '/'))
+                    .toAbsolutePath()
+                    .normalize()
+                    .toString()
+                    .replace('\\', '/');
+        } catch (InvalidPathException invalidPath) {
+            throw new IllegalArgumentException("invalid Oreslang source path identity", invalidPath);
+        }
+    }
+
     private static String sourceDigest(String source) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
