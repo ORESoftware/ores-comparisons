@@ -1,0 +1,13 @@
+define module x
+  pub fnc ping() => int {
+    return 1;
+  }
+end
+
+define class y
+end
+
+pub routine main() => void {
+  val instance = new y();
+  stdio.stdout.write(instance)
+}
