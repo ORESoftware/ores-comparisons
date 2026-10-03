@@ -1,0 +1,30 @@
+name: process-isolation-proof
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  proof-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate process-isolation evidence fixtures
+        run: node conformance/process-isolation/check.mjs
+      - name: Reject accidental weakening of mandatory host controls
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const text = fs.readFileSync('conformance/process-isolation/evidence.schema.json', 'utf8');
+          const schema = JSON.parse(text);
+          for (const key of ['cgroup_v2','identity_bound_containment','non_root','capabilities_empty','no_new_privs','seccomp','pid_isolation','mount_isolation','ipc_isolation','network_isolation','metadata_denied','sibling_tenant_default_deny','containment_receipt_redacted']) {
+            if (schema.properties[key]?.const !== true) throw new Error(`mandatory isolation control weakened: ${key}`);
+          }
+          NODE

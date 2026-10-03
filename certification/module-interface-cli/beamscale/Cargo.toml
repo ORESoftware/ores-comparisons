@@ -1,0 +1,8 @@
+[package]
+name = "beamscale-module-interface-cli-cert"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ores-api-docs = { git = "https://github.com/ORESoftware/api-docs.git", rev = "c02712957850046e339b1e94d8d41b219feb304c", package = "ores-api-docs", default-features = false }

@@ -16,7 +16,7 @@ else
   exit 2
 fi
 
-for project in stacks/*/projects/*/ benchmarks/ shared/projection-contract/; do
+for project in stacks/*/projects/*/repos/.github/ benchmarks/ shared/projection-contract/; do
   [[ -f "$project/contracts/typespec/main.tsp" ]] || continue
   echo "==> $project"
   mkdir -p "$project/.artifacts/conformance"

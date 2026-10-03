@@ -1,0 +1,4 @@
+name = "beamscale_context_adapter_cert"
+version = "0.0.0"
+target = "erlang"
+gleam = ">= 1.18.0"

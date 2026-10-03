@@ -1,0 +1,45 @@
+name: deployment-topology
+
+on:
+  pull_request:
+    paths:
+      - "deploy/**"
+      - "scripts/validate-deployment-topology.py"
+      - "scripts/validate-runtime-capabilities.py"
+      - ".github/workflows/deployment-topology-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - "scripts/validate-deployment-topology.py"
+      - "scripts/validate-runtime-capabilities.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate production topology
+        run: python3 scripts/validate-deployment-topology.py
+      - name: Validate cross-target capability admission
+        run: python3 scripts/validate-runtime-capabilities.py
+      - name: Validate process-isolation policy is fail-closed
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("deploy/baremetal/.ores-proc-isolation.yaml").read_text()
+          required = [
+              "mode: external",
+              "deny_loopback: true",
+              "deny_private_networks: true",
+              "/opt/beamscale/honeypot-bin",
+              "/run/bmscl-honeypot/tripwire.sock",
+          ]
+          missing = [x for x in required if x not in p]
+          if missing:
+              raise SystemExit("missing required isolation invariants: " + ", ".join(missing))
+          PY

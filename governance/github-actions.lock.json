@@ -1,6 +1,6 @@
 {
   "schema": "ores.comparisons.github-actions-lock/v1",
-  "resolved_at": "2026-09-25",
+  "resolved_at": "2026-09-26",
   "actions": {
     "actions/checkout": {
       "upstream_ref": "v4",
@@ -17,6 +17,22 @@
     "dtolnay/rust-toolchain": {
       "upstream_ref": "stable",
       "sha": "6bed0761d98439e5a578e2877258200ad565ba87"
+    },
+    "erlef/setup-beam": {
+      "upstream_ref": "v1",
+      "sha": "54075bcc5e249e4758d363f27d099f55d843f124"
+    },
+    "ORESoftware/typespec-json-schema-validator": {
+      "upstream_ref": "b5bd51946b53c00b1daeb2723c0b5d54eaeafab7",
+      "sha": "b5bd51946b53c00b1daeb2723c0b5d54eaeafab7"
+    },
+    "actions/upload-artifact": {
+      "upstream_ref": "v7.0.1",
+      "sha": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    },
+    "actions/download-artifact": {
+      "upstream_ref": "v8.0.1",
+      "sha": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
     }
   }
 }

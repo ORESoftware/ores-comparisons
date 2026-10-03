@@ -1,0 +1,56 @@
+{
+  "schema": "ores.stack.server-compatibility/v1",
+  "repositoryRole": "web-read",
+  "entrypoints": {
+    "standaloneBinary": "msgint-web-server",
+    "libraryRouter": "msgint_web_server::router",
+    "functionReusable": true
+  },
+  "configuration": {
+    "portEnvironment": "MSGINT_WEB_PORT",
+    "forbiddenAuthoritativeCredentials": [
+      "DATABASE_URL",
+      "DATABASE_WRITE_URL",
+      "DATABASE_ADMIN_URL",
+      "MIGRATION_DATABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ]
+  },
+  "lifecycle": {
+    "startup": "validate-read-boundary-before-bind",
+    "shutdown": "ctrl-c-graceful",
+    "detachedBackgroundWork": false
+  },
+  "health": {
+    "livenessPath": "/healthz",
+    "readinessPath": "/healthz",
+    "livenessRequiresDependencies": false,
+    "readinessMeaning": "process admitted and able to serve the read-tier router"
+  },
+  "capabilities": {
+    "http": true,
+    "websocket": false,
+    "directDatabase": false,
+    "authoritativeMutation": false,
+    "functionReusableRouter": true
+  },
+  "handlerAdmission": {
+    "module": "msgint_web_server::handler_admission",
+    "request": "DeserializeOwned + Send + 'static",
+    "response": "Serialize + Send + 'static",
+    "context": "Clone + Send + Sync + 'static",
+    "failure": "Serialize + Send + Sync + 'static",
+    "proofCommand": "cargo test --doc",
+    "compileFailDimensions": [
+      "request",
+      "response",
+      "context",
+      "failure"
+    ]
+  },
+  "readBoundary": {
+    "databaseCredentialScope": "none",
+    "credentialDenialProof": "startup rejects authoritative database and service-role environment variables",
+    "mutationDenialProof": "POST to a read-tier contact route returns 405"
+  }
+}

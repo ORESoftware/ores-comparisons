@@ -1,0 +1,29 @@
+name: faas-coverage
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  stack-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
+          components: rustfmt
+      - name: Format, test, and execute Rust stack catalog gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          rustfmt --edition 2024 --check tools/verify_stack_catalog.rs tools/json_value.rs
+          rustc --edition 2024 --test tools/verify_stack_catalog.rs -o tmp/verify-stack-catalog-tests
+          ./tmp/verify-stack-catalog-tests
+          rustc --edition 2024 tools/verify_stack_catalog.rs -o tmp/verify-stack-catalog
+          ./tmp/verify-stack-catalog

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ores.comparisons.runtime-topology.schema.json",
+  "$defs": {
+    "RuntimeRole": {
+      "$id": "RuntimeRole",
+      "type": "string",
+      "enum": [
+        "service",
+        "worker",
+        "frontend",
+        "application"
+      ]
+    },
+    "RuntimeService": {
+      "$id": "RuntimeService",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "RuntimeRole"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "localBind": {
+          "type": "string"
+        },
+        "healthUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "repository",
+        "role",
+        "dependsOn"
+      ],
+      "unevaluatedProperties": false
+    },
+    "RuntimeTopology": {
+      "$id": "RuntimeTopology",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "stack": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "RuntimeService"
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "projectId",
+        "stack",
+        "scenario",
+        "services"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

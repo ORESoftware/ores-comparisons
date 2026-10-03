@@ -9,7 +9,13 @@
       "enum": [
         "beamscale",
         "scintilla-run",
-        "ores-stack"
+        "ores-stack",
+        "pony-expres",
+        "wasm-xprs",
+        "iso-lattes",
+        "graal-show",
+        "lunatic-lorry",
+        "litegraph"
       ]
     },
     "ScenarioKind": {

@@ -1,0 +1,73 @@
+name: BeamScale exact-head shard and runtime-capability certification
+
+on:
+  pull_request:
+    paths:
+      - "certification/beamscale-current/**"
+      - ".github/workflows/beamscale-current-cert.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shard-handoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: "27.3"
+      - name: Verify exact supervisor #106 blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object certification/beamscale-current/supervisor/bmscl_shard_handoff.erl)" = "a88a6c21c376682d257f44a65c35c102d52dfa3e"
+      - name: Compile and run EUnit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/beamscale-shard-proof
+          erlc -DTEST -o /tmp/beamscale-shard-proof certification/beamscale-current/supervisor/bmscl_shard_handoff.erl
+          erl -noshell -pa /tmp/beamscale-shard-proof -eval 'case eunit:test(bmscl_shard_handoff, [verbose]) of ok -> halt(0); _ -> halt(1) end.'
+      - name: Prove A/B/C to B/C/D barrier cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          erl -noshell -pa /tmp/beamscale-shard-proof -eval '
+            {ok,S0}=bmscl_shard_handoff:begin_handoff(#{virtual_shard=>17},71,[<<"a">>,<<"b">>,<<"c">>],[<<"b">>,<<"c">>,<<"d">>],10044),
+            false=bmscl_shard_handoff:can_cutover(S0),
+            {error,target_not_caught_up}=bmscl_shard_handoff:advance_placement_epoch(S0,72),
+            {ok,S1}=bmscl_shard_handoff:record_progress(S0,<<"d">>,10044),
+            true=bmscl_shard_handoff:can_cutover(S1),
+            {ok,S2}=bmscl_shard_handoff:advance_placement_epoch(S1,72),
+            [<<"a">>]=maps:get(fenced_replicas,S2),
+            halt(0).'
+
+  runtime-capabilities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Verify exact infra #52 blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object certification/beamscale-current/infra/deploy/runtime-capabilities.v1.json)" = "81e633b0b90f97ef2c6575c77fab7fdc6204b6a3"
+          test "$(git hash-object certification/beamscale-current/infra/scripts/validate-runtime-capabilities.py)" = "4349bf10ab816467fe6628cc1e95dadd81ba156c"
+          test "$(git hash-object certification/beamscale-current/infra/deployment-topology-ci.yml)" = "4686ecfd6fc08fdc48ef5f485e3aeb28d62f7282"
+      - name: Run exact runtime capability admission validator
+        working-directory: certification/beamscale-current/infra
+        run: python3 scripts/validate-runtime-capabilities.py
+      - name: Prove source workflow invokes capability admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'python3 scripts/validate-runtime-capabilities.py' certification/beamscale-current/infra/deployment-topology-ci.yml

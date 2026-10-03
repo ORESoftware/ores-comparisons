@@ -1,11 +1,17 @@
 {
   "schema": "ores.comparisons.toolchain-lock/v1",
   "tools": {
+    "zed-cli": {
+      "package": "zed-pkg/zed-cli",
+      "version": "0.3.0",
+      "repository": "https://github.com/zed-pkg/zed-cli",
+      "commit": "17412050a0f4c4f963008f0de9abf3651d42af08"
+    },
     "ores-compose": {
       "package": "oresoftware/ores-compose",
       "version": "0.1.0",
       "repository": "https://github.com/ORESoftware/ores-compose",
-      "commit": "fbfad966f9770a9a8d3895880523280324b4ddc6"
+      "commit": "ac081862e9019f219628c970941c95782cee3635"
     },
     "typespec-json-schema-validator": {
       "package": "oresoftware/typespec-json-schema-validator",
@@ -40,10 +46,10 @@
       "commit": "ac28d4a6faf3eb991b596a6a7a4f12615589bcad"
     },
     "ores-stack": {
-      "package": "oresoftware/ores-stack",
+      "package": "ores-stack/ores-stack-cli",
       "version": "0.1.0",
-      "repository": "https://github.com/ORESoftware/ores-stack",
-      "commit": "3915e7088cba0a77d3101c82ff14706c58870077"
+      "repository": "https://github.com/ores-stack/ores-stack-cli",
+      "commit": "5dc53c1e2e2f3f249e6da70c8931a7529d425fc4"
     },
     "ores-clis-core": {
       "package": "oresoftware/ores-clis-core",

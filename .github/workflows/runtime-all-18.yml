@@ -1,0 +1,219 @@
+name: runtime-all-18
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/runtime-all-18-trigger"
+  workflow_call:
+    secrets:
+      COMPARISON_REPO_READ_TOKEN:
+        description: Read-only credential covering every governed private runtime repository.
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-all-18-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness-preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
+          components: rustfmt
+      - name: Validate proof harness and exact 18-project authority
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/prove_runtime_project.py
+          python3 -m unittest tests.test_runtime_proof tests.test_runtime_workflow_source_binding
+          mkdir -p tmp
+          rustfmt --edition 2024 --check tools/private_repo_read_access.rs tools/json_value.rs tools/runtime_receipt_set.rs
+          rustc --edition 2024 --test tools/private_repo_read_access.rs -o tmp/private-repo-read-access-tests
+          ./tmp/private-repo-read-access-tests
+          rustc --edition 2024 --test tools/runtime_receipt_set.rs -o tmp/runtime-receipt-set-tests
+          ./tmp/runtime-receipt-set-tests
+          python3 scripts/verify_project_matrix.py
+          python3 - <<'PY'
+          import json
+          matrix = json.load(open("shared/project-matrix.json"))
+          projects = matrix["projects"]
+          stacks = {"beamscale", "scintilla-run", "ores-stack"}
+          scenarios = {
+              "cached-rpc",
+              "http-observability",
+              "forms-chat-workflow",
+              "big-org-example-commerce",
+              "big-org-example-collaboration",
+              "big-org-example-operations",
+          }
+          assert len(projects) == 18, len(projects)
+          assert {p["stack"] for p in projects} == stacks
+          assert {p["scenario"] for p in projects} == scenarios
+          for scenario in scenarios:
+              actual = {p["stack"] for p in projects if p["scenario"] == scenario}
+              assert actual == stacks, (scenario, actual)
+          print("runtime matrix authority OK: 6 waves x 3 stacks = 18 projects")
+          PY
+
+  credential-preflight:
+    runs-on: ubuntu-24.04
+    env:
+      CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+    steps:
+      - name: Require private cross-repository execution credential once
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            echo "::error title=Infrastructure blocked::No established cross-repository read secret is available (checked COMPARISON_REPO_READ_TOKEN, cross-repo-token, ORES_CROSS_REPO_READ_TOKEN, TEST_FLEET_READ_TOKEN)."
+            exit 1
+          fi
+          echo "private runtime credential is present"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
+      - name: Verify credential can Git-read every governed repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          rustc --edition 2024 tools/private_repo_read_access.rs -o tmp/private-repo-read-access
+          ./tmp/private-repo-read-access
+
+  cached-rpc:
+    name: wave 1 cached-rpc / ${{ matrix.stack }}
+    needs: [harness-preflight, credential-preflight]
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: cached-rpc
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+
+  http-observability:
+    name: wave 2 http-observability / ${{ matrix.stack }}
+    needs: cached-rpc
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: http-observability
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+
+  forms-chat-workflow:
+    name: wave 3 forms-chat-workflow / ${{ matrix.stack }}
+    needs: http-observability
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: forms-chat-workflow
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+
+  big-org-example-commerce:
+    name: wave 4 big-org-example-commerce / ${{ matrix.stack }}
+    needs: forms-chat-workflow
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: big-org-example-commerce
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+
+  big-org-example-collaboration:
+    name: wave 5 big-org-example-collaboration / ${{ matrix.stack }}
+    needs: big-org-example-commerce
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: big-org-example-collaboration
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+
+  big-org-example-operations:
+    name: wave 6 big-org-example-operations / ${{ matrix.stack }}
+    needs: big-org-example-collaboration
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [beamscale, scintilla-run, ores-stack]
+    uses: ./.github/workflows/runtime-project.yml
+    with:
+      stack: ${{ matrix.stack }}
+      scenario: big-org-example-operations
+    secrets:
+      COMPARISON_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
+
+  aggregate-runtime-proof:
+    name: aggregate exact 18/18 runtime proof
+    needs: big-org-example-operations
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88"
+          components: rustfmt
+      - name: Download all per-project runtime receipts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: runtime-proof-*
+          path: artifacts/runtime-18
+          merge-multiple: true
+      - name: Verify complete exact-source runtime proof set
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          rustfmt --edition 2024 --check tools/json_value.rs tools/runtime_receipt_set.rs
+          rustc --edition 2024 tools/runtime_receipt_set.rs -o tmp/runtime-receipt-set
+          ./tmp/runtime-receipt-set
+      - name: Upload aggregate runtime proof set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-proof-set-18
+          path: artifacts/runtime-18-summary.json
+          if-no-files-found: error
+          retention-days: 30

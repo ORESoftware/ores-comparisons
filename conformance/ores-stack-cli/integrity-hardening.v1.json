@@ -1,0 +1,72 @@
+{
+  "schema": "ores.stack.cli-integrity-hardening/v1",
+  "sourceObservation": {
+    "repository": "https://github.com/ores-stack/ores-stack-cli",
+    "ref": "migration/current-main-parity-20260925",
+    "commit": "49819de3d8c80a3915b40b7bd40323e62ed496a0",
+    "note": "Observed migration code is partial evidence only; this contract is the promotion gate."
+  },
+  "regenerationOwnership": {
+    "status": "partial",
+    "requiredRules": [
+      "never overwrite or delete a user-owned file",
+      "a generated marker alone is insufficient ownership proof",
+      "replace or delete a generated file only when its current digest matches the last published digest in retained generator metadata",
+      "check mode is read-only",
+      "generation receipts bind owner, generator identity, source identity, previous digest, and published digest"
+    ]
+  },
+  "cacheIdentity": {
+    "status": "partial",
+    "requiredFields": [
+      "project_identity",
+      "source_digests",
+      "lockfile_digest",
+      "compiler_identity",
+      "generator_identity",
+      "target_identity",
+      "feature_flags",
+      "contract_digests"
+    ],
+    "observedMigrationFields": [
+      "transport",
+      "abi_identity_sha256",
+      "toolchain_identity",
+      "target_identity",
+      "profile",
+      "inputs"
+    ],
+    "promotionRule": "No cache hit is admissible unless every required field participates in the canonical cache-key digest."
+  },
+  "cacheAdmission": {
+    "status": "partial",
+    "requiredRules": [
+      "entry schema is known",
+      "entry project identity equals the requesting project identity",
+      "entry cache key equals the fully recomputed expected cache key",
+      "artifact path is normalized and confined to the cache root",
+      "artifact is a regular non-symlink file",
+      "artifact size matches retained metadata",
+      "artifact SHA-256 matches retained metadata"
+    ],
+    "requiredAdversarialCases": [
+      "substituted_binary",
+      "cross_project_collision",
+      "symlink_artifact",
+      "size_mismatch",
+      "digest_mismatch"
+    ]
+  },
+  "pluginExecution": {
+    "status": "not_verified",
+    "protocolVersion": "ores-stack.plugin-command/v1",
+    "requiredRules": [
+      "executable is declared as a normalized path under an admitted project or toolchain root; PATH lookup is not an execution authority",
+      "arguments are an argv array and are never passed through a shell string",
+      "the child environment starts empty and only declared allowlisted variables are projected",
+      "plugin protocol version and compatible CLI contract version are explicit",
+      "working directory is declared and confined to an admitted root"
+    ],
+    "observedMigrationConcern": "Legacy build-step code contains dynamic Command::new(program) and .envs(...) calls; those paths are not evidence of a constrained extension-command API."
+  }
+}

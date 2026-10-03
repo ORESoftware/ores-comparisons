@@ -1,0 +1,24 @@
+{
+  "schema": "ores.comparisons.runtime-topology/v1",
+  "projectId": "example-big-org",
+  "stack": "ores-stack",
+  "scenario": "big-org-example-commerce",
+  "services": [
+    {
+      "name": "catalog-service",
+      "repository": "catalog-service",
+      "role": "service",
+      "dependsOn": [],
+      "localBind": "127.0.0.1:32101",
+      "healthUrl": "http://127.0.0.1:32101/healthz"
+    },
+    {
+      "name": "app",
+      "repository": "app",
+      "role": "application",
+      "dependsOn": [
+        "catalog-service"
+      ]
+    }
+  ]
+}

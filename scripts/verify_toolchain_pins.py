@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -9,7 +10,8 @@ lock = json.loads((ROOT / "tools/toolchain.lock.json").read_text())
 errors = []
 
 required = {
-    "ores-compose": ("0.1.0", "fbfad966f9770a9a8d3895880523280324b4ddc6"),
+    "zed-cli": ("0.3.0", "17412050a0f4c4f963008f0de9abf3651d42af08"),
+    "ores-compose": ("0.1.0", "ac081862e9019f219628c970941c95782cee3635"),
     "typespec-json-schema-validator": ("0.1.1", "e29a91d7ef74e3b0613ea79e988bec4c467535d2"),
     "bmscl-cli": (None, "2a9dd1bf8835ec59c84362ac756839730fbbc7f4"),
     "bmscl-compiler": (None, "2c9e0f9d47b3d15e8ffe571c86859132d90286be"),
@@ -17,7 +19,7 @@ required = {
     "scintilla-cli": ("0.1.0", "293620b178585418aa3fb05e14edfb6ba18fbd01"),
     "scintilla-runner": (None, "4724bbe89eeeef6f38cd112be4a5107d53874509"),
     "scintilla-backend": (None, "ac28d4a6faf3eb991b596a6a7a4f12615589bcad"),
-    "ores-stack": ("0.1.0", "3915e7088cba0a77d3101c82ff14706c58870077"),
+    "ores-stack": ("0.1.0", "5dc53c1e2e2f3f249e6da70c8931a7529d425fc4"),
     "ores-clis-core": ("0.1.1", "e42c7ae533562a796c945070e71a8ce0f45628bf"),
 }
 if lock.get("schema") != "ores.comparisons.toolchain-lock/v1":
@@ -34,13 +36,34 @@ for name, (version, commit) in required.items():
     if version is not None and item.get("version") != version:
         errors.append(f"{name} version pin drift")
 
-zpkg = (ROOT / ".zpkg.toml").read_text()
+zpkg_text = (ROOT / ".zpkg.toml").read_text()
 for needle in (
     '"oresoftware/ores-compose" = "=0.1.0"',
     '"oresoftware/typespec-json-schema-validator" = "=0.1.1"',
+    "[interop.git]",
+    "consume_gitmodules = true",
 ):
-    if needle not in zpkg:
+    if needle not in zpkg_text:
         errors.append(f"root .zpkg.toml missing {needle}")
+
+zpkg = tomllib.loads(zpkg_text)
+repository = zpkg.get("package", {}).get("repository", {})
+if repository.get("vcs") != "git":
+    errors.append("root .zpkg.toml package.repository.vcs must be git")
+if repository.get("url") != "https://github.com/ORESoftware/ores-comparisons":
+    errors.append("root .zpkg.toml package.repository.url drift")
+
+zed_env_path = ROOT / "zed-env.toml"
+if not zed_env_path.is_file():
+    errors.append("missing schema-v2 zed-env.toml")
+else:
+    zed_env = tomllib.loads(zed_env_path.read_text())
+    if zed_env.get("schema") != 2:
+        errors.append("zed-env.toml must use schema = 2")
+    tasks = zed_env.get("tasks", {})
+    for task in ("check", "submodules-sync", "submodules-status", "submodules-verify"):
+        if task not in tasks:
+            errors.append(f"zed-env.toml missing task {task}")
 
 pkg = json.loads((ROOT / "package.json").read_text())
 private = pkg.get("oresPrivateTools", {}).get("typespec-json-schema-validator", {})

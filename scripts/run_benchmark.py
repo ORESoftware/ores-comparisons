@@ -13,13 +13,21 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-STACKS = {"beamscale", "scintilla-run", "ores-stack"}
-SCENARIOS = {"http-observability", "forms-chat-workflow", "cached-rpc"}
+PROJECT_MATRIX = json.loads((ROOT / "shared/project-matrix.json").read_text())
+BENCHMARK_PAIRS = {
+    (item.get("stack"), item.get("scenario"))
+    for item in PROJECT_MATRIX.get("projects", [])
+    if isinstance(item, dict) and item.get("benchmark") is True
+}
+STACKS = {stack for stack, _scenario in BENCHMARK_PAIRS}
+SCENARIOS = {scenario for _stack, scenario in BENCHMARK_PAIRS}
+
 
 def percentile(values: list[int], p: float) -> int:
     ordered = sorted(values)
     index = max(0, min(len(ordered) - 1, math.ceil(p * len(ordered)) - 1))
     return ordered[index]
+
 
 def request_once(url: str, timeout: float) -> tuple[int, int]:
     start = time.perf_counter_ns()
@@ -29,12 +37,14 @@ def request_once(url: str, timeout: float) -> tuple[int, int]:
     micros = (time.perf_counter_ns() - start) // 1000
     return status, micros
 
+
 def rss_bytes(pid: int) -> int:
     output = subprocess.check_output(
         ["ps", "-o", "rss=", "-p", str(pid)],
         text=True,
     ).strip()
     return int(output) * 1024
+
 
 def artifact_size(path: Path) -> int:
     if path.is_file():
@@ -45,6 +55,7 @@ def artifact_size(path: Path) -> int:
             total += child.stat().st_size
     return total
 
+
 def revision() -> str:
     try:
         return subprocess.check_output(
@@ -53,6 +64,7 @@ def revision() -> str:
         ).strip()
     except Exception:
         return "unknown"
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--stack", required=True, choices=sorted(STACKS))
@@ -69,6 +81,8 @@ parser.add_argument("--cost-per-million-usd")
 parser.add_argument("--output")
 args = parser.parse_args()
 
+if (args.stack, args.scenario) not in BENCHMARK_PAIRS:
+    parser.error(f"{args.stack}/{args.scenario} is not admitted by shared/project-matrix.json")
 if args.requests < 1 or args.warmup < 0:
     parser.error("requests must be >= 1 and warmup must be >= 0")
 

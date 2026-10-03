@@ -1,0 +1,23 @@
+{
+  "schema": "ores.comparisons.runtime-fixture-submodules/v1",
+  "complete_orgs": [
+    "ores-dummy-org-clojure-jvm-1",
+    "ores-dummy-org-cuda-gpu-1",
+    "ores-dummy-org-gleam-js-1",
+    "ores-dummy-org-java-jvm-1",
+    "ores-dummy-org-pony-native-1",
+    "ores-dummy-org-pony-native-2",
+    "ores-dummy-org-ruby-graal-1",
+    "ores-dummy-org-rust-gpu-1",
+    "ores-dummy-org-rust-native-1",
+    "ores-dummy-org-rust-wasm-1",
+    "ores-dummy-org-rust-wasm-2",
+    "ores-dummy-org-rust-wasm-3",
+    "ores-dummy-org-typescript-js-1",
+    "ores-dummy-org-zig-wasm-1",
+    "ores-dummy-org-zig-wasm-2"
+  ],
+  "partial_orgs": {},
+  "pending_orgs": [],
+  "notes": "All 15 configured runtime fixture orgs are fully materialized as private Git submodules. Each complete org has .github plus the full 19-repo ores-cli family; Git index gitlinks pin exact main-branch commits and .gitmodules records the authenticated private HTTPS transport."
+}

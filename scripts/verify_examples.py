@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import tomllib
 
@@ -21,6 +20,7 @@ CONTRACT_FILES = (
     "contracts/generated/sql/002_seed.sql",
     "contracts/generated/sql/010_domain_constraints.sql",
     "contracts/generated/protobuf/comparison.proto",
+    "contracts/generated/protobuf/domain.proto",
     "contracts/generated/interfaces/typescript.ts",
     "contracts/generated/interfaces/rust.rs",
     "contracts/generated/interfaces/gleam.gleam",
@@ -35,44 +35,53 @@ LOCAL_FILES = (
     "scripts/load-env.sh", "scripts/db-migrate.sh",
     "scripts/db-seed.sh", "scripts/contracts-check.sh",
     "scripts/dev-server.sh",
-    "repos/readme.md",
 )
 
 errors: list[str] = []
-shared = json.loads((ROOT / "shared/integrations.json").read_text())
-if {x["id"] for x in shared["integrations"]} != REQUIRED:
+shared_integrations = json.loads((ROOT / "shared/integrations.json").read_text())
+if {x["id"] for x in shared_integrations["integrations"]} != REQUIRED:
     errors.append("shared integration IDs drifted")
 
 specs = load_project_specs()
 seen_ports: dict[str, set[int]] = {}
 
 for spec in specs:
-    p = spec.path
-    rel = p.relative_to(ROOT)
+    project = spec.path
+    shared = spec.shared_repo_path
+    app = spec.app_repo_path
+    rel = project.relative_to(ROOT)
     seen_ports.setdefault(spec.stack, set())
 
-    for required in ("README.md", "comparison.toml", ".sops.yaml", ".env.example", "env/enc/README.md", "env/dec/.gitignore", *LOCAL_FILES):
-        if not (p / required).is_file():
-            errors.append(f"{rel} missing {required}")
+    if not (spec.repos_path / "readme.md").is_file():
+        errors.append(f"{rel} missing repos/readme.md")
+
+    for required in (
+        "README.md", "profile/README.md", "comparison.toml",
+        ".sops.yaml", ".env.example", "env/enc/README.md", "env/dec/.gitignore",
+        *LOCAL_FILES,
+    ):
+        if not (shared / required).is_file():
+            errors.append(f"{rel} repos/.github missing {required}")
+
     if spec.contracts:
         for required in CONTRACT_FILES:
-            if not (p / required).is_file():
-                errors.append(f"{rel} missing {required}")
+            if not (shared / required).is_file():
+                errors.append(f"{rel} repos/.github missing {required}")
 
     try:
-        cfg = tomllib.loads((p / "comparison.toml").read_text())
+        cfg = tomllib.loads((shared / "comparison.toml").read_text())
         ids = set(cfg.get("integrations", []))
         if ids != REQUIRED:
             errors.append(f"{rel} integration drift: {sorted(ids ^ REQUIRED)}")
         if cfg.get("stack") != spec.stack or cfg.get("scenario") != spec.scenario:
             errors.append(f"{rel} identity mismatch")
     except Exception as exc:
-        errors.append(f"{rel} bad comparison.toml: {exc}")
+        errors.append(f"{rel} bad repos/.github/comparison.toml: {exc}")
 
     if spec.contracts:
         try:
-            schema = json.loads((p / "contracts/json-schema/domain.schema.json").read_text())
-            generated = json.loads((p / "contracts/generated/validation/domain.schema.json").read_text())
+            schema = json.loads((shared / "contracts/json-schema/domain.schema.json").read_text())
+            generated = json.loads((shared / "contracts/generated/validation/domain.schema.json").read_text())
             if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
                 errors.append(f"{rel} authored schema is not Draft 2020-12")
             if not schema.get("$defs"):
@@ -82,28 +91,47 @@ for spec in specs:
         except Exception as exc:
             errors.append(f"{rel} invalid schema: {exc}")
 
-        migration = (p / "contracts/generated/sql/001_init.sql").read_text()
-        domains = (p / "contracts/generated/sql/010_domain_constraints.sql").read_text()
-        seed = (p / "contracts/generated/sql/002_seed.sql").read_text()
+        migration = (shared / "contracts/generated/sql/001_init.sql").read_text()
+        domains = (shared / "contracts/generated/sql/010_domain_constraints.sql").read_text()
+        seed = (shared / "contracts/generated/sql/002_seed.sql").read_text()
         if "CREATE TABLE IF NOT EXISTS" not in migration:
             errors.append(f"{rel} generated migration is not idempotent")
         if "IF NOT EXISTS (" not in domains or "ADD CONSTRAINT" not in domains:
             errors.append(f"{rel} generated domain migration is not additive/idempotent")
-        if "010_domain_constraints.sql" not in (p / "scripts/db-migrate.sh").read_text():
+        if "010_domain_constraints.sql" not in (shared / "scripts/db-migrate.sh").read_text():
             errors.append(f"{rel} dev migration script omits domain constraints")
         if "ON CONFLICT DO NOTHING" not in seed:
             errors.append(f"{rel} generated seed is not idempotent")
 
-    sops = (p / ".sops.yaml").read_text()
-    for exact in (r"^env/enc/dev\.env\.enc$", r"^env/enc/stage\.env\.enc$", r"^env/enc/prod\.env\.enc$"):
+    try:
+        zpkg = tomllib.loads((shared / ".zpkg.toml").read_text())
+        language = zpkg.get("package", {}).get("language")
+        if language in {"multi", "mixed"}:
+            errors.append(
+                f"{rel} repos/.github uses obsolete zed package language {language!r}"
+            )
+        if not isinstance(language, str) or not language.strip():
+            errors.append(f"{rel} repos/.github missing canonical zed package language")
+    except Exception as exc:
+        errors.append(f"{rel} bad repos/.github/.zpkg.toml: {exc}")
+
+    sops = (shared / ".sops.yaml").read_text()
+    for exact in (
+        r"^env/enc/dev\.env\.enc$",
+        r"^env/enc/stage\.env\.enc$",
+        r"^env/enc/prod\.env\.enc$",
+    ):
         if exact not in sops:
             errors.append(f"{rel} missing SOPS rule {exact}")
 
-    compose = (p / ".ores-compose.yaml").read_text()
+    compose = (shared / ".ores-compose.yaml").read_text()
     for needle in (
         "schema_version: ores.compose.v1",
         "postgres:",
-        'command: ["bash", "scripts/postgres-local.sh"]',
+        "runtime: docker",
+        "postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+        'POSTGRES_HOST_AUTH_METHOD: "trust"',
+        "target: 5432",
         '["bash", "scripts/db-migrate.sh"]',
         '["bash", "scripts/db-seed.sh"]',
         "depends_on:",
@@ -113,8 +141,24 @@ for spec in specs:
     for match in re.finditer(r"retries:\s*(\d+)", compose):
         if int(match.group(1)) > 20:
             errors.append(f"{rel} compose health retries exceed ores-compose v1 limit")
+    postgres_match = re.search(
+        r"(?ms)^  postgres:\\n.*?(?=^  [A-Za-z0-9][A-Za-z0-9_-]*:\\n|\\Z)",
+        compose,
+    )
+    if not postgres_match:
+        errors.append(f"{rel} compose has no complete postgres service block")
+    else:
+        postgres_block = postgres_match.group(0)
+        if "scripts/postgres-local.sh" in postgres_block:
+            errors.append(f"{rel} postgres service still launches host postgres")
+        if postgres_block.count("runtime:") != 1:
+            errors.append(f"{rel} postgres service must declare exactly one runtime")
+        if "runtime: docker" not in postgres_block:
+            errors.append(f"{rel} postgres service is not OCI-backed")
+        if "inherit_env: [PATH]" in postgres_block:
+            errors.append(f"{rel} postgres container must not inherit host PATH")
 
-    env = (p / ".env.example").read_text()
+    env = (shared / ".env.example").read_text()
     port_match = re.search(r"^PGPORT=(\d+)$", env, re.MULTILINE)
     if not port_match:
         errors.append(f"{rel} .env.example missing PGPORT")
@@ -124,21 +168,24 @@ for spec in specs:
             errors.append(f"{spec.stack} reuses local postgres port {port}")
         seen_ports[spec.stack].add(port)
 
-    repo_dir = p / "repos" / "app"
     if spec.stack == "beamscale":
-        if not (repo_dir / ".ores-lambda.toml").is_file():
+        if not (app / ".ores-lambda.toml").is_file():
             errors.append(f"{rel} repos/app missing .ores-lambda.toml")
-        if not list((repo_dir / "lambdas").glob("**/gleam.toml")):
+        if not list((app / "lambdas").glob("**/gleam.toml")):
             errors.append(f"{rel} repos/app has no BeamScale lambda project")
     elif spec.stack == "scintilla-run":
-        if not list((repo_dir / "endpoints").glob("**/.scintilla-endpoint.toml")):
+        if not list((app / "endpoints").glob("**/.scintilla-endpoint.toml")):
             errors.append(f"{rel} repos/app has no Scintilla endpoint")
-        for required in ("scripts/scintilla-runtime-build.sh", "scripts/scintilla-runner.sh", "scripts/scintilla-backend.sh"):
-            if not (p / required).is_file():
-                errors.append(f"{rel} missing {required}")
+        for required in (
+            "scripts/scintilla-runtime-build.sh",
+            "scripts/scintilla-runner.sh",
+            "scripts/scintilla-backend.sh",
+        ):
+            if not (shared / required).is_file():
+                errors.append(f"{rel} repos/.github missing {required}")
     elif spec.stack == "ores-stack":
         for required in (".ores-stack.toml", "Cargo.toml", "contracts/service.route-map.json"):
-            if not (repo_dir / required).is_file():
+            if not (app / required).is_file():
                 errors.append(f"{rel} repos/app missing {required}")
 
 for f in ROOT.rglob("*"):
@@ -156,4 +203,7 @@ if errors:
         print(" -", error)
     raise SystemExit(1)
 
-print(f"comparison verification OK: {len(specs)} projects preserve contracts, compose, secrets and repos/app")
+print(
+    f"comparison verification OK: {len(specs)} projects preserve contracts, compose, "
+    "secrets, repos/.github, and sibling app repos"
+)

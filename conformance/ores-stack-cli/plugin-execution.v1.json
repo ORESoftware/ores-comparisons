@@ -1,0 +1,16 @@
+{
+  "schema": "ores.stack.plugin-execution/v1",
+  "status": "contract-only",
+  "requirements": [
+    "plugin_executable_must_resolve_to_a_regular_non_symlink_file",
+    "plugin_executable_must_be_inside_an_explicit_approved_root",
+    "plugin_executable_sha256_must_match_an_immutable_pin",
+    "shell_mediation_is_forbidden",
+    "working_directory_must_be_confined_to_the_admitted_repository_or_private_staging_root",
+    "stdin_must_be_null_unless_the_contract_explicitly_requires_input",
+    "control_environment_must_be_cleared_or_allowlisted",
+    "plugin_arguments_must_be_structured_argv_not_shell_text",
+    "plugin_failure_must_not_publish_partial_generated_state"
+  ],
+  "releaseGate": "plugin execution may not become a supported extension surface until an implementation is verified against every requirement"
+}

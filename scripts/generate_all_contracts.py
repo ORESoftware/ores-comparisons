@@ -12,18 +12,18 @@ if not specs:
     raise SystemExit("project matrix contains no contract-enabled projects")
 
 for spec in specs:
-    project = spec.path
-    projection = project / "contracts/projection.json"
-    repos_readme = project / "repos/readme.md"
-    if not project.is_dir():
-        raise SystemExit(f"matrix project does not exist: {project}")
+    shared = spec.shared_repo_path
+    projection = shared / "contracts/projection.json"
+    repos_readme = spec.repos_path / "readme.md"
+    if not shared.is_dir():
+        raise SystemExit(f"matrix project lacks repos/.github: {shared}")
     if not projection.is_file():
         raise SystemExit(f"matrix contract project is missing projection: {projection}")
     if not repos_readme.is_file():
-        raise SystemExit(f"matrix project lost project-owned repos boundary: {repos_readme}")
-    cmd = [sys.executable, str(ROOT / "scripts/generate_contracts.py"), str(project)]
+        raise SystemExit(f"matrix project lost repos/readme.md: {repos_readme}")
+    cmd = [sys.executable, str(ROOT / "scripts/generate_contracts.py"), str(shared)]
     if check:
         cmd.append("--check")
     subprocess.run(cmd, check=True)
 
-print(f"contract projections OK for {len(specs)} matrix-governed projects")
+print(f"contract projections OK for {len(specs)} simulated organization .github repos")

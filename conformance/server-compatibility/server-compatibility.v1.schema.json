@@ -1,0 +1,677 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ores.dev/contracts/server-compatibility.v1.schema.json",
+  "title": "ORES Stack server compatibility receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "repositoryRole",
+    "entrypoints",
+    "configuration",
+    "lifecycle",
+    "health",
+    "capabilities",
+    "handlerAdmission",
+    "runtimeSafety",
+    "edgeSafety"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ores.stack.server-compatibility/v1"
+    },
+    "repositoryRole": {
+      "enum": [
+        "web-read",
+        "api-write",
+        "admin"
+      ]
+    },
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standaloneBinary",
+        "libraryRouter",
+        "functionReusable"
+      ],
+      "properties": {
+        "standaloneBinary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "libraryRouter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "functionReusable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "portEnvironment",
+        "forbiddenAuthoritativeCredentials"
+      ],
+      "properties": {
+        "portEnvironment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "forbiddenAuthoritativeCredentials": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startup",
+        "shutdown",
+        "detachedBackgroundWork"
+      ],
+      "properties": {
+        "startup": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shutdown": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detachedBackgroundWork": {
+          "type": "boolean"
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "livenessPath",
+        "readinessPath",
+        "livenessRequiresDependencies",
+        "readinessMeaning"
+      ],
+      "properties": {
+        "livenessPath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "readinessPath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "livenessRequiresDependencies": {
+          "type": "boolean"
+        },
+        "readinessMeaning": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "http",
+        "websocket",
+        "directDatabase",
+        "authoritativeMutation",
+        "functionReusableRouter"
+      ],
+      "properties": {
+        "http": {
+          "type": "boolean"
+        },
+        "websocket": {
+          "type": "boolean"
+        },
+        "directDatabase": {
+          "type": "boolean"
+        },
+        "authoritativeMutation": {
+          "type": "boolean"
+        },
+        "functionReusableRouter": {
+          "type": "boolean"
+        }
+      }
+    },
+    "handlerAdmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "request",
+        "response",
+        "context",
+        "failure",
+        "proofCommand",
+        "compileFailDimensions"
+      ],
+      "properties": {
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request": {
+          "type": "string",
+          "minLength": 1
+        },
+        "response": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proofCommand": {
+          "type": "string",
+          "minLength": 1
+        },
+        "compileFailDimensions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "request",
+              "response",
+              "context",
+              "failure"
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 4,
+          "maxItems": 4
+        }
+      }
+    },
+    "readBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "databaseCredentialScope",
+        "credentialDenialProof",
+        "mutationDenialProof"
+      ],
+      "properties": {
+        "databaseCredentialScope": {
+          "enum": [
+            "none",
+            "read-only"
+          ]
+        },
+        "credentialDenialProof": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mutationDenialProof": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "writeBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authentication",
+        "tenantAuthorization",
+        "validation",
+        "idempotency",
+        "proofCommand"
+      ],
+      "properties": {
+        "authentication": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenantAuthorization": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idempotency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proofCommand": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "adminIsolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publicManifestCannotSelectAdmin",
+        "adminCredentialsIsolated",
+        "adminRoutesIsolated",
+        "adminDatabaseIsolated",
+        "proofCommand"
+      ],
+      "properties": {
+        "publicManifestCannotSelectAdmin": {
+          "const": true
+        },
+        "adminCredentialsIsolated": {
+          "const": true
+        },
+        "adminRoutesIsolated": {
+          "const": true
+        },
+        "adminDatabaseIsolated": {
+          "const": true
+        },
+        "proofCommand": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "runtimeSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "draining",
+        "deadlines",
+        "bufferLimits"
+      ],
+      "properties": {
+        "availability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dependencyOutageRemovesReadiness",
+            "dependencyOutageAffectsLiveness",
+            "dependencyOutageTriggersRestart",
+            "proofCommand"
+          ],
+          "properties": {
+            "dependencyOutageRemovesReadiness": {
+              "const": true
+            },
+            "dependencyOutageAffectsLiveness": {
+              "const": false
+            },
+            "dependencyOutageTriggersRestart": {
+              "const": false
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "draining": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stopAdmittingBeforeDrain",
+            "shutdownDeadlineMs",
+            "inFlightPolicy",
+            "proofCommand"
+          ],
+          "properties": {
+            "stopAdmittingBeforeDrain": {
+              "const": true
+            },
+            "shutdownDeadlineMs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "inFlightPolicy": {
+              "enum": [
+                "finish-within-deadline",
+                "cancel-at-deadline"
+              ]
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "deadlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxRequestDeadlineMs",
+            "handlerPropagates",
+            "databasePropagates",
+            "downstreamRpcPropagates",
+            "spawnedChildPropagates",
+            "cancellationPropagates",
+            "proofCommand"
+          ],
+          "properties": {
+            "maxRequestDeadlineMs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "handlerPropagates": {
+              "const": true
+            },
+            "databasePropagates": {
+              "const": true
+            },
+            "downstreamRpcPropagates": {
+              "const": true
+            },
+            "spawnedChildPropagates": {
+              "const": true
+            },
+            "cancellationPropagates": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "bufferLimits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bodyBytes",
+            "headerBytes",
+            "uploadBytes",
+            "decompressedBytes",
+            "enforceBeforeExpensiveAllocation",
+            "proofCommand"
+          ],
+          "properties": {
+            "bodyBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "headerBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "uploadBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "decompressedBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "enforceBeforeExpensiveAllocation": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "edgeSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publicErrors",
+        "proxyTrust",
+        "browserSecurity",
+        "connectionBudgets"
+      ],
+      "properties": {
+        "publicErrors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "standaloneFunctionEquivalent",
+            "internalDiagnosticsExposed",
+            "proofCommand"
+          ],
+          "properties": {
+            "standaloneFunctionEquivalent": {
+              "const": true
+            },
+            "internalDiagnosticsExposed": {
+              "const": false
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "proxyTrust": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "configuredIngresses",
+            "trustedForwardedFields",
+            "untrustedForwardedHeadersIgnored",
+            "proofCommand"
+          ],
+          "properties": {
+            "configuredIngresses": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "trustedForwardedFields": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "host",
+                  "scheme",
+                  "client-address"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "untrustedForwardedHeadersIgnored": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "browserSecurity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "corsPolicy",
+            "csrfPolicy",
+            "secureCookies",
+            "originValidation",
+            "proofCommand"
+          ],
+          "properties": {
+            "corsPolicy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "csrfPolicy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "secureCookies": {
+              "const": true
+            },
+            "originValidation": {
+              "const": true
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "connectionBudgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "replicas",
+            "providerConcurrency",
+            "databasePoolPerReplica",
+            "databaseTotalBudget",
+            "outboundHttpPoolPerReplica",
+            "outboundHttpTotalBudget",
+            "proofCommand"
+          ],
+          "properties": {
+            "replicas": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "providerConcurrency": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "databasePoolPerReplica": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "databaseTotalBudget": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "outboundHttpPoolPerReplica": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "outboundHttpTotalBudget": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "proofCommand": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "repositoryRole": {
+            "const": "web-read"
+          }
+        },
+        "required": [
+          "repositoryRole"
+        ]
+      },
+      "then": {
+        "required": [
+          "readBoundary"
+        ],
+        "properties": {
+          "entrypoints": {
+            "properties": {
+              "functionReusable": {
+                "const": true
+              }
+            }
+          },
+          "configuration": {
+            "properties": {
+              "forbiddenAuthoritativeCredentials": {
+                "minItems": 1
+              }
+            }
+          },
+          "capabilities": {
+            "properties": {
+              "authoritativeMutation": {
+                "const": false
+              },
+              "functionReusableRouter": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "repositoryRole": {
+            "const": "api-write"
+          }
+        },
+        "required": [
+          "repositoryRole"
+        ]
+      },
+      "then": {
+        "required": [
+          "writeBoundary"
+        ],
+        "properties": {
+          "capabilities": {
+            "properties": {
+              "authoritativeMutation": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "repositoryRole": {
+            "const": "admin"
+          }
+        },
+        "required": [
+          "repositoryRole"
+        ]
+      },
+      "then": {
+        "required": [
+          "adminIsolation"
+        ]
+      }
+    }
+  ]
+}

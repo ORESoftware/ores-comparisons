@@ -1,0 +1,96 @@
+name: module-context exact-head certification
+
+on:
+  pull_request:
+    paths:
+      - "certification/module-context/**"
+      - ".github/workflows/module-context-abi-cert.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  beamscale-gleam:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Verify exact BeamScale PR14 blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object certification/module-context/beamscale/src/bmscl.gleam)" = "07c1566425e9087112f03b394571eb771c3a8e34"
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: "29.1.1"
+          gleam-version: "1.18.1"
+          version-type: strict
+
+      - name: Format-check BeamScale carrier with diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          gleam format certification/module-context/beamscale/src
+          if ! git diff --exit-code -- certification/module-context/beamscale/src; then
+            echo "BeamScale PR14 source is not gleam-format clean" >&2
+            exit 1
+          fi
+
+      - name: Check BeamScale carrier
+        working-directory: certification/module-context/beamscale
+        run: gleam check --target erlang
+
+      - name: Build BeamScale carrier
+        working-directory: certification/module-context/beamscale
+        run: gleam build --target erlang
+
+  scintilla-rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Verify exact Scintilla PR15 blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object certification/module-context/scintilla/src/lib.rs)" = "4dbff7fabc7473f04cec0d7b265a19c588178900"
+          test "$(git hash-object certification/module-context/scintilla/src/module_contract.rs)" = "24cf89086bc1b8e884704143a2be67c6baa2d06c"
+          test "$(git hash-object certification/module-context/scintilla/contracts/module-descriptor.schema.json)" = "4605a9a5dc81a5311c7a696b6af0a45b69b7e598"
+          test "$(git hash-object certification/module-context/scintilla/contracts/module-descriptor.tsp)" = "f36c662bb949f46cb3b8593c04aacde6f9c1a980"
+
+      - name: Install source MSRV
+        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy --no-self-update
+
+      - name: Format Scintilla exact source
+        env:
+          RUSTUP_TOOLCHAIN: 1.88.0
+        run: cargo fmt --manifest-path certification/module-context/scintilla/Cargo.toml -- --check
+
+      - name: Clippy Scintilla exact source
+        env:
+          RUSTUP_TOOLCHAIN: 1.88.0
+        run: cargo clippy --manifest-path certification/module-context/scintilla/Cargo.toml --all-targets --no-default-features -- -D warnings
+
+      - name: Test Scintilla exact source
+        env:
+          RUSTUP_TOOLCHAIN: 1.88.0
+        run: cargo test --manifest-path certification/module-context/scintilla/Cargo.toml --all-targets --no-default-features
+
+      - name: Compare exact Scintilla TypeSpec and JSON Schema peers
+        uses: ORESoftware/typespec-json-schema-validator@b5bd51946b53c00b1daeb2723c0b5d54eaeafab7
+        with:
+          typespec: certification/module-context/scintilla/contracts/module-descriptor.tsp
+          schema: certification/module-context/scintilla/contracts/module-descriptor.schema.json
+          report: certification/module-context/scintilla/.tjsv/report.json
+          contract_ir: certification/module-context/scintilla/.tjsv/contract-ir.json
+          output_dir: certification/module-context/scintilla/.tjsv/generated
+          max_probes: "128"
+          int64_strategy: number

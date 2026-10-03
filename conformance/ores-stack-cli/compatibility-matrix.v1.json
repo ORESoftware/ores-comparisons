@@ -1,0 +1,49 @@
+{
+  "schema": "ores.stack.cli-compatibility/v1",
+  "canonicalRepository": "https://github.com/ores-stack/ores-stack-cli",
+  "releaseAuthorityReady": false,
+  "supportedReleases": [],
+  "migrationCandidates": [
+    {
+      "version": "0.1.0",
+      "commit": "7d07a9cdb2e876d1cf1e3cf064287f48b9217d3c"
+    }
+  ],
+  "representativeTargets": [
+    {
+      "id": "standalone-rust-server",
+      "kind": "server",
+      "contract": "ores-stack.module-semantics/v2"
+    },
+    {
+      "id": "provider-lambda-adapter",
+      "kind": "lambda",
+      "contract": "deploy-target/v2"
+    },
+    {
+      "id": "infra-compose",
+      "kind": "infra",
+      "contract": "ores-compose/v1"
+    }
+  ],
+  "results": [
+    {
+      "cli": "0.1.0@7d07a9cdb2e876d1cf1e3cf064287f48b9217d3c",
+      "target": "standalone-rust-server",
+      "state": "blocked",
+      "reason": "canonical CLI workspace closure is incomplete on this commit"
+    },
+    {
+      "cli": "0.1.0@7d07a9cdb2e876d1cf1e3cf064287f48b9217d3c",
+      "target": "provider-lambda-adapter",
+      "state": "blocked",
+      "reason": "canonical CLI workspace closure is incomplete on this commit"
+    },
+    {
+      "cli": "0.1.0@7d07a9cdb2e876d1cf1e3cf064287f48b9217d3c",
+      "target": "infra-compose",
+      "state": "blocked",
+      "reason": "canonical CLI workspace closure is incomplete on this commit"
+    }
+  ]
+}

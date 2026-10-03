@@ -1,5 +1,0 @@
-name = "big_org_example_collaboration_work"
-version = "1.0.0"
-target = "erlang"
-
-# bmscl SDK is compiler/runtime supplied and must not be added as a tenant git/path dependency.
