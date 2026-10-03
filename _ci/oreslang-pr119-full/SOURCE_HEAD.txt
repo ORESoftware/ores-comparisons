@@ -1,0 +1,5 @@
+source_repo=ores-truffle-oreslang/oreslang-source.java
+source_pr=119
+source_head=58b120eb3c2bd70316621794baafa60165a078db
+source_base=f6db1abc970f0d3a54fd3776f9417c349a89ebad
+validation=exact current source tree + focused DynamicStruct runtime/type/parser tests
