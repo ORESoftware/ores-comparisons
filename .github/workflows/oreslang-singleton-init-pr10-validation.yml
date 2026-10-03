@@ -2,7 +2,11 @@ name: oreslang-singleton-init-pr10-validation
 
 on:
   push:
-    branches: ["ci/oreslang-singleton-init-pr10"]
+    branches: ["tmp/oreslang-pr10-current-20261002"]
+
+concurrency:
+  group: oreslang-singleton-init-pr10-validation
+  cancel-in-progress: true
 
 permissions:
   contents: read

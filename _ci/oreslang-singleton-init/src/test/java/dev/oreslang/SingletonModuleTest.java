@@ -25,6 +25,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -2473,6 +2474,76 @@ final class SingletonModuleTest {
 
         assertEquals(1, initializations.get());
         assertEquals(64L, ((Number) calls.getLast().join()).longValue());
+    }
+
+    @Test
+    void explicitCollectionDrainsAndReleasesPinnedSingletonBeforeRecreation() {
+        String key = "manual-collect:" + UUID.randomUUID();
+        AtomicBoolean closed = new AtomicBoolean();
+
+        final class CloseState implements AutoCloseable {
+            private final AtomicInteger value = new AtomicInteger();
+
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        }
+
+        ProcessSingletonRegistry.Handle<CloseState> first =
+                ProcessSingletonRegistry.getOrCreate(key, CloseState::new);
+        UUID firstId = first.instanceId();
+
+        assertEquals(1L, ((Number) first.call(
+                List.of(),
+                (state, ignored) -> state.value.incrementAndGet())
+                .toCompletableFuture().join()).longValue());
+
+        assertTrue(ProcessSingletonRegistry.collect(key).toCompletableFuture().join());
+        assertTrue(closed.get(), "explicit singleton collection must run resource cleanup");
+
+        CompletionException stale = assertThrows(
+                CompletionException.class,
+                () -> first.call(List.of(), (state, ignored) -> state.value.get())
+                        .toCompletableFuture().join());
+        assertTrue(causeChainContains(stale, "explicitly collected"), String.valueOf(stale));
+
+        ProcessSingletonRegistry.Handle<CloseState> second =
+                ProcessSingletonRegistry.getOrCreate(key, CloseState::new);
+        assertNotEquals(firstId, second.instanceId());
+        assertEquals(0L, ((Number) second.call(
+                List.of(),
+                (state, ignored) -> state.value.get())
+                .toCompletableFuture().join()).longValue());
+    }
+
+    @Test
+    void sourceCanExplicitlyCollectSingletonWithoutOrdinaryGcOwningItsLifetime() throws Exception {
+        String program = """
+                define singleton module manual_gc_counter as
+                  let int count = 0;
+
+                  pub fnc next() => int {
+                    count = count + 1;
+                    return count;
+                  }
+                end
+
+                define module app as
+                  pub routine main() => void {
+                    stdio.println(await manual_gc_counter.next());
+                    val bool collected = await process.collect_singleton(manual_gc_counter);
+                    stdio.println(collected);
+                    stdio.println(await manual_gc_counter.next());
+                    return;
+                  }
+                end
+                """;
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(program)));
+        String output = eval(program, "singleton-manual-collect-" + UUID.randomUUID() + ".ores");
+        List<String> lines = output.lines().map(String::trim).filter(s -> !s.isEmpty()).toList();
+        assertEquals(List.of("1", "true", "1"), lines);
     }
 
     private static boolean causeChainContains(Throwable failure, String text) {

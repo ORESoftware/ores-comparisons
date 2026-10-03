@@ -700,6 +700,31 @@ public final class OresEvalRootNode extends RootNode {
                 return binary(binary.operator(), eval(binary.left(), env), eval(binary.right(), env));
             }
             if (expr instanceof Ast.CallExpr call) {
+                if (call.callee() instanceof Ast.MemberExpr lifecycleCall
+                        && lifecycleCall.receiver() instanceof Ast.NameExpr receiverName
+                        && receiverName.name().equals("process")
+                        && lifecycleCall.member().equals("collect_singleton")) {
+                    if (call.arguments().size() != 1) {
+                        throw new IllegalArgumentException(
+                                "process.collect_singleton expects exactly one singleton module");
+                    }
+                    Ast.Expr target = call.arguments().getFirst();
+                    if (!(target instanceof Ast.NameExpr moduleName)) {
+                        throw new IllegalArgumentException(
+                                "process.collect_singleton expects a singleton module namespace, not a runtime value");
+                    }
+                    Ast.ModuleDecl module = modules.get(moduleName.name());
+                    if (module == null || !module.singleton()) {
+                        throw new IllegalArgumentException(
+                                "process.collect_singleton target must be a singleton module: "
+                                        + moduleName.name());
+                    }
+                    context.requireCapability(
+                            IsolatePolicy.Capability.PROCESS_SINGLETON,
+                            "process.collect_singleton");
+                    ProcessSingletonRegistry.requireBackendFor(context.graalIsolated());
+                    return ProcessSingletonRegistry.collect(singletonKey(module));
+                }
                 if (call.callee() instanceof Ast.MemberExpr methodCall) {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();

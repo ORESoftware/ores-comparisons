@@ -1251,6 +1251,27 @@ public final class TypeChecker {
             };
         }
         if (expr instanceof Ast.CallExpr call) {
+            if (call.callee() instanceof Ast.MemberExpr lifecycleCall
+                    && lifecycleCall.receiver() instanceof Ast.NameExpr receiverName
+                    && receiverName.name().equals("process")
+                    && lifecycleCall.member().equals("collect_singleton")) {
+                if (call.arguments().size() != 1) {
+                    throw new IllegalArgumentException(
+                            "process.collect_singleton expects exactly one singleton module");
+                }
+                Ast.Expr target = call.arguments().getFirst();
+                if (!(target instanceof Ast.NameExpr moduleName)) {
+                    throw new IllegalArgumentException(
+                            "process.collect_singleton expects a singleton module namespace");
+                }
+                Ast.ModuleDecl module = modules.get(moduleName.name());
+                if (module == null || !module.singleton()) {
+                    throw new IllegalArgumentException(
+                            "process.collect_singleton target must be a singleton module: "
+                                    + moduleName.name());
+                }
+                return new Named("Future", List.of(Primitive.BOOL));
+            }
             if (call.callee() instanceof Ast.NameExpr name && name.name().equals("Some")) {
                 if (call.arguments().size() != 1) throw new IllegalArgumentException("Some expects exactly one value");
                 return new Named("Option", List.of(typeOf(call.arguments().getFirst(), env, generics, self)));
