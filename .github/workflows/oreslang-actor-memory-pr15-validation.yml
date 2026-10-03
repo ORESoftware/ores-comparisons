@@ -46,6 +46,6 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: maven
-      - name: Compile full actor-memory integration source tree
+      - name: Run exact PR106 secure hot-load regressions
         working-directory: _ci/oreslang-pr19-full
-        run: mvn -B -ntp -DskipTests compile
+        run: mvn -B -ntp -Dtest=IsolationHotReloadTest,SecureJitHotReloadDomainTest test
