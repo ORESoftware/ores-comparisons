@@ -79,6 +79,7 @@ public final class OresLanguage extends TruffleLanguage<OresContext> {
                     .replace('\\', '/');
             return normalized.isBlank() ? name : normalized;
         } catch (InvalidPathException invalidPath) {
+            // Source names may be logical labels rather than filesystem paths.
             return name;
         }
     }
