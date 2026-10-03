@@ -597,6 +597,15 @@ public final class OresEvalRootNode extends RootNode {
                     }
                     return dynamic.fields.get(key);
                 }
+                if (receiver instanceof Map<?, ?> map) {
+                    if (!(index instanceof String key)) {
+                        throw new IllegalArgumentException("object/map key must be a string");
+                    }
+                    if (!map.containsKey(key)) {
+                        throw new IllegalArgumentException("unknown object/map key " + key);
+                    }
+                    return map.get(key);
+                }
                 if (!(index instanceof Number number)) throw new IllegalArgumentException("array/list index must be an integer");
                 int i = Math.toIntExact(number.longValue());
                 if (receiver instanceof List<?> list) return list.get(i);
