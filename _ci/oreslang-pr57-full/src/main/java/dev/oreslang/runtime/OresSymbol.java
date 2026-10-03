@@ -30,6 +30,8 @@ public final class OresSymbol {
     private static final byte[] ID_DOMAIN =
             "oreslang-symbol-v1\0".getBytes(StandardCharsets.UTF_8);
 
+    private static final int INTERNED_LIMIT = configuredInternedLimit();
+
     private static final ConcurrentHashMap<String, OresSymbol> INTERNED =
             new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<SymbolId, OresSymbol> INTERNED_BY_ID =
@@ -90,9 +92,9 @@ public final class OresSymbol {
         synchronized (INTERN_LOCK) {
             existing = INTERNED.get(validated);
             if (existing != null) return existing;
-            if (INTERNED.size() >= MAX_INTERNED_SYMBOLS) {
+            if (INTERNED.size() >= INTERNED_LIMIT) {
                 throw new IllegalStateException(
-                        "runtime symbol limit exceeded: " + MAX_INTERNED_SYMBOLS);
+                        "runtime symbol limit exceeded: " + INTERNED_LIMIT);
             }
 
             OresSymbol idExisting = INTERNED_BY_ID.get(id);
@@ -147,6 +149,11 @@ public final class OresSymbol {
         return INTERNED.size();
     }
 
+    /** Host-configured local heap budget, always <= the language hard ceiling. */
+    public static int internedLimit() {
+        return INTERNED_LIMIT;
+    }
+
     public String name() {
         return name;
     }
@@ -170,6 +177,18 @@ public final class OresSymbol {
             throw new SecurityException(
                     "trusted symbols are unavailable to adversarial/untrusted isolates");
         }
+    }
+
+    private static int configuredInternedLimit() {
+        int configured = Integer.getInteger(
+                "ores.symbol.max-interned",
+                MAX_INTERNED_SYMBOLS);
+        if (configured <= 0 || configured > MAX_INTERNED_SYMBOLS) {
+            throw new ExceptionInInitializerError(
+                    "ores.symbol.max-interned must be in [1,"
+                            + MAX_INTERNED_SYMBOLS + "]");
+        }
+        return configured;
     }
 
     private static SymbolId idForValidatedName(String validated) {
