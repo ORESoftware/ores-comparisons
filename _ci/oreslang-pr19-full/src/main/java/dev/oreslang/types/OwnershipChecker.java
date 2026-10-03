@@ -283,12 +283,6 @@ public final class OwnershipChecker {
         }
         if (expr instanceof Ast.NameExpr name) {
             VarState state = scope.lookup(name.name());
-            if (state == null && name.name().equals("None")) {
-                return new ValueInfo(
-                        new Ast.TypeRef("Option", List.of(Ast.TypeRef.inferred()), false),
-                        ValueKind.MOVE_ONLY,
-                        null);
-            }
             if (state == null) return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.COPY, null); // function/module/global
             state.debugName = name.name();
             requireUsable(state, name.name(), false);
@@ -357,8 +351,8 @@ public final class OwnershipChecker {
                     if (klass != null) {
                         ResolvedField target = findFieldTarget(klass, concreteReceiver, member.member(), new LinkedHashSet<>());
                         if (target != null) {
-                            Ast.TypeRef fieldType = substituteType(
-                                    ownershipFieldType(target.field()),
+                            Ast.TypeRef fieldType = resolvedFieldType(
+                                    target.field(),
                                     genericBindings(target.owner().genericParameters(), target.ownerType().arguments()));
                             if (!isCopyType(fieldType)) {
                                 throw error("cannot extract move-only field '" + target.owner().name() + "." + member.member()
@@ -381,8 +375,8 @@ public final class OwnershipChecker {
             if (klass != null) {
                 ResolvedField target = findFieldTarget(klass, concreteReceiver, member.member(), new LinkedHashSet<>());
                 if (target != null) {
-                    Ast.TypeRef fieldType = substituteType(
-                            ownershipFieldType(target.field()),
+                    Ast.TypeRef fieldType = resolvedFieldType(
+                            target.field(),
                             genericBindings(target.owner().genericParameters(), target.ownerType().arguments()));
                     ValueKind fieldKind = kindOfType(fieldType);
                     if (consuming && isRootedAtActorSelf(member.receiver(), scope) && fieldKind != ValueKind.COPY) {
@@ -472,28 +466,6 @@ public final class OwnershipChecker {
             return new ValueInfo(mutexType, factory.name().equals("SharedMutex") ? ValueKind.COPY : ValueKind.MOVE_ONLY, null);
         }
 
-        if (call.callee() instanceof Ast.NameExpr name
-                && (name.name().equals("Some") || name.name().equals("Ok") || name.name().equals("Err"))) {
-            if (call.arguments().size() != 1) {
-                return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
-            }
-            ValueInfo payload = checkExpr(call.arguments().getFirst(), scope, true);
-            if (payload.kind == ValueKind.IMM_BORROW || payload.kind == ValueKind.MUT_BORROW
-                    || (payload.type != null && payload.type.isBorrow())) {
-                throw error(name.name()
-                        + " cannot store a borrow in an owned sum value until explicit lifetime parameters are supported");
-            }
-            if (name.name().equals("Some")) {
-                Ast.TypeRef type = new Ast.TypeRef("Option", List.of(payload.type), false);
-                return new ValueInfo(type, kindOfType(type), null);
-            }
-            Ast.TypeRef unknown = Ast.TypeRef.inferred();
-            Ast.TypeRef type = name.name().equals("Ok")
-                    ? new Ast.TypeRef("Result", List.of(payload.type, unknown), false)
-                    : new Ast.TypeRef("Result", List.of(unknown, payload.type), false);
-            return new ValueInfo(type, ValueKind.MOVE_ONLY, null);
-        }
-
         if (call.callee() instanceof Ast.NameExpr name) {
             Ast.FunctionDecl fn = findFunction(name.name());
             if (fn != null) {
@@ -522,9 +494,6 @@ public final class OwnershipChecker {
         }
 
         if (call.callee() instanceof Ast.MemberExpr member) {
-            ValueInfo sumCall = checkBuiltinSumCall(member, call.arguments(), scope);
-            if (sumCall != null) return sumCall;
-
             Ast.ClassDecl staticClass = classNamespaceOf(member.receiver(), scope);
             if (staticClass != null) {
                 Ast.MethodDecl staticFunction = findStaticMethod(
@@ -641,59 +610,6 @@ public final class OwnershipChecker {
             }
         }
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
-    }
-
-    private ValueInfo checkBuiltinSumCall(Ast.MemberExpr member, List<Ast.Expr> arguments, Scope scope) {
-        boolean query = member.member().equals("is_some") || member.member().equals("is_none")
-                || member.member().equals("is_ok") || member.member().equals("is_err");
-        boolean extracting = member.member().equals("unwrap") || member.member().equals("unwrap_safe")
-                || member.member().equals("expect") || member.member().equals("unwrap_or");
-        if (!query && !extracting) return null;
-
-        ValueInfo receiver = checkExpr(member.receiver(), scope, false);
-        Ast.TypeRef receiverType = receiver.type;
-        if (receiverType == null || receiverType.isBorrow()) return null;
-        boolean option = receiverType.name().equals("Option") && receiverType.arguments().size() == 1;
-        boolean result = receiverType.name().equals("Result") && receiverType.arguments().size() == 2;
-        if (!option && !result) return null;
-
-        if (query) {
-            for (Ast.Expr argument : arguments) checkExpr(argument, scope, true);
-            return new ValueInfo(Ast.TypeRef.simple("bool"), ValueKind.COPY, null);
-        }
-
-        if (member.receiver() instanceof Ast.NameExpr receiverName) {
-            VarState state = scope.lookup(receiverName.name());
-            if (state != null && state.kind == ValueKind.MOVE_ONLY) move(state, receiverName.name());
-        }
-
-        Ast.TypeRef okType = option ? receiverType.arguments().getFirst() : receiverType.arguments().get(0);
-        if (okType.isBorrow()) {
-            throw error(member.member()
-                    + " cannot extract a borrow from an owned Option/Result until explicit lifetime parameters are supported");
-        }
-
-        if (member.member().equals("unwrap_or") && containsMutexGuardType(okType)) {
-            throw error("unwrap_or cannot eagerly discard a MutexGuard fallback; use explicit branching so every guard is released");
-        }
-        for (Ast.Expr argument : arguments) {
-            ValueInfo arg = checkExpr(argument, scope, true);
-            if (containsMutexGuardType(arg.type) && !member.member().equals("unwrap_or")) {
-                throw error(member.member() + " argument cannot contain MutexGuard");
-            }
-        }
-
-        if (member.member().equals("unwrap_safe")) {
-            if (option) {
-                Ast.TypeRef safe = new Ast.TypeRef(
-                        "Result",
-                        List.of(okType, Ast.TypeRef.simple("OptionUnwrapError")),
-                        false);
-                return new ValueInfo(safe, kindOfType(safe), null);
-            }
-            return new ValueInfo(receiverType, kindOfType(receiverType), null);
-        }
-        return new ValueInfo(okType, kindOfType(okType), null);
     }
 
     private void checkArguments(List<Ast.Expr> arguments, List<Ast.Param> params, Scope scope, String callable) {
@@ -982,6 +898,18 @@ public final class OwnershipChecker {
         if (names.size() != arguments.size()) return result;
         for (int i = 0; i < names.size(); i++) result.put(names.get(i), arguments.get(i));
         return result;
+    }
+
+    private Ast.TypeRef resolvedFieldType(Ast.FieldDecl field, Map<String, Ast.TypeRef> bindings) {
+        Ast.TypeRef declared = field.type();
+        if (declared == null || declared.name().equals("$infer$")) {
+            if (field.initializer() instanceof Ast.LiteralExpr literal) {
+                declared = inferLiteralType(literal.value());
+            } else {
+                declared = Ast.TypeRef.inferred();
+            }
+        }
+        return substituteType(declared, bindings);
     }
 
     private Ast.TypeRef substituteType(Ast.TypeRef type, Map<String, Ast.TypeRef> bindings) {
@@ -1398,11 +1326,7 @@ public final class OwnershipChecker {
         return switch (type.name()) {
             case "i8","i16","i32","i64","u8","u16","u32","u64","int","uint","bigint",
                     "f32","f64","float","decimal","complex64","complex128","complex",
-                    "bool","Bool","string","String","void","SharedMutex","OptionUnwrapError" -> true;
-            case "Option" -> type.arguments().size() == 1 && isCopyType(type.arguments().getFirst());
-            case "Result" -> type.arguments().size() == 2
-                    && isCopyType(type.arguments().get(0))
-                    && isCopyType(type.arguments().get(1));
+                    "bool","Bool","string","String","void","SharedMutex" -> true;
             default -> false;
         };
     }
@@ -1434,14 +1358,6 @@ public final class OwnershipChecker {
             if (containsAcquiredMutexGuardType(argument)) return true;
         }
         return false;
-    }
-
-    private Ast.TypeRef ownershipFieldType(Ast.FieldDecl field) {
-        if (field.type() != null) return field.type();
-        if (field.initializer() instanceof Ast.LiteralExpr literal) {
-            return inferLiteralType(literal.value());
-        }
-        return Ast.TypeRef.inferred();
     }
 
     private Ast.TypeRef inferLiteralType(Object value) {
