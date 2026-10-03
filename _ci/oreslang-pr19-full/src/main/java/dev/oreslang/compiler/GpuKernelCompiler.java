@@ -538,8 +538,11 @@ public final class GpuKernelCompiler {
     }
 
     private KernelEmission emitKernel(StringBuilder out, Target target, Ast.TypeRef resultType) {
-        ParallelLoop parallelLoop = findParallelLoop(target, resultType);
-        ExecutionShape shape = parallelLoop == null ? ExecutionShape.SINGLE_WORK_ITEM : ExecutionShape.DATA_PARALLEL_1D;
+        WorkItemPlan workItemPlan = findWorkItemPlan(target, resultType);
+        ParallelLoop parallelLoop = workItemPlan == null ? findParallelLoop(target, resultType) : null;
+        ExecutionShape shape = (workItemPlan != null || parallelLoop != null)
+                ? ExecutionShape.DATA_PARALLEL_1D
+                : ExecutionShape.SINGLE_WORK_ITEM;
 
         out.append("__kernel void ").append(target.kernelSymbol).append('(');
         String params = parameterList(target.parameters, target.module);
@@ -553,11 +556,23 @@ public final class GpuKernelCompiler {
         out.append(") {\n");
 
         String launchExtent = null;
-        if (parallelLoop != null) {
+        if (workItemPlan != null) {
+            out.append("  __ores_error[get_global_id(0)] = 0;\n");
+            String args = argumentNames(target.parameters, target.module);
+            if (isVoid(resultType)) {
+                out.append("  ").append(target.helperSymbol).append('(').append(args).append(");\n");
+            } else {
+                out.append("  __ores_out[get_global_id(0)] = ")
+                        .append(target.helperSymbol).append('(').append(args).append(");\n");
+            }
+            launchExtent = workItemPlan.launchExtentExpression;
+        } else if (parallelLoop != null) {
             out.append("  __ores_error[get_global_id(0)] = 0;\n");
             LoweringEnv env = parameterEnv(target.parameters, target.module);
             Ast.BindingStmt initializer = (Ast.BindingStmt) parallelLoop.loop.initializer();
-            Ast.TypeRef inductionType = initializer.declaredType() == null ? Ast.TypeRef.simple("i64") : resolveAlias(initializer.declaredType(), target.module);
+            Ast.TypeRef inductionType = initializer.declaredType() == null
+                    ? Ast.TypeRef.simple("i64")
+                    : resolveAlias(initializer.declaredType(), target.module);
             env.define(initializer.name(), inductionType);
             out.append("  ").append(cScalar(inductionType)).append(' ').append(variableName(initializer.name()))
                     .append(" = (").append(cScalar(inductionType)).append(")get_global_id(0);\n");
@@ -586,10 +601,13 @@ public final class GpuKernelCompiler {
         boolean enforceNoAlias = target.parameters.stream()
                 .map(param -> resolveAlias(param.type(), target.module))
                 .anyMatch(this::isBuffer);
+        String resultSlots = isVoid(resultType)
+                ? "0"
+                : workItemPlan != null ? globalWorkItems : "1";
         GpuLaunchPlan launchPlan = new GpuLaunchPlan(
                 globalWorkItems,
                 globalWorkItems,
-                isVoid(resultType) ? "0" : "1",
+                resultSlots,
                 clampNegativeExtent,
                 enforceNoAlias);
         GpuKernel meta = new GpuKernel(
@@ -607,6 +625,232 @@ public final class GpuKernelCompiler {
                 launchExtent,
                 launchPlan);
         return new KernelEmission(meta);
+    }
+
+    /**
+     * Explicit SIMT code does not need a fake serial for-loop for the compiler to discover
+     * parallelism. A kernel that references gpu.index/gpu.*_id uses one work-item per element
+     * of a single unambiguous driver buffer. Prefer the unique mutable buffer (the common
+     * output-buffer case); otherwise a single buffer parameter may drive a map-style kernel.
+     */
+    private WorkItemPlan findWorkItemPlan(Target target, Ast.TypeRef resultType) {
+        if (!containsWorkItemIntrinsic(target.body)) return null;
+
+        List<Ast.Param> buffers = target.parameters.stream()
+                .filter(param -> isBuffer(resolveAlias(param.type(), target.module)))
+                .toList();
+        List<Ast.Param> mutableBuffers = buffers.stream().filter(Ast.Param::mutable).toList();
+
+        Ast.Param driver;
+        if (mutableBuffers.size() == 1) {
+            driver = mutableBuffers.getFirst();
+        } else if (mutableBuffers.isEmpty() && buffers.size() == 1) {
+            driver = buffers.getFirst();
+        } else {
+            throw new IllegalArgumentException(
+                    "GPU work-item kernels using gpu.index/gpu.*_id need one unambiguous launch buffer; "
+                            + "use exactly one mutable output buffer, or exactly one buffer parameter");
+        }
+
+        validateWorkItemRaceSafety(target);
+        return new WorkItemPlan(driver.name(), bufferLengthName(driver.name()));
+    }
+
+    /**
+     * A mutable device buffer may be written by many SIMT work-items only when this pass can
+     * prove that each work-item selects a distinct element. The first conservative contract is
+     * intentionally simple: stores must use gpu.index / gpu.global_id(0), or a val/const alias
+     * of that identity. This rejects local/group IDs, constants, mutable aliases, and hidden
+     * mutable-buffer helper calls until stronger interprocedural/injective-index proofs exist.
+     */
+    private void validateWorkItemRaceSafety(Target target) {
+        LinkedHashSet<String> mutableBuffers = new LinkedHashSet<>();
+        for (Ast.Param param : target.parameters) {
+            if (param.mutable() && isBuffer(resolveAlias(param.type(), target.module))) {
+                mutableBuffers.add(param.name());
+            }
+        }
+        if (mutableBuffers.isEmpty()) return;
+        validateWorkItemStatements(
+                target.module,
+                target.body,
+                new WorkItemIndexScope(null),
+                mutableBuffers);
+    }
+
+    private void validateWorkItemStatements(
+            String module,
+            List<Ast.Stmt> statements,
+            WorkItemIndexScope parent,
+            Set<String> mutableBuffers) {
+        WorkItemIndexScope scope = new WorkItemIndexScope(parent);
+        for (Ast.Stmt stmt : statements) {
+            if (stmt instanceof Ast.BindingStmt binding) {
+                validateWorkItemExpr(module, binding.initializer(), scope, mutableBuffers);
+                if (binding.kind() != Ast.BindingKind.LET
+                        && isUniqueWorkItemIndex(binding.initializer(), scope)) {
+                    scope.defineUnique(binding.name());
+                }
+            } else if (stmt instanceof Ast.ReturnStmt returned) {
+                if (returned.value() != null) {
+                    validateWorkItemExpr(module, returned.value(), scope, mutableBuffers);
+                }
+            } else if (stmt instanceof Ast.ExprStmt expression) {
+                validateWorkItemExpr(module, expression.expression(), scope, mutableBuffers);
+            } else if (stmt instanceof Ast.IfStmt conditional) {
+                for (Ast.IfBranch branch : conditional.branches()) {
+                    validateWorkItemExpr(module, branch.condition(), scope, mutableBuffers);
+                    validateWorkItemStatements(module, branch.body(), scope, mutableBuffers);
+                }
+                validateWorkItemStatements(module, conditional.elseBody(), scope, mutableBuffers);
+            } else if (stmt instanceof Ast.ForStmt loop) {
+                WorkItemIndexScope loopScope = new WorkItemIndexScope(scope);
+                if (loop.initializer() instanceof Ast.BindingStmt binding) {
+                    validateWorkItemExpr(module, binding.initializer(), loopScope, mutableBuffers);
+                    if (binding.kind() != Ast.BindingKind.LET
+                            && isUniqueWorkItemIndex(binding.initializer(), loopScope)) {
+                        loopScope.defineUnique(binding.name());
+                    }
+                } else if (loop.initializer() instanceof Ast.ExprStmt expression) {
+                    validateWorkItemExpr(module, expression.expression(), loopScope, mutableBuffers);
+                }
+                if (loop.condition() != null) {
+                    validateWorkItemExpr(module, loop.condition(), loopScope, mutableBuffers);
+                }
+                if (loop.update() != null) {
+                    validateWorkItemExpr(module, loop.update(), loopScope, mutableBuffers);
+                }
+                validateWorkItemStatements(module, loop.body(), loopScope, mutableBuffers);
+            }
+        }
+    }
+
+    private void validateWorkItemExpr(
+            String module,
+            Ast.Expr expr,
+            WorkItemIndexScope scope,
+            Set<String> mutableBuffers) {
+        if (expr == null || expr instanceof Ast.LiteralExpr
+                || expr instanceof Ast.NameExpr
+                || expr instanceof Ast.GpuIntrinsicExpr) {
+            return;
+        }
+        if (expr instanceof Ast.AssignExpr assignment) {
+            if (assignment.target() instanceof Ast.IndexExpr indexed
+                    && indexed.receiver() instanceof Ast.NameExpr buffer
+                    && mutableBuffers.contains(buffer.name())
+                    && !isUniqueWorkItemIndex(indexed.index(), scope)) {
+                throw new IllegalArgumentException(
+                        "SIMT write to mutable GPU buffer '" + buffer.name()
+                                + "' must be indexed by gpu.index/gpu.global_id(0) or an immutable val/const alias; "
+                                + "the compiler cannot prove this store race-free");
+            }
+            validateWorkItemExpr(module, assignment.target(), scope, mutableBuffers);
+            validateWorkItemExpr(module, assignment.value(), scope, mutableBuffers);
+            return;
+        }
+        if (expr instanceof Ast.BinaryExpr binary) {
+            validateWorkItemExpr(module, binary.left(), scope, mutableBuffers);
+            validateWorkItemExpr(module, binary.right(), scope, mutableBuffers);
+            return;
+        }
+        if (expr instanceof Ast.UnaryExpr unary) {
+            validateWorkItemExpr(module, unary.operand(), scope, mutableBuffers);
+            return;
+        }
+        if (expr instanceof Ast.ConditionalExpr conditional) {
+            validateWorkItemExpr(module, conditional.condition(), scope, mutableBuffers);
+            validateWorkItemExpr(module, conditional.whenTrue(), scope, mutableBuffers);
+            validateWorkItemExpr(module, conditional.whenFalse(), scope, mutableBuffers);
+            return;
+        }
+        if (expr instanceof Ast.CallExpr call) {
+            Target callee = resolveCallTarget(module, call);
+            if (callee != null) {
+                for (int i = 0; i < Math.min(call.arguments().size(), callee.parameters.size()); i++) {
+                    Ast.Expr actual = call.arguments().get(i);
+                    Ast.Param expected = callee.parameters.get(i);
+                    if (expected.mutable()
+                            && actual instanceof Ast.NameExpr name
+                            && mutableBuffers.contains(name.name())
+                            && isBuffer(resolveAlias(expected.type(), callee.module))) {
+                        throw new IllegalArgumentException(
+                                "SIMT kernel cannot pass mutable GPU buffer '" + name.name()
+                                        + "' to gpu helper '" + callee.sourceName
+                                        + "' until interprocedural race-freedom is proven; "
+                                        + "perform the element store in the kernel using gpu.index");
+                    }
+                }
+            }
+            validateWorkItemExpr(module, call.callee(), scope, mutableBuffers);
+            for (Ast.Expr arg : call.arguments()) {
+                validateWorkItemExpr(module, arg, scope, mutableBuffers);
+            }
+            return;
+        }
+        if (expr instanceof Ast.MemberExpr member) {
+            validateWorkItemExpr(module, member.receiver(), scope, mutableBuffers);
+            return;
+        }
+        if (expr instanceof Ast.IndexExpr indexed) {
+            validateWorkItemExpr(module, indexed.receiver(), scope, mutableBuffers);
+            validateWorkItemExpr(module, indexed.index(), scope, mutableBuffers);
+        }
+    }
+
+    private boolean isUniqueWorkItemIndex(Ast.Expr expr, WorkItemIndexScope scope) {
+        if (expr instanceof Ast.GpuIntrinsicExpr intrinsic) {
+            return intrinsic.dimension() == 0
+                    && (intrinsic.intrinsic() == Ast.GpuIntrinsic.INDEX
+                    || intrinsic.intrinsic() == Ast.GpuIntrinsic.GLOBAL_ID);
+        }
+        return expr instanceof Ast.NameExpr name && scope.isUnique(name.name());
+    }
+
+    private boolean containsWorkItemIntrinsic(List<Ast.Stmt> statements) {
+        for (Ast.Stmt stmt : statements) {
+            if (stmt instanceof Ast.BindingStmt s && containsWorkItemIntrinsic(s.initializer())) return true;
+            if (stmt instanceof Ast.ReturnStmt s && s.value() != null && containsWorkItemIntrinsic(s.value())) return true;
+            if (stmt instanceof Ast.ExprStmt s && containsWorkItemIntrinsic(s.expression())) return true;
+            if (stmt instanceof Ast.IfStmt s) {
+                for (Ast.IfBranch branch : s.branches()) {
+                    if (containsWorkItemIntrinsic(branch.condition())
+                            || containsWorkItemIntrinsic(branch.body())) return true;
+                }
+                if (containsWorkItemIntrinsic(s.elseBody())) return true;
+            }
+            if (stmt instanceof Ast.ForStmt s) {
+                if (s.initializer() instanceof Ast.BindingStmt b && containsWorkItemIntrinsic(b.initializer())) return true;
+                if (s.initializer() instanceof Ast.ExprStmt e && containsWorkItemIntrinsic(e.expression())) return true;
+                if (s.condition() != null && containsWorkItemIntrinsic(s.condition())) return true;
+                if (s.update() != null && containsWorkItemIntrinsic(s.update())) return true;
+                if (containsWorkItemIntrinsic(s.body())) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsWorkItemIntrinsic(Ast.Expr expr) {
+        if (expr == null) return false;
+        if (expr instanceof Ast.GpuIntrinsicExpr) return true;
+        if (expr instanceof Ast.BinaryExpr e) return containsWorkItemIntrinsic(e.left()) || containsWorkItemIntrinsic(e.right());
+        if (expr instanceof Ast.UnaryExpr e) return containsWorkItemIntrinsic(e.operand());
+        if (expr instanceof Ast.AssignExpr e) return containsWorkItemIntrinsic(e.target()) || containsWorkItemIntrinsic(e.value());
+        if (expr instanceof Ast.ConditionalExpr e) {
+            return containsWorkItemIntrinsic(e.condition())
+                    || containsWorkItemIntrinsic(e.whenTrue())
+                    || containsWorkItemIntrinsic(e.whenFalse());
+        }
+        if (expr instanceof Ast.CallExpr e) {
+            if (containsWorkItemIntrinsic(e.callee())) return true;
+            for (Ast.Expr arg : e.arguments()) if (containsWorkItemIntrinsic(arg)) return true;
+            return false;
+        }
+        if (expr instanceof Ast.MemberExpr e) return containsWorkItemIntrinsic(e.receiver());
+        if (expr instanceof Ast.IndexExpr e) {
+            return containsWorkItemIntrinsic(e.receiver()) || containsWorkItemIntrinsic(e.index());
+        }
+        return false;
     }
 
     private ParallelLoop findParallelLoop(Target target, Ast.TypeRef resultType) {
@@ -712,7 +956,7 @@ public final class GpuKernelCompiler {
     }
 
     private boolean parallelExprSafe(String module, Ast.Expr expr, String induction, Set<String> mutableBuffers) {
-        if (expr instanceof Ast.LiteralExpr || expr instanceof Ast.NameExpr) return true;
+        if (expr instanceof Ast.LiteralExpr || expr instanceof Ast.NameExpr || expr instanceof Ast.GpuIntrinsicExpr) return true;
         if (expr instanceof Ast.UnaryExpr unary) {
             return parallelExprSafe(module, unary.operand(), induction, mutableBuffers);
         }
@@ -825,6 +1069,17 @@ public final class GpuKernelCompiler {
     }
 
     private String renderExpr(String module, Ast.Expr expr, LoweringEnv env) {
+        if (expr instanceof Ast.GpuIntrinsicExpr intrinsic) {
+            int dim = intrinsic.dimension();
+            return switch (intrinsic.intrinsic()) {
+                case INDEX, GLOBAL_ID -> "((ulong)get_global_id(" + dim + "))";
+                case LOCAL_ID -> "((ulong)get_local_id(" + dim + "))";
+                case GROUP_ID -> "((ulong)get_group_id(" + dim + "))";
+                case GLOBAL_SIZE -> "((ulong)get_global_size(" + dim + "))";
+                case LOCAL_SIZE -> "((ulong)get_local_size(" + dim + "))";
+                case NUM_GROUPS -> "((ulong)get_num_groups(" + dim + "))";
+            };
+        }
         if (expr instanceof Ast.LiteralExpr literal) return renderLiteral(literal.value());
         if (expr instanceof Ast.NameExpr name) return variableName(name.name());
         if (expr instanceof Ast.UnaryExpr unary) {
@@ -964,7 +1219,7 @@ public final class GpuKernelCompiler {
     }
 
     private boolean pureIndexExpression(Ast.Expr expr) {
-        if (expr instanceof Ast.LiteralExpr || expr instanceof Ast.NameExpr) return true;
+        if (expr instanceof Ast.LiteralExpr || expr instanceof Ast.NameExpr || expr instanceof Ast.GpuIntrinsicExpr) return true;
         if (expr instanceof Ast.UnaryExpr unary) return pureIndexExpression(unary.operand());
         if (expr instanceof Ast.BinaryExpr binary) {
             return pureIndexExpression(binary.left()) && pureIndexExpression(binary.right());
@@ -1035,6 +1290,7 @@ public final class GpuKernelCompiler {
     }
 
     private Ast.TypeRef inferExprType(String module, Ast.Expr expr, LoweringEnv env) {
+        if (expr instanceof Ast.GpuIntrinsicExpr) return Ast.TypeRef.simple("u64");
         if (expr instanceof Ast.LiteralExpr literal) {
             if (literal.value() instanceof Long) return Ast.TypeRef.simple("i64");
             if (literal.value() instanceof Double) return Ast.TypeRef.simple("f64");
@@ -1618,6 +1874,25 @@ public final class GpuKernelCompiler {
             Ast.TypeRef elementType) { }
 
     private record KernelEmission(GpuKernel metadata) { }
+    private record WorkItemPlan(String driverBuffer, String launchExtentExpression) { }
+
+    private static final class WorkItemIndexScope {
+        private final WorkItemIndexScope parent;
+        private final Set<String> unique = new HashSet<>();
+
+        private WorkItemIndexScope(WorkItemIndexScope parent) {
+            this.parent = parent;
+        }
+
+        private void defineUnique(String name) {
+            unique.add(name);
+        }
+
+        private boolean isUnique(String name) {
+            return unique.contains(name) || (parent != null && parent.isUnique(name));
+        }
+    }
+
     private record ParallelLoop(
             Ast.ForStmt loop,
             String operator,

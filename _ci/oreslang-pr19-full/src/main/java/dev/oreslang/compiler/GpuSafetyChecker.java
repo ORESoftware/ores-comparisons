@@ -236,6 +236,10 @@ public final class GpuSafetyChecker {
 
     private void scanExpression(String module, Ast.Expr expr) {
         if (expr == null) return;
+        if (expr instanceof Ast.GpuIntrinsicExpr intrinsic) {
+            throw new IllegalArgumentException("gpu." + intrinsic.intrinsic().name().toLowerCase()
+                    + " may be used only inside a gpu fnc/static fnc/kernel block");
+        }
         if (expr instanceof Ast.GpuExpr gpu) {
             validateGpuExpression(module, gpu);
             return;
@@ -358,6 +362,13 @@ public final class GpuSafetyChecker {
     }
 
     private void validateGpuExpressionTree(String module, Scope scope, Ast.Expr expr) {
+        if (expr instanceof Ast.GpuIntrinsicExpr intrinsic) {
+            if (intrinsic.dimension() != 0) {
+                throw new IllegalArgumentException(
+                        "the current automatic GPU launch contract is 1-D; use dimension 0 until explicit 2-D/3-D launch geometry is added");
+            }
+            return;
+        }
         if (expr instanceof Ast.LiteralExpr literal) {
             if (literal.value() instanceof String) throw new IllegalArgumentException("strings are not in the current GPU kernel subset");
             return;
@@ -431,7 +442,7 @@ public final class GpuSafetyChecker {
     }
 
     private boolean sideEffectFreeGpuArgument(Ast.Expr expr) {
-        if (expr instanceof Ast.LiteralExpr || expr instanceof Ast.NameExpr) return true;
+        if (expr instanceof Ast.LiteralExpr || expr instanceof Ast.NameExpr || expr instanceof Ast.GpuIntrinsicExpr) return true;
         if (expr instanceof Ast.UnaryExpr unary) return sideEffectFreeGpuArgument(unary.operand());
         if (expr instanceof Ast.BinaryExpr binary) {
             return sideEffectFreeGpuArgument(binary.left()) && sideEffectFreeGpuArgument(binary.right());

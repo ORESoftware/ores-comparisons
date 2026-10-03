@@ -311,7 +311,8 @@ public final class Ast {
     }
 
     public sealed interface Expr permits LiteralExpr, NameExpr, BinaryExpr, UnaryExpr, AssignExpr, ConditionalExpr,
-            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr, GpuExpr { }
+            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr,
+            GpuExpr, GpuIntrinsicExpr { }
 
     public record LiteralExpr(Object value) implements Expr { }
     public record Imaginary(double coefficient) { }
@@ -363,4 +364,29 @@ public final class Ast {
     public enum GpuMode { SINGLE, PARALLEL }
 
     public record GpuExpr(GpuMode mode, Expr expression) implements Expr { }
+
+    /**
+     * SIMT work-item intrinsics. These are only valid while type-checking/lowering GPU code.
+     * INDEX is the ergonomic 1-D alias for GLOBAL_ID(0).
+     */
+    public enum GpuIntrinsic {
+        INDEX,
+        GLOBAL_ID,
+        LOCAL_ID,
+        GROUP_ID,
+        GLOBAL_SIZE,
+        LOCAL_SIZE,
+        NUM_GROUPS
+    }
+
+    public record GpuIntrinsicExpr(GpuIntrinsic intrinsic, int dimension) implements Expr {
+        public GpuIntrinsicExpr {
+            if (dimension < 0 || dimension > 2) {
+                throw new IllegalArgumentException("GPU intrinsic dimension must be 0, 1, or 2");
+            }
+            if (intrinsic == GpuIntrinsic.INDEX && dimension != 0) {
+                throw new IllegalArgumentException("gpu.index is always 1-D and maps to global_id(0)");
+            }
+        }
+    }
 }

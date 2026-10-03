@@ -375,6 +375,9 @@ public final class OresEvalRootNode extends RootNode {
                 }
                 return Map.copyOf(result);
             }
+            if (expr instanceof Ast.GpuIntrinsicExpr intrinsic) {
+                throw gpuBackendUnavailable("gpu work-item intrinsic " + intrinsic.intrinsic().name().toLowerCase());
+            }
             if (expr instanceof Ast.GpuExpr gpu) {
                 if (gpu.mode() == Ast.GpuMode.SINGLE) {
                     if (!(gpu.expression() instanceof Ast.LambdaExpr)) {
