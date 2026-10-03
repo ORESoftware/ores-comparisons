@@ -55,8 +55,8 @@ final class RoutineAndLoopTest {
                 """)));
 
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                fnc recurse(bool done) => void {
-                  if done; do
+                fnc recurse(bool finished) => void {
+                  if finished; do
                     return;
                   else
                     recurse(true);
