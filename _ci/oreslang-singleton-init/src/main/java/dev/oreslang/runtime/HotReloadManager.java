@@ -8,6 +8,8 @@ import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -31,6 +33,7 @@ public final class HotReloadManager implements AutoCloseable {
     private final IsolatePolicy policy;
     private final ExecutionProfile executionProfile;
     private final AtomicReference<Generation> active = new AtomicReference<>();
+    private final AtomicBoolean closed = new AtomicBoolean();
     private final Map<String, Generation> activeByCodeUnit = new LinkedHashMap<>();
     private final Map<Long, Generation> generations = new LinkedHashMap<>();
 
@@ -46,21 +49,32 @@ public final class HotReloadManager implements AutoCloseable {
      * Validates and stages a new generation without executing its entrypoint.
      */
     public synchronized Generation load(String name, String sourceText) {
+        requireOpen();
         OresCompiler.validateForIsolate(sourceText, policy);
         return stage(name, digest(sourceText), sourceText);
     }
 
     /**
-     * Reuses an incrementally compiled unit. Static compilation work is reused,
-     * while capability admission is deliberately repeated for the destination
-     * isolate because authority belongs to the runtime policy, not the cache.
+     * Loads an incrementally compiled unit across a trust boundary.
+     *
+     * CompiledUnit is externally constructible, so its AST/digest metadata is
+     * advisory only here. Recompute source integrity and repeat syntax, type,
+     * and capability admission against the exact source that will execute.
      */
     public synchronized Generation load(IncrementalCompiler.CompiledUnit unit) {
-        CapabilityChecker.check(unit.program(), policy);
-        return stage(unit.unitId(), unit.sourceDigest(), unit.sourceText());
+        requireOpen();
+        java.util.Objects.requireNonNull(unit, "unit");
+        String actualDigest = digest(unit.sourceText());
+        if (!actualDigest.equals(unit.sourceDigest())) {
+            throw new IllegalArgumentException("compiled unit source digest mismatch for " + unit.unitId());
+        }
+        OresCompiler.validateForIsolate(unit.sourceText(), policy);
+        return stage(unit.unitId(), actualDigest, unit.sourceText());
     }
 
     private Generation stage(String codeUnitId, String sourceDigest, String sourceText) {
+        requireOpen();
+        codeUnitId = normalizeCodeUnitId(codeUnitId);
         long id = PROCESS_GENERATION_SEQUENCE.incrementAndGet();
         Context context = policy.restrictedContextBuilder(
                 executionProfile,
@@ -69,21 +83,30 @@ public final class HotReloadManager implements AutoCloseable {
             Source source = Source.newBuilder(OresLanguage.ID, sourceText, codeUnitId)
                     .mimeType(OresLanguage.MIME_TYPE)
                     .buildLiteral();
-            Generation generation = new Generation(id, codeUnitId, sourceDigest, context, source, executionProfile);
+            Generation generation = new Generation(
+                    this, id, codeUnitId, sourceDigest, context, source, executionProfile);
             generations.put(id, generation);
             activeByCodeUnit.put(codeUnitId, generation);
             active.set(generation);
             return generation;
-        } catch (RuntimeException failure) {
-            context.close(true);
+        } catch (RuntimeException | Error failure) {
+            try {
+                context.close(true);
+            } catch (RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
             throw failure;
         }
     }
 
-    public synchronized Generation loadAndStart(String name, String sourceText) {
+    public Generation loadAndStart(String name, String sourceText) {
         Generation generation = load(name, sourceText);
         generation.start();
         return generation;
+    }
+
+    private void requireOpen() {
+        if (closed.get()) throw new IllegalStateException("hot reload manager is closed");
     }
 
     /** Last generation staged, retained for compatibility with the single-unit API. */
@@ -91,7 +114,7 @@ public final class HotReloadManager implements AutoCloseable {
 
     /** Active generation for one independently compiled code unit. */
     public synchronized Generation active(String codeUnitId) {
-        return activeByCodeUnit.get(codeUnitId);
+        return activeByCodeUnit.get(normalizeCodeUnitId(codeUnitId));
     }
 
     public synchronized Map<String, Generation> activeGenerations() {
@@ -100,22 +123,92 @@ public final class HotReloadManager implements AutoCloseable {
 
     /** Explicit retirement permits old actors/requests to drain before teardown. */
     public synchronized void retire(long generationId) {
-        Generation generation = generations.remove(generationId);
-        if (generation != null) {
-            active.compareAndSet(generation, null);
-            activeByCodeUnit.remove(generation.codeUnitId(), generation);
-            generation.close();
+        Generation generation = generations.get(generationId);
+        if (generation == null) return;
+        detach(generation);
+        generation.closeContextOnly();
+    }
+
+    private synchronized void failedStart(Generation generation) {
+        if (generations.get(generation.id()) == generation) detach(generation);
+        generation.closeContextOnly();
+    }
+
+    private void detach(Generation generation) {
+        generations.remove(generation.id(), generation);
+
+        if (activeByCodeUnit.get(generation.codeUnitId()) == generation) {
+            Generation replacement = latestLiveForCodeUnit(generation.codeUnitId());
+            if (replacement == null) activeByCodeUnit.remove(generation.codeUnitId(), generation);
+            else activeByCodeUnit.put(generation.codeUnitId(), replacement);
         }
+
+        if (active.get() == generation) active.set(latestLiveGeneration());
+    }
+
+    private Generation latestLiveForCodeUnit(String codeUnitId) {
+        Generation latest = null;
+        for (Generation candidate : generations.values()) {
+            if (!candidate.codeUnitId().equals(codeUnitId) || candidate.closed()) continue;
+            if (latest == null || candidate.id() > latest.id()) latest = candidate;
+        }
+        return latest;
+    }
+
+    private Generation latestLiveGeneration() {
+        Generation latest = null;
+        for (Generation candidate : generations.values()) {
+            if (candidate.closed()) continue;
+            if (latest == null || candidate.id() > latest.id()) latest = candidate;
+        }
+        return latest;
     }
 
     public synchronized int liveGenerations() { return generations.size(); }
 
     @Override
     public synchronized void close() {
-        for (Generation generation : generations.values()) generation.close();
+        if (!closed.compareAndSet(false, true)) return;
+        Generation[] live = generations.values().toArray(Generation[]::new);
         generations.clear();
         activeByCodeUnit.clear();
         active.set(null);
+
+        RuntimeException runtimeFailure = null;
+        Error errorFailure = null;
+        for (Generation generation : live) {
+            try {
+                generation.closeContextOnly();
+            } catch (RuntimeException failure) {
+                if (runtimeFailure == null && errorFailure == null) runtimeFailure = failure;
+                else if (runtimeFailure != null) runtimeFailure.addSuppressed(failure);
+                else errorFailure.addSuppressed(failure);
+            } catch (Error failure) {
+                if (runtimeFailure == null && errorFailure == null) errorFailure = failure;
+                else if (runtimeFailure != null) runtimeFailure.addSuppressed(failure);
+                else errorFailure.addSuppressed(failure);
+            }
+        }
+        if (runtimeFailure != null) throw runtimeFailure;
+        if (errorFailure != null) throw errorFailure;
+    }
+
+    private static String normalizeCodeUnitId(String id) {
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException("hot-reload code unit id cannot be blank");
+        }
+        try {
+            String normalized = Path.of(id.replace('\\', '/'))
+                    .normalize()
+                    .toString()
+                    .replace('\\', '/');
+            if (normalized.isBlank()) {
+                throw new IllegalArgumentException("hot-reload code unit id cannot normalize to an empty path");
+            }
+            return normalized;
+        } catch (InvalidPathException invalid) {
+            throw new IllegalArgumentException("invalid hot-reload code unit id: " + id, invalid);
+        }
     }
 
     private static String digest(String text) {
@@ -128,6 +221,7 @@ public final class HotReloadManager implements AutoCloseable {
     }
 
     public static final class Generation implements AutoCloseable {
+        private final HotReloadManager owner;
         private final long id;
         private final String codeUnitId;
         private final String sha256;
@@ -137,7 +231,15 @@ public final class HotReloadManager implements AutoCloseable {
         private final AtomicBoolean started = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        private Generation(long id, String codeUnitId, String sha256, Context context, Source source, ExecutionProfile executionProfile) {
+        private Generation(
+                HotReloadManager owner,
+                long id,
+                String codeUnitId,
+                String sha256,
+                Context context,
+                Source source,
+                ExecutionProfile executionProfile) {
+            this.owner = owner;
             this.id = id;
             this.codeUnitId = codeUnitId;
             this.sha256 = sha256;
@@ -149,7 +251,6 @@ public final class HotReloadManager implements AutoCloseable {
         public long id() { return id; }
         public String codeUnitId() { return codeUnitId; }
         public String sha256() { return sha256; }
-        public Context context() { return context; }
         public Source source() { return source; }
         public ExecutionProfile executionProfile() { return executionProfile; }
         public boolean started() { return started.get(); }
@@ -161,15 +262,23 @@ public final class HotReloadManager implements AutoCloseable {
             if (!started.compareAndSet(false, true)) throw new IllegalStateException("generation already started");
             try {
                 return context.eval(source);
-            } catch (RuntimeException failure) {
-                close();
+            } catch (RuntimeException | Error failure) {
+                try {
+                    owner.failedStart(this);
+                } catch (RuntimeException | Error closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
                 throw failure;
             }
         }
 
+        private void closeContextOnly() {
+            if (closed.compareAndSet(false, true)) context.close(true);
+        }
+
         @Override
         public void close() {
-            if (closed.compareAndSet(false, true)) context.close(true);
+            owner.retire(id);
         }
     }
 }
