@@ -1,0 +1,43 @@
+define module app as
+  define abstract class Finder as
+    pub abstract find(String key) => String;
+  end
+
+  pub fnc main() => void {
+    val headers = new Map<String, String>() {
+      "field1": "bar",
+      "field2": "baz",
+
+      @override
+      find(String key) => Option<String> {
+        return Some("custom");
+      }
+    };
+
+    val payload = new JsonMap() {
+      "name": "ores",
+      "values": arr[1, 2, 3]
+    };
+
+    val values = arr[10, 20];
+    values.push(30);
+
+    val linked = new LinkedList<int>(40, 50);
+    linked.push(60);
+
+    val finder = new Finder() {
+      @override
+      pub find(String key) => String {
+        return "anonymous";
+      }
+    };
+
+    stdio.println(headers["field2"]);
+    stdio.println(headers.find("field1"));
+    stdio.println(payload["name"]);
+    stdio.println(values[2]);
+    stdio.println(linked[2]);
+    stdio.println(finder.find("anything"));
+    return;
+  }
+end
