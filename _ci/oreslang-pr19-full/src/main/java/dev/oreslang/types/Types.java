@@ -7,7 +7,7 @@ import java.util.Objects;
 public final class Types {
     private Types() { }
 
-    public sealed interface Type permits Primitive, Named, Borrow, ClassNamespace, Record, Function, ListType, Tuple, Union, Generic, StringLiteral, Unknown { }
+    public sealed interface Type permits Primitive, Named, Borrow, ClassNamespace, Record, Function, ListType, GpuArrayType, GpuStreamType, Tuple, Union, Generic, StringLiteral, Unknown { }
 
     public enum Primitive implements Type {
         INT, FLOAT, DECIMAL, COMPLEX, BOOL, STRING, VOID, NULL
@@ -32,6 +32,12 @@ public final class Types {
     }
 
     public record ListType(Type element) implements Type { }
+
+    /** GPU-resident random-access buffer. Host indexing/iteration is forbidden. */
+    public record GpuArrayType(Type element) implements Type { }
+
+    /** GPU-resident sequential stream. Host consumption/iteration is forbidden. */
+    public record GpuStreamType(Type element) implements Type { }
 
     public record Tuple(List<Type> elements) implements Type {
         public Tuple { elements = List.copyOf(elements); }
@@ -88,6 +94,14 @@ public final class Types {
         }
 
         if (from instanceof ListType source && to instanceof ListType target) {
+            return isAssignable(source.element(), target.element()) && isAssignable(target.element(), source.element());
+        }
+
+        if (from instanceof GpuArrayType source && to instanceof GpuArrayType target) {
+            return isAssignable(source.element(), target.element()) && isAssignable(target.element(), source.element());
+        }
+
+        if (from instanceof GpuStreamType source && to instanceof GpuStreamType target) {
             return isAssignable(source.element(), target.element()) && isAssignable(target.element(), source.element());
         }
 
