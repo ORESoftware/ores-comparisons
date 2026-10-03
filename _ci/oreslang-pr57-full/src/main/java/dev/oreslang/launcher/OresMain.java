@@ -6,6 +6,7 @@ import dev.oreslang.runtime.IsolatePolicy;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.Source;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,15 +56,32 @@ public final class OresMain {
             policy = policy.withCapabilities(additionalCapabilities.toArray(IsolatePolicy.Capability[]::new));
         }
 
-        Context.Builder builder = policy.restrictedContextBuilder(profile)
-                .out(System.out)
-                .err(System.err);
+        Context.Builder builder = policy.restrictedContextBuilder(profile);
+        ByteArrayOutputStream strictOut = strict ? new ByteArrayOutputStream() : null;
+        ByteArrayOutputStream strictErr = strict ? new ByteArrayOutputStream() : null;
+        if (strict) {
+            // Graal UNTRUSTED requires guest output to be redirected rather than
+            // wired directly to the host's standard streams. Capture inside the
+            // sandbox (where MaxOutputStreamSize/MaxErrorStreamSize apply), then
+            // relay only after guest execution has ended.
+            builder.out(strictOut).err(strictErr);
+        } else {
+            builder.out(System.out).err(System.err);
+        }
+
         Source source = Source.newBuilder(OresLanguage.ID, new File(filename))
                 .mimeType(OresLanguage.MIME_TYPE)
                 .build();
 
         try (Context context = builder.build()) {
             context.eval(source);
+        } finally {
+            if (strict) {
+                strictOut.writeTo(System.out);
+                strictErr.writeTo(System.err);
+                System.out.flush();
+                System.err.flush();
+            }
         }
     }
 }
