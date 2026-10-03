@@ -1,0 +1,51 @@
+name: oreslang-actor-memory-keywords-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-actor-memory-keywords"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/actor-memory-pr15
+
+jobs:
+  actor-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Runtime diagnostics
+        run: |
+          java --version
+          mvn --version
+      - name: Run actor memory, mutex, and isolation regression suite
+        run: mvn -B -ntp test
+
+
+  full-source-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Verify full Oreslang source tree including GC regressions
+        working-directory: _ci/oreslang-pr19-full
+        run: mvn -B -ntp verify
