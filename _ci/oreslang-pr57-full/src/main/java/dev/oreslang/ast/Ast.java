@@ -1,5 +1,7 @@
 package dev.oreslang.ast;
 
+import dev.oreslang.symbol.SymbolNames;
+
 import java.util.List;
 
 public final class Ast {
@@ -201,7 +203,7 @@ public final class Ast {
     public enum BindingKind { CONST, VAL, LET }
 
     public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, ExprStmt, DeferStmt,
-            IfStmt, TryStmt, ForOfStmt, ForStmt { }
+            IfStmt, TryStmt, ForOfStmt, ForStmt, ReceiveLoopStmt, ReceivePatternLoopStmt, SelectStmt { }
 
     public record BindingStmt(BindingKind kind, TypeRef declaredType, String name, Expr initializer) implements Stmt { }
     public record DestructureBinding(BindingKind kind, String name) { }
@@ -241,11 +243,108 @@ public final class Ast {
         public ForStmt { body = List.copyOf(body); }
     }
 
+    public enum ReceiveLoopMode { BLOCKING, NONBLOCKING }
+
+    public record ReceiveLoopStmt(
+            ReceiveLoopMode mode,
+            TypeRef bindingType,
+            String bindingName,
+            List<Stmt> body) implements Stmt {
+        public ReceiveLoopStmt { body = List.copyOf(body); }
+    }
+
+    /** Pattern vocabulary shared by receive dispatch and future general match forms. */
+    public sealed interface Pattern permits WildcardPattern, BindingPattern, TypedBindingPattern,
+            LiteralPattern, TuplePattern, ListPattern { }
+
+    public record WildcardPattern() implements Pattern { }
+
+    public record BindingPattern(BindingKind kind, String name) implements Pattern {
+        public BindingPattern {
+            if (name == null || name.isBlank() || "_".equals(name)) {
+                throw new IllegalArgumentException("pattern binding name must be a non-discard identifier");
+            }
+        }
+    }
+
+    /**
+     * Explicitly typed capture: `value: int`, `let value: int`, etc.
+     * The type is checked statically and re-guarded at dynamic interop edges.
+     */
+    public record TypedBindingPattern(BindingKind kind, TypeRef type, String name) implements Pattern {
+        public TypedBindingPattern {
+            if (type == null) throw new IllegalArgumentException("typed pattern binding requires a type");
+            if (name == null || name.isBlank() || "_".equals(name)) {
+                throw new IllegalArgumentException("pattern binding name must be a non-discard identifier");
+            }
+        }
+    }
+
+    public record LiteralPattern(Object value) implements Pattern { }
+
+    public record TuplePattern(List<Pattern> elements) implements Pattern {
+        public TuplePattern { elements = List.copyOf(elements); }
+    }
+
+    public record ListPattern(List<Pattern> elements) implements Pattern {
+        public ListPattern { elements = List.copyOf(elements); }
+    }
+
+    public record ReceiveCase(Pattern pattern, List<Stmt> body) {
+        public ReceiveCase {
+            if (pattern == null) throw new IllegalArgumentException("receive case requires a pattern");
+            body = List.copyOf(body);
+        }
+    }
+
+    /**
+     * FIFO receive followed by local pattern dispatch. Pattern matching never
+     * scans past the mailbox head looking for a later matching message.
+     */
+    public record ReceivePatternLoopStmt(
+            ReceiveLoopMode mode,
+            List<ReceiveCase> cases,
+            List<Stmt> defaultBody) implements Stmt {
+        public ReceivePatternLoopStmt {
+            cases = List.copyOf(cases);
+            defaultBody = List.copyOf(defaultBody);
+            if (cases.isEmpty()) throw new IllegalArgumentException("pattern receive loop requires at least one case");
+        }
+    }
+
+    public record SelectCase(
+            ChannelOpExpr operation,
+            TypeRef bindingType,
+            String bindingName,
+            List<Stmt> body) {
+        public SelectCase { body = List.copyOf(body); }
+    }
+
+    public record SelectStmt(List<SelectCase> cases, List<Stmt> defaultBody) implements Stmt {
+        public SelectStmt {
+            cases = List.copyOf(cases);
+            defaultBody = List.copyOf(defaultBody);
+        }
+    }
+
     public sealed interface Expr permits LiteralExpr, NameExpr, BinaryExpr, UnaryExpr, AssignExpr, ConditionalExpr,
-            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
+            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ChannelExpr, ChannelOpExpr,
+            ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
 
     public record LiteralExpr(Object value) implements Expr { }
     public record Imaginary(double coefficient) { }
+
+    /**
+     * Source-level symbol literal payload. Trusted runtime evaluation resolves this
+     * through the bounded process symbol interner; untrusted isolates reject it.
+     */
+    public record Symbol(String name) {
+        public static final int MAX_NAME_LENGTH = SymbolNames.MAX_NAME_LENGTH;
+
+        public Symbol {
+            name = SymbolNames.validate(name);
+        }
+    }
     public record NameExpr(String name) implements Expr { }
     public record BinaryExpr(String operator, Expr left, Expr right) implements Expr { }
     public record UnaryExpr(String operator, Expr operand) implements Expr { }
@@ -264,6 +363,25 @@ public final class Ast {
     }
 
     public record AwaitExpr(Expr expression) implements Expr { }
+
+    public record ChannelExpr(TypeRef elementType, Expr capacity) implements Expr { }
+
+    public enum ChannelOpKind { SEND, TRY_SEND, RECEIVE, TRY_RECEIVE }
+
+    /**
+     * Dedicated concurrency operation. channel == null denotes the current
+     * actor's own mailbox for RECEIVE/TRY_RECEIVE.
+     */
+    public record ChannelOpExpr(ChannelOpKind kind, Expr channel, Expr value) implements Expr {
+        public ChannelOpExpr {
+            if ((kind == ChannelOpKind.SEND || kind == ChannelOpKind.TRY_SEND) && (channel == null || value == null)) {
+                throw new IllegalArgumentException("send operations require channel and value");
+            }
+            if ((kind == ChannelOpKind.RECEIVE || kind == ChannelOpKind.TRY_RECEIVE) && value != null) {
+                throw new IllegalArgumentException("receive operations do not carry a send value");
+            }
+        }
+    }
 
     public record ListExpr(List<Expr> elements) implements Expr {
         public ListExpr { elements = List.copyOf(elements); }
