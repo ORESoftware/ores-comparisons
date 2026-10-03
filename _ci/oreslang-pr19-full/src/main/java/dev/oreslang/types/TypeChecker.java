@@ -722,6 +722,15 @@ public final class TypeChecker {
             }
             return new Record(members);
         }
+        if (expr instanceof Ast.GpuIntrinsicExpr intrinsic) {
+            if (!inGpuCallable()) {
+                throw new IllegalArgumentException("gpu." + intrinsic.intrinsic().name().toLowerCase()
+                        + " is a GPU work-item intrinsic and may be used only inside gpu code");
+            }
+            // The general type checker intentionally groups integer widths. Exact u64 lowering
+            // is enforced later by GpuKernelCompiler.
+            return Primitive.INT;
+        }
         if (expr instanceof Ast.GpuExpr gpu) {
             gpuCallableDepth++;
             try {

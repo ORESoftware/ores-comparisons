@@ -903,6 +903,21 @@ public final class Parser {
         }
         if (match(AWAIT)) return new Ast.AwaitExpr(parseUnary());
         if (match(GPU)) {
+            if (match(DOT)) return parseGpuIntrinsic();
+
+            // Concise anonymous-kernel forms:
+            //   gpu { ... }
+            //   gpu (GpuArray<f32> xs, u64 n) { ... }
+            // These are syntax sugar for a direct GPU lambda and never imply host capture.
+            if (check(LBRACE)) {
+                return new Ast.GpuExpr(
+                        Ast.GpuMode.SINGLE,
+                        new Ast.LambdaExpr(List.of(), null, parseBlock()));
+            }
+            if (check(LPAREN) && looksLikeGpuBlockLambda()) {
+                return new Ast.GpuExpr(Ast.GpuMode.SINGLE, parseGpuBlockLambda());
+            }
+
             Ast.GpuMode mode = Ast.GpuMode.SINGLE;
             if (check(IDENT) && peek().lexeme().equals("parallel")) {
                 advance(); // contextual keyword: do not globally reserve 'parallel'
@@ -911,6 +926,56 @@ public final class Parser {
             return new Ast.GpuExpr(mode, parseUnary());
         }
         return parsePostfix();
+    }
+
+    private Ast.Expr parseGpuIntrinsic() {
+        Token member = consume(IDENT, "expected GPU work-item intrinsic after 'gpu.'");
+        String name = member.lexeme();
+        if (name.equals("index")) {
+            return new Ast.GpuIntrinsicExpr(Ast.GpuIntrinsic.INDEX, 0);
+        }
+
+        Ast.GpuIntrinsic intrinsic = switch (name) {
+            case "global_id" -> Ast.GpuIntrinsic.GLOBAL_ID;
+            case "local_id" -> Ast.GpuIntrinsic.LOCAL_ID;
+            case "group_id" -> Ast.GpuIntrinsic.GROUP_ID;
+            case "global_size" -> Ast.GpuIntrinsic.GLOBAL_SIZE;
+            case "local_size" -> Ast.GpuIntrinsic.LOCAL_SIZE;
+            case "num_groups" -> Ast.GpuIntrinsic.NUM_GROUPS;
+            default -> throw error(member, "unknown GPU work-item intrinsic 'gpu." + name + "'");
+        };
+
+        consume(LPAREN, "expected '(' after gpu." + name);
+        Token dimension = consume(INT, "GPU intrinsic dimension must be the integer literal 0, 1, or 2");
+        long parsed = Long.parseLong(dimension.lexeme().replace("_", ""));
+        if (parsed < 0 || parsed > 2) {
+            throw error(dimension, "GPU intrinsic dimension must be 0, 1, or 2");
+        }
+        consume(RPAREN, "expected ')' after GPU intrinsic dimension");
+        return new Ast.GpuIntrinsicExpr(intrinsic, (int) parsed);
+    }
+
+    private boolean looksLikeGpuBlockLambda() {
+        int depth = 0;
+        for (int i = current; i < tokens.size(); i++) {
+            Token.Type type = tokens.get(i).type();
+            if (type == LPAREN) depth++;
+            else if (type == RPAREN) {
+                depth--;
+                if (depth == 0) {
+                    return i + 1 < tokens.size() && tokens.get(i + 1).type() == LBRACE;
+                }
+            }
+        }
+        return false;
+    }
+
+    private Ast.LambdaExpr parseGpuBlockLambda() {
+        consume(LPAREN, "expected '(' after gpu");
+        List<Ast.Param> params = parseParametersUntil(RPAREN);
+        consume(RPAREN, "expected ')' after GPU kernel parameters");
+        if (!check(LBRACE)) throw error(peek(), "GPU kernel block requires '{ ... }'");
+        return new Ast.LambdaExpr(params, null, parseBlock());
     }
 
     private Ast.Expr parsePostfix() {

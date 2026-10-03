@@ -398,6 +398,9 @@ public final class OwnershipChecker {
             }
             return new ValueInfo(Ast.TypeRef.simple("obj"), ValueKind.MOVE_ONLY, null);
         }
+        if (expr instanceof Ast.GpuIntrinsicExpr) {
+            return new ValueInfo(Ast.TypeRef.simple("u64"), ValueKind.COPY, null);
+        }
         if (expr instanceof Ast.GpuExpr gpu) return checkExpr(gpu.expression(), scope, consuming);
         if (expr instanceof Ast.LambdaExpr lambda) return checkLambda(lambda, scope, null);
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);

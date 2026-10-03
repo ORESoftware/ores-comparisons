@@ -531,6 +531,143 @@ final class GpuExecutionTest {
     }
 
     @Test
+    void conciseGpuBlockIsAnonymousKernelSyntax() {
+        OresCompiler.CompilationResult compilation = OresCompiler.compile("""
+                fnc host() => void {
+                  const kernel = gpu {
+                    return;
+                  };
+                  return;
+                }
+                """);
+
+        assertEquals(1, compilation.gpuProgram().kernels().size());
+        GpuKernelCompiler.GpuKernel kernel = compilation.gpuProgram().kernels().getFirst();
+        assertEquals(GpuKernelCompiler.KernelKind.LAMBDA, kernel.kind());
+        assertEquals(GpuKernelCompiler.ExecutionShape.SINGLE_WORK_ITEM, kernel.executionShape());
+    }
+
+    @Test
+    void conciseTypedGpuBlockCanUseSimtIndexing() {
+        OresCompiler.CompilationResult compilation = OresCompiler.compile("""
+                fnc host() => void {
+                  const kernel = gpu (GpuArray<f32> mut out) {
+                    val u64 i = gpu.index;
+                    out[i] = 1.0;
+                    return;
+                  };
+                  return;
+                }
+                """);
+
+        GpuKernelCompiler.GpuKernel kernel = compilation.gpuProgram().kernels().getFirst();
+        assertEquals(GpuKernelCompiler.ExecutionShape.DATA_PARALLEL_1D, kernel.executionShape());
+        assertEquals("__ores_len_out", kernel.launchPlan().globalWorkItemsExpression());
+        assertTrue(compilation.gpuProgram().source().contains("((ulong)get_global_id(0))"));
+    }
+
+    @Test
+    void namedGpuKernelUsesOneWorkItemPerMutableOutputElement() {
+        OresCompiler.CompilationResult compilation = OresCompiler.compile("""
+                pub gpu fnc add(
+                  GpuArray<f32> a,
+                  GpuArray<f32> b,
+                  GpuArray<f32> mut out
+                ) => void {
+                  val u64 i = gpu.index;
+                  out[i] = a[i] + b[i];
+                  return;
+                }
+                """);
+
+        GpuKernelCompiler.GpuKernel kernel = compilation.gpuProgram().kernels().getFirst();
+        assertEquals(GpuKernelCompiler.ExecutionShape.DATA_PARALLEL_1D, kernel.executionShape());
+        assertEquals("__ores_len_out", kernel.launchExtentExpression());
+        assertEquals("__ores_len_out", kernel.launchPlan().globalWorkItemsExpression());
+        assertEquals("__ores_len_out", kernel.launchPlan().errorSlotsExpression());
+        assertEquals("0", kernel.launchPlan().resultSlotsExpression());
+        assertFalse(kernel.launchPlan().clampNegativeGlobalWorkItemsToZero());
+        assertTrue(compilation.gpuProgram().source().contains("get_global_id(0)"));
+    }
+
+    @Test
+    void scalarMapKernelUsesInputLengthForResultSlots() {
+        OresCompiler.CompilationResult compilation = OresCompiler.compile("""
+                gpu fnc load(GpuArray<i32> values) => i32 {
+                  return values[gpu.global_id(0)];
+                }
+                """);
+
+        GpuKernelCompiler.GpuKernel kernel = compilation.gpuProgram().kernels().getFirst();
+        assertEquals(GpuKernelCompiler.ExecutionShape.DATA_PARALLEL_1D, kernel.executionShape());
+        assertEquals("__ores_len_values", kernel.launchPlan().globalWorkItemsExpression());
+        assertEquals("__ores_len_values", kernel.launchPlan().resultSlotsExpression());
+        assertTrue(compilation.gpuProgram().source()
+                .contains("__ores_out[get_global_id(0)] = "));
+    }
+
+    @Test
+    void simtMutableBufferWritesRequireAUniqueGlobalWorkItemIndex() {
+        IllegalArgumentException constant = assertThrows(IllegalArgumentException.class,
+                () -> OresCompiler.compile("""
+                        gpu fnc bad(GpuArray<i32> mut out) => void {
+                          out[0] = 1;
+                          val u64 ignored = gpu.index;
+                          return;
+                        }
+                        """));
+        assertTrue(constant.getMessage().contains("cannot prove this store race-free"));
+
+        IllegalArgumentException local = assertThrows(IllegalArgumentException.class,
+                () -> OresCompiler.compile("""
+                        gpu fnc bad(GpuArray<i32> mut out) => void {
+                          out[gpu.local_id(0)] = 1;
+                          return;
+                        }
+                        """));
+        assertTrue(local.getMessage().contains("gpu.index/gpu.global_id(0)"));
+
+        IllegalArgumentException mutableAlias = assertThrows(IllegalArgumentException.class,
+                () -> OresCompiler.compile("""
+                        gpu fnc bad(GpuArray<i32> mut out) => void {
+                          let u64 i = gpu.index;
+                          out[i] = 1;
+                          return;
+                        }
+                        """));
+        assertTrue(mutableAlias.getMessage().contains("immutable val/const alias"));
+
+        assertDoesNotThrow(() -> OresCompiler.compile("""
+                gpu fnc good(GpuArray<i32> mut out) => void {
+                  val u64 i = gpu.global_id(0);
+                  out[i] = 1;
+                  return;
+                }
+                """));
+    }
+
+    @Test
+    void workItemIntrinsicsAreGpuOnlyAndCurrentLaunchGeometryIsOneDimensional() {
+        IllegalArgumentException host = assertThrows(IllegalArgumentException.class,
+                () -> OresCompiler.compile("""
+                        fnc host() => u64 {
+                          return gpu.index;
+                        }
+                        """));
+        assertTrue(host.getMessage().contains("may be used only inside gpu code"));
+
+        IllegalArgumentException dimension = assertThrows(IllegalArgumentException.class,
+                () -> OresCompiler.compile("""
+                        gpu fnc bad(GpuArray<i32> mut out) => void {
+                          let u64 y = gpu.global_id(1);
+                          out[0] = 1;
+                          return;
+                        }
+                        """));
+        assertTrue(dimension.getMessage().contains("current automatic GPU launch contract is 1-D"));
+    }
+
+    @Test
     void generatedGpuProgramsPassARealOpenClFrontendWhenValidationIsEnabled() throws Exception {
         if (!"1".equals(System.getenv("ORES_GPU_VALIDATE_OPENCL"))) return;
 
@@ -554,6 +691,18 @@ final class GpuExecutionTest {
                   for (let i64 i = 0; i < n; i = i + 1) {
                     xs[i] = xs[i] * factor;
                   }
+                  return;
+                }
+                """).gpuProgram());
+
+        validateOpenCl(OresCompiler.compile("""
+                gpu fnc add_resident(
+                  GpuArray<f32> a,
+                  GpuArray<f32> b,
+                  GpuArray<f32> mut out
+                ) => void {
+                  val u64 i = gpu.index;
+                  out[i] = a[i] + b[i];
                   return;
                 }
                 """).gpuProgram());
