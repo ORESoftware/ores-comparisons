@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -24,6 +25,7 @@ public final class OresContext implements AutoCloseable {
     private final PrintWriter output;
     private final ActorRuntime actors;
     private final UUID contextId = UUID.randomUUID();
+    private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicLong schedulerSafepoints = new AtomicLong();
     private final IsolatePolicy isolatePolicy;
     private final ExecutionProfile executionProfile;
@@ -60,7 +62,12 @@ public final class OresContext implements AutoCloseable {
     public long codeGeneration() { return codeGeneration; }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
+        requireOpen();
         isolatePolicy.require(capability, api);
+    }
+
+    private void requireOpen() {
+        if (closed.get()) throw new ExecutionTerminated("Oreslang context is closing");
     }
 
     /**
@@ -70,13 +77,16 @@ public final class OresContext implements AutoCloseable {
      */
     @SuppressWarnings("unchecked")
     public <T> T contextLocal(Object key, Supplier<? extends T> initializer) {
+        requireOpen();
         java.util.Objects.requireNonNull(key, "key");
         java.util.Objects.requireNonNull(initializer, "initializer");
 
         Object existing = contextLocals.get(key);
         if (existing != null) return (T) existing;
         if (!initializingContextLocals.add(key)) {
-            throw new IllegalStateException("context-local initialization cycle for " + key);
+            throw new IllegalStateException("context-local initialization cycle for "
+                    + key.getClass().getSimpleName() + "#"
+                    + Integer.toUnsignedString(key.hashCode(), 16));
         }
         try {
             // ContextPolicy.EXCLUSIVE gives guest execution one owning context,
@@ -85,7 +95,9 @@ public final class OresContext implements AutoCloseable {
             existing = contextLocals.get(key);
             if (existing != null) return (T) existing;
             T value = java.util.Objects.requireNonNull(
-                    initializer.get(), "context-local initializer returned null for " + key);
+                    initializer.get(), "context-local initializer returned null for "
+                            + key.getClass().getSimpleName() + "#"
+                            + Integer.toUnsignedString(key.hashCode(), 16));
             Object raced = contextLocals.putIfAbsent(key, value);
             return raced == null ? value : (T) raced;
         } finally {
@@ -99,6 +111,7 @@ public final class OresContext implements AutoCloseable {
      * long-running actor code without requiring recursion-only looping.
      */
     public void schedulerSafepoint() {
+        requireOpen();
         schedulerSafepoints.incrementAndGet();
         ProcessSingletonRegistry.checkExecutionBudget();
         actors.schedulerSafepoint();
@@ -129,6 +142,7 @@ public final class OresContext implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) return;
         actors.close();
         contextLocals.clear();
         initializingContextLocals.clear();
