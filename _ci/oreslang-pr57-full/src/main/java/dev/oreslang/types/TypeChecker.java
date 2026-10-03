@@ -394,6 +394,76 @@ public final class TypeChecker {
             checkBlock(attempted.finallyBody(), env, generics, expectedReturn, self);
             return;
         }
+        if (stmt instanceof Ast.ReceiveLoopStmt loop) {
+            if (awaitContext != AwaitContext.ACTOR) {
+                throw new IllegalArgumentException(loop.mode() == Ast.ReceiveLoopMode.BLOCKING
+                        ? "'receive loop' is only legal inside an actor"
+                        : "'try_receive loop' is only legal inside an actor");
+            }
+            if (loop.bindingType() == null) {
+                throw new IllegalArgumentException(
+                        "receive-loop message type must be explicit until the actor Protocol<M> type is wired into source lowering");
+            }
+            Env loopEnv = new Env(env);
+            loopEnv.define(loop.bindingName(), resolve(loop.bindingType(), generics, self), Ast.BindingKind.VAL);
+            checkBlock(loop.body(), loopEnv, generics, expectedReturn, self);
+            return;
+        }
+        if (stmt instanceof Ast.ReceivePatternLoopStmt loop) {
+            if (awaitContext != AwaitContext.ACTOR) {
+                throw new IllegalArgumentException(loop.mode() == Ast.ReceiveLoopMode.BLOCKING
+                        ? "'receive loop { case ... }' is only legal inside an actor"
+                        : "'try_receive loop { case ... }' is only legal inside an actor");
+            }
+
+            Type source = Unknown.INSTANCE;
+            List<Ast.Pattern> priorPatterns = new ArrayList<>();
+            boolean hasCatchAll = false;
+            for (Ast.ReceiveCase branch : loop.cases()) {
+                for (Ast.Pattern prior : priorPatterns) {
+                    if (isIrrefutablePattern(prior, source) || patternSubsumes(prior, branch.pattern())) {
+                        throw new IllegalArgumentException(
+                                "unreachable receive case; an earlier pattern already covers it");
+                    }
+                }
+                validateUniquePatternBindings(branch.pattern(), new HashSet<>());
+                Env caseEnv = new Env(env);
+                checkPattern(branch.pattern(), source, caseEnv, generics, self);
+                checkBlock(branch.body(), caseEnv, generics, expectedReturn, self);
+                priorPatterns.add(branch.pattern());
+                hasCatchAll |= isIrrefutablePattern(branch.pattern(), source);
+            }
+
+            if (loop.defaultBody().isEmpty() && !hasCatchAll) {
+                throw new IllegalArgumentException(
+                        "pattern receive over an open mailbox protocol requires 'default' or an irrefutable case; "
+                                + "Oreslang never scans past an unmatched FIFO head message");
+            }
+            checkBlock(loop.defaultBody(), env, generics, expectedReturn, self);
+            return;
+        }
+        if (stmt instanceof Ast.SelectStmt select) {
+            if (awaitContext != AwaitContext.ACTOR) {
+                throw new IllegalArgumentException("'select' is currently actor-only; async-task channel select lowering is not implemented yet");
+            }
+            for (Ast.SelectCase branch : select.cases()) {
+                Type operationType = typeOf(branch.operation(), env, generics, self);
+                Env caseEnv = new Env(env);
+                if (branch.bindingName() != null) {
+                    if (branch.operation().kind() != Ast.ChannelOpKind.RECEIVE) {
+                        throw new IllegalArgumentException("only receive select cases may bind a value");
+                    }
+                    Type bindingType = branch.bindingType() == null
+                            ? operationType
+                            : resolve(branch.bindingType(), generics, self);
+                    requireAssignable(operationType, bindingType, "select receive binding");
+                    caseEnv.define(branch.bindingName(), bindingType, Ast.BindingKind.VAL);
+                }
+                checkBlock(branch.body(), caseEnv, generics, expectedReturn, self);
+            }
+            checkBlock(select.defaultBody(), env, generics, expectedReturn, self);
+            return;
+        }
         if (stmt instanceof Ast.ForOfStmt loop) {
             Type iterable = typeOf(loop.iterable(), env, generics, self);
             Type element = iterableElementType(iterable);
@@ -411,6 +481,172 @@ public final class TypeChecker {
         }
     }
 
+    private void validateUniquePatternBindings(Ast.Pattern pattern, Set<String> names) {
+        if (pattern instanceof Ast.BindingPattern binding) {
+            if (!names.add(binding.name())) {
+                throw new IllegalArgumentException("duplicate capture '" + binding.name() + "' in receive pattern");
+            }
+            return;
+        }
+        if (pattern instanceof Ast.TypedBindingPattern binding) {
+            if (!names.add(binding.name())) {
+                throw new IllegalArgumentException("duplicate capture '" + binding.name() + "' in receive pattern");
+            }
+            return;
+        }
+        if (pattern instanceof Ast.TuplePattern tuple) {
+            for (Ast.Pattern element : tuple.elements()) validateUniquePatternBindings(element, names);
+            return;
+        }
+        if (pattern instanceof Ast.ListPattern list) {
+            for (Ast.Pattern element : list.elements()) validateUniquePatternBindings(element, names);
+        }
+    }
+
+    private boolean isIrrefutablePattern(Ast.Pattern pattern, Type source) {
+        if (pattern instanceof Ast.WildcardPattern || pattern instanceof Ast.BindingPattern) return true;
+        if (pattern instanceof Ast.TypedBindingPattern typed) {
+            if (source == Unknown.INSTANCE) return false;
+            Type expected = resolve(typed.type(), Set.of(), null);
+            return assignable(source, expected) && assignable(expected, source);
+        }
+        if (pattern instanceof Ast.TuplePattern tuplePattern && source instanceof Tuple tuple) {
+            if (tuplePattern.elements().size() != tuple.elements().size()) return false;
+            for (int i = 0; i < tuple.elements().size(); i++) {
+                if (!isIrrefutablePattern(tuplePattern.elements().get(i), tuple.elements().get(i))) return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean patternSubsumes(Ast.Pattern earlier, Ast.Pattern later) {
+        if (earlier instanceof Ast.WildcardPattern || earlier instanceof Ast.BindingPattern) return true;
+        if (earlier instanceof Ast.TypedBindingPattern a && later instanceof Ast.TypedBindingPattern b) {
+            return a.type().equals(b.type());
+        }
+        if (earlier instanceof Ast.LiteralPattern left && later instanceof Ast.LiteralPattern right) {
+            return patternLiteralEquals(left.value(), right.value());
+        }
+        if (earlier instanceof Ast.TuplePattern left && later instanceof Ast.TuplePattern right) {
+            return patternSequenceSubsumes(left.elements(), right.elements());
+        }
+        if (earlier instanceof Ast.ListPattern left && later instanceof Ast.ListPattern right) {
+            return patternSequenceSubsumes(left.elements(), right.elements());
+        }
+        return false;
+    }
+
+    private boolean patternSequenceSubsumes(List<Ast.Pattern> earlier, List<Ast.Pattern> later) {
+        if (earlier.size() != later.size()) return false;
+        for (int i = 0; i < earlier.size(); i++) {
+            if (!patternSubsumes(earlier.get(i), later.get(i))) return false;
+        }
+        return true;
+    }
+
+    private boolean patternLiteralEquals(Object left, Object right) {
+        if (left instanceof Number a && right instanceof Number b) {
+            double x = a.doubleValue();
+            double y = b.doubleValue();
+            if (!Double.isFinite(x) || !Double.isFinite(y)) return Double.compare(x, y) == 0;
+            java.math.BigDecimal leftDecimal = isIntegralPatternNumber(a)
+                    ? java.math.BigDecimal.valueOf(a.longValue()) : java.math.BigDecimal.valueOf(x);
+            java.math.BigDecimal rightDecimal = isIntegralPatternNumber(b)
+                    ? java.math.BigDecimal.valueOf(b.longValue()) : java.math.BigDecimal.valueOf(y);
+            return leftDecimal.compareTo(rightDecimal) == 0;
+        }
+        return java.util.Objects.equals(left, right);
+    }
+
+    private boolean isIntegralPatternNumber(Number number) {
+        return number instanceof Byte || number instanceof Short
+                || number instanceof Integer || number instanceof Long;
+    }
+
+    private void checkPattern(
+            Ast.Pattern pattern,
+            Type source,
+            Env env,
+            Set<String> generics,
+            Type self) {
+        if (pattern instanceof Ast.WildcardPattern) return;
+
+        if (pattern instanceof Ast.BindingPattern binding) {
+            env.define(binding.name(), source, binding.kind());
+            return;
+        }
+
+        if (pattern instanceof Ast.TypedBindingPattern binding) {
+            Type explicit = resolve(binding.type(), generics, self);
+            if (source != Unknown.INSTANCE
+                    && !assignable(source, explicit)
+                    && !assignable(explicit, source)) {
+                throw new IllegalArgumentException(
+                        "typed receive capture '" + binding.name() + "' expects " + explicit
+                                + " but mailbox value has type " + source);
+            }
+            env.define(binding.name(), explicit, binding.kind());
+            return;
+        }
+
+        if (pattern instanceof Ast.LiteralPattern literal) {
+            Type literalType = typeOf(new Ast.LiteralExpr(literal.value()), env, generics, self);
+            if (source != Unknown.INSTANCE
+                    && !patternLiteralCompatible(source, literalType)) {
+                throw new IllegalArgumentException(
+                        "receive literal has type " + literalType + " but cannot match " + source);
+            }
+            return;
+        }
+
+        if (pattern instanceof Ast.TuplePattern tuplePattern) {
+            if (source instanceof Tuple tuple) {
+                if (tuple.elements().size() != tuplePattern.elements().size()) {
+                    throw new IllegalArgumentException(
+                            "receive tuple pattern arity " + tuplePattern.elements().size()
+                                    + " cannot match tuple arity " + tuple.elements().size());
+                }
+                for (int i = 0; i < tuple.elements().size(); i++) {
+                    checkPattern(tuplePattern.elements().get(i), tuple.elements().get(i), env, generics, self);
+                }
+                return;
+            }
+            if (source == Unknown.INSTANCE) {
+                for (Ast.Pattern element : tuplePattern.elements()) {
+                    checkPattern(element, Unknown.INSTANCE, env, generics, self);
+                }
+                return;
+            }
+            throw new IllegalArgumentException("tuple receive pattern cannot match " + source);
+        }
+
+        if (pattern instanceof Ast.ListPattern listPattern) {
+            if (source instanceof ListType list) {
+                for (Ast.Pattern element : listPattern.elements()) {
+                    checkPattern(element, list.element(), env, generics, self);
+                }
+                return;
+            }
+            if (source == Unknown.INSTANCE) {
+                for (Ast.Pattern element : listPattern.elements()) {
+                    checkPattern(element, Unknown.INSTANCE, env, generics, self);
+                }
+                return;
+            }
+            throw new IllegalArgumentException("list receive pattern cannot match " + source);
+        }
+
+        throw new IllegalArgumentException("unsupported receive pattern " + pattern);
+    }
+
+    private boolean patternLiteralCompatible(Type source, Type literal) {
+        if (source == Unknown.INSTANCE || literal == Unknown.INSTANCE) return true;
+        if (isStringLike(source) && isStringLike(literal)) return true;
+        if (Types.isNumeric(source) && Types.isNumeric(literal)) return true;
+        return assignable(literal, source) || assignable(source, literal);
+    }
+
     private Type typeOf(Ast.Expr expr, Env env, Set<String> generics, Type self) {
         if (expr instanceof Ast.LiteralExpr literal) {
             Object value = literal.value();
@@ -419,6 +655,7 @@ public final class TypeChecker {
             if (value instanceof Double) return Primitive.FLOAT;
             if (value instanceof Boolean) return Primitive.BOOL;
             if (value instanceof String s) return new StringLiteral(s);
+            if (value instanceof Ast.Symbol) return new Named("Symbol", List.of());
             if (value instanceof Ast.Imaginary) return Primitive.COMPLEX;
             return Unknown.INSTANCE;
         }
@@ -494,7 +731,15 @@ public final class TypeChecker {
                     requireAssignable(right, Primitive.BOOL, "boolean operand");
                     yield Primitive.BOOL;
                 }
-                case "==", "!=" -> Primitive.BOOL;
+                case "==", "!=" -> {
+                    boolean leftSymbol = isSymbolLike(left);
+                    boolean rightSymbol = isSymbolLike(right);
+                    if (leftSymbol != rightSymbol) {
+                        throw new IllegalArgumentException(
+                                "Symbol equality requires Symbol on both sides; Symbols are not string aliases");
+                    }
+                    yield Primitive.BOOL;
+                }
                 case "<", "<=", ">", ">=" -> {
                     if (!(Types.isNumeric(left) && Types.isNumeric(right)) && !(isStringLike(left) && isStringLike(right))) {
                         throw new IllegalArgumentException("comparison operands must both be numeric or both strings");
@@ -664,6 +909,43 @@ public final class TypeChecker {
             }
             return nominal;
         }
+        if (expr instanceof Ast.ChannelExpr channel) {
+            Type capacity = typeOf(channel.capacity(), env, generics, self);
+            requireAssignable(capacity, Primitive.INT, "channel capacity");
+            return new Named("Channel", List.of(resolve(channel.elementType(), generics, self)));
+        }
+        if (expr instanceof Ast.ChannelOpExpr operation) {
+            if (operation.channel() == null) {
+                if (awaitContext != AwaitContext.ACTOR) {
+                    throw new IllegalArgumentException(operation.kind().name().toLowerCase()
+                            + "() without a channel refers to the actor mailbox and is only legal inside an actor");
+                }
+                return operation.kind() == Ast.ChannelOpKind.TRY_RECEIVE
+                        ? new Named("Option", List.of(Unknown.INSTANCE))
+                        : Unknown.INSTANCE;
+            }
+
+            Type channelType = typeOf(operation.channel(), env, generics, self);
+            if (!(channelType instanceof Named named)
+                    || !named.name().equals("Channel")
+                    || named.arguments().size() != 1) {
+                throw new IllegalArgumentException(
+                        operation.kind().name().toLowerCase() + " requires Channel<T>, got " + channelType);
+            }
+            Type elementType = named.arguments().getFirst();
+
+            if (operation.kind() == Ast.ChannelOpKind.SEND || operation.kind() == Ast.ChannelOpKind.TRY_SEND) {
+                Type valueType = typeOf(operation.value(), env, generics, self);
+                requireAssignable(valueType, elementType, "channel send value");
+                return operation.kind() == Ast.ChannelOpKind.SEND
+                        ? Primitive.VOID
+                        : new Named("SendResult", List.of());
+            }
+
+            return operation.kind() == Ast.ChannelOpKind.RECEIVE
+                    ? elementType
+                    : new Named("Option", List.of(elementType));
+        }
         if (expr instanceof Ast.AwaitExpr awaited) {
             if (awaitContext == AwaitContext.NONE) {
                 throw new IllegalArgumentException("'await' is only legal inside an async callable or an actor mailbox turn");
@@ -810,6 +1092,13 @@ public final class TypeChecker {
 
     private boolean isStringLike(Type type) {
         return type == Primitive.STRING || type instanceof StringLiteral;
+    }
+
+    private boolean isSymbolLike(Type type) {
+        Type value = deref(type);
+        return value instanceof Named named
+                && named.name().equals("Symbol")
+                && named.arguments().isEmpty();
     }
 
     private Record classShape(Ast.ClassDecl klass, Set<Ast.ClassDecl> stack) {
@@ -1300,6 +1589,19 @@ public final class TypeChecker {
             for (Ast.Stmt nested : s.body()) collectCalls(nested, module, out);
             for (Ast.Stmt nested : s.catchBody()) collectCalls(nested, module, out);
             for (Ast.Stmt nested : s.finallyBody()) collectCalls(nested, module, out);
+        } else if (stmt instanceof Ast.ReceiveLoopStmt s) {
+            for (Ast.Stmt nested : s.body()) collectCalls(nested, module, out);
+        } else if (stmt instanceof Ast.ReceivePatternLoopStmt s) {
+            for (Ast.ReceiveCase branch : s.cases()) {
+                for (Ast.Stmt nested : branch.body()) collectCalls(nested, module, out);
+            }
+            for (Ast.Stmt nested : s.defaultBody()) collectCalls(nested, module, out);
+        } else if (stmt instanceof Ast.SelectStmt s) {
+            for (Ast.SelectCase branch : s.cases()) {
+                collectCalls(branch.operation(), module, out);
+                for (Ast.Stmt nested : branch.body()) collectCalls(nested, module, out);
+            }
+            for (Ast.Stmt nested : s.defaultBody()) collectCalls(nested, module, out);
         } else if (stmt instanceof Ast.ForOfStmt s) {
             collectCalls(s.iterable(), module, out);
             for (Ast.Stmt nested : s.body()) collectCalls(nested, module, out);
@@ -1327,6 +1629,11 @@ public final class TypeChecker {
         else if (expr instanceof Ast.IndexExpr e) { collectCalls(e.receiver(), module, out); collectCalls(e.index(), module, out); }
         else if (expr instanceof Ast.NewExpr e) for (Ast.Expr arg : e.arguments()) collectCalls(arg, module, out);
         else if (expr instanceof Ast.AwaitExpr e) collectCalls(e.expression(), module, out);
+        else if (expr instanceof Ast.ChannelExpr e) collectCalls(e.capacity(), module, out);
+        else if (expr instanceof Ast.ChannelOpExpr e) {
+            if (e.channel() != null) collectCalls(e.channel(), module, out);
+            if (e.value() != null) collectCalls(e.value(), module, out);
+        }
         else if (expr instanceof Ast.ListExpr e) for (Ast.Expr item : e.elements()) collectCalls(item, module, out);
         else if (expr instanceof Ast.TupleExpr e) for (Ast.Expr item : e.elements()) collectCalls(item, module, out);
         else if (expr instanceof Ast.ObjectExpr e) for (Ast.ObjectField f : e.fields()) collectCalls(f.value(), module, out);
