@@ -1,5 +1,5 @@
 ores-truffle-oreslang/oreslang-source.java
-PR #93
-head 163e0e1f1f96cc0ed58d720270d6fe79a8cfba35
-base main @ 347a9757883d6a9f75a6ccbe26a22998c2be5df4
-purpose require `as` after Oreslang class headers
+PR #106
+head 2e4d397b0c0963d77b7018dbe0f5eec5abd87e6d
+base feat/untrusted-actor-sandbox-budget-http @ 833ea03589ad74bb8cda08adcdf17dca4ae78c7d
+purpose secure JIT hot-load exact-head validation after PR118 scheduler merge
