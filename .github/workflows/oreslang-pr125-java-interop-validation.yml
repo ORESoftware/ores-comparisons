@@ -1,8 +1,8 @@
-name: oreslang-pr125-java-interop-validation
+name: oreslang-mixed-java-ores-validation
 
 on:
   push:
-    branches: ["ci/oreslang-pr125-java-interop-20261003"]
+    branches: ["ci/oreslang-mixed-java-ores-20261003"]
   pull_request:
     branches: ["main"]
 
@@ -33,7 +33,7 @@ jobs:
       - name: Compile exact source mirror
         run: mvn -B -ntp -DskipTests compile
       - name: Run Java interop regression suite
-        run: mvn -B -ntp -Dtest=HostImportTest test
+        run: mvn -B -ntp -Dtest=HostImportTest,MixedSourceInteropTest test
       - name: Run direct Java import example
         run: |
           output="$(mvn -q -DskipTests -Dexec.args='--allow=JAVA_INTEROP --allow-host-class=java.util.ArrayList examples/java-interop.ores' exec:java)"
