@@ -1,3 +1,4 @@
+# audit rerun: pinned-root lifetime semantics; executable PR74 tree unchanged
 name: oreslang-pr74-gc-validation
 
 on:
