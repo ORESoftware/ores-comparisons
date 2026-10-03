@@ -1,0 +1,5 @@
+ores-truffle-oreslang/oreslang-source.java
+PR #77
+head 9a0f51535514153b1de804b08a6072b60cfa7b6e
+latest actor base includes contextual shared lexer commit 7e34d9f1e86a491f68029d854ced76b4616de29f
+includes semantic ActorKind + proven PR #45 generic CallExpr reconciliation
