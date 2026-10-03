@@ -324,6 +324,62 @@ final class MixedSourceInteropTest {
     }
 
     @Test
+    void doJavaCanCallExportedOresThroughGeneratedFacade() throws Exception {
+        Path source = temp.resolve("do-java-calls-ores.ores");
+        Files.writeString(source, """
+                pub fnc bridge_hit() => void {
+                  stdio.println("bridge-hit");
+                  return;
+                }
+
+                pub fnc main() => void {
+                  do java {
+                    Ores.bridge_hit();
+                  }
+                  return;
+                }
+                """);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        assertDoesNotThrow(() -> LinkedProgramRunner.run(
+                source,
+                trustedMixedPolicy(),
+                ExecutionProfile.serverJit(),
+                Set.of(),
+                out,
+                new ByteArrayOutputStream()));
+
+        assertTrue(out.toString(StandardCharsets.UTF_8).contains("bridge-hit"));
+    }
+
+    @Test
+    void doJavaCheckedExceptionsMustBeHandledInsideRunnableRun() throws Exception {
+        Path source = temp.resolve("checked-exception.ores");
+        Files.writeString(source, """
+                pub fnc main() => void {
+                  do java {
+                    throw new java.io.IOException("checked");
+                  }
+                  return;
+                }
+                """);
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () ->
+                LinkedProgramRunner.run(
+                        source,
+                        trustedMixedPolicy(),
+                        ExecutionProfile.serverJit(),
+                        Set.of(),
+                        new ByteArrayOutputStream(),
+                        new ByteArrayOutputStream()));
+
+        assertTrue(failure.getMessage().contains("mixed Java source compilation failed"));
+        assertTrue(failure.getMessage().contains("IOException")
+                || failure.getMessage().contains("must be caught")
+                || failure.getMessage().contains("unreported exception"));
+    }
+
+    @Test
     void doJavaRunCannotReturnAValueBecauseRunnableRunIsVoid() throws Exception {
         Path source = temp.resolve("void-run.ores");
         Files.writeString(source, """
