@@ -42,6 +42,7 @@ public record IsolatePolicy(
         ENVIRONMENT,
         HOT_CODE_LOAD,
         JAVA_INTEROP,
+        JAVA_SOURCE_INTEROP,
         FFI,
         NATIVE,
         REFLECTION,
@@ -64,6 +65,9 @@ public record IsolatePolicy(
         }
         if (adversarial && capabilities.contains(Capability.JAVA_INTEROP)) {
             throw new IllegalArgumentException("adversarial isolates cannot grant JAVA_INTEROP");
+        }
+        if (adversarial && capabilities.contains(Capability.JAVA_SOURCE_INTEROP)) {
+            throw new IllegalArgumentException("adversarial isolates cannot grant JAVA_SOURCE_INTEROP");
         }
     }
 
