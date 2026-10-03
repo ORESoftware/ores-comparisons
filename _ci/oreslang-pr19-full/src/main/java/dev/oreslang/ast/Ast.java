@@ -5,6 +5,31 @@ import java.util.List;
 public final class Ast {
     private Ast() { }
 
+    /** Internal markers emitted only by the parser for reserved execution-placement modifiers. */
+    public static final String GPU_ANNOTATION = "$ores_gpu$";
+    public static final String QUANTUM_ANNOTATION = "$ores_quantum$";
+
+    public enum ExecutionTarget { CPU, GPU, QUANTUM }
+
+    public static ExecutionTarget executionTarget(List<Annotation> annotations) {
+        boolean gpu = annotations.stream().anyMatch(annotation -> GPU_ANNOTATION.equals(annotation.name()));
+        boolean quantum = annotations.stream().anyMatch(annotation -> QUANTUM_ANNOTATION.equals(annotation.name()));
+        if (gpu && quantum) {
+            throw new IllegalArgumentException("a callable cannot target both GPU and quantum execution");
+        }
+        if (quantum) return ExecutionTarget.QUANTUM;
+        if (gpu) return ExecutionTarget.GPU;
+        return ExecutionTarget.CPU;
+    }
+
+    public static boolean hasGpuPlacement(List<Annotation> annotations) {
+        return executionTarget(annotations) == ExecutionTarget.GPU;
+    }
+
+    public static boolean hasQuantumPlacement(List<Annotation> annotations) {
+        return executionTarget(annotations) == ExecutionTarget.QUANTUM;
+    }
+
     public record Program(String namespace, List<ImportDecl> imports, List<ModuleDecl> modules) {
         public Program {
             imports = List.copyOf(imports);
@@ -37,7 +62,6 @@ public final class Ast {
 
     public enum Visibility { PRIVATE, PUBLIC }
     public enum CallableKind { FNC, ROUTINE }
-    public enum ActorKind { NONE, PRIVATE, SHARED }
 
     public record Annotation(String name, List<TypeRef> arguments) {
         public Annotation { arguments = List.copyOf(arguments); }
@@ -123,8 +147,6 @@ public final class Ast {
             CallableKind kind,
             Visibility visibility,
             boolean async,
-            boolean nonLexical,
-            ActorKind actorKind,
             List<String> genericParameters,
             List<Param> parameters,
             TypeRef returnType,
@@ -136,26 +158,15 @@ public final class Ast {
             annotations = List.copyOf(annotations);
             body = List.copyOf(body);
         }
-        public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
-                            ActorKind actorKind, List<String> genericParameters, List<Param> parameters,
-                            TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
-            this(name, kind, visibility, async, false, actorKind, genericParameters, parameters, returnType, annotations, body);
-        }
-        public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
-                            List<String> genericParameters, List<Param> parameters, TypeRef returnType,
-                            List<Annotation> annotations, List<Stmt> body) {
-            this(name, kind, visibility, async, false, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
-        }
         public FunctionDecl(String name, Visibility visibility, boolean async, List<String> genericParameters,
                             List<Param> parameters, TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
-            this(name, CallableKind.FNC, visibility, async, false, ActorKind.NONE, genericParameters, parameters, returnType, annotations, body);
+            this(name, CallableKind.FNC, visibility, async, genericParameters, parameters, returnType, annotations, body);
         }
     }
 
     public record ClassDecl(
             String name,
             boolean isAbstract,
-            ActorKind actorKind,
             List<String> genericParameters,
             List<TypeRef> parents,
             List<TypeRef> interfaces,
@@ -169,13 +180,8 @@ public final class Ast {
             methods = List.copyOf(methods);
         }
         public ClassDecl(String name, boolean isAbstract, List<String> genericParameters,
-                         List<TypeRef> parents, List<TypeRef> interfaces,
                          List<FieldDecl> fields, List<MethodDecl> methods) {
-            this(name, isAbstract, ActorKind.NONE, genericParameters, parents, interfaces, fields, methods);
-        }
-        public ClassDecl(String name, boolean isAbstract, List<String> genericParameters,
-                         List<FieldDecl> fields, List<MethodDecl> methods) {
-            this(name, isAbstract, ActorKind.NONE, genericParameters, List.of(), List.of(), fields, methods);
+            this(name, isAbstract, genericParameters, List.of(), List.of(), fields, methods);
         }
     }
 
@@ -305,7 +311,7 @@ public final class Ast {
     }
 
     public sealed interface Expr permits LiteralExpr, NameExpr, BinaryExpr, UnaryExpr, AssignExpr, ConditionalExpr,
-            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
+            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr, GpuExpr { }
 
     public record LiteralExpr(Object value) implements Expr { }
     public record Imaginary(double coefficient) { }
@@ -315,24 +321,8 @@ public final class Ast {
     public record AssignExpr(Expr target, Expr value) implements Expr { }
     public record ConditionalExpr(Expr condition, Expr whenTrue, Expr whenFalse) implements Expr { }
 
-    public record CallExpr(
-            Expr callee,
-            List<TypeRef> typeArguments,
-            boolean typeArgumentsPresent,
-            List<Expr> arguments) implements Expr {
-        public CallExpr {
-            typeArguments = List.copyOf(typeArguments);
-            arguments = List.copyOf(arguments);
-            if (!typeArgumentsPresent && !typeArguments.isEmpty()) {
-                throw new IllegalArgumentException("call type arguments require an explicit <...> marker");
-            }
-        }
-        public CallExpr(Expr callee, List<Expr> arguments) {
-            this(callee, List.of(), false, arguments);
-        }
-        public CallExpr(Expr callee, List<TypeRef> typeArguments, List<Expr> arguments) {
-            this(callee, typeArguments, true, arguments);
-        }
+    public record CallExpr(Expr callee, List<Expr> arguments) implements Expr {
+        public CallExpr { arguments = List.copyOf(arguments); }
     }
 
     public record MemberExpr(Expr receiver, String member) implements Expr { }
@@ -358,13 +348,19 @@ public final class Ast {
         public ObjectExpr { fields = List.copyOf(fields); }
     }
 
-    public record LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody, boolean nonLexical) implements Expr {
+    public record LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody) implements Expr {
         public LambdaExpr {
             parameters = List.copyOf(parameters);
             blockBody = blockBody == null ? null : List.copyOf(blockBody);
         }
-        public LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody) {
-            this(parameters, expressionBody, blockBody, false);
-        }
     }
+
+    /**
+     * Compile-time GPU placement. SINGLE targets one callable expression; PARALLEL targets a
+     * statically enumerable collection of direct lambdas so a backend can lower them as an
+     * independent GPU work batch without repeating {@code gpu} on every lambda.
+     */
+    public enum GpuMode { SINGLE, PARALLEL }
+
+    public record GpuExpr(GpuMode mode, Expr expression) implements Expr { }
 }
