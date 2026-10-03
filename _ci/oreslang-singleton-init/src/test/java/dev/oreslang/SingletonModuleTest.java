@@ -2558,6 +2558,50 @@ final class SingletonModuleTest {
     }
 
     @Test
+    void cleanupFailurePinsSingletonTombstoneAndBlocksRecreation() {
+        String key = "failed-cleanup:" + UUID.randomUUID();
+        AtomicInteger initializations = new AtomicInteger();
+
+        final class FailingCloseState implements AutoCloseable {
+            private final AtomicInteger value = new AtomicInteger();
+
+            @Override
+            public void close() {
+                throw new IllegalStateException("synthetic close failure");
+            }
+        }
+
+        ProcessSingletonRegistry.Handle<FailingCloseState> first =
+                ProcessSingletonRegistry.getOrCreate(key, () -> {
+                    initializations.incrementAndGet();
+                    return new FailingCloseState();
+                });
+        UUID firstId = first.instanceId();
+
+        CompletionException cleanupFailure = assertThrows(
+                CompletionException.class,
+                () -> ProcessSingletonRegistry.collect(key).toCompletableFuture().join());
+        assertTrue(causeChainContains(cleanupFailure, "synthetic close failure"));
+
+        ProcessSingletonRegistry.Handle<FailingCloseState> second =
+                ProcessSingletonRegistry.getOrCreate(key, () -> {
+                    initializations.incrementAndGet();
+                    return new FailingCloseState();
+                });
+
+        assertEquals(firstId, second.instanceId(),
+                "failed cleanup must leave a pinned tombstone rather than create replacement state");
+        assertEquals(1, initializations.get(),
+                "failed cleanup must not permit a second singleton initialization");
+
+        CompletionException stale = assertThrows(
+                CompletionException.class,
+                () -> second.call(List.of(), (state, ignored) -> state.value.get())
+                        .toCompletableFuture().join());
+        assertTrue(causeChainContains(stale, "explicitly collected"), String.valueOf(stale));
+    }
+
+    @Test
     void sourceCanExplicitlyCollectSingletonWithoutOrdinaryGcOwningItsLifetime() throws Exception {
         String program = """
                 define singleton module manual_gc_counter as
