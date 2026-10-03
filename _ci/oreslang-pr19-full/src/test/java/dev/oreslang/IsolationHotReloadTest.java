@@ -73,10 +73,10 @@ final class IsolationHotReloadTest {
     void hotReloadCreatesDistinctVersionedContextsWithoutFfi() {
         IsolatePolicy policy = IsolatePolicy.developer();
         try (HotReloadManager hot = new HotReloadManager(policy, ExecutionProfile.serverJit())) {
-            var first = hot.load("v1.ores", """
+            var first = hot.load("service.ores", """
                     pub routine main() => void { return; }
                     """);
-            var second = hot.load("v2.ores", """
+            var second = hot.load("service.ores", """
                     pub routine main() => void {
                       val version = 2;
                       return;
