@@ -125,7 +125,7 @@ final class OptionPatternMatchingTest {
                     None => { }
                   }
 
-                  match take(maybe) {
+                  match rt take(maybe) {
                     Some(value) => { return value.value; }
                     None => { return 0; }
                   }
@@ -142,7 +142,7 @@ final class OptionPatternMatchingTest {
                         fnc bad() => void {
                           let Box box = new Box();
                           let Option<Box> maybe = Some(box);
-                          match take(maybe) {
+                          match rt take(maybe) {
                             Some(value) => { stdio.println(value.value); }
                             None => { }
                           }
@@ -174,7 +174,7 @@ final class OptionPatternMatchingTest {
                         fnc bad() => void {
                           let Box box = new Box();
                           let Option<Box> maybe = Some(box);
-                          match copy(maybe) {
+                          match rt copy(maybe) {
                             Some(value) => { stdio.println(value.value); }
                             None => { }
                           }
@@ -213,7 +213,7 @@ final class OptionPatternMatchingTest {
 
                         fnc bad() => void {
                           let Box box = new Box();
-                          val maybe = Some(borrow(box));
+                          val maybe = Some(rt borrow(box));
                           return;
                         }
                         """)));
@@ -229,12 +229,12 @@ final class OptionPatternMatchingTest {
                           pub let int value = 0;
                         end
 
-                        fnc mixed(mut Box write, Box read) => void {
+                        fnc mixed(Box mut write, Box read) => void {
                           write.value = read.value;
                           return;
                         }
 
-                        fnc nested(mut Box box) => void {
+                        fnc nested(Box mut box) => void {
                           mixed(box, box);
                           return;
                         }

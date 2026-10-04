@@ -92,7 +92,7 @@ final class OwnershipAndClosureTest {
                   pub let String foo = "start";
                 end
 
-                fnc change(mut Bar b) => void {
+                fnc change(Bar mut b) => void {
                   b.foo = "borrowed";
                   return;
                 }
@@ -115,14 +115,14 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
-                        fnc mutate(mut Bar b) => void {
+                        fnc mutate(Bar mut b) => void {
                           b.foo = "changed";
                           return;
                         }
 
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          val read = borrow(b);
+                          val read = rt borrow(b);
                           mutate(b);
                           stdio.println(read.foo);
                           return;
@@ -163,7 +163,7 @@ final class OwnershipAndClosureTest {
 
                         fnc bad() => Bar {
                           let Bar b = new Bar();
-                          return borrow(b);
+                          return rt borrow(b);
                         }
                         """)));
         assertTrue(error.getMessage().toLowerCase().contains("borrow")
@@ -200,8 +200,8 @@ final class OwnershipAndClosureTest {
 
                 fnc ok() => void {
                   let Bar b = new Bar();
-                  val first = borrow(b);
-                  val second = borrow(b);
+                  val first = rt borrow(b);
+                  val second = rt borrow(b);
                   stdio.println(first.foo);
                   stdio.println(second.foo);
                   return;
@@ -217,7 +217,7 @@ final class OwnershipAndClosureTest {
                           pub let String foo = "start";
                         end
 
-                        fnc mutateBoth(mut Bar first, mut Bar second) => void {
+                        fnc mutateBoth(Bar mut first, Bar mut second) => void {
                           first.foo = "first";
                           second.foo = "second";
                           return;
@@ -244,7 +244,7 @@ final class OwnershipAndClosureTest {
 
                         fnc bad() => void {
                           let Bar b = new Bar();
-                          val read = borrow(b);
+                          val read = rt borrow(b);
                           consume(b);
                           stdio.println(read.foo);
                           return;
@@ -260,7 +260,7 @@ final class OwnershipAndClosureTest {
                   pub let String foo = "start";
                 end
 
-                fnc mutate(mut Bar b) => void {
+                fnc mutate(Bar mut b) => void {
                   b.foo = "changed";
                   return;
                 }
@@ -268,7 +268,7 @@ final class OwnershipAndClosureTest {
                 fnc ok() => void {
                   let Bar b = new Bar();
                   if true; do
-                    val read = borrow(b);
+                    val read = rt borrow(b);
                     stdio.println(read.foo);
                   fi
                   mutate(b);
@@ -328,7 +328,7 @@ final class OwnershipAndClosureTest {
                           pub val String foo = "start";
                         end
 
-                        fnc bad(mut Bar b) => void {
+                        fnc bad(Bar mut b) => void {
                           b.foo = "changed";
                           return;
                         }

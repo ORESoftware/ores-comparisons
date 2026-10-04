@@ -187,9 +187,9 @@ final class PointerlessOwnershipTest {
                         }
                         """)));
 
-        assertTrue(error.getMessage().contains("requires ownership")
-                || error.getMessage().contains("cannot take ownership")
-                || error.getMessage().contains("exclusively owned"));
+        String message = error.getMessage().toLowerCase();
+        assertTrue(message.contains("ownership") && message.contains("borrow"),
+                error.getMessage());
     }
 
     @Test

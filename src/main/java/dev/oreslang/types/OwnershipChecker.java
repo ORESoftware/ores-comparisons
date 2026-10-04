@@ -1822,6 +1822,15 @@ public final class OwnershipChecker {
         if (type.name().equals("Tuple") && !type.arguments().isEmpty()) {
             return type.arguments().stream().allMatch(this::isRtCopyableType);
         }
+        if (type.name().equals("$obj$")) {
+            for (Ast.TypeRef field : type.arguments()) {
+                if (!field.name().startsWith("$objfield$") || field.arguments().size() != 1) {
+                    return false;
+                }
+                if (!isRtCopyableType(field.arguments().getFirst())) return false;
+            }
+            return true;
+        }
 
         Ast.ClassDecl klass = findClass(type.name());
         if (klass == null || !klass.genericParameters().isEmpty()) return false;

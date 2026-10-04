@@ -991,6 +991,8 @@ Oreslang combines Java-like reference ergonomics with affine ownership/lifetime 
 
 The command and call spellings are semantically identical. The command form has unary precedence, so `rt copy x.field + y` means `(rt copy x.field) + y`. Parentheses may be used whenever a wider operand or explicit grouping is desired.
 
+Reference passing is a **same-ownership-domain** rule, not an isolation escape hatch. Direct calls within the same actor/context pass the same object handle. Actor, isolate, and process-singleton mailbox boundaries remain transport boundaries: raw mutable object references never cross them, and values must satisfy the existing sendable/frozen/capability contract.
+
 The initial scalar value family is integers, floating/decimal/complex scalars, booleans, and immutable strings. Identity-bearing classes use reference semantics by default: `f(x)` passes the same object handle, while `f(rt copy x)` requests an independent copy. Class/aggregate copying requires a concrete copy contract rather than treating a shallow JVM-reference copy as an independent value.
 
 The `rt` namespace is compiler-reserved and cannot be shadowed. Legacy bare `borrow(...)`, `take(...)`, `copy(...)`, and `share(...)` spellings remain accepted on this migration stack only; canonical source uses `rt`.

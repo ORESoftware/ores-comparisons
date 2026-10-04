@@ -245,6 +245,30 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtCopyRecursesThroughStructuralRecordFields() throws Exception {
+        String output = run("""
+                define class Box as
+                  pub let int value = 7;
+
+                  pub copy() => self {
+                    return new Box(self.value);
+                  }
+                end
+
+                pub routine main() => void {
+                  let original = obj{child: new Box(7)};
+                  let copied = rt copy original;
+                  copied.child.value = 9;
+                  stdio.stdout.write(original.child.value);
+                  stdio.stdout.write(copied.child.value);
+                  return;
+                }
+                """);
+
+        assertTrue(output.equals("79"), output);
+    }
+
+    @Test
     void rtCopyRejectsIdentityClassWithoutCopyContract() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

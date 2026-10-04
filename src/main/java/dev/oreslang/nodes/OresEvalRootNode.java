@@ -316,7 +316,11 @@ public final class OresEvalRootNode extends RootNode {
             }
             for (int i = 0; i < fn.parameters().size(); i++) {
                 Ast.Param param = fn.parameters().get(i);
-                env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                // Parameter bindings are immutable. MUT grants exclusive
+
+                // mutation through the referenced value; it never permits rebinding.
+
+                env.define(param.name(), args.get(i), Ast.BindingKind.VAL);
             }
             try {
                 executeBlock(fn.body(), env);
@@ -470,7 +474,11 @@ public final class OresEvalRootNode extends RootNode {
             if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
             for (int i = 0; i < method.parameters().size(); i++) {
                 Ast.Param param = method.parameters().get(i);
-                env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                // Parameter bindings are immutable. MUT grants exclusive
+
+                // mutation through the referenced value; it never permits rebinding.
+
+                env.define(param.name(), args.get(i), Ast.BindingKind.VAL);
             }
             try {
                 executeBlock(method.body(), env);
@@ -808,7 +816,11 @@ public final class OresEvalRootNode extends RootNode {
                     Env local = new Env(captured);
                     for (int i = 0; i < lambda.parameters().size(); i++) {
                         Ast.Param param = lambda.parameters().get(i);
-                        local.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                        // Parameter bindings are immutable. MUT grants exclusive
+
+                        // mutation through the referenced value; it never permits rebinding.
+
+                        local.define(param.name(), args.get(i), Ast.BindingKind.VAL);
                     }
                     if (lambda.expressionBody() != null) return eval(lambda.expressionBody(), local);
                     try { executeBlock(lambda.blockBody(), local); return null; }
@@ -956,7 +968,11 @@ public final class OresEvalRootNode extends RootNode {
             Env env = new Env(lexical, singletonState);
             for (int i = 0; i < fn.parameters().size(); i++) {
                 Ast.Param param = fn.parameters().get(i);
-                env.define(param.name(), args.get(i), param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                // Parameter bindings are immutable. MUT grants exclusive
+
+                // mutation through the referenced value; it never permits rebinding.
+
+                env.define(param.name(), args.get(i), Ast.BindingKind.VAL);
             }
             try {
                 executeBlock(fn.body(), env);

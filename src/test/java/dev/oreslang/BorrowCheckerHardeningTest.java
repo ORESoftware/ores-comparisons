@@ -22,7 +22,7 @@ final class BorrowCheckerHardeningTest {
                           pub val Inner inner = new Inner();
                         end
 
-                        fnc mixed(Inner read, mut Outer write) => void {
+                        fnc mixed(Inner read, Outer mut write) => void {
                           return;
                         }
 
@@ -47,7 +47,7 @@ final class BorrowCheckerHardeningTest {
 
                         fnc bad() => void {
                           let Box box = new Box();
-                          val hidden = arr[borrow(box)];
+                          val hidden = arr[rt borrow(box)];
                           return;
                         }
                         """)));
@@ -62,7 +62,7 @@ final class BorrowCheckerHardeningTest {
 
                         fnc bad() => void {
                           let Box box = new Box();
-                          val hidden = obj{child: borrow(box)};
+                          val hidden = obj{child: rt borrow(box)};
                           return;
                         }
                         """)));
@@ -81,7 +81,7 @@ final class BorrowCheckerHardeningTest {
                         fnc bad() => void {
                           let Box first = new Box();
                           let Box second = new Box();
-                          first = borrow(second);
+                          first = rt borrow(second);
                           return;
                         }
                         """)));
@@ -157,7 +157,7 @@ final class BorrowCheckerHardeningTest {
 
                 fnc ok() => void {
                   let boxes = arr[new Box()];
-                  for (val box of take(boxes)) {
+                  for (val box of rt take(boxes)) {
                     consume(box);
                   }
                   return;
@@ -209,7 +209,7 @@ final class BorrowCheckerHardeningTest {
 
                         fnc bad() => void {
                           let Box box = new Box();
-                          val Holder holder = new Holder(borrow(box));
+                          val Holder holder = new Holder(rt borrow(box));
                           return;
                         }
                         """)));
