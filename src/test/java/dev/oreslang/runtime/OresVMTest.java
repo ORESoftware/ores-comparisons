@@ -143,6 +143,28 @@ final class OresVMTest {
     }
 
     @Test
+    void diagnosticGenerationIdNeverExposesOpaqueBindingCapability() {
+        OresVM vm = OresVM.dedicated(ActorRuntime.DispatcherConfig.defaults());
+        String token = vm.registerGenerationBinding(() -> () -> { });
+        try {
+            String[] arguments = vm.bindApplicationArguments(
+                    new String[0],
+                    token,
+                    42L);
+
+            assertEquals(token, OresVM.generationBindingId(arguments));
+            assertEquals("42", OresVM.generationDiagnosticId(arguments));
+            assertNotEquals(
+                    OresVM.generationBindingId(arguments),
+                    OresVM.generationDiagnosticId(arguments),
+                    "diagnostic stack metadata must never reveal the actor-generation capability token");
+        } finally {
+            vm.unregisterGenerationBinding(token);
+            vm.shutdownNow();
+        }
+    }
+
+    @Test
     void onlyUntrustedHotLoadDomainUsesSpawnedGraalIsolate() {
         assertFalse(HotReloadManager.ExecutionDomain.TRUSTED_JIT.spawnedIsolate());
         assertFalse(HotReloadManager.ExecutionDomain.TRUSTED_ISOACTOR_JIT.spawnedIsolate());
