@@ -430,6 +430,27 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void borrowingASharedOwnerRemainsNonOwning() {
+        IllegalArgumentException returnedBorrow = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Person as
+                          pub val String name = "Alex";
+                        end
+
+                        fnc bad() => Person {
+                          let Person p = new Person();
+                          val shared = rt share p;
+                          return rt borrow shared;
+                        }
+                        """)));
+
+        String message = returnedBorrow.getMessage().toLowerCase();
+        assertTrue(message.contains("borrow") && message.contains("return"),
+                returnedBorrow.getMessage());
+    }
+
+    @Test
     void rtParenthesesCanGroupWiderExpression() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 fnc grouped(int left, int right) => int {

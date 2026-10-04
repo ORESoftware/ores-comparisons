@@ -696,12 +696,12 @@ public final class OwnershipChecker {
             }
             if (ownershipOperation.equals("borrow")) {
                 VarState owner = intrinsicOwner(call, scope, "borrow");
-                if (owner.kind == ValueKind.SHARED) {
-                    Ast.TypeRef target = owner.type.isBorrow() ? owner.type.borrowedTarget() : owner.type;
-                    return new ValueInfo(Ast.TypeRef.borrowed(target, false), ValueKind.SHARED, null);
-                }
+                // Borrow is always non-owning, even when the source itself is
+                // a shared owner. The borrow remains tied to this owner alias's
+                // lexical lifetime and must never be promoted to SHARED.
                 validateBorrow(owner, false);
-                return new ValueInfo(Ast.TypeRef.borrowed(owner.type, false), ValueKind.IMM_BORROW, owner);
+                Ast.TypeRef target = owner.type.isBorrow() ? owner.type.borrowedTarget() : owner.type;
+                return new ValueInfo(Ast.TypeRef.borrowed(target, false), ValueKind.IMM_BORROW, owner);
             }
             if (ownershipOperation.equals("take")) {
                 requireIntrinsicArity(call, "take", 1);
