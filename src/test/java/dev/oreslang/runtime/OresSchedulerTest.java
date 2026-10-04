@@ -108,6 +108,36 @@ final class OresSchedulerTest {
     }
 
     @Test
+    void terminalFuturePublishesOnlyAfterRuntimeGuestTurnWrapperUnwinds() throws Exception {
+        AtomicBoolean insideGuestWrapper = new AtomicBoolean();
+        AtomicBoolean completionObservedInsideWrapper = new AtomicBoolean();
+
+        try (OresScheduler scheduler = OresScheduler.runtimeOwned(
+                "root-lifecycle-test",
+                1,
+                Runnable::run,
+                turn -> {
+                    insideGuestWrapper.set(true);
+                    try {
+                        turn.run();
+                    } finally {
+                        insideGuestWrapper.set(false);
+                    }
+                })) {
+            OresFuture<Integer> result = scheduler.start(
+                    resume -> OresScheduler.done(42));
+
+            result.whenCompleteRuntime((value, failure) ->
+                    completionObservedInsideWrapper.set(insideGuestWrapper.get()));
+
+            assertEquals(42, result.get(5, TimeUnit.SECONDS));
+            assertFalse(
+                    completionObservedInsideWrapper.get(),
+                    "terminal publication must happen after the guest context wrapper leaves");
+        }
+    }
+
+    @Test
     void tailAwaitAlwaysUsesFreshDispatchWithoutChangingLogicalTaskDomain() throws Exception {
         try (OresScheduler scheduler = new OresScheduler(1)) {
             AtomicInteger pc = new AtomicInteger();

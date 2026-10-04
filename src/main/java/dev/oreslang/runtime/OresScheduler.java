@@ -155,7 +155,8 @@ public final class OresScheduler implements AutoCloseable {
             String name,
             int parallelism,
             Executor executor,
-            ExecutorService ownedExecutor) {
+            ExecutorService ownedExecutor,
+            TurnExecutor turnExecutor) {
         this.name = Objects.requireNonNull(name, "name");
         if (parallelism <= 0) {
             throw new IllegalArgumentException("scheduler parallelism must be positive");
@@ -163,7 +164,7 @@ public final class OresScheduler implements AutoCloseable {
         this.parallelism = parallelism;
         this.executor = Objects.requireNonNull(executor, "executor");
         this.ownedExecutor = ownedExecutor;
-        this.turnExecutor = Runnable::run;
+        this.turnExecutor = Objects.requireNonNull(turnExecutor, "turnExecutor");
     }
 
     /**
@@ -174,7 +175,26 @@ public final class OresScheduler implements AutoCloseable {
             String name,
             int parallelism,
             Executor executor) {
-        return new OresScheduler(name, parallelism, executor, null);
+        return runtimeOwned(name, parallelism, executor, Runnable::run);
+    }
+
+    /**
+     * Runtime-owned scheduler over a shared carrier executor with an explicit
+     * guest-turn wrapper. The carrier wrapper and guest-turn wrapper are kept
+     * separate so terminal publication can happen after the guest context has
+     * fully unwound/left while still remaining on the admitted carrier turn.
+     */
+    static OresScheduler runtimeOwned(
+            String name,
+            int parallelism,
+            Executor executor,
+            TurnExecutor turnExecutor) {
+        return new OresScheduler(
+                name,
+                parallelism,
+                executor,
+                null,
+                turnExecutor);
     }
 
     /**

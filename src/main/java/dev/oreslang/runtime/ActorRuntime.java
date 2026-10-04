@@ -1732,7 +1732,8 @@ public final class ActorRuntime implements AutoCloseable {
         this.rootScheduler = OresScheduler.runtimeOwned(
                 "ores-root-" + Integer.toHexString(System.identityHashCode(this)),
                 rootParallelism,
-                this::executeRootSchedulerTurn);
+                this::executeRootSchedulerCarrier,
+                this::executeRootSchedulerGuestTurn);
     }
 
     public IsolatePolicy policyCeiling() { return policyCeiling; }
@@ -1752,20 +1753,25 @@ public final class ActorRuntime implements AutoCloseable {
         return rootScheduler;
     }
 
-    private void executeRootSchedulerTurn(Runnable turn) {
+    private void executeRootSchedulerCarrier(Runnable turn) {
         Objects.requireNonNull(turn, "turn");
         dispatcherGroup.executeControlTask(() -> {
             ACTOR_CARRIER.set(Boolean.TRUE);
             CURRENT_ROOT_RUNTIME.set(ActorRuntime.this);
             try {
-                turnExecutor.execute(() -> {
-                    schedulerSafepoint();
-                    turn.run();
-                });
+                turn.run();
             } finally {
                 CURRENT_ROOT_RUNTIME.remove();
                 ACTOR_CARRIER.remove();
             }
+        });
+    }
+
+    private void executeRootSchedulerGuestTurn(Runnable turn) {
+        Objects.requireNonNull(turn, "turn");
+        turnExecutor.execute(() -> {
+            schedulerSafepoint();
+            turn.run();
         });
     }
 
