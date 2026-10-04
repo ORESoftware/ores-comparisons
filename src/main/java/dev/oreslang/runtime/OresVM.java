@@ -55,10 +55,17 @@ final class OresVM {
     private static final java.util.concurrent.ConcurrentMap<String, OresVM> VM_BINDINGS =
             new ConcurrentHashMap<>();
 
-    private static final OresVM PROCESS = new OresVM(
-            ActorRuntime.DispatcherConfig.defaults(),
-            "ores-process-",
-            true);
+    /**
+     * Lazy process singleton. Loading OresVM must not allocate scheduler
+     * threads: Native Image analysis and host tooling may load runtime classes
+     * without actually starting an Oreslang VM.
+     */
+    private static final class ProcessHolder {
+        private static final OresVM INSTANCE = new OresVM(
+                ActorRuntime.DispatcherConfig.defaults(),
+                "ores-process-",
+                true);
+    }
 
     private final UUID vmId = UUID.randomUUID();
     private final String contextBindingToken = UUID.randomUUID().toString();
@@ -83,7 +90,7 @@ final class OresVM {
 
     /** The one physical Oreslang VM for the current OS process. */
     static OresVM process() {
-        return PROCESS;
+        return ProcessHolder.INSTANCE;
     }
 
     /** Dedicated VM used by host tests/tools that explicitly construct ActorRuntime. */
@@ -104,7 +111,7 @@ final class OresVM {
                 break;
             }
         }
-        if (token == null) return PROCESS;
+        if (token == null) return process();
 
         OresVM vm = VM_BINDINGS.get(token);
         if (vm == null || vm.shutdown()) {
