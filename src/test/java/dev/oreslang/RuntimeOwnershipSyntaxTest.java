@@ -400,6 +400,51 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void sharedOwnerBindingCanRebindToFreshUniqueValue() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Person as
+                  pub let String name = "Alex";
+                end
+
+                fnc rename(Person mut person) => void {
+                  person.name = "Taylor";
+                  return;
+                }
+
+                fnc ok() => void {
+                  let Person p = new Person();
+                  val shared = rt share p;
+                  p = new Person();
+                  rename(p);
+                  stdio.println(shared.name);
+                  stdio.println(p.name);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void mutParameterBindingCannotBeReassigned() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Person as
+                          pub val String name = "Alex";
+                        end
+
+                        fnc bad(Person mut person) => void {
+                          person = new Person();
+                          return;
+                        }
+                        """)));
+
+        String message = error.getMessage().toLowerCase();
+        assertTrue((message.contains("rebind") || message.contains("reassign"))
+                && message.contains("person"),
+                error.getMessage());
+    }
+
+    @Test
     void rtShareCanBeDuplicatedAsSharedOwnership() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 define class Person as

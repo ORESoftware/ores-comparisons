@@ -464,6 +464,17 @@ public final class OwnershipChecker {
             checkAssignmentTarget(assignment.target(), scope);
             ValueInfo assigned = checkExpr(assignment.value(), scope, true);
             rejectBorrowStorage(assigned, "assignment");
+
+            if (assignment.target() instanceof Ast.NameExpr name) {
+                VarState target = requireState(scope, name.name());
+                // Rebinding a let drops this binding's ownership of its old
+                // value. In particular, a binding that previously became
+                // SHARED via rt share may be rebound to a fresh unique value;
+                // other shared aliases continue owning the old object.
+                target.kind = assigned.kind;
+                target.borrowSource = assigned.borrowSource;
+                target.moved = false;
+            }
             return assigned;
         }
         if (expr instanceof Ast.BinaryExpr binary) {
@@ -1128,7 +1139,8 @@ public final class OwnershipChecker {
         if (target instanceof Ast.NameExpr name) {
             VarState state = requireState(scope, name.name());
             requireUsable(state, name.name(), true);
-            if (!state.mutable) throw error("cannot assign immutable binding '" + name.name() + "'; use let or a mut parameter");
+            if (!state.mutable) throw error("cannot rebind immutable binding '" + name.name()
+                    + "'; parameter bindings are immutable, so use a local let binding when rebinding is required");
             if (state.immutableBorrows > 0 || state.mutableBorrowed) throw error("cannot assign '" + name.name() + "' while it is borrowed");
             return;
         }
