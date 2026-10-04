@@ -5066,8 +5066,8 @@ public final class ActorRuntime implements AutoCloseable {
             awaitSuspended.set(false);
             resumeQueue.clear();
             nextTickQueue.clear();
-            for (ScheduledFuture<?> timer : List.copyOf(actorTimers)) {
-                timer.cancel(false);
+            for (ScheduledFuture<?> actorTimer : List.copyOf(actorTimers)) {
+                actorTimer.cancel(false);
             }
             actorTimers.clear();
             behavior = null;
