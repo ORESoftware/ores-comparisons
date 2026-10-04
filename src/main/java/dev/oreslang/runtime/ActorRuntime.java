@@ -1409,6 +1409,7 @@ public final class ActorRuntime implements AutoCloseable {
     private final AtomicLong sharedRejectedTurns;
     private final AtomicLong untrustedRejectedTurns;
     private final ThreadLocal<ActorCell<?>> currentActor = new ThreadLocal<>();
+    private final ThreadLocal<RootTask<?>> currentRootTask = new ThreadLocal<>();
     private final ThreadLocal<SyncCell<?>> currentSyncCell = new ThreadLocal<>();
 
     public ActorRuntime() {
@@ -1620,6 +1621,7 @@ public final class ActorRuntime implements AutoCloseable {
         private volatile Thread carrier;
         private volatile ScheduledFuture<?> deadlineFuture;
         private final AtomicBoolean compensationClaimed = new AtomicBoolean();
+        private final AtomicBoolean deadlineExpired = new AtomicBoolean();
         private volatile long deadlineNanos = Long.MAX_VALUE;
 
         private RootTask(Supplier<T> task) {
@@ -1632,6 +1634,7 @@ public final class ActorRuntime implements AutoCloseable {
             carrier = Thread.currentThread();
             ACTOR_CARRIER.set(Boolean.TRUE);
             CURRENT_ROOT_RUNTIME.set(ActorRuntime.this);
+            currentRootTask.set(this);
             deadlineNanos = rootDeadlineNanos();
             CURRENT_ROOT_DEADLINE_NANOS.set(deadlineNanos);
             armRootDeadline();
@@ -1658,6 +1661,7 @@ public final class ActorRuntime implements AutoCloseable {
                 Thread.interrupted();
                 carrier = null;
                 CURRENT_ROOT_DEADLINE_NANOS.remove();
+                currentRootTask.remove();
                 CURRENT_ROOT_RUNTIME.remove();
                 ACTOR_CARRIER.remove();
                 phase.set(FINISHED);
@@ -1693,15 +1697,23 @@ public final class ActorRuntime implements AutoCloseable {
             if (phase.get() != RUNNING) return;
             Thread running = carrier;
             if (running == null) return;
+            if (!deadlineExpired.compareAndSet(false, true)) return;
+
+            CancellationException timeout = new CancellationException(
+                    "root/main process exceeded max wall time "
+                            + policyCeiling.maxWallTime());
+            if (!completion.completeExceptionally(timeout)) {
+                // Normal completion or another terminal failure already won.
+                // Do not report a phantom overrun or interrupt a carrier that
+                // is merely unwinding after a completed root task.
+                return;
+            }
 
             sharedOverrunTurns.incrementAndGet();
             if (compensationClaimed.compareAndSet(false, true)
                     && !claimCompensatingThread(ActorKind.SHARED)) {
                 compensationClaimed.set(false);
             }
-            completion.completeExceptionally(new CancellationException(
-                    "root/main process exceeded max wall time "
-                            + policyCeiling.maxWallTime()));
             running.interrupt();
         }
 
@@ -2246,18 +2258,17 @@ public final class ActorRuntime implements AutoCloseable {
         private final ActorKind kind;
         private final AtomicReference<Throwable> terminationCause = new AtomicReference<>();
         private final OresFuture<ActorRef<M>> readiness;
+        private final CompletableFuture<Boolean> termination = new CompletableFuture<>();
 
         private ActorRef(ActorId id, ActorKind kind) {
             this.id = id;
             this.kind = kind;
-            this.readiness = new OresFuture<>(() -> {
-                ActorCell<?> cell = actors.get(id);
-                if (cell != null) cell.stop();
-            });
+            this.readiness = new OresFuture<>(() -> requestStop(id));
         }
 
         public ActorId id() { return id; }
         private OresFuture<ActorRef<M>> readiness() { return readiness; }
+        private CompletionStage<Boolean> termination() { return termination; }
         private void markReady() { readiness.completeFromRuntime(this); }
         private void failReady(Throwable failure) {
             if (!readiness.isDone()) readiness.failFromRuntime(failure);
@@ -2896,15 +2907,12 @@ public final class ActorRuntime implements AutoCloseable {
 
         IsolatePolicy policy = defaultSpawnPolicy();
         AtomicReference<ActorRef<M>> spawnedRef = new AtomicReference<>();
+        AtomicReference<R> invocationResult = new AtomicReference<>();
+        AtomicReference<Throwable> invocationFailure = new AtomicReference<>();
+        AtomicBoolean invocationFinished = new AtomicBoolean();
         OresFuture<R> completion = new OresFuture<>(() -> {
             ActorRef<M> ref = spawnedRef.get();
-            if (ref != null && ref.isAlive()) {
-                try {
-                    ref.stop();
-                } catch (IllegalStateException ignored) {
-                    // A concurrent actor exit won the race.
-                }
-            }
+            if (ref != null) requestStop(ref.id());
         });
 
         ActorRef<M> ref = spawnInternal(
@@ -2914,21 +2922,27 @@ public final class ActorRuntime implements AutoCloseable {
                     try {
                         @SuppressWarnings("unchecked")
                         R frozen = (R) freeze(invocation.run(delivered, turnContext));
-                        completion.completeFromRuntime(frozen);
+                        invocationResult.set(frozen);
+                        invocationFinished.set(true);
                     } catch (VirtualMachineError fatal) {
-                        completion.failFromRuntime(fatal);
+                        invocationFailure.set(fatal);
+                        invocationFinished.set(true);
                         throw fatal;
                     } catch (ThreadDeath fatal) {
-                        completion.failFromRuntime(fatal);
+                        invocationFailure.set(fatal);
+                        invocationFinished.set(true);
                         throw fatal;
                     } catch (LinkageError fatal) {
-                        completion.failFromRuntime(fatal);
+                        invocationFailure.set(fatal);
+                        invocationFinished.set(true);
                         throw fatal;
                     } catch (Exception failure) {
-                        completion.failFromRuntime(failure);
+                        invocationFailure.set(failure);
+                        invocationFinished.set(true);
                         throw failure;
                     } catch (Error failure) {
-                        completion.failFromRuntime(failure);
+                        invocationFailure.set(failure);
+                        invocationFinished.set(true);
                         throw failure;
                     } finally {
                         turnContext.self().stop();
@@ -2941,6 +2955,35 @@ public final class ActorRuntime implements AutoCloseable {
             if (startupFailure != null && !completion.isDone()) {
                 completion.failFromRuntime(OresFuture.unwrap(startupFailure));
             }
+        });
+        ref.termination().whenComplete((normalTermination, terminationFailure) -> {
+            if (completion.isDone()) return;
+
+            // A scheduler/control-plane failure is authoritative even if
+            // uncooperative guest code ignores interruption and returns later.
+            // Never turn a watchdog timeout into a successful spawn result.
+            if (terminationFailure != null) {
+                completion.failFromRuntime(OresFuture.unwrap(terminationFailure));
+                return;
+            }
+
+            // Publish a callable result only after the one-shot actor turn has
+            // fully left guest execution and finalized. This makes awaiting
+            // spawn.result a safe lifecycle boundary for embedders: once it
+            // resumes, the child no longer owns the polyglot context on a
+            // carrier thread.
+            if (invocationFinished.get()) {
+                Throwable callFailure = invocationFailure.get();
+                if (callFailure != null) {
+                    completion.failFromRuntime(callFailure);
+                } else {
+                    completion.completeFromRuntime(invocationResult.get());
+                }
+                return;
+            }
+
+            completion.failFromRuntime(new CancellationException(
+                    "actor terminated before its callable completed"));
         });
 
         try {
@@ -3072,19 +3115,25 @@ public final class ActorRuntime implements AutoCloseable {
 
     private void reserveActorSlot(ActorKind kind) {
         Objects.requireNonNull(kind);
+
+        // Fail the runtime-local admission first. Dedicated runtimes own their
+        // dispatcher group, so checking the group first obscures the actual
+        // contract with a misleading process-limit error. For process-shared
+        // runtimes, the group check below still enforces the process ceiling.
+        if (actorCount.get() >= dispatcherConfig.maxActors()) {
+            throw new IllegalStateException(
+                    "actor runtime limit exceeded: maximum " + dispatcherConfig.maxActors());
+        }
+        if (kind == ActorKind.UNTRUSTED
+                && untrustedActorCount.get() >= dispatcherConfig.maxUntrustedActors()) {
+            throw new IllegalStateException(
+                    "untrusted actor limit exceeded: maximum "
+                            + dispatcherConfig.maxUntrustedActors());
+        }
+
         dispatcherGroup.reserveActor(kind);
         boolean localReserved = false;
         try {
-            if (actorCount.get() >= dispatcherConfig.maxActors()) {
-                throw new IllegalStateException(
-                        "actor runtime limit exceeded: maximum " + dispatcherConfig.maxActors());
-            }
-            if (kind == ActorKind.UNTRUSTED
-                    && untrustedActorCount.get() >= dispatcherConfig.maxUntrustedActors()) {
-                throw new IllegalStateException(
-                        "untrusted actor limit exceeded: maximum "
-                                + dispatcherConfig.maxUntrustedActors());
-            }
             actorCount.incrementAndGet();
             actorCountFor(kind).incrementAndGet();
             localReserved = true;
@@ -3283,6 +3332,19 @@ public final class ActorRuntime implements AutoCloseable {
         return cell != null && !cell.finalized();
     }
 
+    /**
+     * Nonblocking cancellation primitive used by runtime-owned Futures.
+     *
+     * This only requests actor termination; it never waits for finalization and
+     * therefore is safe to invoke from an actor carrier or async completion
+     * callback. The public stop(ActorRef) host API remains the synchronization
+     * point that may wait for deterministic teardown.
+     */
+    private void requestStop(ActorId id) {
+        ActorCell<?> cell = actors.get(Objects.requireNonNull(id));
+        if (cell != null) cell.stop();
+    }
+
     public void stop(ActorRef<?> ref) {
         requireCallerRuntimeAffinity("stop actors");
         Objects.requireNonNull(ref);
@@ -3471,6 +3533,8 @@ public final class ActorRuntime implements AutoCloseable {
             if (rootDeadline != null
                     && rootDeadline != Long.MAX_VALUE
                     && System.nanoTime() - rootDeadline >= 0) {
+                RootTask<?> rootTask = currentRootTask.get();
+                if (rootTask != null) rootTask.expireRootTask();
                 throw new CancellationException(
                         "root/main process exceeded max wall time "
                                 + policyCeiling.maxWallTime());
@@ -4474,7 +4538,18 @@ public final class ActorRuntime implements AutoCloseable {
     @Override
     public void close() {
         requireSupervisorContext("close an ActorRuntime");
+        closeFromSupervisor();
+    }
 
+    /**
+     * Host lifecycle teardown path used by OresContext/Truffle disposal.
+     *
+     * Package-private on purpose: guest code may reach only the public
+     * AutoCloseable surface, which still enforces supervisor-only shutdown.
+     * Truffle disposal can occur while a root task is unwinding, so it must
+     * not be misclassified as a guest-initiated runtime close.
+     */
+    void closeFromSupervisor() {
         final boolean firstClose;
         final List<ActorCell<?>> snapshot;
         synchronized (runtimeLifecycleLock) {
@@ -4541,7 +4616,7 @@ public final class ActorRuntime implements AutoCloseable {
             // Do not tear shared state out from under guest code that failed to
             // quiesce. A later close() may retry after the offending turn exits.
             throw new IllegalStateException(
-                    "ActorRuntime close did not observe full guest termination: "
+                    "ActorRuntime close did not observe full actor termination: "
                             + stillRunning.size() + " actor(s), "
                             + activeRootTasks.get() + " root task(s) still running");
         }
@@ -4610,8 +4685,12 @@ public final class ActorRuntime implements AutoCloseable {
             int maximum = dispatcherConfig.maxParallelismFor(kind);
             if (current >= maximum) return;
             int queued = executor.getQueue().size();
-            int active = executor.getActiveCount();
-            if (queued == 0 && active < current) return;
+            // Do not spend the only watchdog headroom merely because one peer
+            // is queued behind one busy carrier. Grow elastically only after
+            // queued demand exceeds the currently provisioned carrier count;
+            // a genuinely stuck carrier is then detected by the watchdog,
+            // which can claim bounded compensation inside the same hard cap.
+            if (queued <= current) return;
             executor.setCorePoolSize(current + 1);
             executor.prestartCoreThread();
         }
@@ -5013,6 +5092,12 @@ public final class ActorRuntime implements AutoCloseable {
             } catch (Throwable ignored) {
                 // Actor termination must still complete. Runtime cleanup hooks
                 // are best-effort and retryable by the process collector.
+            }
+            Throwable terminalCause = ref.terminationCause.get();
+            if (terminalCause == null) {
+                ref.termination.complete(Boolean.TRUE);
+            } else {
+                ref.termination.completeExceptionally(terminalCause);
             }
             unregisterActor(this);
             lifecycleLock.notifyAll();
