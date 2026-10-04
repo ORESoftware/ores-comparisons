@@ -1065,8 +1065,12 @@ actor.gc();   // current actor only
 These calls cannot make an unsafe program safe and never bypass ownership,
 borrow, sendability, or actor-isolation checks.
 
-A private/isolate actor cannot receive `Shared<T>`; an ordinary message is
-copied/frozen at its mailbox boundary. A shared actor may receive explicitly
-deeply immutable shared values, but ordinary mutable actor state still has one
-actor owner. "Shared actor" therefore means shared address-space/runtime
-placement, not shared mutable object graphs.
+Source-level `rt share` is **not** an actor-transport primitive. It creates
+same-reference shared ownership only inside the current ownership/address-space
+domain and does not grant `Send`/`Sync` or mailbox capability. A private/isolate
+actor cannot receive a raw shared owner; an ordinary message is copied/frozen at
+its mailbox boundary. Explicit actor-runtime read-only sharing is a separate,
+capability-gated transport contract. A shared actor may receive explicitly deeply
+immutable transport-shared values, but ordinary mutable actor state still has one
+actor owner. "Shared actor" therefore means shared address-space/runtime placement,
+not ambient shared mutable object graphs.

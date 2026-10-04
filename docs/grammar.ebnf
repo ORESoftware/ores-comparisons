@@ -299,6 +299,10 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
      "rt share value"/"rt share(value)".
    - The non-parenthesized rt form has unary precedence; parentheses widen/group
      the operand when needed. rt is unshadowable compiler syntax.
+   - rt borrow is non-owning and lifetime-bound; rt take transfers unique
+     ownership; rt copy creates independent storage; rt share preserves object
+     identity while converting unique ownership into read-only shared ownership.
+     Shared ownership never implies actor/isolate transport permission.
    - Borrowed values cannot be returned as owned values until an explicit
      provenance contract (planned: T from owner) is implemented.
    - Fnc does not yet encode ownership modes, so callables with mut/take
