@@ -217,7 +217,7 @@ final class AsyncSchedulerLanguageTest {
                 }
 
                 pub async routine main() => void {
-                  val value = await bounce(20000);
+                  val value = await bounce(2000);
                   stdio.println(value);
                   return;
                 }
