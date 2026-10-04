@@ -7,7 +7,7 @@ import java.util.Objects;
 public final class Types {
     private Types() { }
 
-    public sealed interface Type permits Primitive, Named, Borrow, ClassNamespace, SingletonProxy, Record, Function, ListType, Tuple, Generic, StringLiteral, Unknown { }
+    public sealed interface Type permits Primitive, Named, Borrow, Shared, ClassNamespace, SingletonProxy, Record, Function, ListType, Tuple, Generic, StringLiteral, Unknown { }
 
     public enum Primitive implements Type {
         INT, FLOAT, DECIMAL, COMPLEX, BOOL, STRING, VOID, NULL
@@ -17,8 +17,15 @@ public final class Types {
         public Named { arguments = List.copyOf(arguments); }
     }
 
-    /** Rust-style compile-time borrow; erased by the interpreter runtime. */
+    /** Non-owning compile-time borrow; erased by the interpreter runtime. */
     public record Borrow(Type target, boolean mutable) implements Type { }
+
+    /**
+     * Owning read-only alias to the same runtime value. Unlike Borrow, Shared
+     * participates in the value's lifetime. It is an internal qualifier until
+     * first-class Shared<T> surface syntax/callable ABI support is specified.
+     */
+    public record Shared(Type target) implements Type { }
 
     /** Compile-time meta-value for access to static class functions. */
     public record ClassNamespace(String className) implements Type { }
@@ -62,6 +69,21 @@ public final class Types {
             if (target.mutable() && !source.mutable()) return false;
             return isAssignable(source.target(), target.target()) && isAssignable(target.target(), source.target());
         }
+
+        if (from instanceof Shared source && to instanceof Shared target) {
+            return isAssignable(source.target(), target.target())
+                    && isAssignable(target.target(), source.target());
+        }
+        if (from instanceof Shared source && to instanceof Borrow target) {
+            if (target.mutable()) return false;
+            return isAssignable(source.target(), target.target());
+        }
+        // Shared ownership is readable anywhere the underlying value is
+        // readable. Mutation/take authority is enforced by OwnershipChecker.
+        if (from instanceof Shared source) {
+            return isAssignable(source.target(), to);
+        }
+        if (to instanceof Shared) return false;
 
         if (from instanceof Named source && to instanceof Named target && source.name().equals(target.name())) {
             if (source.arguments().size() != target.arguments().size()) return false;

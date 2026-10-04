@@ -1288,7 +1288,7 @@ public final class TypeChecker {
         }
         if (stmt instanceof Ast.MatchStmt matched) {
             Type matchedType = typeOf(matched.value(), env, generics, self);
-            Type optionType = matchedType instanceof Borrow borrow ? borrow.target() : matchedType;
+            Type optionType = deref(matchedType);
             if (!(optionType instanceof Named option)
                     || !option.name().equals("Option")
                     || option.arguments().size() != 1) {
@@ -1470,29 +1470,38 @@ public final class TypeChecker {
                 Type operand = typeOf(call.arguments().getFirst(), env, generics, self);
                 return switch (operation) {
                     case "copy" -> {
-                        Type source = operand instanceof Borrow borrowed ? borrowed.target() : operand;
+                        Type source = deref(operand);
                         requireCopyable(source, new LinkedHashSet<>());
                         yield source;
                     }
                     case "take" -> {
                         if (operand instanceof Borrow) {
-                            throw new IllegalArgumentException("rt take requires an owned value, not a borrow");
+                            throw new IllegalArgumentException("rt take requires ownership, not a borrow");
+                        }
+                        if (operand instanceof Shared) {
+                            throw new IllegalArgumentException(
+                                    "rt take requires unique ownership, not a shared owner");
                         }
                         yield operand;
                     }
-                    case "borrow" -> operand instanceof Borrow borrowed
-                            ? new Borrow(borrowed.target(), false)
-                            : new Borrow(operand, false);
+                    case "borrow" -> {
+                        Type source = deref(operand);
+                        yield new Borrow(source, false);
+                    }
                     case "share" -> {
                         if (operand instanceof Borrow) {
                             throw new IllegalArgumentException(
                                     "rt share requires ownership; a borrow cannot be upgraded into a shared owner");
                         }
-                        // Same-reference shared ownership. The ownership pass
-                        // removes unique mutation/take authority from named
-                        // owners; the read-only type qualifier prevents writes
-                        // through the newly shared alias.
-                        yield new Borrow(operand, false);
+                        if (operand instanceof Shared shared) yield shared;
+                        if (operand instanceof Primitive || operand instanceof StringLiteral) {
+                            // Value-semantic scalars are already independent.
+                            yield operand;
+                        }
+                        // Same-reference shared ownership. OwnershipChecker
+                        // removes unique mutation/take authority from the
+                        // original named owner.
+                        yield new Shared(operand);
                     }
                     default -> throw new IllegalStateException("unknown rt ownership operation " + operation);
                 };
@@ -1948,7 +1957,17 @@ public final class TypeChecker {
     }
 
     private Type deref(Type type) {
-        return type instanceof Borrow borrow ? borrow.target() : type;
+        while (true) {
+            if (type instanceof Borrow borrow) {
+                type = borrow.target();
+                continue;
+            }
+            if (type instanceof Shared shared) {
+                type = shared.target();
+                continue;
+            }
+            return type;
+        }
     }
 
     private Type memberType(Ast.MemberExpr member, Env env, Set<String> generics, Type self) {
@@ -2320,6 +2339,10 @@ public final class TypeChecker {
         }
         if (type instanceof Borrow borrowed) {
             requireCopyable(borrowed.target(), visiting);
+            return;
+        }
+        if (type instanceof Shared shared) {
+            requireCopyable(shared.target(), visiting);
             return;
         }
         if (type instanceof Tuple tuple) {

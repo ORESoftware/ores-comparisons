@@ -217,7 +217,10 @@ final class OptionPatternMatchingTest {
                           return;
                         }
                         """)));
-        assertTrue(hiddenBorrow.getMessage().contains("cannot store a borrow"));
+        String hiddenBorrowMessage = hiddenBorrow.getMessage().toLowerCase();
+        assertTrue(hiddenBorrowMessage.contains("cannot store")
+                && hiddenBorrowMessage.contains("borrow"),
+                hiddenBorrow.getMessage());
     }
 
     @Test
