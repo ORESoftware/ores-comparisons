@@ -187,6 +187,46 @@ final class ActorRuntimeTest {
     }
 
     @Test
+    void privateActorRejectsSharedTransportWrapper() {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var ref = runtime.<ActorRuntime.Shared<List<Integer>>>spawn(
+                    () -> (message, context) -> { });
+            ActorRuntime.Shared<List<Integer>> shared =
+                    runtime.shareReadonly(new ArrayList<>(List.of(1, 2)));
+
+            IllegalArgumentException error = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> ref.send(shared));
+
+            assertTrue(error.getMessage().contains("private actor"), error.getMessage());
+        }
+    }
+
+    @Test
+    void sharedActorAcceptsOnlyFrozenSharedTransportWrapper() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            CountDownLatch received = new CountDownLatch(1);
+            AtomicReference<ActorRuntime.Shared<List<Integer>>> observed = new AtomicReference<>();
+            var ref = runtime.<ActorRuntime.Shared<List<Integer>>>spawnShared(
+                    () -> (message, context) -> {
+                        observed.set(message);
+                        received.countDown();
+                    });
+
+            ArrayList<Integer> mutable = new ArrayList<>(List.of(1, 2));
+            ActorRuntime.Shared<List<Integer>> shared = runtime.shareReadonly(mutable);
+            mutable.add(3);
+            ref.send(shared);
+
+            assertTrue(received.await(2, TimeUnit.SECONDS));
+            assertEquals(List.of(1, 2), observed.get().value());
+            assertThrows(
+                    UnsupportedOperationException.class,
+                    () -> observed.get().value().add(9));
+        }
+    }
+
+    @Test
     void readonlySharingDeepFreezesContainers() {
         try (ActorRuntime runtime = new ActorRuntime()) {
             var shared = runtime.shareReadonly(Map.of("items", List.of(1, 2, 3)));

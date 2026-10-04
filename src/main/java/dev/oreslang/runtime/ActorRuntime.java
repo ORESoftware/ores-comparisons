@@ -215,10 +215,6 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
-     * Creates an explicitly read-only shared value. The returned graph is a
-     * frozen representation; no mutable source object itself is exposed.
-     */
-    /**
      * Cooperative scheduler hook used by compiler-injected loop safepoints.
      * It observes runtime shutdown/interruption and yields the carrier so
      * supervisor/control-plane work can run. This is intentionally a runtime
@@ -264,6 +260,11 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
+    /**
+     * Creates an actor-transport read-only wrapper by deep-freezing the graph.
+     * This is intentionally distinct from source-level rt share, which is a
+     * same-reference ownership transition inside one ownership domain.
+     */
     @SuppressWarnings("unchecked")
     public <T> Shared<T> shareReadonly(T value) {
         return new Shared<>((T) freezeForThisRuntime(value, true));
