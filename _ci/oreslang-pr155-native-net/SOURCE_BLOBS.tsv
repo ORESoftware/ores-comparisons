@@ -81,7 +81,7 @@ e55d49a3ece6656ecf32e2a1347d010e87c60ac1	src/test/java/dev/oreslang/PolyglotFeat
 685ca6528b5fa0a39ac08f7fbe6bdfefbcc1ff8b	src/test/java/dev/oreslang/SharedPrivateActorIsolationProofTest.java
 20a158a419eb8323a2e4523f99ebbc5d7c46c464	src/test/java/dev/oreslang/launcher/CompilerCheckModeTest.java
 5474ed260848d0a4f9a5d59c6f96f74232a5feba	src/test/java/dev/oreslang/net/NativeNetOreslangBoundaryTest.java
-7ed14915ee062e3e7bfdce2fa881552f41897106	src/test/java/dev/oreslang/net/NativeNetworkingLanguageTest.java
+8df66a6d21116bb5f6c9e13545e3a4cf01e50a6a	src/test/java/dev/oreslang/net/NativeNetworkingLanguageTest.java
 8fce5848d073eee1316126732a7a87f101d8cd80	src/test/java/dev/oreslang/net/NativeSocketBridgeTest.java
 8f855d6afd60c75f1b12f54717e365cfeb7f72da	src/test/java/dev/oreslang/net/NativeSocketHandleTest.java
 36c3d9cb6cbc65cb468ee3aec26c26aaf55656f2	src/test/java/dev/oreslang/runtime/ActorCapabilityIsolationTest.java

@@ -427,7 +427,8 @@ final class NativeNetworkingLanguageTest {
                     adversarialActorPolicy,
                     factoryContext -> (message, actorContext) ->
                             NetworkAdmission.rejectAdversarial(
-                                    contextPolicy,
+                                    IsolatePolicy.developer()
+                                            .withCapabilities(IsolatePolicy.Capability.NETWORK),
                                     ActorRuntime.currentActorPolicy(),
                                     "test.raw-network"));
 

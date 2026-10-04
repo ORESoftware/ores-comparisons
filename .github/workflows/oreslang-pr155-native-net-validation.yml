@@ -30,8 +30,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(cat SOURCE_HEAD.txt)" = "648ef2fc061d01d570770f33c3936517fc646f69"
-          test "$(cat SOURCE_TREE.txt)" = "648ef2fc061d01d570770f33c3936517fc646f69"
+          test "$(cat SOURCE_HEAD.txt)" = "d309d8fa01e5f3d1029399f92ad69241a55b6b0d"
+          test "$(cat SOURCE_TREE.txt)" = "d309d8fa01e5f3d1029399f92ad69241a55b6b0d"
           while IFS=$'\t' read -r expected path; do
             actual="$(git hash-object "$path")"
             test "$actual" = "$expected" || {
