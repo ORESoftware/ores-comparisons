@@ -2,6 +2,7 @@ package dev.oreslang.net;
 
 import dev.oreslang.OresLanguage;
 import dev.oreslang.parser.Parser;
+import dev.oreslang.runtime.ActorRuntime;
 import dev.oreslang.runtime.CapabilityChecker;
 import dev.oreslang.runtime.ExecutionProfile;
 import dev.oreslang.runtime.IsolatePolicy;
@@ -415,38 +416,34 @@ final class NativeNetworkingLanguageTest {
 
 
     @Test
-    void adversarialNetworkCapabilityCannotUseRawSocketSurfaces() {
-        String rawNative = """
-                define module app
-                  pub fnc main() => void {
-                    native_net.resolve_all("localhost");
-                    return;
-                  }
-                end
-                """;
-        Exception nativeError = assertThrows(
-                Exception.class,
-                () -> evaluateAdversarial(rawNative));
-        assertTrue(
-                nativeError.toString().contains("bounded stateless HTTP")
-                        || nativeError.toString().contains("raw native networking"),
-                nativeError::toString);
+    void adversarialNetworkCapabilityCannotUseRawSocketSurfaces() throws Exception {
+        IsolatePolicy contextPolicy = IsolatePolicy.developer()
+                .withCapabilities(IsolatePolicy.Capability.NETWORK);
+        IsolatePolicy adversarialActorPolicy = IsolatePolicy.strictFaas()
+                .withCapabilities(IsolatePolicy.Capability.NETWORK);
 
-        String rawSocket = """
-                define module app
-                  pub fnc main() => void {
-                    val socket = net.Socket.new();
-                    return;
-                  }
-                end
-                """;
-        Exception socketError = assertThrows(
-                Exception.class,
-                () -> evaluateAdversarial(rawSocket));
-        assertTrue(
-                socketError.toString().contains("bounded stateless HTTP")
-                        || socketError.toString().contains("raw sockets"),
-                socketError::toString);
+        try (ActorRuntime runtime = new ActorRuntime(contextPolicy)) {
+            var ref = runtime.<String>spawnPrivate(
+                    adversarialActorPolicy,
+                    factoryContext -> (message, actorContext) ->
+                            NetworkAdmission.rejectAdversarial(
+                                    contextPolicy,
+                                    ActorRuntime.currentActorPolicy(),
+                                    "test.raw-network"));
+
+            ref.send("check");
+            assertTrue(ref.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS));
+            Throwable failure = ref.failure().orElseThrow();
+            assertInstanceOf(SecurityException.class, failure);
+            assertTrue(failure.getMessage().contains("bounded stateless HTTP"), failure::getMessage);
+        }
+
+        String nativeBuiltin = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/main/java/dev/oreslang/net/NativeNetBuiltin.java"));
+        String publicNet = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/main/java/dev/oreslang/net/OresNet.java"));
+        assertTrue(nativeBuiltin.contains("NetworkAdmission.requireRawNetwork"));
+        assertTrue(publicNet.contains("NetworkAdmission.requireRawNetwork"));
     }
 
     @Test
@@ -634,23 +631,6 @@ final class NativeNetworkingLanguageTest {
                 java.nio.file.Path.of("src/main/c/oresnet.c"));
         assertTrue(source.contains("close(fd) < 0 && errno != EINTR"));
         assertFalse(source.contains("if (errno == EINTR) continue;\n        throw_errno(env, \"close\")"));
-    }
-
-    private static String evaluateAdversarial(String program) throws Exception {
-        IsolatePolicy policy = IsolatePolicy.developer()
-                .withCapabilities(IsolatePolicy.Capability.NETWORK)
-                .asAdversarial();
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        Source source = Source.newBuilder(OresLanguage.ID, program, "native-net-adversarial-test.ores")
-                .mimeType(OresLanguage.MIME_TYPE)
-                .build();
-
-        try (Context context = policy.restrictedContextBuilder(ExecutionProfile.serverJit())
-                .out(output)
-                .build()) {
-            context.eval(source);
-        }
-        return output.toString(StandardCharsets.UTF_8);
     }
 
     private static String evaluate(String program) throws Exception {

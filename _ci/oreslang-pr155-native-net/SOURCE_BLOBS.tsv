@@ -28,10 +28,11 @@ af0fdcf8aa22cc3fcc148e79c6f8d36a1e9dad3a	src/main/java/dev/oreslang/compiler/Imp
 14520ebada1ef7ac20b8b8412c67859a88dca2a6	src/main/java/dev/oreslang/compiler/IncrementalCompiler.java
 80c76f972d5722474d3c29b64523fac8446129cf	src/main/java/dev/oreslang/compiler/OresCompiler.java
 c5963f07c8bd3e5873bda6d297e5fc397377df01	src/main/java/dev/oreslang/launcher/OresMain.java
-860855e5d85b18e4ac82612c79da25e8168b4229	src/main/java/dev/oreslang/net/NativeNetBuiltin.java
+2450c1286cb50abe542db17626758a24571a4039	src/main/java/dev/oreslang/net/NativeNetBuiltin.java
 be8f9b7f4c75ca7cccf5790137e84a38a824266c	src/main/java/dev/oreslang/net/NativeSocketBridge.java
 432f07cc280a52cdaf4b82f0bd53a0933a5658ab	src/main/java/dev/oreslang/net/NativeSocketHandle.java
-053d1857d13b312b8d6d53682b544d1f8ac0e2fa	src/main/java/dev/oreslang/net/OresNet.java
+83ed318eaca5025aaff84ecc0828646c4ed58a26	src/main/java/dev/oreslang/net/NetworkAdmission.java
+bc06faf02b4c8f85d20eb269c206e76c3009a758	src/main/java/dev/oreslang/net/OresNet.java
 2d62499cb56d48351634081a5ef35908290ff724	src/main/java/dev/oreslang/nodes/OresEvalRootNode.java
 62ac55ad410d3e07d9494b73b3f658d43de70351	src/main/java/dev/oreslang/nodes/OresInteropRootNode.java
 8dea6857fd5a45aca797d36c34faaf826d6c6c5d	src/main/java/dev/oreslang/parser/Lexer.java
@@ -80,7 +81,7 @@ e55d49a3ece6656ecf32e2a1347d010e87c60ac1	src/test/java/dev/oreslang/PolyglotFeat
 685ca6528b5fa0a39ac08f7fbe6bdfefbcc1ff8b	src/test/java/dev/oreslang/SharedPrivateActorIsolationProofTest.java
 20a158a419eb8323a2e4523f99ebbc5d7c46c464	src/test/java/dev/oreslang/launcher/CompilerCheckModeTest.java
 5474ed260848d0a4f9a5d59c6f96f74232a5feba	src/test/java/dev/oreslang/net/NativeNetOreslangBoundaryTest.java
-5a9f454c7a284006178c27ccd6d5acbed5225489	src/test/java/dev/oreslang/net/NativeNetworkingLanguageTest.java
+7ed14915ee062e3e7bfdce2fa881552f41897106	src/test/java/dev/oreslang/net/NativeNetworkingLanguageTest.java
 8fce5848d073eee1316126732a7a87f101d8cd80	src/test/java/dev/oreslang/net/NativeSocketBridgeTest.java
 8f855d6afd60c75f1b12f54717e365cfeb7f72da	src/test/java/dev/oreslang/net/NativeSocketHandleTest.java
 36c3d9cb6cbc65cb468ee3aec26c26aaf55656f2	src/test/java/dev/oreslang/runtime/ActorCapabilityIsolationTest.java

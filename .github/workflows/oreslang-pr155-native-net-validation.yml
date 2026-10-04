@@ -30,8 +30,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(cat SOURCE_HEAD.txt)" = "2a8f67217bf480a53d19d848b8e7b2c49338be8c"
-          test "$(cat SOURCE_TREE.txt)" = "2a8f67217bf480a53d19d848b8e7b2c49338be8c"
+          test "$(cat SOURCE_HEAD.txt)" = "648ef2fc061d01d570770f33c3936517fc646f69"
+          test "$(cat SOURCE_TREE.txt)" = "648ef2fc061d01d570770f33c3936517fc646f69"
           while IFS=$'\t' read -r expected path; do
             actual="$(git hash-object "$path")"
             test "$actual" = "$expected" || {
@@ -39,7 +39,7 @@ jobs:
               exit 1
             }
           done < SOURCE_BLOBS.tsv
-          test "$(wc -l < SOURCE_BLOBS.tsv | tr -d ' ')" = "90"
+          test "$(wc -l < SOURCE_BLOBS.tsv | tr -d ' ')" = "91"
       - name: Compile exact source mirror
         run: mvn -B -ntp -DskipTests compile
       - name: Run native handle and boundary suites

@@ -49,7 +49,7 @@ public final class OresNet {
         }
 
         final void requireRawNetwork(String api) {
-            OresNet.requireRawNetwork(context, api);
+            NetworkAdmission.requireRawNetwork(context, api);
         }
     }
 
@@ -273,7 +273,7 @@ public final class OresNet {
         }
 
         static SocketValue connect(OresContext context, String host, int port, int timeoutMillis) {
-            OresNet.requireRawNetwork(context, "net.Socket.connect");
+            NetworkAdmission.requireRawNetwork(context, "net.Socket.connect");
             checkPort(port, "net.Socket.connect");
             NativeSocketHandle handle = io(() -> NativeSocketBridge.connectHandle(host, port, timeoutMillis));
             return new SocketValue(context, handle, true);
@@ -597,7 +597,7 @@ public final class OresNet {
         }
 
         static ServerSocketValue bound(OresContext context, String host, int port, int backlog) {
-            OresNet.requireRawNetwork(context, "net.ServerSocket.bind");
+            NetworkAdmission.requireRawNetwork(context, "net.ServerSocket.bind");
             checkPort(port, "net.ServerSocket.bind");
             NativeSocketHandle handle = io(() -> NativeSocketBridge.listenHandle(host, port, backlog, true));
             return new ServerSocketValue(context, handle, true);
@@ -1787,15 +1787,6 @@ public final class OresNet {
         IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
         return context.isolatePolicy().adversarial()
                 || (actorPolicy != null && actorPolicy.adversarial());
-    }
-
-    private static void requireRawNetwork(OresContext context, String api) {
-        context.requireCapability(IsolatePolicy.Capability.NETWORK, api);
-        if (adversarialExecution(context)) {
-            throw new SecurityException(
-                    "adversarial isolates cannot access raw sockets through "
-                            + api + "; use the bounded stateless HTTP surface");
-        }
     }
 
     private static BuiltinCallable noArg(String api, Object result) {
