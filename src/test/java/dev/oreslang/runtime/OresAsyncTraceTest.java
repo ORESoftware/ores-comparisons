@@ -80,6 +80,71 @@ final class OresAsyncTraceTest {
     }
 
     @Test
+    void failureKeepsChildAndParentLogicalTracesAcrossSchedulerAwait() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            OresAsyncTrace.Trace childTrace = OresAsyncTrace.root(
+                    new OresAsyncTrace.Frame("child_async", site(60)));
+            OresAsyncTrace.Trace parentTrace = OresAsyncTrace.root(
+                    new OresAsyncTrace.Frame("parent_async", site(70)));
+            OresFuture<Integer> child = new OresFuture<>();
+
+            OresFuture<Integer> parent = scheduler.start(new OresScheduler.Task<>() {
+                private int pc;
+
+                @Override
+                public OresScheduler.Step<Integer> resume(OresScheduler.Resume resume) {
+                    try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(parentTrace)) {
+                        if (pc++ == 0) {
+                            parentTrace.awaitAt(site(71));
+                            return OresScheduler.await(child);
+                        }
+
+                        assertNotNull(resume.failure());
+                        Throwable failure = OresFuture.unwrap(resume.failure());
+                        OresAsyncTrace.attach(failure, parentTrace);
+                        if (failure instanceof RuntimeException runtime) throw runtime;
+                        if (failure instanceof Error error) throw error;
+                        throw new RuntimeException(failure);
+                    }
+                }
+            });
+
+            OresFuture<Void> producer = scheduler.startSync(() -> {
+                try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(childTrace)) {
+                    childTrace.awaitAt(site(61));
+                    IllegalStateException failure =
+                            new IllegalStateException("async child failed");
+                    OresAsyncTrace.attach(failure, childTrace);
+                    child.failFromRuntime(failure);
+                    return null;
+                }
+            });
+
+            producer.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            java.util.concurrent.ExecutionException thrown = assertThrows(
+                    java.util.concurrent.ExecutionException.class,
+                    () -> parent.get(5, java.util.concurrent.TimeUnit.SECONDS));
+
+            Throwable failure = thrown.getCause();
+            assertInstanceOf(IllegalStateException.class, failure);
+
+            java.util.List<OresAsyncTrace.LogicalAsyncStackTrace> logical =
+                    java.util.Arrays.stream(failure.getSuppressed())
+                            .filter(OresAsyncTrace.LogicalAsyncStackTrace.class::isInstance)
+                            .map(OresAsyncTrace.LogicalAsyncStackTrace.class::cast)
+                            .toList();
+
+            assertEquals(2, logical.size(),
+                    "child failure and awaiting parent must retain distinct causal traces");
+            assertTrue(logical.stream()
+                    .anyMatch(trace -> trace.logicalTrace().contains("child_async")));
+            assertTrue(logical.stream()
+                    .anyMatch(trace -> trace.logicalTrace().contains("parent_async")
+                            && trace.logicalTrace().contains("--- await")));
+        }
+    }
+
+    @Test
     void actorBoundaryIsRetainedAsLogicalCausalMetadata() {
         OresAsyncTrace.Frame worker =
                 new OresAsyncTrace.Frame("Worker.receive_message", site(50));
