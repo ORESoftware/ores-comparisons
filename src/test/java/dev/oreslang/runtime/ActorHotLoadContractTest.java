@@ -85,7 +85,7 @@ final class ActorHotLoadContractTest {
     }
 
     @Test
-    void contractMismatchIsRejectedBeforeIsolatedContextAllocation() {
+    void contractMismatchIsRejectedBeforeTrustedIsoactorContextAllocation() {
         OresVM vm = OresVM.dedicated(ActorRuntime.DispatcherConfig.defaults());
         try (HotReloadManager hot = vm.newHotReloadManager(
                 IsolatePolicy.developer(),
@@ -107,6 +107,32 @@ final class ActorHotLoadContractTest {
             assertTrue(failure.getMessage().contains("does not match required ABI"));
             assertEquals(0, hot.liveGenerations(),
                     "ABI rejection must occur before allocating a trusted isoactor context");
+        } finally {
+            vm.shutdownNow();
+        }
+    }
+
+    @Test
+    void validIsoactorContractUsesPrimaryGraalIsolateDomain() {
+        OresVM vm = OresVM.dedicated(ActorRuntime.DispatcherConfig.defaults());
+        try (HotReloadManager hot = vm.newHotReloadManager(
+                IsolatePolicy.developer(),
+                IsolatePolicy.developer(),
+                ExecutionProfile.serverJit(),
+                HotReloadManager.ExecutionDomain.TRUSTED_ISOACTOR_JIT)) {
+
+            assertFalse(hot.executionDomain().spawnedIsolate(),
+                    "trusted isoactor code must remain in the primary Graal isolate");
+            HotReloadManager.Generation generation = hot.loadActor(
+                    "worker.ores",
+                    """
+                    pub isoactor fnc worker(int value) => int {
+                      return value;
+                    }
+                    """,
+                    ISO_INT_TO_INT);
+            assertEquals(HotReloadManager.GenerationState.STAGED, generation.state());
+            assertFalse(hot.guestPolicy().adversarial());
         } finally {
             vm.shutdownNow();
         }
