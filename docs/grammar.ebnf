@@ -137,7 +137,9 @@ for_stmt        = "for" for_of_head loop_body
                 | "for" "(" for_of_head ")" loop_body
                 | "for" "(" [ for_init ] ";" [ expression ] ";" [ expression ] ")" loop_body ;
 
-for_of_head     = [ binding_kind ] IDENT "of" expression ;
+for_of_head     = for_of_binding "of" expression
+                | "[" for_of_binding { "," for_of_binding } "]" "of" expression ;
+for_of_binding  = [ binding_kind ] IDENT ;
 loop_body       = block
                 | "do" { statement } "done" ;
 for_init        = binding_kind [ type_ref ] IDENT "=" expression

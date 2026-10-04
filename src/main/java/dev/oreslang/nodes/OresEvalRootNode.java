@@ -560,7 +560,23 @@ public final class OresEvalRootNode extends RootNode {
                 for (Object item : iterableValues(iterable, env.singletonState)) {
                     context.schedulerSafepoint();
                     Env iteration = new Env(env);
-                    iteration.define(loop.bindingName(), item, loop.bindingKind());
+                    if (loop.bindings().size() == 1) {
+                        Ast.DestructureBinding binding = loop.bindings().getFirst();
+                        iteration.define(binding.name(), item, binding.kind());
+                    } else {
+                        List<?> parts = asSequence(item);
+                        if (parts.size() != loop.bindings().size()) {
+                            throw new IllegalArgumentException(
+                                    "for-of destructuring arity mismatch: pattern has "
+                                            + loop.bindings().size()
+                                            + " binding(s) but iterated value has "
+                                            + parts.size());
+                        }
+                        for (int i = 0; i < loop.bindings().size(); i++) {
+                            Ast.DestructureBinding binding = loop.bindings().get(i);
+                            iteration.define(binding.name(), parts.get(i), binding.kind());
+                        }
+                    }
                     executeBlock(loop.body(), iteration);
                 }
                 return;

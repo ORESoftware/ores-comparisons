@@ -947,8 +947,7 @@ public final class TraitComposer {
             }
             if (statement instanceof Ast.ForOfStmt loop) {
                 return new Ast.ForOfStmt(
-                        loop.bindingKind(),
-                        loop.bindingName(),
+                        loop.bindings(),
                         substitute(loop.iterable(), substitutions),
                         substituteStatements(loop.body(), substitutions));
             }

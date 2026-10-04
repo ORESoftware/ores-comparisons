@@ -180,6 +180,66 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void forOfDestructuresTupleElements() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for [key, value] of arr[(1, "a"), (2, "b")] do
+                    stdio.stdout.write(key)
+                    stdio.stdout.write(value)
+                  done
+                }
+                """);
+
+        assertEquals("1a2b", output);
+    }
+
+    @Test
+    void forOfDestructuringArityIsCheckedStatically() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc bad() => void {
+                          for [a, b, c] of arr[(1, 2)] do
+                            stdio.println(a)
+                          done
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("arity"), error.getMessage());
+    }
+
+    @Test
+    void forOfDestructuringDoesNotUpgradeBorrowedComponentsToMutableOwners() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 0;
+                        end
+
+                        fnc mutate(Box mut box) => void {
+                          box.value = box.value + 1;
+                          return;
+                        }
+
+                        fnc bad() => void {
+                          let Box left = new Box(1);
+                          let Box right = new Box(2);
+                          let pairs = arr[(left, right)];
+                          for [a, b] of pairs do
+                            mutate(a);
+                          done
+                          return;
+                        }
+                        """)));
+
+        String message = error.getMessage().toLowerCase();
+        assertTrue(message.contains("borrow") || message.contains("mut"),
+                error.getMessage());
+    }
+
+    @Test
     void parenthesizedForCanUseDoDoneBody() throws Exception {
         String output = run("""
                 pub routine main() => void {

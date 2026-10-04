@@ -340,20 +340,48 @@ public final class OwnershipChecker {
                 if (iterableOwner == null) iterableOwner = projectionOwner(loop.iterable(), scope);
             }
 
+            List<Ast.TypeRef> bindingTypes = loop.bindings().size() == 1
+                    ? List.of(elementType)
+                    : destructuredElementTypes(elementType, loop.bindings().size());
+
             Map<VarState,Boolean> before = movedSnapshot(scope);
             Scope loopScope = new Scope(scope);
-            VarState elementState = new VarState(
-                    elementType,
-                    loop.bindingKind() == Ast.BindingKind.LET
-                            && elementKind != ValueKind.IMM_BORROW
-                            && elementKind != ValueKind.MUT_BORROW,
-                    elementKind,
-                    Origin.LOCAL);
-            if (elementKind == ValueKind.IMM_BORROW && iterableOwner != null) {
-                beginPersistentBorrow(iterableOwner, false);
-                elementState.borrowSource = iterableOwner;
+            for (int i = 0; i < loop.bindings().size(); i++) {
+                Ast.DestructureBinding binding = loop.bindings().get(i);
+                Ast.TypeRef bindingType = bindingTypes.get(i);
+
+                ValueKind bindingValueKind;
+                if (isCopyType(bindingType)) {
+                    bindingValueKind = ValueKind.COPY;
+                } else if (elementKind == ValueKind.IMM_BORROW
+                        || elementKind == ValueKind.MUT_BORROW) {
+                    // Destructuring a non-consuming iterator element never
+                    // upgrades one of its projections into an owner.
+                    bindingValueKind = ValueKind.IMM_BORROW;
+                } else if (elementKind == ValueKind.COPY) {
+                    bindingValueKind = ValueKind.COPY;
+                } else {
+                    // The iterable was explicitly taken, so non-Copy
+                    // components may transfer into the iteration bindings.
+                    bindingValueKind = ValueKind.MOVE_ONLY;
+                }
+
+                boolean mutableBinding = binding.kind() == Ast.BindingKind.LET
+                        && bindingValueKind != ValueKind.IMM_BORROW
+                        && bindingValueKind != ValueKind.MUT_BORROW
+                        && bindingValueKind != ValueKind.SHARED;
+                VarState state = new VarState(
+                        bindingType,
+                        mutableBinding,
+                        bindingValueKind,
+                        Origin.LOCAL);
+
+                if (bindingValueKind == ValueKind.IMM_BORROW && iterableOwner != null) {
+                    beginPersistentBorrow(iterableOwner, false);
+                    state.borrowSource = iterableOwner;
+                }
+                loopScope.define(binding.name(), state);
             }
-            loopScope.define(loop.bindingName(), elementState);
             checkBlock(loop.body(), loopScope, returnType);
             loopScope.close();
             rejectLoopMoves(before, scope);
@@ -1385,7 +1413,7 @@ public final class OwnershipChecker {
             } else if (stmt instanceof Ast.ForOfStmt s) {
                 scanExpr(s.iterable(), blockLocals, outer, recursiveBinding, captures, false);
                 Set<String> loop = new HashSet<>(blockLocals);
-                loop.add(s.bindingName());
+                for (Ast.DestructureBinding binding : s.bindings()) loop.add(binding.name());
                 scanStatements(s.body(), loop, outer, recursiveBinding, captures);
             } else if (stmt instanceof Ast.ForStmt s) {
                 if (s.initializer() instanceof Ast.ExprStmt e) scanExpr(e.expression(), blockLocals, outer, recursiveBinding, captures, false);

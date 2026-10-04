@@ -608,13 +608,32 @@ for (let i = 0; i < 10; i = i + 1) {
 }
 ```
 
-and iterator-style loops:
+and iterator-style loops. Parentheses are optional, and loop bodies may use braces or `do ... done`:
 
 ```ores
+for item of values do
+  work(item)
+done
+
 for (val item of values) {
   work(item);
 }
 ```
+
+Iterator elements may be destructured directly. `[k, v]` defaults both bindings to `val`; binding kinds may be written per element when local rebinding is needed:
+
+```ores
+for [k, v] of entries do
+  consume(k, v)
+done
+
+for [val key, let value] of entries {
+  value = normalize(value);
+  consume(key, value);
+}
+```
+
+Destructuring preserves ownership. A non-consuming loop yields read borrows for non-`Copy` components; it never manufactures owners from projections. To transfer non-`Copy` element/component ownership into loop bindings, explicitly consume the iterable with `rt take`.
 
 Classes can expose a JavaScript-like iterator symbol:
 

@@ -587,7 +587,7 @@ public final class TypeChecker {
             } else if (stmt instanceof Ast.ForOfStmt loop) {
                 validateProcessOwnedExpr(processOwner, processClass, loop.iterable(), locals, where);
                 Set<String> loopLocals = new LinkedHashSet<>(locals);
-                loopLocals.add(loop.bindingName());
+                for (Ast.DestructureBinding binding : loop.bindings()) loopLocals.add(binding.name());
                 validateProcessOwnedStatements(processOwner, processClass, loop.body(), loopLocals, where);
             } else if (stmt instanceof Ast.ForStmt loop) {
                 Set<String> loopLocals = new LinkedHashSet<>(locals);
@@ -775,7 +775,7 @@ public final class TypeChecker {
             } else if (stmt instanceof Ast.ForOfStmt loop) {
                 if (referencesActorModuleBinding(loop.iterable(), actorBindings, shadowed)) return true;
                 Set<String> loopShadowed = new LinkedHashSet<>(shadowed);
-                loopShadowed.add(loop.bindingName());
+                for (Ast.DestructureBinding binding : loop.bindings()) loopShadowed.add(binding.name());
                 if (referencesActorModuleBinding(loop.body(), actorBindings, loopShadowed)) return true;
             } else if (stmt instanceof Ast.ForStmt loop) {
                 Set<String> loopShadowed = new LinkedHashSet<>(shadowed);
@@ -1330,8 +1330,15 @@ public final class TypeChecker {
         if (stmt instanceof Ast.ForOfStmt loop) {
             Type iterable = typeOf(loop.iterable(), env, generics, self);
             Type element = iterableElementType(iterable);
+            List<Type> bindingTypes = loop.bindings().size() == 1
+                    ? List.of(element)
+                    : destructuredLoopElementTypes(element, loop.bindings().size());
             Env loopEnv = new Env(env);
-            loopEnv.define(loop.bindingName(), element, loop.bindingKind());
+            for (int i = 0; i < loop.bindings().size(); i++) {
+                Ast.DestructureBinding binding = loop.bindings().get(i);
+                requireNotOwnershipIntrinsicBinding(binding.name(), "for-of binding");
+                loopEnv.define(binding.name(), bindingTypes.get(i), binding.kind());
+            }
             checkBlock(loop.body(), loopEnv, generics, expectedReturn, self);
             return;
         }
@@ -1999,6 +2006,31 @@ public final class TypeChecker {
         members.put("host_gc_requested", Primitive.BOOL);
         members.put("trigger", Primitive.STRING);
         return new Record(members);
+    }
+
+    private List<Type> destructuredLoopElementTypes(Type element, int arity) {
+        element = deref(element);
+        if (element instanceof Tuple tuple) {
+            if (tuple.elements().size() != arity) {
+                throw new IllegalArgumentException(
+                        "for-of destructuring arity mismatch: pattern has " + arity
+                                + " binding(s) but tuple element has " + tuple.elements().size());
+            }
+            return tuple.elements();
+        }
+        if (element instanceof ListType list) {
+            List<Type> result = new ArrayList<>(arity);
+            for (int i = 0; i < arity; i++) result.add(list.element());
+            return result;
+        }
+        if (element == Unknown.INSTANCE) {
+            List<Type> result = new ArrayList<>(arity);
+            for (int i = 0; i < arity; i++) result.add(Unknown.INSTANCE);
+            return result;
+        }
+        throw new IllegalArgumentException(
+                "for-of destructuring requires each iterated element to be a tuple or array/list, got "
+                        + element);
     }
 
     private Type iterableElementType(Type iterable) {

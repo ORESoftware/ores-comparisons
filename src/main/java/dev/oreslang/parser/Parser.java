@@ -679,30 +679,27 @@ public final class Parser {
     private Ast.Stmt parseFor() {
         if (match(LPAREN)) return parseParenthesizedFor();
 
-        // Canonical iterator form:
+        // Canonical iterator forms:
         //   for item of values do ... done
-        //   for val item of values { ... }
-        Ast.BindingKind kind = isBindingKind(peek().type())
-                ? parseBindingKind()
-                : Ast.BindingKind.VAL;
-        String name = consume(IDENT,
-                "expected iterator binding name, or '(' for a C-style for loop").lexeme();
+        //   for [key, value] of entries do ... done
+        //   for [val key, let value] of entries { ... }
+        List<Ast.DestructureBinding> bindings = parseForOfBindings();
         consume(OF, "expected 'of' in iterator loop");
         Ast.Expr iterable = parseExpression();
-        return new Ast.ForOfStmt(kind, name, iterable, parseLoopBody());
+        return new Ast.ForOfStmt(bindings, iterable, parseLoopBody());
     }
 
     private Ast.Stmt parseParenthesizedFor() {
+        if (looksLikeForOfHeader()) {
+            List<Ast.DestructureBinding> bindings = parseForOfBindings();
+            consume(OF, "expected 'of' in for-of loop");
+            Ast.Expr iterable = parseExpression();
+            consume(RPAREN, "expected ')' after for-of header");
+            return new Ast.ForOfStmt(bindings, iterable, parseLoopBody());
+        }
+
         if (isBindingKind(peek().type())) {
             Ast.BindingKind kind = parseBindingKind();
-            if (check(IDENT) && checkNext(OF)) {
-                String name = advance().lexeme();
-                consume(OF, "expected 'of' in for-of loop");
-                Ast.Expr iterable = parseExpression();
-                consume(RPAREN, "expected ')' after for-of header");
-                return new Ast.ForOfStmt(kind, name, iterable, parseLoopBody());
-            }
-
             Ast.TypeRef type = null;
             String name;
             if (check(IDENT) && checkNext(EQUAL)) name = advance().lexeme();
@@ -721,14 +718,6 @@ public final class Parser {
             return new Ast.ForStmt(init, condition, update, parseLoopBody());
         }
 
-        if (check(IDENT) && checkNext(OF)) {
-            String name = advance().lexeme();
-            consume(OF, "expected 'of' in for-of loop");
-            Ast.Expr iterable = parseExpression();
-            consume(RPAREN, "expected ')' after for-of header");
-            return new Ast.ForOfStmt(Ast.BindingKind.VAL, name, iterable, parseLoopBody());
-        }
-
         Ast.Stmt initializer = null;
         if (!check(SEMICOLON)) initializer = new Ast.ExprStmt(parseExpression());
         consume(SEMICOLON, "expected ';' after for initializer");
@@ -737,6 +726,68 @@ public final class Parser {
         Ast.Expr update = check(RPAREN) ? null : parseExpression();
         consume(RPAREN, "expected ')' after for header");
         return new Ast.ForStmt(initializer, condition, update, parseLoopBody());
+    }
+
+    private boolean looksLikeForOfHeader() {
+        if (check(IDENT)) return checkNext(OF);
+        if (isBindingKind(peek().type())) {
+            return current + 2 < tokens.size()
+                    && tokens.get(current + 1).type() == IDENT
+                    && tokens.get(current + 2).type() == OF;
+        }
+        if (!check(LBRACKET)) return false;
+
+        int i = current + 1;
+        boolean expectBinding = true;
+        while (i < tokens.size()) {
+            Token.Type type = tokens.get(i).type();
+            if (type == RBRACKET) {
+                return !expectBinding
+                        && i + 1 < tokens.size()
+                        && tokens.get(i + 1).type() == OF;
+            }
+            if (expectBinding) {
+                if (isBindingKind(type)) {
+                    i++;
+                    if (i >= tokens.size() || tokens.get(i).type() != IDENT) return false;
+                } else if (type != IDENT) {
+                    return false;
+                }
+                expectBinding = false;
+                i++;
+                continue;
+            }
+            if (type == COMMA) {
+                expectBinding = true;
+                i++;
+                continue;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    private List<Ast.DestructureBinding> parseForOfBindings() {
+        if (!match(LBRACKET)) {
+            Ast.BindingKind kind = isBindingKind(peek().type())
+                    ? parseBindingKind()
+                    : Ast.BindingKind.VAL;
+            String name = consume(IDENT,
+                    "expected iterator binding name or '[a, b]' destructuring pattern").lexeme();
+            return List.of(new Ast.DestructureBinding(kind, name));
+        }
+
+        List<Ast.DestructureBinding> bindings = new ArrayList<>();
+        if (check(RBRACKET)) throw error(peek(), "for-of destructuring pattern cannot be empty");
+        do {
+            Ast.BindingKind kind = isBindingKind(peek().type())
+                    ? parseBindingKind()
+                    : Ast.BindingKind.VAL;
+            String name = consume(IDENT, "expected binding name in for-of destructuring pattern").lexeme();
+            bindings.add(new Ast.DestructureBinding(kind, name));
+        } while (match(COMMA));
+        consume(RBRACKET, "expected ']' after for-of destructuring pattern");
+        return bindings;
     }
 
     private List<Ast.Stmt> parseLoopBody() {
