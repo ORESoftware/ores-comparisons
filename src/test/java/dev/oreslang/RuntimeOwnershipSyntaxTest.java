@@ -306,6 +306,31 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtSharePreservesIdentityWhileRtCopyCreatesNewIdentity() throws Exception {
+        String output = run("""
+                define class Person as
+                  pub val String name = "Alex";
+
+                  pub copy() => self {
+                    return new Person();
+                  }
+                end
+
+                pub routine main() => void {
+                  let Person p = new Person();
+                  val shared = rt share p;
+                  val copied = rt copy shared;
+                  stdio.stdout.write(shared == p);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(copied == p);
+                  return;
+                }
+                """);
+
+        assertTrue(output.equals("true:false"), output);
+    }
+
+    @Test
     void rtShareRemovesUniqueMutationAuthorityFromOriginalOwner() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
