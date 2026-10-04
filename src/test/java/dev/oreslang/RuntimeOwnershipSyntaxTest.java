@@ -491,6 +491,42 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtShareRejectsCallableValuesUntilEffectsAreModeled() {
+        IllegalArgumentException direct = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc bad() => void {
+                          val (() -> int) counter = || -> {
+                            return 1;
+                          };
+                          val shared = rt share counter;
+                          return;
+                        }
+                        """)));
+        String directMessage = direct.getMessage().toLowerCase();
+        assertTrue(directMessage.contains("share")
+                && (directMessage.contains("fnc") || directMessage.contains("callable")),
+                direct.getMessage());
+
+        IllegalArgumentException nested = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc bad() => void {
+                          val (() -> int) counter = || -> {
+                            return 1;
+                          };
+                          let Array<(() -> int)> callbacks = arr[counter];
+                          val shared = rt share callbacks;
+                          return;
+                        }
+                        """)));
+        String nestedMessage = nested.getMessage().toLowerCase();
+        assertTrue(nestedMessage.contains("share")
+                && (nestedMessage.contains("fnc") || nestedMessage.contains("callable")),
+                nested.getMessage());
+    }
+
+    @Test
     void rtParenthesesCanGroupWiderExpression() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 fnc grouped(int left, int right) => int {

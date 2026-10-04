@@ -1494,6 +1494,8 @@ public final class TypeChecker {
                             throw new IllegalArgumentException(
                                     "rt share requires ownership; a borrow cannot be upgraded into a shared owner");
                         }
+                        Type source = operand instanceof Shared shared ? shared.target() : operand;
+                        requireShareable(source, new LinkedHashSet<>());
                         if (operand instanceof Shared shared) yield shared;
                         if (operand instanceof Primitive || operand instanceof StringLiteral) {
                             // Value-semantic scalars are already independent.
@@ -2412,6 +2414,83 @@ public final class TypeChecker {
         }
 
         throw new IllegalArgumentException("type " + type + " has no provable copy semantics");
+    }
+
+    private void requireShareable(Type type, Set<String> visiting) {
+        if (type instanceof StringLiteral) return;
+        if (type instanceof Primitive primitive) {
+            if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
+                throw new IllegalArgumentException("rt share requires a concrete value, got " + primitive);
+            }
+            return;
+        }
+        if (type instanceof Borrow) {
+            throw new IllegalArgumentException(
+                    "rt share requires ownership; a borrow cannot be upgraded into a shared owner");
+        }
+        if (type instanceof Shared shared) {
+            requireShareable(shared.target(), visiting);
+            return;
+        }
+        if (type instanceof Function) {
+            throw new IllegalArgumentException(
+                    "rt share cannot share first-class Fnc/callable values until callable types encode "
+                            + "effects and share-safety; copy/move the callable or wrap it in an explicit safe capability");
+        }
+        if (type instanceof Tuple tuple) {
+            for (Type element : tuple.elements()) requireShareable(element, visiting);
+            return;
+        }
+        if (type instanceof ListType list) {
+            requireShareable(list.element(), visiting);
+            return;
+        }
+        if (type instanceof Record record) {
+            for (Type member : record.members().values()) requireShareable(member, visiting);
+            return;
+        }
+        if (type instanceof Generic generic) {
+            throw new IllegalArgumentException(
+                    "rt share cannot prove generic type '" + generic.name()
+                            + "' share-safe until generic Share/Sync-style constraints are modeled");
+        }
+        if (type instanceof Named named) {
+            if (named.name().equals("Option") && named.arguments().size() == 1) {
+                requireShareable(named.arguments().getFirst(), visiting);
+                return;
+            }
+
+            Ast.ClassDecl klass = findClass(named.name());
+            if (klass == null) {
+                // Opaque built-in/runtime capability types keep their own
+                // operation-level safety contract. Imported user classes are
+                // rejected by OwnershipChecker until linked ownership metadata
+                // exists, so this path cannot silently authorize foreign code.
+                return;
+            }
+
+            String identity = qualifiedClassName(klass);
+            if (!visiting.add(identity)) return;
+            try {
+                Set<String> generics = Set.copyOf(klass.genericParameters());
+                if (!generics.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "rt share cannot prove generic class '" + klass.name()
+                                    + "' share-safe until generic Share/Sync-style constraints are modeled");
+                }
+                Type selfType = nominalClassType(klass);
+                for (Ast.FieldDecl field : effectiveFields(klass, new LinkedHashSet<>())) {
+                    requireShareable(resolve(field.type(), generics, selfType), visiting);
+                }
+            } finally {
+                visiting.remove(identity);
+            }
+            return;
+        }
+        if (type instanceof SingletonProxy) return;
+
+        throw new IllegalArgumentException(
+                "rt share cannot prove type " + type + " share-safe");
     }
 
     private void requireNotOwnershipIntrinsicBinding(String name, String where) {

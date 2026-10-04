@@ -167,6 +167,32 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void canonicalForOfDoDoneParsesAndRuns() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for item of arr[1, 2, 3] do
+                    stdio.stdout.write(item)
+                  done
+                }
+                """);
+
+        assertEquals("123", output);
+    }
+
+    @Test
+    void parenthesizedForCanUseDoDoneBody() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for (let i = 0; i < 3; i = i + 1) do
+                    stdio.stdout.write(i)
+                  done
+                }
+                """);
+
+        assertEquals("012", output);
+    }
+
+    @Test
     void conventionalForLoopAlsoInjectsSafepoints() throws Exception {
         String output = run("""
                 pub routine main() => void {

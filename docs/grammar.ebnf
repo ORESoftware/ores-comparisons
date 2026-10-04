@@ -133,10 +133,13 @@ option_match_arm= "Some" "(" IDENT ")" "=>" block
 
 try_stmt        = "try" block "catch" "(" IDENT ")" block [ "finally" block ] ;
 
-for_stmt        = "for" "(" for_of_head ")" block
-                | "for" "(" [ for_init ] ";" [ expression ] ";" [ expression ] ")" block ;
+for_stmt        = "for" for_of_head loop_body
+                | "for" "(" for_of_head ")" loop_body
+                | "for" "(" [ for_init ] ";" [ expression ] ";" [ expression ] ")" loop_body ;
 
 for_of_head     = [ binding_kind ] IDENT "of" expression ;
+loop_body       = block
+                | "do" { statement } "done" ;
 for_init        = binding_kind [ type_ref ] IDENT "=" expression
                 | expression ;
 

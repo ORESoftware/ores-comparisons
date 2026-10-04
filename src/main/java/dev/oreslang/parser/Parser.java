@@ -677,8 +677,22 @@ public final class Parser {
     }
 
     private Ast.Stmt parseFor() {
-        consume(LPAREN, "expected '(' after for");
+        if (match(LPAREN)) return parseParenthesizedFor();
 
+        // Canonical iterator form:
+        //   for item of values do ... done
+        //   for val item of values { ... }
+        Ast.BindingKind kind = isBindingKind(peek().type())
+                ? parseBindingKind()
+                : Ast.BindingKind.VAL;
+        String name = consume(IDENT,
+                "expected iterator binding name, or '(' for a C-style for loop").lexeme();
+        consume(OF, "expected 'of' in iterator loop");
+        Ast.Expr iterable = parseExpression();
+        return new Ast.ForOfStmt(kind, name, iterable, parseLoopBody());
+    }
+
+    private Ast.Stmt parseParenthesizedFor() {
         if (isBindingKind(peek().type())) {
             Ast.BindingKind kind = parseBindingKind();
             if (check(IDENT) && checkNext(OF)) {
@@ -686,7 +700,7 @@ public final class Parser {
                 consume(OF, "expected 'of' in for-of loop");
                 Ast.Expr iterable = parseExpression();
                 consume(RPAREN, "expected ')' after for-of header");
-                return new Ast.ForOfStmt(kind, name, iterable, parseBlock());
+                return new Ast.ForOfStmt(kind, name, iterable, parseLoopBody());
             }
 
             Ast.TypeRef type = null;
@@ -704,7 +718,7 @@ public final class Parser {
             consume(SEMICOLON, "expected ';' after for condition");
             Ast.Expr update = check(RPAREN) ? null : parseExpression();
             consume(RPAREN, "expected ')' after for header");
-            return new Ast.ForStmt(init, condition, update, parseBlock());
+            return new Ast.ForStmt(init, condition, update, parseLoopBody());
         }
 
         if (check(IDENT) && checkNext(OF)) {
@@ -712,7 +726,7 @@ public final class Parser {
             consume(OF, "expected 'of' in for-of loop");
             Ast.Expr iterable = parseExpression();
             consume(RPAREN, "expected ')' after for-of header");
-            return new Ast.ForOfStmt(Ast.BindingKind.VAL, name, iterable, parseBlock());
+            return new Ast.ForOfStmt(Ast.BindingKind.VAL, name, iterable, parseLoopBody());
         }
 
         Ast.Stmt initializer = null;
@@ -722,7 +736,15 @@ public final class Parser {
         consume(SEMICOLON, "expected ';' after for condition");
         Ast.Expr update = check(RPAREN) ? null : parseExpression();
         consume(RPAREN, "expected ')' after for header");
-        return new Ast.ForStmt(initializer, condition, update, parseBlock());
+        return new Ast.ForStmt(initializer, condition, update, parseLoopBody());
+    }
+
+    private List<Ast.Stmt> parseLoopBody() {
+        if (check(LBRACE)) return parseBlock();
+        consume(DO, "expected '{' or 'do' after for loop header");
+        List<Ast.Stmt> body = parseUntil(DONE);
+        consume(DONE, "expected 'done' to close for loop");
+        return body;
     }
 
     private Ast.BindingStmt parseBindingStatement() {
@@ -1105,7 +1127,8 @@ public final class Parser {
     }
 
     private boolean isSafeStatementBoundary() {
-        return check(RBRACE) || check(FI) || check(END) || check(ELSE) || check(ELSEIF)
+        return check(RBRACE) || check(FI) || check(END) || check(DONE)
+                || check(ELSE) || check(ELSEIF)
                 || check(CATCH) || check(FINALLY) || check(EOF);
     }
 
