@@ -16,6 +16,7 @@ import dev.oreslang.runtime.OresFuture;
 import dev.oreslang.runtime.OresAsyncTrace;
 import dev.oreslang.runtime.OresScheduler;
 import dev.oreslang.runtime.ActorRuntime;
+import dev.oreslang.runtime.Awaitable;
 
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -104,12 +105,14 @@ public final class OresEvalRootNode extends RootNode {
         private final String codeUnitId;
         private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
         private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
+        private final Map<String, Ast.InterfaceDecl> interfaces = new HashMap<>();
         private final Map<String, Ast.TypeAliasDecl> typeAliases = new HashMap<>();
         private final Map<String, Ast.ModuleDecl> modules = new HashMap<>();
         private final Map<String, Ast.ImportDecl> namedImports = new HashMap<>();
         private final Map<String, Ast.ImportDecl> namespaceImports = new HashMap<>();
         private final Set<String> ambiguousFunctions = new LinkedHashSet<>();
         private final Set<String> ambiguousClasses = new LinkedHashSet<>();
+        private final Set<String> ambiguousInterfaces = new LinkedHashSet<>();
         private final Set<String> ambiguousTypeAliases = new LinkedHashSet<>();
         private boolean initialized;
 
@@ -137,6 +140,7 @@ public final class OresEvalRootNode extends RootNode {
                 for (Ast.Decl decl : module.declarations()) {
                     if (decl instanceof Ast.FunctionDecl fn) index(functions, ambiguousFunctions, module.name(), fn.name(), fn);
                     else if (decl instanceof Ast.ClassDecl klass) index(classes, ambiguousClasses, module.name(), klass.name(), klass);
+                    else if (decl instanceof Ast.InterfaceDecl iface) index(interfaces, ambiguousInterfaces, module.name(), iface.name(), iface);
                     else if (decl instanceof Ast.TypeAliasDecl alias) index(typeAliases, ambiguousTypeAliases, module.name(), alias.name(), alias);
                 }
             }
@@ -159,6 +163,14 @@ public final class OresEvalRootNode extends RootNode {
         private Ast.ClassDecl findClass(String name) {
             if (ambiguousClasses.contains(name)) throw new IllegalArgumentException("ambiguous class " + name + "; qualify it with its module");
             return classes.get(name);
+        }
+
+        private Ast.InterfaceDecl findInterface(String name) {
+            if (ambiguousInterfaces.contains(name)) {
+                throw new IllegalArgumentException(
+                        "ambiguous interface " + name + "; qualify it with its module");
+            }
+            return interfaces.get(name);
         }
 
         private Ast.TypeAliasDecl findTypeAlias(String name) {
@@ -829,24 +841,64 @@ public final class OresEvalRootNode extends RootNode {
                     env,
                     deferred,
                     callable);
-            return asyncFold(
-                    body,
-                    flow -> asyncFlatMap(
-                            asyncRunDeferred(deferred, env),
-                            ignored -> {
-                                env.releaseMutexGuards(false);
-                                return asyncPure(flow);
-                            }),
-                    failure -> asyncFold(
-                            asyncRunDeferred(deferred, env),
-                            ignored -> {
-                                env.releaseMutexGuards(true);
-                                return asyncFailure(failure);
-                            },
-                            deferredFailure -> {
-                                env.releaseMutexGuards(true);
-                                return asyncFailure(deferredFailure);
-                            }));
+            return asyncFinalizeBlock(body, deferred, env);
+        }
+
+        /**
+         * Finalize one lexical async scope without rebuilding the caller
+         * continuation chain. Proper tail transfer still has to perform the
+         * lexical cleanup that an ordinary return would perform.
+         */
+        private AsyncPlan asyncFinalizeBlock(
+                AsyncPlan plan,
+                ArrayDeque<Ast.Expr> deferred,
+                Env env) {
+            if (plan instanceof AsyncTailTransfer tail) {
+                return new AsyncThunk(() -> safePlan(() -> {
+                    if (!deferred.isEmpty()) {
+                        return asyncFailure(new IllegalStateException(
+                                "tail-await reached a lexical scope with pending defer cleanup"));
+                    }
+                    env.releaseMutexGuards(false);
+                    return tail;
+                }));
+            }
+            if (plan instanceof AsyncPure pure) {
+                return asyncFlatMap(
+                        asyncRunDeferred(deferred, env),
+                        ignored -> safePlan(() -> {
+                            env.releaseMutexGuards(false);
+                            return asyncPure(pure.value());
+                        }));
+            }
+            if (plan instanceof AsyncFailure failed) {
+                return asyncFold(
+                        asyncRunDeferred(deferred, env),
+                        ignored -> safePlan(() -> {
+                            env.releaseMutexGuards(true);
+                            return asyncFailure(failed.failure());
+                        }),
+                        deferredFailure -> safePlan(() -> {
+                            env.releaseMutexGuards(true);
+                            return asyncFailure(deferredFailure);
+                        }));
+            }
+            if (plan instanceof AsyncThunk thunk) {
+                return new AsyncThunk(() ->
+                        asyncFinalizeBlock(
+                                safePlan(thunk.body()),
+                                deferred,
+                                env));
+            }
+
+            AsyncAwait awaited = (AsyncAwait) plan;
+            return new AsyncAwait(
+                    awaited.future(),
+                    (value, failure) -> asyncFinalizeBlock(
+                            safePlan(() -> awaited.continuation().resume(value, failure)),
+                            deferred,
+                            env),
+                    awaited.site());
         }
 
         private AsyncPlan asyncRunDeferred(ArrayDeque<Ast.Expr> deferred, Env env) {
@@ -1350,6 +1402,87 @@ public final class OresEvalRootNode extends RootNode {
                     site);
         }
 
+        private OresFuture<?> awaitableFuture(Object value) {
+            Objects.requireNonNull(value, "awaitable");
+
+            if (value instanceof Awaitable<?> awaitable) {
+                return Objects.requireNonNull(
+                        awaitable.getAwaited(),
+                        "Awaitable.get_awaited() returned null");
+            }
+
+            if (value instanceof CompletionStage<?> stage) {
+                return OresFuture.from(stage);
+            }
+
+            if (value instanceof OresObject object
+                    && classImplementsAwaitable(object.klass, new LinkedHashSet<>())) {
+                Ast.MethodDecl method =
+                        findMethod(object.klass, "get_awaited", 0, new LinkedHashSet<>());
+                if (method == null) {
+                    throw new IllegalStateException(
+                            "class " + object.klass.name()
+                                    + " implements Awaitable<T> but has no get_awaited() method");
+                }
+                Object projected = callMethod(object, method, List.of());
+                if (projected instanceof Awaitable<?> awaitable) {
+                    return Objects.requireNonNull(
+                            awaitable.getAwaited(),
+                            "Awaitable.get_awaited() returned null");
+                }
+                if (projected instanceof CompletionStage<?> stage) {
+                    return OresFuture.from(stage);
+                }
+                throw new IllegalStateException(
+                        "Awaitable.get_awaited() on " + object.klass.name()
+                                + " must return Future<T>");
+            }
+
+            throw new IllegalArgumentException(
+                    "await requires Awaitable<T>; value of runtime type "
+                            + value.getClass().getName() + " is not awaitable");
+        }
+
+        private boolean classImplementsAwaitable(
+                Ast.ClassDecl klass,
+                Set<Ast.ClassDecl> seen) {
+            if (!seen.add(klass)) return false;
+            for (Ast.TypeRef ifaceRef : klass.interfaces()) {
+                if (ifaceRef.name().equals("Awaitable")) return true;
+                Ast.InterfaceDecl iface = findInterface(ifaceRef.name());
+                if (iface != null
+                        && interfaceExtendsAwaitable(iface, new LinkedHashSet<>())) {
+                    return true;
+                }
+            }
+            for (Ast.TypeRef parentRef : klass.parents()) {
+                if (parentRef.name().equals("Object")
+                        || parentRef.name().equals("List")) {
+                    continue;
+                }
+                Ast.ClassDecl parent = findClass(parentRef.name());
+                if (parent != null && classImplementsAwaitable(parent, seen)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean interfaceExtendsAwaitable(
+                Ast.InterfaceDecl iface,
+                Set<Ast.InterfaceDecl> seen) {
+            if (!seen.add(iface)) return false;
+            for (Ast.TypeRef parentRef : iface.parents()) {
+                if (parentRef.name().equals("Awaitable")) return true;
+                Ast.InterfaceDecl parent = findInterface(parentRef.name());
+                if (parent != null
+                        && interfaceExtendsAwaitable(parent, seen)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private AsyncPlan asyncEval(Ast.Expr expr, Env env) {
             if (!containsAwait(expr)) {
                 return new AsyncThunk(() -> safePlan(() -> asyncPure(eval(expr, env))));
@@ -1357,18 +1490,7 @@ public final class OresEvalRootNode extends RootNode {
 
             if (expr instanceof Ast.AwaitExpr awaited) {
                 return asyncFlatMap(asyncEval(awaited.expression(), env), value -> {
-                    Object normalized = value;
-                    if (normalized instanceof ActorRuntime.ActorSpawn<?, ?> spawn) {
-                        normalized = spawn.ready();
-                    }
-                    final OresFuture<?> future;
-                    if (normalized instanceof OresFuture<?> oresFuture) {
-                        future = oresFuture;
-                    } else if (normalized instanceof CompletionStage<?> stage) {
-                        future = OresFuture.from(stage);
-                    } else {
-                        return asyncPure(normalized);
-                    }
+                    OresFuture<?> future = awaitableFuture(value);
                     return new AsyncAwait(
                             future,
                             (result, failure) -> failure == null
@@ -1948,6 +2070,7 @@ public final class OresEvalRootNode extends RootNode {
                 if (name.name().equals("process")) return new ProcessFacade(context);
                 if (name.name().equals("actor")) return new ActorFacade(context);
                 if (name.name().equals("Futures")) return new FuturesFacade();
+                if (name.name().equals("Future")) return new FutureFactory();
                 if (name.name().equals("Mutex")) return new MutexFactory(false, context);
                 if (name.name().equals("SharedMutex")) return new MutexFactory(true, context);
                 if (name.name().equals("RwLock")) return new RwLockFactory(context);
@@ -2113,47 +2236,21 @@ public final class OresEvalRootNode extends RootNode {
                 return spawnFunction(spawned.call(), env);
             }
             if (expr instanceof Ast.AwaitExpr awaited) {
-                Object value = eval(awaited.expression(), env);
-                if (value instanceof ActorRuntime.ActorSpawn<?, ?> spawn) {
-                    value = spawn.ready();
-                }
+                OresFuture<?> future = awaitableFuture(eval(awaited.expression(), env));
 
-                if (value instanceof OresFuture<?> future) {
-                    // Source actor await must never resume inline, including for
-                    // an already-settled Future. The stackless source-frame
-                    // lowerer replaces this recursive-evaluator path with
-                    // ActorContext.suspendOn(...).
-                    if (ActorRuntime.inActorExecution()) {
-                        throw new IllegalStateException(
-                                "source await inside an actor requires continuation lowering; "
-                                        + "the recursive evaluator must not block or inline-resume an actor carrier");
-                    }
-                    if (ActorRuntime.currentRootIsAdversarial() && !future.isDone()) {
-                        throw new IllegalStateException(
-                                "await would block an adversarial serialized root context; "
-                                        + "continuation lowering must suspend/resume before awaiting readiness/result");
-                    }
-                    return future.join();
+                // Recursive evaluator is host/root compatibility only. Async
+                // source and actor turns must use the stackless plan lowering.
+                if (ActorRuntime.inActorExecution()) {
+                    throw new IllegalStateException(
+                            "source await inside an actor requires continuation lowering; "
+                                    + "the recursive evaluator must not block or inline-resume an actor carrier");
                 }
-
-                // Compatibility boundary for host/legacy async primitives such
-                // as the current mutex implementation. Normalize their
-                // completion policy before exposing them as an Ores Future.
-                if (value instanceof CompletionStage<?> stage) {
-                    OresFuture<?> future = OresFuture.from(stage);
-                    if (ActorRuntime.inActorExecution()) {
-                        throw new IllegalStateException(
-                                "source await inside an actor requires continuation lowering; "
-                                        + "host stages are normalized to OresFuture before suspension");
-                    }
-                    if (ActorRuntime.currentRootIsAdversarial() && !future.isDone()) {
-                        throw new IllegalStateException(
-                                "await would block an adversarial serialized root context; "
-                                        + "continuation lowering must suspend/resume before awaiting a host stage");
-                    }
-                    return future.join();
+                if (ActorRuntime.currentRootIsAdversarial() && !future.isDone()) {
+                    throw new IllegalStateException(
+                            "await would block an adversarial serialized root context; "
+                                    + "continuation lowering must suspend/resume before awaiting readiness/result");
                 }
-                return value;
+                return future.join();
             }
             if (expr instanceof Ast.ListExpr list) {
                 ArrayList<Object> result = new ArrayList<>(list.elements().size());
@@ -2244,12 +2341,26 @@ public final class OresEvalRootNode extends RootNode {
                     default -> throw new IllegalArgumentException("unknown Futures member " + name);
                 };
             }
+            if (receiver instanceof FutureFactory factory) {
+                return switch (name) {
+                    case "from_callback" -> (Invokable) factory::fromCallback;
+                    default -> throw new IllegalArgumentException(
+                            "unknown Future static member " + name);
+                };
+            }
+            if (receiver instanceof CallbackFacade callback) {
+                return callback.member(name);
+            }
             if (receiver instanceof ActorRuntime.ActorSpawn<?, ?> spawn) {
                 return switch (name) {
                     case "id" -> spawn.id();
                     case "ready" -> spawn.ready();
                     case "done" -> spawn.done();
                     case "result" -> spawn.result();
+                    case "get_awaited" -> (Invokable) args -> {
+                        requireZero(args, "ActorSpawn.get_awaited");
+                        return spawn.getAwaited();
+                    };
                     default -> throw new IllegalArgumentException("unknown ActorSpawn member " + name);
                 };
             }
@@ -2276,6 +2387,31 @@ public final class OresEvalRootNode extends RootNode {
                     case "cancel" -> (Invokable) args -> {
                         requireZero(args, "Future.cancel");
                         return future.cancel(true);
+                    };
+                    case "get_awaited" -> (Invokable) args -> {
+                        requireZero(args, "Future.get_awaited");
+                        return future.getAwaited();
+                    };
+                    case "attach_callback" -> (Invokable) args -> {
+                        requireOne(args, "Future.attach_callback");
+                        if (!(args.getFirst() instanceof Invokable registrar)) {
+                            throw new IllegalArgumentException(
+                                    "Future.attach_callback expects a callback registrar");
+                        }
+                        @SuppressWarnings("unchecked")
+                        OresFuture<Object> source = (OresFuture<Object>) future;
+                        return source.attachCallback(
+                                asyncScheduler(),
+                                (value, completion) -> {
+                                    Object returned = registrar.call(List.of(
+                                            value,
+                                            new CallbackFacade(
+                                                    (OresFuture.Callback<Object>) completion)));
+                                    if (returned != null) {
+                                        throw new IllegalArgumentException(
+                                                "Future.attach_callback registrar must return void");
+                                    }
+                                });
                     };
                     default -> throw new IllegalArgumentException(
                             "unknown Future member " + name + "; use await to obtain its value");
@@ -3263,6 +3399,90 @@ public final class OresEvalRootNode extends RootNode {
     private record ActorFacade(OresContext context) {
         private Map<String,Object> gc(List<Object> args){requireZero(args,"actor.gc");return context.garbageCollector().collectCurrentActor().asMap();}
     }
+
+    private static final class FutureFactory {
+        private Object fromCallback(List<Object> args) {
+            requireOne(args, "Future.from_callback");
+            if (!(args.getFirst() instanceof Invokable registrar)) {
+                throw new IllegalArgumentException(
+                        "Future.from_callback expects a callback registrar");
+            }
+            return OresFuture.fromCallback(completion -> {
+                Object returned = registrar.call(List.of(
+                        new CallbackFacade(
+                                (OresFuture.Callback<Object>) completion)));
+                if (returned != null) {
+                    throw new IllegalArgumentException(
+                            "Future.from_callback registrar must return void");
+                }
+            });
+        }
+    }
+
+    private static final class CallbackFacade implements Invokable {
+        private final OresFuture.Callback<Object> callback;
+
+        private CallbackFacade(OresFuture.Callback<Object> callback) {
+            this.callback = Objects.requireNonNull(callback, "callback");
+        }
+
+        @Override
+        public Object call(List<Object> args) {
+            if (args.size() == 1) {
+                callback.resolve(args.getFirst());
+                return null;
+            }
+            if (args.size() == 2) {
+                Object error = args.get(0);
+                Object value = args.get(1);
+                if (error == null
+                        || (error instanceof OptionValue option
+                                && !option.present())) {
+                    callback.resolve(value);
+                } else if (error instanceof OptionValue option) {
+                    callback.reject(callbackFailure(option.value()));
+                } else {
+                    callback.reject(callbackFailure(error));
+                }
+                return null;
+            }
+            throw new IllegalArgumentException(
+                    "Callback<T> expects cb(value) or error-first cb(error, value)");
+        }
+
+        private Object member(String name) {
+            return switch (name) {
+                case "resolve" -> (Invokable) args -> {
+                    requireOne(args, "Callback.resolve");
+                    callback.resolve(args.getFirst());
+                    return null;
+                };
+                case "reject" -> (Invokable) args -> {
+                    requireOne(args, "Callback.reject");
+                    callback.reject(callbackFailure(args.getFirst()));
+                    return null;
+                };
+                case "cancel" -> (Invokable) args -> {
+                    requireZero(args, "Callback.cancel");
+                    callback.cancel();
+                    return null;
+                };
+                case "is_done" -> (Invokable) args -> {
+                    requireZero(args, "Callback.is_done");
+                    return callback.isDone();
+                };
+                default -> throw new IllegalArgumentException(
+                        "unknown Callback member " + name);
+            };
+        }
+
+        private Throwable callbackFailure(Object error) {
+            if (error instanceof Throwable failure) return failure;
+            return new IllegalStateException(
+                    "callback rejected: " + String.valueOf(error));
+        }
+    }
+
     private record FuturesFacade() {
         private Object all(List<Object> args) {
             return OresFutures.all(requireFutures(args, "Futures.all"));

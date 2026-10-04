@@ -30,9 +30,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * threads never execute the task continuation directly.</p>
  *
  * <p>The compiler lowers an async callable to {@link Task}: a small resumable
- * state machine. Returning {@link Await} suspends the task on a Future.
- * Returning {@link TailAwait} performs a scheduler-bound tail transfer without
- * allocating a child task/Future. Returning {@link Done} completes it.</p>
+ * state machine. Returning {@link Await} suspends the task. Returning
+ * {@link Done} completes it.</p>
  */
 public final class OresScheduler implements AutoCloseable {
     private static final AtomicLong NEXT_ID = new AtomicLong();
@@ -40,7 +39,13 @@ public final class OresScheduler implements AutoCloseable {
     private static final ThreadLocal<OresScheduler> CURRENT = new ThreadLocal<>();
     private static final ThreadLocal<Long> CURRENT_DISPATCH_ID = new ThreadLocal<>();
     private static final ThreadLocal<Object> CURRENT_TASK_DOMAIN = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> SCHEDULER_CARRIER = new ThreadLocal<>();
     private static final int DEFAULT_QUEUE_CAPACITY = 65_536;
+
+    @FunctionalInterface
+    interface TurnExecutor {
+        void execute(Runnable turn);
+    }
 
     /** One compiler-generated async state-machine turn. */
     @FunctionalInterface
@@ -65,10 +70,10 @@ public final class OresScheduler implements AutoCloseable {
     }
 
     /**
-     * The compiler has replaced the current async frame with a verified
-     * tail-called frame. This is still an await boundary: the current carrier
-     * turn must fully unwind and the replacement frame runs only on a fresh
-     * scheduler dispatch.
+     * Proper async tail transfer. The compiler has already replaced the
+     * current logical frame. The scheduler still treats this as an await
+     * boundary so execution can resume only after the current guest turn has
+     * fully unwound and control has returned through dispatch.
      */
     public record TailAwait<T>() implements Step<T> { }
 
@@ -90,6 +95,7 @@ public final class OresScheduler implements AutoCloseable {
     private final int parallelism;
     private final Executor executor;
     private final ExecutorService ownedExecutor;
+    private final TurnExecutor turnExecutor;
     private final Set<TaskRunner<?>> tasks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -98,10 +104,17 @@ public final class OresScheduler implements AutoCloseable {
      * threads and a bounded ready queue.
      */
     public OresScheduler(int parallelism) {
-        this(parallelism, DEFAULT_QUEUE_CAPACITY);
+        this(parallelism, DEFAULT_QUEUE_CAPACITY, Runnable::run);
     }
 
     public OresScheduler(int parallelism, int queueCapacity) {
+        this(parallelism, queueCapacity, Runnable::run);
+    }
+
+    private OresScheduler(
+            int parallelism,
+            int queueCapacity,
+            TurnExecutor turnExecutor) {
         if (parallelism <= 0) {
             throw new IllegalArgumentException("scheduler parallelism must be positive");
         }
@@ -111,11 +124,20 @@ public final class OresScheduler implements AutoCloseable {
 
         this.name = "ores-user-scheduler-" + NEXT_ID.incrementAndGet();
         this.parallelism = parallelism;
+        this.turnExecutor = Objects.requireNonNull(turnExecutor, "turnExecutor");
 
-        ThreadFactory factory = Thread.ofPlatform()
+        AtomicInteger carrierId = new AtomicInteger();
+        ThreadFactory factory = task -> Thread.ofPlatform()
                 .daemon(true)
-                .name(name + "-carrier-", 0)
-                .factory();
+                .name(name + "-carrier-" + carrierId.getAndIncrement())
+                .unstarted(() -> {
+                    SCHEDULER_CARRIER.set(Boolean.TRUE);
+                    try {
+                        task.run();
+                    } finally {
+                        SCHEDULER_CARRIER.remove();
+                    }
+                });
         ThreadPoolExecutor pool = new ThreadPoolExecutor(
                 parallelism,
                 parallelism,
@@ -141,6 +163,7 @@ public final class OresScheduler implements AutoCloseable {
         this.parallelism = parallelism;
         this.executor = Objects.requireNonNull(executor, "executor");
         this.ownedExecutor = ownedExecutor;
+        this.turnExecutor = Runnable::run;
     }
 
     /**
@@ -152,6 +175,24 @@ public final class OresScheduler implements AutoCloseable {
             int parallelism,
             Executor executor) {
         return new OresScheduler(name, parallelism, executor, null);
+    }
+
+    /**
+     * Context-owned scheduler with private carriers. Each guest turn is wrapped
+     * by the owning language context before scheduler binding is installed.
+     */
+    static OresScheduler managed(
+            int parallelism,
+            TurnExecutor turnExecutor) {
+        return new OresScheduler(
+                parallelism,
+                DEFAULT_QUEUE_CAPACITY,
+                turnExecutor);
+    }
+
+    /** True only on private carriers owned by user-created OresSchedulers. */
+    public static boolean isSchedulerCarrierThread() {
+        return Boolean.TRUE.equals(SCHEDULER_CARRIER.get());
     }
 
     public String name() {
@@ -284,7 +325,7 @@ public final class OresScheduler implements AutoCloseable {
         ensureOpen();
         executor.execute(() -> {
             try {
-                runBound(turn);
+                turnExecutor.execute(() -> runBound(turn));
             } finally {
                 afterTurn.run();
             }
@@ -455,11 +496,10 @@ public final class OresScheduler implements AutoCloseable {
         }
 
         /**
-         * Proper async tail transfer. No Future is needed because the compiler
-         * already replaced the task's logical frame. We still publish a resume
-         * token only after marking WAITING, and afterCarrierTurn() is solely
-         * responsible for making the replacement frame runnable. This forbids
-         * inline recursion even when the tail-called body is immediately ready.
+         * Tail transfer publishes a synthetic resume only after moving the task
+         * to WAITING. scheduleReadyResume() is suppressed while this turn still
+         * owns the execution lease, so afterCarrierTurn() is the earliest point
+         * at which the replacement frame can be dispatched.
          */
         private void armTailAwait() {
             if (!phase.compareAndSet(RUNNING, WAITING)) {
