@@ -269,6 +269,34 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtCopyRejectsClassGraphsWithHiddenCallableState() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Holder as
+                          pub val (() -> int) callback = || -> {
+                            return 1;
+                          };
+
+                          pub copy() => self {
+                            return new Holder();
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Holder holder = new Holder();
+                          val copied = rt copy holder;
+                          return;
+                        }
+                        """)));
+
+        String message = error.getMessage().toLowerCase();
+        assertTrue(message.contains("copy")
+                && (message.contains("callable") || message.contains("fnc")),
+                error.getMessage());
+    }
+
+    @Test
     void rtCopyRejectsIdentityClassWithoutCopyContract() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

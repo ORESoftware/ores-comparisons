@@ -2407,6 +2407,9 @@ public final class TypeChecker {
                     throw new IllegalArgumentException("class '" + klass.name()
                             + "' copy() must return self/the same concrete class type");
                 }
+                requireInspectableCopyStorage(
+                        klass,
+                        new LinkedHashSet<>());
             } finally {
                 visiting.remove(identity);
             }
@@ -2414,6 +2417,99 @@ public final class TypeChecker {
         }
 
         throw new IllegalArgumentException("type " + type + " has no provable copy semantics");
+    }
+
+    private void requireInspectableCopyStorage(
+            Ast.ClassDecl klass,
+            Set<String> visiting) {
+        String identity = qualifiedClassName(klass);
+        if (!visiting.add(identity)) return;
+        try {
+            if (!klass.genericParameters().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "class '" + klass.name()
+                                + "' copy graph cannot be verified while generic storage is unresolved");
+            }
+            Type selfType = nominalClassType(klass);
+            Set<String> generics = Set.copyOf(klass.genericParameters());
+            for (Ast.FieldDecl field : effectiveFields(klass, new LinkedHashSet<>())) {
+                requireInspectableCopyStorageType(
+                        resolve(field.type(), generics, selfType),
+                        visiting,
+                        klass.name() + "." + field.name());
+            }
+        } finally {
+            visiting.remove(identity);
+        }
+    }
+
+    private void requireInspectableCopyStorageType(
+            Type type,
+            Set<String> visiting,
+            String where) {
+        if (type instanceof StringLiteral) return;
+        if (type instanceof Primitive primitive) {
+            if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
+                throw new IllegalArgumentException(
+                        "copy graph field '" + where + "' has non-storable type " + primitive);
+            }
+            return;
+        }
+        if (type instanceof Function) {
+            throw new IllegalArgumentException(
+                    "class copy graph field '" + where
+                            + "' contains a first-class Fnc/callable whose hidden captured state "
+                            + "cannot be verified for independent-copy semantics");
+        }
+        if (type instanceof Borrow) {
+            throw new IllegalArgumentException(
+                    "class copy graph field '" + where
+                            + "' stores a borrow; copy verification requires owned storage");
+        }
+        if (type instanceof Shared) {
+            throw new IllegalArgumentException(
+                    "class copy graph field '" + where
+                            + "' stores shared ownership; independent-copy semantics require an explicit adapter");
+        }
+        if (type instanceof Tuple tuple) {
+            for (Type element : tuple.elements()) {
+                requireInspectableCopyStorageType(element, visiting, where + "[]");
+            }
+            return;
+        }
+        if (type instanceof ListType list) {
+            requireInspectableCopyStorageType(list.element(), visiting, where + "[]");
+            return;
+        }
+        if (type instanceof Record record) {
+            for (Map.Entry<String, Type> entry : record.members().entrySet()) {
+                requireInspectableCopyStorageType(
+                        entry.getValue(), visiting, where + "." + entry.getKey());
+            }
+            return;
+        }
+        if (type instanceof Generic generic) {
+            throw new IllegalArgumentException(
+                    "class copy graph field '" + where + "' has unresolved generic type '"
+                            + generic.name() + "'");
+        }
+        if (type instanceof Named named) {
+            if (named.name().equals("Option") && named.arguments().size() == 1) {
+                requireInspectableCopyStorageType(
+                        named.arguments().getFirst(), visiting, where + "?");
+                return;
+            }
+            Ast.ClassDecl nested = findClass(named.name());
+            if (nested == null) {
+                throw new IllegalArgumentException(
+                        "class copy graph field '" + where + "' has opaque/unlinked type '"
+                                + named.name() + "' that the runtime copy verifier cannot inspect");
+            }
+            requireInspectableCopyStorage(nested, visiting);
+            return;
+        }
+        throw new IllegalArgumentException(
+                "class copy graph field '" + where + "' has uninspectable type " + type);
     }
 
     private void requireShareable(Type type, Set<String> visiting) {
