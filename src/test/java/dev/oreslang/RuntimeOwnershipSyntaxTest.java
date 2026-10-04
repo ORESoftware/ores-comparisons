@@ -289,16 +289,56 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
-    void rtShareCreatesReadOnlyDetachedSnapshot() {
+    void rtShareDoesNotRequireCopyContract() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Person as
+                  pub val String name = "Alex";
+                end
+
+                fnc ok() => void {
+                  let Person p = new Person();
+                  val shared = rt share p;
+                  stdio.println(shared.name);
+                  stdio.println(p.name);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void rtShareRemovesUniqueMutationAuthorityFromOriginalOwner() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
                         define class Person as
                           pub let String name = "Alex";
+                        end
 
-                          pub copy() => self {
-                            return new Person();
-                          }
+                        fnc rename(Person mut person) => void {
+                          person.name = "Taylor";
+                          return;
+                        }
+
+                        fnc bad() => void {
+                          let Person p = new Person();
+                          val shared = rt share p;
+                          stdio.println(shared.name);
+                          rename(p);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("shared")
+                || error.getMessage().toLowerCase().contains("ownership"), error.getMessage());
+    }
+
+    @Test
+    void rtShareAliasCannotBeMutatedOrTaken() {
+        IllegalArgumentException mutate = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Person as
+                          pub let String name = "Alex";
                         end
 
                         fnc rename(Person mut person) => void {
@@ -313,9 +353,80 @@ final class RuntimeOwnershipSyntaxTest {
                           return;
                         }
                         """)));
+        assertTrue(mutate.getMessage().toLowerCase().contains("shared")
+                || mutate.getMessage().toLowerCase().contains("mut"), mutate.getMessage());
 
-        assertTrue(error.getMessage().toLowerCase().contains("shared")
-                || error.getMessage().toLowerCase().contains("mut"), error.getMessage());
+        IllegalArgumentException take = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Person as
+                          pub val String name = "Alex";
+                        end
+
+                        fnc bad() => void {
+                          let Person p = new Person();
+                          val shared = rt share p;
+                          val owned = rt take shared;
+                          return;
+                        }
+                        """)));
+        assertTrue(take.getMessage().toLowerCase().contains("shared")
+                || take.getMessage().toLowerCase().contains("ownership"), take.getMessage());
+    }
+
+    @Test
+    void rtShareCanBeDuplicatedAsSharedOwnership() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Person as
+                  pub val String name = "Alex";
+                end
+
+                fnc ok() => void {
+                  let Person p = new Person();
+                  val first = rt share p;
+                  val second = rt share p;
+                  stdio.println(first.name);
+                  stdio.println(second.name);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void sharedOwnershipCannotBeLaunderedThroughReturnOrAggregate() {
+        IllegalArgumentException returned = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Person as
+                          pub val String name = "Alex";
+                        end
+
+                        fnc bad() => Person {
+                          let Person p = new Person();
+                          return rt share p;
+                        }
+                        """)));
+        assertTrue(returned.getMessage().contains("Shared<T>")
+                || returned.getMessage().toLowerCase().contains("shared ownership"),
+                returned.getMessage());
+
+        IllegalArgumentException stored = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Person as
+                          pub val String name = "Alex";
+                        end
+
+                        fnc bad() => void {
+                          let Person p = new Person();
+                          val shared = rt share p;
+                          val wrapped = obj{person: shared};
+                          return;
+                        }
+                        """)));
+        assertTrue(stored.getMessage().contains("Shared<T>")
+                || stored.getMessage().toLowerCase().contains("shared ownership"),
+                stored.getMessage());
     }
 
     @Test

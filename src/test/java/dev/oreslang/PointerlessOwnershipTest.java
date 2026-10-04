@@ -1059,7 +1059,7 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
-    void shareCreatesDetachedReadOnlyValueInsteadOfAmbientSharedMutableState() {
+    void sharingCopyScalarRemainsAValueOperation() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 fnc ok() => void {
                   let int value = 1;

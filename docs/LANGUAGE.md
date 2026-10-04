@@ -401,8 +401,7 @@ Option matching participates in pointerless ownership:
   escaping its checked lifetime through an option.
 
 `copy`, `take`, and `borrow` never erase the requirement to prove `Some`.
-`share` remains fail-closed for ordinary values, including options, until an
-explicit shared-capability type is provided.
+`rt share` creates shared ownership of the **same** runtime value; it does not copy the value. A borrow cannot be upgraded into shared ownership. Shared ownership is currently kept out of `Option`/aggregate storage until those containers carry an explicit shared-ownership qualifier.
 
 `Option<null>` is accepted only as an explicit type-level escape hatch when an interoperability boundary truly needs to preserve a null marker. The `null` marker cannot escape that direct `Option<null>` position. `Option<void>` is invalid; use `void` when a function returns no value.
 
@@ -987,9 +986,11 @@ Oreslang combines Java-like reference ergonomics with affine ownership/lifetime 
 - `rt borrow x` / `rt borrow(x)` creates a stored immutable view tied to `x`'s lifetime;
 - `rt take x` / `rt take(x)` explicitly transfers ownership;
 - `rt copy x` / `rt copy(x)` creates an independent value when the type satisfies the copy contract;
-- `rt share x` / `rt share(x)` establishes the permitted read-only/shared form when the type/runtime supports it.
+- `rt share x` / `rt share(x)` converts unique ownership into read-only **shared ownership of the same runtime object/reference**. It does not invoke `copy()` and does not create a detached snapshot.
 
 The command and call spellings are semantically identical. The command form has unary precedence, so `rt copy x.field + y` means `(rt copy x.field) + y`. Parentheses may be used whenever a wider operand or explicit grouping is desired.
+
+`rt borrow` and `rt share` are deliberately different. A borrow is non-owning and cannot outlive its owner. A shared owner participates in the object's lifetime and may be duplicated, but neither the new alias nor the original binding retains unique mutation/take authority after the transition. Until callable/container types can encode that qualifier end-to-end, shared values may be held directly, read, passed to read-only parameters, copied explicitly, or captured read-only; returning them through an ordinary `T` return type or hiding them inside an unqualified aggregate fails closed.
 
 Reference passing is a **same-ownership-domain** rule, not an isolation escape hatch. Direct calls within the same actor/context pass the same object handle. Actor, isolate, and process-singleton mailbox boundaries remain transport boundaries: raw mutable object references never cross them, and values must satisfy the existing sendable/frozen/capability contract.
 
@@ -1036,7 +1037,7 @@ Actors/isolate message passing remains the primary concurrency model, but the ow
 The same compiled program can target a secondary multi-threaded runtime because:
 
 - mutable state has one owner unless temporarily accessed through an exclusive `mut` parameter/receiver;
-- shared aliases are immutable;
+- shared owners alias the same runtime object/reference and are immutable through every shared alias;
 - move-only values cannot remain accessible from both sides of an ownership transfer;
 - closures cannot smuggle an outstanding stack borrow into a longer-lived task;
 - actor messages continue to cross actor boundaries only through the existing frozen/sendable contract.

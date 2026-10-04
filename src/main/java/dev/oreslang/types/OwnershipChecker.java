@@ -236,6 +236,8 @@ public final class OwnershipChecker {
                     elementBorrowSource = source.borrowSource;
                 } else if (source.kind == ValueKind.COPY) {
                     elementKind = ValueKind.COPY;
+                } else if (source.kind == ValueKind.SHARED) {
+                    elementKind = ValueKind.SHARED;
                 } else {
                     // The aggregate itself was consumed, so its non-Copy
                     // elements may transfer into the new bindings.
@@ -262,6 +264,11 @@ public final class OwnershipChecker {
                     throw error(
                             "cannot return a borrowed value without explicit return provenance; "
                                     + "return ownership with take or wait for the 'T from owner' return contract");
+                }
+                if (returned.kind == ValueKind.SHARED) {
+                    throw error(
+                            "cannot return shared ownership through an unqualified return type; "
+                                    + "a first-class Shared<T>/shared-return qualifier is required");
                 }
             }
             return;
@@ -477,6 +484,14 @@ public final class OwnershipChecker {
 
             mergeBranchState(base, List.of(leftExit, rightExit));
             if (left.kind == ValueKind.COPY && right.kind == ValueKind.COPY) return left;
+            if (left.kind == ValueKind.SHARED || right.kind == ValueKind.SHARED) {
+                Ast.TypeRef target = left.type != null ? left.type : right.type;
+                while (target != null && target.isBorrow()) target = target.borrowedTarget();
+                return new ValueInfo(
+                        target == null ? Ast.TypeRef.inferred() : Ast.TypeRef.borrowed(target, false),
+                        ValueKind.SHARED,
+                        null);
+            }
 
             boolean leftBorrow = left.kind == ValueKind.IMM_BORROW || left.kind == ValueKind.MUT_BORROW;
             boolean rightBorrow = right.kind == ValueKind.IMM_BORROW || right.kind == ValueKind.MUT_BORROW;
@@ -668,9 +683,10 @@ public final class OwnershipChecker {
             if (intrinsic.name().equals("Some")) {
                 requireIntrinsicArity(call, "Some", 1);
                 ValueInfo payload = checkExpr(call.arguments().getFirst(), scope, true);
-                if (payload.kind == ValueKind.IMM_BORROW || payload.kind == ValueKind.MUT_BORROW) {
-                    throw error("Some(...) cannot store a borrow until container borrow provenance is modeled; "
-                            + "store an owned value or match the borrow directly");
+                if (payload.kind == ValueKind.IMM_BORROW || payload.kind == ValueKind.MUT_BORROW
+                        || payload.kind == ValueKind.SHARED) {
+                    throw error("Some(...) cannot store borrowed/shared ownership until container ownership qualifiers are modeled; "
+                            + "store a uniquely owned/copy value instead");
                 }
                 Ast.TypeRef optionType = new Ast.TypeRef("Option", List.of(payload.type), false);
                 return new ValueInfo(
@@ -692,7 +708,7 @@ public final class OwnershipChecker {
                 ValueInfo taken = checkExpr(call.arguments().getFirst(), scope, true);
                 if (taken.kind == ValueKind.IMM_BORROW || taken.kind == ValueKind.MUT_BORROW
                         || taken.kind == ValueKind.SHARED) {
-                    throw error("rt take requires an exclusively owned value, not a borrow/shared snapshot");
+                    throw error("rt take requires an exclusively owned value, not a borrow/shared owner");
                 }
                 return taken;
             }
@@ -719,16 +735,44 @@ public final class OwnershipChecker {
             }
             if (ownershipOperation.equals("share")) {
                 requireIntrinsicArity(call, "share", 1);
-                ValueInfo source = checkExpr(call.arguments().getFirst(), scope, false);
+                Ast.Expr argument = call.arguments().getFirst();
+                ValueInfo source = checkExpr(argument, scope, false);
                 Ast.TypeRef target = source.type != null && source.type.isBorrow()
                         ? source.type.borrowedTarget()
                         : source.type;
-                if (!isRtCopyableType(target)
-                        && !(source.kind == ValueKind.COPY
-                        && target != null
-                        && target.name().equals("$infer$"))) {
-                    throw error("rt share requires a provable copy contract for type '" + displayType(target) + "'");
+
+                // Scalars are already independent Copy values; "sharing" them
+                // does not create an ownership transition.
+                if (source.kind == ValueKind.COPY) {
+                    return new ValueInfo(target, ValueKind.COPY, null);
                 }
+                if (source.kind == ValueKind.IMM_BORROW || source.kind == ValueKind.MUT_BORROW) {
+                    throw error("rt share requires ownership; a borrow cannot be upgraded into a shared owner");
+                }
+                if (source.kind == ValueKind.SHARED) {
+                    return new ValueInfo(Ast.TypeRef.borrowed(target, false), ValueKind.SHARED, null);
+                }
+                if (source.kind != ValueKind.MOVE_ONLY) {
+                    throw error("rt share requires an owned value");
+                }
+
+                if (argument instanceof Ast.NameExpr name) {
+                    VarState owner = requireState(scope, name.name());
+                    requireUsable(owner, name.name(), false);
+                    if (owner.origin == Origin.MODULE) {
+                        throw error("cannot create a local shared owner for persistent module state '" + name.name()
+                                + "'; expose an explicit read-only service/capability instead");
+                    }
+                    if (owner.kind != ValueKind.MOVE_ONLY) {
+                        throw error("rt share requires unique ownership before the shared-ownership transition");
+                    }
+                    // The original binding remains a valid read-only shared
+                    // owner. It no longer has unique mutation/take authority.
+                    owner.kind = ValueKind.SHARED;
+                } else if (source.borrowSource != null) {
+                    throw error("rt share cannot promote a projected/borrowed value into ownership");
+                }
+
                 return new ValueInfo(Ast.TypeRef.borrowed(target, false), ValueKind.SHARED, null);
             }
 
@@ -921,7 +965,7 @@ public final class OwnershipChecker {
                     requireUsable(state, name.name(), true);
                     if (state.kind == ValueKind.SHARED) {
                         throw error(callable + " argument " + (i + 1)
-                                + " cannot mutably access shared read-only snapshot '" + name.name() + "'");
+                                + " cannot mutably access shared read-only owner '" + name.name() + "'");
                     }
                     beginTemporaryBorrow(state, true, callable, i + 1, name.name());
                     temporaryBorrows.add(new TemporaryBorrow(state, true));
@@ -971,7 +1015,7 @@ public final class OwnershipChecker {
             String name) {
         if (state.kind == ValueKind.SHARED) {
             if (mutable) {
-                throw error(callable + " cannot mutably borrow shared read-only snapshot '" + name + "'");
+                throw error(callable + " cannot mutably borrow shared read-only owner '" + name + "'");
             }
             return;
         }
@@ -1114,7 +1158,7 @@ public final class OwnershipChecker {
             requireUsable(state, name.name(), true);
             boolean mutableBorrow = state.kind == ValueKind.MUT_BORROW;
             if (state.kind == ValueKind.SHARED) {
-                throw error("cannot mutate " + what + " through shared read-only snapshot '" + name.name() + "'");
+                throw error("cannot mutate " + what + " through shared read-only owner '" + name.name() + "'");
             }
             if (!state.mutable && !mutableBorrow) {
                 throw error("cannot mutate " + what + " through immutable binding/read borrow '"
@@ -1203,6 +1247,10 @@ public final class OwnershipChecker {
             throw error("cannot store a borrowed value in " + where
                     + " until aggregate/slot borrow provenance is represented explicitly");
         }
+        if (value.kind == ValueKind.SHARED) {
+            throw error("cannot store shared ownership in " + where
+                    + " until aggregate/slot Shared<T> ownership qualifiers are represented explicitly");
+        }
     }
 
     private void reserveDeferredCaptures(Ast.Expr expression, Scope scope) {
@@ -1214,7 +1262,7 @@ public final class OwnershipChecker {
             if (source.kind == ValueKind.COPY) continue;
             if (source.kind == ValueKind.SHARED) {
                 if (capture.write) {
-                    throw error("defer cannot mutate shared read-only snapshot '" + capture.name + "'");
+                    throw error("defer cannot mutate shared read-only owner '" + capture.name + "'");
                 }
                 continue;
             }
@@ -1260,7 +1308,7 @@ public final class OwnershipChecker {
 
             if (capture.write) {
                 if (source.kind == ValueKind.SHARED) {
-                    throw error("closure cannot mutate shared read-only snapshot '" + capture.name + "'");
+                    throw error("closure cannot mutate shared read-only owner '" + capture.name + "'");
                 }
                 if (!source.mutable) throw error("closure cannot mutate immutable capture '" + capture.name + "'");
                 if (source.immutableBorrows > 0 || source.mutableBorrowed) throw error("closure cannot capture '" + capture.name + "' mutably while borrowed");
@@ -1745,7 +1793,7 @@ public final class OwnershipChecker {
     private Map<VarState, StateSnapshot> stateSnapshot(Scope scope) {
         Map<VarState, StateSnapshot> result = new IdentityHashMap<>();
         for (VarState state : scope.visibleStates()) {
-            result.put(state, new StateSnapshot(state.moved, state.immutableBorrows, state.mutableBorrowed));
+            result.put(state, new StateSnapshot(state.kind, state.moved, state.immutableBorrows, state.mutableBorrowed));
         }
         return result;
     }
@@ -1754,6 +1802,7 @@ public final class OwnershipChecker {
         for (Map.Entry<VarState, StateSnapshot> entry : snapshot.entrySet()) {
             VarState state = entry.getKey();
             StateSnapshot saved = entry.getValue();
+            state.kind = saved.kind();
             state.moved = saved.moved();
             state.immutableBorrows = saved.immutableBorrows();
             state.mutableBorrowed = saved.mutableBorrowed();
@@ -1764,11 +1813,18 @@ public final class OwnershipChecker {
         restoreState(base);
         for (VarState state : base.keySet()) {
             boolean movedOnAnyPath = base.get(state).moved();
+            boolean sharedOnAnyPath = base.get(state).kind() == ValueKind.SHARED;
             for (Map<VarState, StateSnapshot> exit : exits) {
                 StateSnapshot saved = exit.get(state);
-                if (saved != null) movedOnAnyPath |= saved.moved();
+                if (saved != null) {
+                    movedOnAnyPath |= saved.moved();
+                    sharedOnAnyPath |= saved.kind() == ValueKind.SHARED;
+                }
             }
             state.moved = movedOnAnyPath;
+            if (sharedOnAnyPath && state.kind == ValueKind.MOVE_ONLY) {
+                state.kind = ValueKind.SHARED;
+            }
         }
     }
 
@@ -1979,7 +2035,11 @@ public final class OwnershipChecker {
 
     private record TemporaryBorrow(VarState owner, boolean mutable) { }
 
-    private record StateSnapshot(boolean moved, int immutableBorrows, boolean mutableBorrowed) { }
+    private record StateSnapshot(
+            ValueKind kind,
+            boolean moved,
+            int immutableBorrows,
+            boolean mutableBorrowed) { }
 
     private record Capture(String name, VarState source, boolean write) { }
 

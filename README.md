@@ -21,7 +21,7 @@ The language is intentionally opinionated:
 - class-level `static fnc` functions separated from receiver methods;
 - first-class function aliases/types and block-only `|args| -> { ... }` lambdas;
 - lexical closures with persistent captured environments;
-- Java-like reference passing with pointer-free affine ownership: ordinary object arguments pass the same runtime reference/handle by default—never an implicit object copy—while the compiler treats ordinary parameters as temporary read access; `Type mut name` grants exclusive temporary mutation, `take Type name` transfers ownership, and copying/ownership operations are explicit through `rt copy`, `rt take`, `rt borrow`, and `rt share` (parentheses optional when unambiguous);
+- Java-like reference passing with pointer-free affine ownership: ordinary object arguments pass the same runtime reference/handle by default—never an implicit object copy—while the compiler treats ordinary parameters as temporary read access; `Type mut name` grants exclusive temporary mutation, `take Type name` transfers ownership, `rt copy` creates independent storage, and `rt share` creates read-only shared ownership of the same reference (parentheses optional when unambiguous);
 - hot reload creates a fresh versioned guest context/generation without requiring FFI or dynamic native libraries;
 - direct method calls reuse shared class method definitions; extracted method values bind their receiver safely without rebinding `self`;
 - class/module declarations use the mandatory `as` body marker; `as` and `is` are reserved keywords;

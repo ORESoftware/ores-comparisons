@@ -1484,12 +1484,15 @@ public final class TypeChecker {
                             ? new Borrow(borrowed.target(), false)
                             : new Borrow(operand, false);
                     case "share" -> {
-                        Type source = operand instanceof Borrow borrowed ? borrowed.target() : operand;
-                        requireCopyable(source, new LinkedHashSet<>());
-                        // Detached, immutable, and safe to outlive the source.
-                        // Calls dereference parameter types during compatibility
-                        // checks, while storage keeps the read-only qualifier.
-                        yield new Borrow(source, false);
+                        if (operand instanceof Borrow) {
+                            throw new IllegalArgumentException(
+                                    "rt share requires ownership; a borrow cannot be upgraded into a shared owner");
+                        }
+                        // Same-reference shared ownership. The ownership pass
+                        // removes unique mutation/take authority from named
+                        // owners; the read-only type qualifier prevents writes
+                        // through the newly shared alias.
+                        yield new Borrow(operand, false);
                     }
                     default -> throw new IllegalStateException("unknown rt ownership operation " + operation);
                 };

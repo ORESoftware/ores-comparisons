@@ -713,11 +713,11 @@ public final class OresEvalRootNode extends RootNode {
                         return switch (operation) {
                             // References are already the default runtime representation.
                             // borrow/take change compiler ownership state, not JVM identity.
-                            case "borrow", "take" -> value;
+                            // borrow/take/share are ownership-state
+                            // operations. Runtime object identity is unchanged;
+                            // only rt copy constructs independent storage.
+                            case "borrow", "take", "share" -> value;
                             case "copy" -> copyValue(value, env.singletonState, new IdentityHashMap<>());
-                            case "share" -> freezeGuestValue(
-                                    copyValue(value, env.singletonState, new IdentityHashMap<>()),
-                                    new IdentityHashMap<>());
                             default -> throw new IllegalStateException("unknown rt operation " + operation);
                         };
                     }
