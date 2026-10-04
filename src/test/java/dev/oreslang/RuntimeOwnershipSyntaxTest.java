@@ -527,6 +527,25 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtShareRejectsUnlinkedForeignTypes() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        import class External from "../../foreign";
+
+                        fnc bad(External value) => void {
+                          val shared = rt share value;
+                          return;
+                        }
+                        """)));
+
+        String message = error.getMessage().toLowerCase();
+        assertTrue(message.contains("share")
+                && (message.contains("linked") || message.contains("contract")),
+                error.getMessage());
+    }
+
+    @Test
     void rtParenthesesCanGroupWiderExpression() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 fnc grouped(int left, int right) => int {

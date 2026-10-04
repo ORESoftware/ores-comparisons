@@ -306,6 +306,9 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
      ownership; rt copy creates independent storage; rt share preserves object
      identity while converting unique ownership into read-only shared ownership.
      Shared ownership never implies actor/isolate transport permission.
+   - First-class Fnc/callable values and unresolved/imported nominal types are
+     not shareable until callable effects/share-safety or linked foreign share
+     contracts are represented explicitly.
    - Borrowed values cannot be returned as owned values until an explicit
      provenance contract (planned: T from owner) is implemented.
    - Fnc does not yet encode ownership modes, so callables with mut/take

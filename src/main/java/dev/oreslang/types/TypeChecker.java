@@ -2462,11 +2462,9 @@ public final class TypeChecker {
 
             Ast.ClassDecl klass = findClass(named.name());
             if (klass == null) {
-                // Opaque built-in/runtime capability types keep their own
-                // operation-level safety contract. Imported user classes are
-                // rejected by OwnershipChecker until linked ownership metadata
-                // exists, so this path cannot silently authorize foreign code.
-                return;
+                throw new IllegalArgumentException(
+                        "rt share cannot prove type '" + named.name()
+                                + "' share-safe without a linked class/capability share contract");
             }
 
             String identity = qualifiedClassName(klass);
