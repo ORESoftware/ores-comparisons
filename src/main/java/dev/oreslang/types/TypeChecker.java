@@ -2000,6 +2000,7 @@ public final class TypeChecker {
     }
 
     private Type iterableElementType(Type iterable) {
+        iterable = deref(iterable);
         if (iterable instanceof ListType list) return list.element();
         if (iterable instanceof Tuple tuple) {
             Type result = Unknown.INSTANCE;

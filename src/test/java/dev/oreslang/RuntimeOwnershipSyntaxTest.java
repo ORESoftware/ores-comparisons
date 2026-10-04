@@ -455,6 +455,21 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void sharedArrayRemainsReadableAndIterable() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                fnc ok() => void {
+                  let Array<int> values = arr[1, 2, 3];
+                  val shared = rt share values;
+                  stdio.println(shared[0]);
+                  for value of shared do
+                    stdio.println(value);
+                  done
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void borrowingASharedOwnerRemainsNonOwning() {
         IllegalArgumentException returnedBorrow = assertThrows(
                 IllegalArgumentException.class,
