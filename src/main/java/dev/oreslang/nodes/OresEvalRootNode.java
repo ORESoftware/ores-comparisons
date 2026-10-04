@@ -1035,15 +1035,22 @@ public final class OresEvalRootNode extends RootNode {
                         callable.withTailTransfers(false));
             }
             if (stmt instanceof Ast.ForOfStmt loop) {
+                // Loop iteration environments own control/lexical state that is
+                // not represented by the callee frame. Keep tail transfer
+                // conservative until loop-scope cleanup is explicitly modeled.
+                AsyncCallableContext noLoopTail =
+                        callable.withTailTransfers(false);
                 return asyncFlatMap(asyncEval(loop.iterable(), env), iterable ->
                         asyncForOf(
                                 loop,
                                 iterableValues(iterable),
                                 0,
                                 env,
-                                nested));
+                                noLoopTail));
             }
             if (stmt instanceof Ast.ForStmt loop) {
+                AsyncCallableContext noLoopTail =
+                        callable.withTailTransfers(false);
                 Env loopEnv = new Env(env);
                 AsyncPlan initialized = loop.initializer() == null
                         ? asyncPure(ASYNC_NORMAL)
@@ -1051,10 +1058,10 @@ public final class OresEvalRootNode extends RootNode {
                                 loop.initializer(),
                                 loopEnv,
                                 new ArrayDeque<>(),
-                                callable.withTailTransfers(false));
+                                noLoopTail);
                 return asyncFlatMap(
                         initialized,
-                        ignored -> asyncFor(loop, loopEnv, nested));
+                        ignored -> asyncFor(loop, loopEnv, noLoopTail));
             }
             return asyncFailure(new IllegalArgumentException(
                     "unsupported async statement " + stmt));
