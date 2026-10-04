@@ -6,6 +6,7 @@
 #include <netdb.h>
 #include <poll.h>
 #include <stdint.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,13 @@
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
 #endif
+
+static int set_cloexec(int fd) {
+    int flags = fcntl(fd, F_GETFD, 0);
+    if (flags < 0) return -1;
+    if ((flags & FD_CLOEXEC) != 0) return 0;
+    return fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+}
 
 static int as_fd(jlong value) {
     if (value < 0 || value > INT32_MAX) {
@@ -51,8 +59,24 @@ static int validate_port(JNIEnv *env, jint port) {
     return 1;
 }
 
+static int restore_fd_flags(int fd, int original_flags, int prior_error) {
+    if (fcntl(fd, F_SETFL, original_flags) < 0) return -1;
+    errno = prior_error;
+    return 0;
+}
+
+static int64_t monotonic_millis(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) return -1;
+    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
 static int connect_one(int fd, const struct sockaddr *address, socklen_t length, jint timeout_ms) {
-    if (timeout_ms <= 0) {
+    if (timeout_ms < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (timeout_ms == 0) {
         while (connect(fd, address, length) < 0) {
             if (errno == EINTR) continue;
             return -1;
@@ -66,13 +90,11 @@ static int connect_one(int fd, const struct sockaddr *address, socklen_t length,
 
     int result = connect(fd, address, length);
     if (result == 0) {
-        (void)fcntl(fd, F_SETFL, original_flags);
-        return 0;
+        return restore_fd_flags(fd, original_flags, 0);
     }
     if (errno != EINPROGRESS) {
         int saved = errno;
-        (void)fcntl(fd, F_SETFL, original_flags);
-        errno = saved;
+        if (restore_fd_flags(fd, original_flags, saved) < 0) return -1;
         return -1;
     }
 
@@ -81,19 +103,39 @@ static int connect_one(int fd, const struct sockaddr *address, socklen_t length,
     poll_fd.fd = fd;
     poll_fd.events = POLLOUT;
 
-    do {
-        result = poll(&poll_fd, 1, timeout_ms);
-    } while (result < 0 && errno == EINTR);
+    int64_t start_ms = monotonic_millis();
+    if (start_ms < 0) {
+        int saved = errno;
+        if (restore_fd_flags(fd, original_flags, saved) < 0) return -1;
+        return -1;
+    }
+    int64_t deadline_ms = start_ms + timeout_ms;
+
+    while (true) {
+        int64_t now_ms = monotonic_millis();
+        if (now_ms < 0) {
+            int saved = errno;
+            if (restore_fd_flags(fd, original_flags, saved) < 0) return -1;
+            return -1;
+        }
+        int64_t remaining_ms = deadline_ms - now_ms;
+        if (remaining_ms <= 0) {
+            if (restore_fd_flags(fd, original_flags, ETIMEDOUT) < 0) return -1;
+            return -1;
+        }
+
+        result = poll(&poll_fd, 1, (int)remaining_ms);
+        if (result >= 0) break;
+        if (errno != EINTR) break;
+    }
 
     if (result == 0) {
-        (void)fcntl(fd, F_SETFL, original_flags);
-        errno = ETIMEDOUT;
+        if (restore_fd_flags(fd, original_flags, ETIMEDOUT) < 0) return -1;
         return -1;
     }
     if (result < 0) {
         int saved = errno;
-        (void)fcntl(fd, F_SETFL, original_flags);
-        errno = saved;
+        if (restore_fd_flags(fd, original_flags, saved) < 0) return -1;
         return -1;
     }
 
@@ -101,16 +143,12 @@ static int connect_one(int fd, const struct sockaddr *address, socklen_t length,
     socklen_t error_length = sizeof(socket_error);
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &socket_error, &error_length) < 0) {
         int saved = errno;
-        (void)fcntl(fd, F_SETFL, original_flags);
-        errno = saved;
+        if (restore_fd_flags(fd, original_flags, saved) < 0) return -1;
         return -1;
     }
 
-    (void)fcntl(fd, F_SETFL, original_flags);
-    if (socket_error != 0) {
-        errno = socket_error;
-        return -1;
-    }
+    if (restore_fd_flags(fd, original_flags, socket_error) < 0) return -1;
+    if (socket_error != 0) return -1;
     return 0;
 }
 
@@ -153,6 +191,12 @@ Java_dev_oreslang_net_NativeSocketBridge_connect(
         fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
         if (fd < 0) {
             last_error = errno;
+            continue;
+        }
+        if (set_cloexec(fd) < 0) {
+            last_error = errno;
+            close(fd);
+            fd = -1;
             continue;
         }
         if (connect_one(fd, it->ai_addr, (socklen_t)it->ai_addrlen, timeout_ms) == 0) {
@@ -217,6 +261,12 @@ Java_dev_oreslang_net_NativeSocketBridge_listen(
             last_error = errno;
             continue;
         }
+        if (set_cloexec(fd) < 0) {
+            last_error = errno;
+            close(fd);
+            fd = -1;
+            continue;
+        }
 
         int one = reuse_address ? 1 : 0;
         if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0) {
@@ -259,6 +309,13 @@ Java_dev_oreslang_net_NativeSocketBridge_accept(JNIEnv *env, jclass cls, jlong r
 
     if (accepted < 0) {
         throw_errno(env, "accept");
+        return -1;
+    }
+    if (set_cloexec(accepted) < 0) {
+        int saved = errno;
+        close(accepted);
+        errno = saved;
+        throw_errno(env, "accept(FD_CLOEXEC)");
         return -1;
     }
     return (jlong)accepted;
@@ -376,13 +433,6 @@ Java_dev_oreslang_net_NativeSocketBridge_close(JNIEnv *env, jclass cls, jlong ra
     (void)cls;
     int fd = as_fd(raw_fd);
     if (fd < 0) return;
-    /*
-     * POSIX permits close(2) to report EINTR after the descriptor has already
-     * been released. Retrying can therefore close an unrelated descriptor
-     * that another thread acquired in the meantime. The Oreslang handle is
-     * consumed exactly once; EINTR is treated as an indeterminate close, not
-     * retried.
-     */
     if (close(fd) < 0 && errno != EINTR) {
         throw_errno(env, "close");
     }
@@ -520,15 +570,6 @@ Java_dev_oreslang_net_NativeSocketBridge_resolveAll(
     return result;
 }
 
-static int require_fd(JNIEnv *env, jlong raw_fd, const char *operation) {
-    int fd = as_fd(raw_fd);
-    if (fd < 0) {
-        throw_errno(env, operation);
-        return -1;
-    }
-    return fd;
-}
-
 static void set_bool_option(JNIEnv *env, int fd, int level, int option, jboolean enabled, const char *name) {
     if (fd < 0) { errno = EBADF; throw_errno(env, name); return; }
     int value = enabled ? 1 : 0;
@@ -634,8 +675,11 @@ Java_dev_oreslang_net_NativeSocketBridge_setSoTimeout(JNIEnv *env, jclass cls, j
     struct timeval value;
     value.tv_sec = timeout_ms / 1000;
     value.tv_usec = (timeout_ms % 1000) * 1000;
-    int fd = require_fd(env, raw_fd, "setsockopt(SO_RCVTIMEO)");
-    if (fd < 0) return;
+    int fd = as_fd(raw_fd);
+    if (fd < 0) {
+        throw_errno(env, "setsockopt(SO_RCVTIMEO)");
+        return;
+    }
     if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value, sizeof(value)) < 0) {
         throw_errno(env, "setsockopt(SO_RCVTIMEO)");
     }
@@ -646,12 +690,19 @@ Java_dev_oreslang_net_NativeSocketBridge_getSoTimeout(JNIEnv *env, jclass cls, j
     (void)cls;
     struct timeval value;
     socklen_t length = sizeof(value);
-    int fd = require_fd(env, raw_fd, "getsockopt(SO_RCVTIMEO)");
-    if (fd < 0) return -1;
+    int fd = as_fd(raw_fd);
+    if (fd < 0) {
+        throw_errno(env, "getsockopt(SO_RCVTIMEO)");
+        return -1;
+    }
     if (getsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value, &length) < 0) {
         throw_errno(env, "getsockopt(SO_RCVTIMEO)");
         return -1;
     }
-    long millis = value.tv_sec * 1000L + value.tv_usec / 1000L;
+    int64_t millis = (int64_t)value.tv_sec * 1000 + value.tv_usec / 1000;
+    if (millis < 0 || millis > INT32_MAX) {
+        throw_with_message(env, "SO_TIMEOUT value is out of range");
+        return -1;
+    }
     return (jint)millis;
 }

@@ -1,0 +1,50 @@
+name: oreslang-net-pr127-c83b8ae-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-net-pr127-c83b8ae-20261003"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-net-stack-e4844bae
+
+jobs:
+  exact-tree-functional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove exact source tree identity
+        working-directory: .
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD:_ci/oreslang-net-stack-e4844bae)"
+          expected="2a6efe7fb4d3ebd4fe2ec126257000ac8ad222f3"
+          printf 'source_sha=%s\n' "c83b8ae0cfb0a7d6c1987e203c16c1b82b6a2254"
+          printf 'source_tree=%s\n' "$actual"
+          test "$actual" = "$expected"
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+      - name: Toolchain diagnostics
+        run: |
+          java --version
+          mvn --version
+          cc --version
+      - name: Compile exact mirrored source including JNI
+        run: mvn -B -ntp -DskipTests test-compile
+      - name: Run native socket primitive suite
+        run: mvn -B -ntp -Dtest=NativeSocketBridgeTest test
+      - name: Run native networking language suite
+        run: mvn -B -ntp -Dtest=NativeNetworkingLanguageTest test
+      - name: Run full source suite
+        run: mvn -B -ntp test

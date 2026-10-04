@@ -483,8 +483,7 @@ public final class TypeChecker {
             Env.Binding local = env.lookup(name.name());
             if (local != null) return local.type();
             if (name.name().equals("stdio") || name.name().equals("process") || name.name().equals("actor")
-                    || name.name().equals("net") || name.name().equals("http")
-                    || name.name().equals("native_net")) {
+                    || name.name().equals("net") || name.name().equals("http")) {
                 return new Named(name.name(), List.of());
             }
             if (name.name().equals("Mutex") || name.name().equals("SharedMutex")) return new Named("$" + name.name() + "Factory", List.of());

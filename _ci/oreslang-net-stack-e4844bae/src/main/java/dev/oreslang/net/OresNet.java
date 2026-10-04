@@ -1131,13 +1131,6 @@ public final class OresNet {
             if (location == null) return response;
 
             String nextUri = resolveRedirect(request.uri, location);
-            ParsedUri currentUri = ParsedUri.parse(request.uri);
-            ParsedUri redirectUri = ParsedUri.parse(nextUri);
-            if (redirects == Redirect.NORMAL
-                    && currentUri.scheme.equals("https")
-                    && !redirectUri.scheme.equals("https")) {
-                return response;
-            }
             String nextMethod = request.method;
             byte[] nextBody = request.body;
             if (response.statusCode == 303
@@ -1147,21 +1140,8 @@ public final class OresNet {
                 nextBody = new byte[0];
             }
 
-            Map<String, List<String>> nextHeaders = request.headers;
-            if (!sameAuthority(currentUri, redirectUri)) {
-                LinkedHashMap<String, List<String>> sanitized = new LinkedHashMap<>();
-                request.headers.forEach((name, values) -> {
-                    String lower = name.toLowerCase(Locale.ROOT);
-                    if (!lower.equals("authorization")
-                            && !lower.equals("proxy-authorization")
-                            && !lower.equals("cookie")) {
-                        sanitized.put(name, values);
-                    }
-                });
-                nextHeaders = Collections.unmodifiableMap(sanitized);
-            }
             HttpRequestValue next = new HttpRequestValue(
-                    context, nextUri, nextMethod, nextBody, nextHeaders,
+                    context, nextUri, nextMethod, nextBody, request.headers,
                     request.timeoutMillis, request.expectContinue, request.version);
             return sendFollowingRedirects(next, handler, response, redirectCount + 1);
         }
@@ -1179,13 +1159,8 @@ public final class OresNet {
                 throw new IllegalArgumentException("unsupported URI scheme: " + uri.scheme);
             }
 
-            int connectTimeout = request.timeoutMillis > 0
-                    ? request.timeoutMillis
-                    : connectTimeoutMillis;
+            int connectTimeout = connectTimeoutMillis;
             long fd = io(() -> NativeSocketBridge.connect(uri.host, uri.port, connectTimeout));
-            if (request.timeoutMillis > 0) {
-                ioVoid(() -> NativeSocketBridge.setSoTimeout(fd, request.timeoutMillis));
-            }
             try {
                 if (request.timeoutMillis > 0) {
                     ioVoid(() -> NativeSocketBridge.setSoTimeout(fd, request.timeoutMillis));
@@ -1541,38 +1516,16 @@ public final class OresNet {
 
         byte[] body = Arrays.copyOfRange(wire, headerEnd + 4, wire.length);
         String transferEncoding = firstHeader(headers, "transfer-encoding");
-        List<String> contentLengths = headers.getOrDefault("content-length", List.of());
-        if (transferEncoding != null && !contentLengths.isEmpty()) {
-            throw new IllegalStateException("ambiguous HTTP response framing: Transfer-Encoding with Content-Length");
-        }
-        if (contentLengths.size() > 1) {
-            String expected = contentLengths.getFirst().trim();
-            for (String value : contentLengths) {
-                if (!expected.equals(value.trim())) {
-                    throw new IllegalStateException("conflicting Content-Length response headers");
-                }
-            }
-        }
-        if (transferEncoding != null) {
-            String normalized = transferEncoding.trim().toLowerCase(Locale.ROOT);
-            if (!normalized.equals("chunked")) {
-                throw new IllegalStateException("unsupported HTTP Transfer-Encoding: " + transferEncoding);
-            }
+        if (transferEncoding != null && transferEncoding.toLowerCase(Locale.ROOT).contains("chunked")) {
             body = decodeChunked(body);
-        } else if (!contentLengths.isEmpty()) {
-            long parsedLength;
-            try {
-                parsedLength = Long.parseLong(contentLengths.getFirst().trim());
-            } catch (NumberFormatException error) {
-                throw new IllegalStateException("invalid Content-Length response header", error);
-            }
-            if (parsedLength < 0 || parsedLength > Integer.MAX_VALUE) {
-                throw new IllegalStateException("invalid Content-Length response header");
-            }
-            int length = (int) parsedLength;
-            if (length < body.length) body = Arrays.copyOf(body, length);
-            if (length > body.length) {
-                throw new IllegalStateException("truncated HTTP response body");
+        } else {
+            String contentLength = firstHeader(headers, "content-length");
+            if (contentLength != null) {
+                int length = Integer.parseInt(contentLength.trim());
+                if (length < body.length) body = Arrays.copyOf(body, length);
+                if (length > body.length) {
+                    throw new IllegalStateException("truncated HTTP response body");
+                }
             }
         }
 
@@ -1626,12 +1579,6 @@ public final class OresNet {
 
     private static boolean isRedirect(int status) {
         return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
-    }
-
-    private static boolean sameAuthority(ParsedUri left, ParsedUri right) {
-        return left.scheme.equals(right.scheme)
-                && left.host.equalsIgnoreCase(right.host)
-                && left.port == right.port;
     }
 
     private static String resolveRedirect(String base, String location) {

@@ -19,6 +19,61 @@ final class NativeSocketBridgeTest {
     }
 
     @Test
+    void rejectsNegativeConnectTimeoutBeforeBlocking() {
+        Exception error = assertThrows(
+                Exception.class,
+                () -> NativeSocketBridge.connect("127.0.0.1", 9, -1));
+        assertTrue(error.getMessage() == null || !error.getMessage().isBlank());
+    }
+
+    @Test
+    void rejectsInvalidSocketDescriptorOptions() {
+        assertThrows(Exception.class, () -> NativeSocketBridge.setSoTimeout(-1, 100));
+        assertThrows(Exception.class, () -> NativeSocketBridge.getSoTimeout(-1));
+        assertThrows(Exception.class, () -> NativeSocketBridge.setTcpNoDelay(-1, true));
+        assertThrows(Exception.class, () -> NativeSocketBridge.getTcpNoDelay(-1));
+    }
+
+    @Test
+    void rejectsNonPositiveSocketBufferSizes() throws Exception {
+        long listener = NativeSocketBridge.listen("127.0.0.1", 0, 16, true);
+        int port = NativeSocketBridge.localPort(listener);
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+
+        Thread server = new Thread(() -> {
+            long accepted = -1;
+            try {
+                accepted = NativeSocketBridge.accept(listener);
+                Thread.sleep(100);
+            } catch (Throwable error) {
+                serverFailure.set(error);
+            } finally {
+                if (accepted >= 0) {
+                    try { NativeSocketBridge.close(accepted); } catch (Exception ignored) { }
+                }
+            }
+        }, "oresnet-buffer-validation-server");
+        server.start();
+
+        long client = NativeSocketBridge.connect("127.0.0.1", port, 3_000);
+        try {
+            assertThrows(Exception.class, () -> NativeSocketBridge.setReceiveBufferSize(client, 0));
+            assertThrows(Exception.class, () -> NativeSocketBridge.setReceiveBufferSize(client, -1));
+            assertThrows(Exception.class, () -> NativeSocketBridge.setSendBufferSize(client, 0));
+            assertThrows(Exception.class, () -> NativeSocketBridge.setSendBufferSize(client, -1));
+        } finally {
+            NativeSocketBridge.close(client);
+            NativeSocketBridge.close(listener);
+        }
+
+        server.join(5_000);
+        assertFalse(server.isAlive(), "buffer validation server did not terminate");
+        if (serverFailure.get() != null) {
+            fail("server failed", serverFailure.get());
+        }
+    }
+
+    @Test
     void roundTripsTcpOverJniSocketSyscalls() throws Exception {
         long listener = NativeSocketBridge.listen("127.0.0.1", 0, 16, true);
         int port = NativeSocketBridge.localPort(listener);
