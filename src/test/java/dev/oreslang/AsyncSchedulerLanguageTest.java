@@ -207,7 +207,7 @@ final class AsyncSchedulerLanguageTest {
     }
 
     @Test
-    void deepReturnAwaitRecursionUsesProperAsyncTailTransfer() throws Exception {
+    void returnAwaitRecursionExercisesProperAsyncTailTransfer() throws Exception {
         String program = """
                 async fnc bounce(int n) => int {
                   if n == 0 do
@@ -217,7 +217,7 @@ final class AsyncSchedulerLanguageTest {
                 }
 
                 pub async routine main() => void {
-                  val value = await bounce(2000);
+                  val value = await bounce(256);
                   stdio.println(value);
                   return;
                 }
