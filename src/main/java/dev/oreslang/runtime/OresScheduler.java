@@ -70,10 +70,8 @@ public final class OresScheduler implements AutoCloseable {
     }
 
     /**
-     * Proper async tail transfer. The compiler has already replaced the
-     * current logical frame. The scheduler still treats this as an await
-     * boundary so execution can resume only after the current guest turn has
-     * fully unwound and control has returned through dispatch.
+     * Proper async tail transfer. The current logical frame has already been
+     * replaced, but this remains a hard scheduler boundary.
      */
     public record TailAwait<T>() implements Step<T> { }
 
@@ -179,10 +177,14 @@ public final class OresScheduler implements AutoCloseable {
     }
 
     /**
-     * Runtime-owned scheduler over a shared carrier executor with an explicit
-     * guest-turn wrapper. The carrier wrapper and guest-turn wrapper are kept
-     * separate so terminal publication can happen after the guest context has
-     * fully unwound/left while still remaining on the admitted carrier turn.
+     * Runtime-owned scheduler whose physical carrier dispatch is distinct from
+     * guest-turn admission. The carrier executor owns only where the task runs;
+     * the turn executor owns the entered language/context boundary.
+     *
+     * <p>This separation is critical for await completion publication:
+     * {@link TaskRunner#afterCarrierTurn()} runs after {@code turnExecutor}
+     * returns, so a terminal Future cannot become externally visible until the
+     * guest turn has completely left its Truffle context.</p>
      */
     static OresScheduler runtimeOwned(
             String name,
@@ -361,6 +363,11 @@ public final class OresScheduler implements AutoCloseable {
 
     @Override
     public void close() {
+        if (CURRENT.get() == this) {
+            throw new IllegalStateException(
+                    "OresScheduler cannot be closed from one of its own task turns; "
+                            + "close it from an outside/root scheduler task");
+        }
         if (!closed.compareAndSet(false, true)) return;
 
         for (TaskRunner<?> task : Set.copyOf(tasks)) {
@@ -516,10 +523,8 @@ public final class OresScheduler implements AutoCloseable {
         }
 
         /**
-         * Tail transfer publishes a synthetic resume only after moving the task
-         * to WAITING. scheduleReadyResume() is suppressed while this turn still
-         * owns the execution lease, so afterCarrierTurn() is the earliest point
-         * at which the replacement frame can be dispatched.
+         * Publish only a synthetic resume token. executing remains true until
+         * afterCarrierTurn(), so the replacement frame cannot run inline.
          */
         private void armTailAwait() {
             if (!phase.compareAndSet(RUNNING, WAITING)) {

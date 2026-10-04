@@ -35,11 +35,13 @@ public final class OresContext implements AutoCloseable {
     private final String codeGenerationId;
     private static final int MAX_USER_SCHEDULERS = 32;
     private static final int MAX_USER_SCHEDULER_PARALLELISM = 64;
+    private static final int MAX_USER_SCHEDULER_CARRIERS = 256;
 
     private final ReentrantLock adversarialActorTurnLock = new ReentrantLock(true);
     private final Map<String, Object> linkedCodeUnits = new HashMap<>();
     private final Set<OresScheduler> userSchedulers = ConcurrentHashMap.newKeySet();
     private final AtomicInteger userSchedulerCount = new AtomicInteger();
+    private final AtomicInteger userSchedulerCarriers = new AtomicInteger();
 
     public OresContext(OresLanguage language, TruffleLanguage.Env env) {
         this.language = language;
@@ -152,19 +154,46 @@ public final class OresContext implements AutoCloseable {
                     "OresScheduler context limit exceeded: " + MAX_USER_SCHEDULERS);
         }
 
-        OresScheduler scheduler = OresScheduler.managed(
-                parallelism,
-                this::executeSchedulerTurn);
-        userSchedulers.add(scheduler);
-        return scheduler;
+        int carriers = userSchedulerCarriers.addAndGet(parallelism);
+        if (carriers > MAX_USER_SCHEDULER_CARRIERS) {
+            userSchedulerCarriers.addAndGet(-parallelism);
+            userSchedulerCount.decrementAndGet();
+            throw new IllegalStateException(
+                    "OresScheduler context carrier limit exceeded: "
+                            + MAX_USER_SCHEDULER_CARRIERS);
+        }
+
+        try {
+            OresScheduler scheduler = OresScheduler.managed(
+                    parallelism,
+                    this::executeSchedulerTurn);
+            userSchedulers.add(scheduler);
+            return scheduler;
+        } catch (RuntimeException | Error failure) {
+            userSchedulerCarriers.addAndGet(-parallelism);
+            userSchedulerCount.decrementAndGet();
+            throw failure;
+        }
     }
 
     public void closeUserScheduler(OresScheduler scheduler) {
         if (scheduler == null) return;
+
+        // Close first. A rejected self-close or other teardown failure must not
+        // make a still-live pool disappear from context ownership/accounting.
+        scheduler.close();
+
         if (userSchedulers.remove(scheduler)) {
             userSchedulerCount.decrementAndGet();
+            int remaining = userSchedulerCarriers.addAndGet(-scheduler.parallelism());
+            if (remaining < 0) {
+                userSchedulerCarriers.addAndGet(scheduler.parallelism());
+                userSchedulerCount.incrementAndGet();
+                userSchedulers.add(scheduler);
+                throw new IllegalStateException(
+                        "OresScheduler carrier accounting underflow");
+            }
         }
-        scheduler.close();
     }
 
     /**
