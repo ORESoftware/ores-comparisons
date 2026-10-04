@@ -2337,7 +2337,7 @@ public final class TypeChecker {
         if (type instanceof StringLiteral) return;
         if (type instanceof Primitive primitive) {
             if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
-                throw new IllegalArgumentException("rt copy/share require a concrete value, got " + primitive);
+                throw new IllegalArgumentException("rt copy requires a concrete value, got " + primitive);
             }
             return;
         }
