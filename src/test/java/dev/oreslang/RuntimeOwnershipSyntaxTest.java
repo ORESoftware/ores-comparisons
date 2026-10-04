@@ -269,6 +269,55 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtCopyContractRejectsMutableReceiverAndReturningSelf() {
+        IllegalArgumentException mutableReceiver = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 1;
+
+                          pub copy(mut self)() => self {
+                            self.value = self.value + 1;
+                            return new Box();
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          val copied = rt copy box;
+                          return;
+                        }
+                        """)));
+        String mutableMessage = mutableReceiver.getMessage().toLowerCase();
+        assertTrue(mutableMessage.contains("copy")
+                && (mutableMessage.contains("read-only") || mutableMessage.contains("immutable")),
+                mutableReceiver.getMessage());
+
+        IllegalArgumentException returnsSelf = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 1;
+
+                          pub copy() => self {
+                            return self;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          val copied = rt copy box;
+                          return;
+                        }
+                        """)));
+        String returnMessage = returnsSelf.getMessage().toLowerCase();
+        assertTrue(returnMessage.contains("borrow")
+                || returnMessage.contains("return ownership")
+                || returnMessage.contains("copy"),
+                returnsSelf.getMessage());
+    }
+
+    @Test
     void rtCopyRejectsClassGraphsWithHiddenCallableState() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
