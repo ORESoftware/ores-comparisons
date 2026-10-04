@@ -95,7 +95,7 @@ final class SecureJitHotReloadDomainTest {
     }
 
     @Test
-    void activationDrainsPinnedOldGenerationAndReclaimsAfterLeaseRelease() {
+    void activationDrainsPinnedOldGenerationAndReclaimsAfterLeaseRelease() throws Exception {
         try (HotReloadManager hot = new HotReloadManager(
                 IsolatePolicy.developer(),
                 ExecutionProfile.serverJit())) {
@@ -120,7 +120,12 @@ final class SecureJitHotReloadDomainTest {
 
             lease.close();
 
-            assertTrue(first.closed());
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+            while (!first.closed() && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+            assertTrue(first.closed(),
+                    "control-plane generation reclamation must complete after the final lease release");
             assertEquals(1, hot.liveGenerations());
             assertEquals(HotReloadManager.GenerationState.ACTIVE, second.state());
         }
