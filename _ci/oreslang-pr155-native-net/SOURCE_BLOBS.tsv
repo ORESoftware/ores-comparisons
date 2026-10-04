@@ -31,7 +31,7 @@ c5963f07c8bd3e5873bda6d297e5fc397377df01	src/main/java/dev/oreslang/launcher/Ore
 860855e5d85b18e4ac82612c79da25e8168b4229	src/main/java/dev/oreslang/net/NativeNetBuiltin.java
 be8f9b7f4c75ca7cccf5790137e84a38a824266c	src/main/java/dev/oreslang/net/NativeSocketBridge.java
 432f07cc280a52cdaf4b82f0bd53a0933a5658ab	src/main/java/dev/oreslang/net/NativeSocketHandle.java
-8e7f710c862c72aa7abea2ad2d23b20b80b5beda	src/main/java/dev/oreslang/net/OresNet.java
+053d1857d13b312b8d6d53682b544d1f8ac0e2fa	src/main/java/dev/oreslang/net/OresNet.java
 2d62499cb56d48351634081a5ef35908290ff724	src/main/java/dev/oreslang/nodes/OresEvalRootNode.java
 62ac55ad410d3e07d9494b73b3f658d43de70351	src/main/java/dev/oreslang/nodes/OresInteropRootNode.java
 8dea6857fd5a45aca797d36c34faaf826d6c6c5d	src/main/java/dev/oreslang/parser/Lexer.java

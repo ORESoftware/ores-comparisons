@@ -273,7 +273,7 @@ public final class OresNet {
         }
 
         static SocketValue connect(OresContext context, String host, int port, int timeoutMillis) {
-            requireRawNetwork(context, "net.Socket.connect");
+            OresNet.requireRawNetwork(context, "net.Socket.connect");
             checkPort(port, "net.Socket.connect");
             NativeSocketHandle handle = io(() -> NativeSocketBridge.connectHandle(host, port, timeoutMillis));
             return new SocketValue(context, handle, true);
@@ -597,7 +597,7 @@ public final class OresNet {
         }
 
         static ServerSocketValue bound(OresContext context, String host, int port, int backlog) {
-            requireRawNetwork(context, "net.ServerSocket.bind");
+            OresNet.requireRawNetwork(context, "net.ServerSocket.bind");
             checkPort(port, "net.ServerSocket.bind");
             NativeSocketHandle handle = io(() -> NativeSocketBridge.listenHandle(host, port, backlog, true));
             return new ServerSocketValue(context, handle, true);
