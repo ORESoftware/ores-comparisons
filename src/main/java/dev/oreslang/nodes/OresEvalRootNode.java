@@ -1380,20 +1380,7 @@ public final class OresEvalRootNode extends RootNode {
         private AsyncPlan asyncAwaitReturnValue(
                 Object value,
                 OresAsyncTrace.SourceSite site) {
-            Object normalized = value;
-            if (normalized instanceof ActorRuntime.ActorSpawn<?, ?> spawn) {
-                normalized = spawn.ready();
-            }
-
-            final OresFuture<?> future;
-            if (normalized instanceof OresFuture<?> oresFuture) {
-                future = oresFuture;
-            } else if (normalized instanceof CompletionStage<?> stage) {
-                future = OresFuture.from(stage);
-            } else {
-                return asyncPure(new AsyncReturn(normalized));
-            }
-
+            OresFuture<?> future = awaitableFuture(value);
             return new AsyncAwait(
                     future,
                     (result, failure) -> failure == null
