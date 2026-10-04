@@ -165,6 +165,27 @@ final class OresVMTest {
     }
 
     @Test
+    void applicationArgumentsCannotSpoofInternalVmOrGenerationMetadata() {
+        OresVM vm = OresVM.dedicated(ActorRuntime.DispatcherConfig.defaults());
+        try {
+            for (String reserved : List.of(
+                    "--ores-vm-binding=fake",
+                    "--ores-generation-binding=fake",
+                    "--ores-generation-id=999")) {
+                SecurityException denied = assertThrows(
+                        SecurityException.class,
+                        () -> vm.bindApplicationArguments(
+                                new String[]{reserved},
+                                null,
+                                42L));
+                assertTrue(denied.getMessage().contains("internal binding metadata"));
+            }
+        } finally {
+            vm.shutdownNow();
+        }
+    }
+
+    @Test
     void onlyUntrustedHotLoadDomainUsesSpawnedGraalIsolate() {
         assertFalse(HotReloadManager.ExecutionDomain.TRUSTED_JIT.spawnedIsolate());
         assertFalse(HotReloadManager.ExecutionDomain.TRUSTED_ISOACTOR_JIT.spawnedIsolate());

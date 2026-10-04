@@ -139,6 +139,15 @@ final class OresVM {
         Objects.requireNonNull(baseArguments, "baseArguments");
         ensureRunning();
 
+        for (String argument : baseArguments) {
+            if (argument.startsWith(VM_BINDING_ARG)
+                    || argument.startsWith(GENERATION_BINDING_ARG)
+                    || argument.startsWith(GENERATION_DIAGNOSTIC_ARG)) {
+                throw new SecurityException(
+                        "application arguments may not supply OresVM internal binding metadata");
+            }
+        }
+
         int extra = 1;
         if (generationBindingToken != null) extra++;
         if (generationDiagnosticId != null) extra++;
