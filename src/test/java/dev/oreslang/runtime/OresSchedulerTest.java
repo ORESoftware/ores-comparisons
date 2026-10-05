@@ -20,6 +20,7 @@ final class OresSchedulerTest {
             OresFuture<Integer> source = new OresFuture<>();
             AtomicReference<Thread> producer = new AtomicReference<>();
             AtomicInteger state = new AtomicInteger();
+            CountDownLatch firstTurnReached = new CountDownLatch(1);
 
             OresFuture<Integer> result = scheduler.start(resume -> {
                 int pc = state.getAndIncrement();
@@ -37,6 +38,7 @@ final class OresSchedulerTest {
                     assertThrows(
                             IllegalStateException.class,
                             () -> source.get(1, TimeUnit.MILLISECONDS));
+                    firstTurnReached.countDown();
                     return OresScheduler.await(source);
                 }
 
@@ -50,6 +52,12 @@ final class OresSchedulerTest {
 
             Thread completionThread = Thread.ofPlatform().start(() -> {
                 producer.set(Thread.currentThread());
+                try {
+                    assertTrue(firstTurnReached.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    fail(interrupted);
+                }
                 source.completeFromRuntime(41);
             });
             completionThread.join();
