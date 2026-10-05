@@ -1789,6 +1789,37 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
+     * Bind a host-pumped main turn to this context's logical root runtime
+     * without hopping threads or re-entering the Truffle context.
+     *
+     * <p>The caller already owns the context thread. Official launchers invoke
+     * this while the complete Context lifecycle is itself running on CONTROL;
+     * direct embedders invoke it on their embedding thread.</p>
+     */
+    void executeHostPumpedRootTurn(Runnable turn) {
+        Objects.requireNonNull(turn, "turn");
+        if (inActorExecution()) {
+            throw new IllegalStateException(
+                    "host-pumped root turns cannot run from actor execution");
+        }
+
+        ActorRuntime previousRoot = CURRENT_ROOT_RUNTIME.get();
+        Boolean previousCarrier = ACTOR_CARRIER.get();
+        CURRENT_ROOT_RUNTIME.set(this);
+        ACTOR_CARRIER.set(Boolean.TRUE);
+        try {
+            schedulerSafepoint();
+            turn.run();
+        } finally {
+            if (previousRoot == null) CURRENT_ROOT_RUNTIME.remove();
+            else CURRENT_ROOT_RUNTIME.set(previousRoot);
+
+            if (previousCarrier == null) ACTOR_CARRIER.remove();
+            else ACTOR_CARRIER.set(previousCarrier);
+        }
+    }
+
+    /**
      * Define one runtime-owned actor group. The group always owns exactly one
      * logical mailman; omitting a custom mailman installs a default draining
      * mailman rather than leaving the outbox without a consumer.

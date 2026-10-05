@@ -197,28 +197,31 @@ public final class OresEvalRootNode extends RootNode {
             if (main == null) return null;
             final Ast.FunctionDecl entryMain = main;
 
-            boolean hostEntry = OresScheduler.current() == null
-                    && !ActorRuntime.inRootExecution()
-                    && !ActorRuntime.inActorExecution();
-
-            if (hostEntry) {
+            if (context.externalHostEntry()) {
                 List<?> normalized = normalizeFunctionArguments(
                         entryMain,
                         List.of(arguments));
-                OresFuture<Object> task = entryMain.async()
-                        ? startAsyncFunction(entryMain, normalized)
-                        : context.actors().rootScheduler().startSync(
-                                () -> callFunctionBody(entryMain, normalized));
 
-                // The host/embedder thread may block waiting for the root task;
-                // no Ores carrier is consumed. Completion is published only
-                // after the final scheduler turn fully unwinds.
-                return task.join();
+                if (entryMain.async()) {
+                    return context.driveHostTask(
+                            new AsyncPlanTask(
+                                    asyncFunctionPlan(entryMain, normalized),
+                                    traceForInvocation(functionTraceFrame(entryMain))));
+                }
+
+                return context.driveHostTask(resume -> {
+                    if (!resume.initial()) {
+                        throw new IllegalStateException(
+                                "synchronous main resumed more than once");
+                    }
+                    return OresScheduler.done(
+                            callFunctionBody(entryMain, normalized));
+                });
             }
 
-            // Internal callers already executing under an Ores scheduler keep
-            // that scheduler. Async callables return their Future to the
-            // enclosing Ores frame, which may await it normally.
+            // Internal callers already executing under this context's root
+            // scheduler keep that scheduler. Async callables return their
+            // Future to the enclosing Ores frame, which may await normally.
             return callFunction(entryMain, List.of(arguments));
         }
 

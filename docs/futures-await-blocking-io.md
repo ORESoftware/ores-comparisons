@@ -199,6 +199,15 @@ OresVM CONTROL domain. Root async turns use bounded admission and the same
 reserved root lanes as legacy root work so they cannot consume every CONTROL
 carrier and starve supervisor/ActorMailman work.
 
+The official launcher moves the complete Polyglot Context lifecycle onto a
+CONTROL/root carrier **before** the context is built or entered. Once inside an
+external `Context.eval`, `main` uses a host-pumped scheduler on that already
+context-owning thread rather than attempting a second concurrent Truffle-context
+entry. Each turn is still queued separately, fully unwinds to the pump, and gets
+a fresh dispatch id; same-thread pumping is therefore not inline resumption.
+Direct embedders use the same pump on their embedding thread, which may block as
+a host bridge without parking an Ores actor carrier.
+
 User-created `OresScheduler(n)` values own `n` carrier threads and a bounded
 ready queue. They are constructed with ordinary Oreslang `new` syntax and are
 owned by the current Ores context:
