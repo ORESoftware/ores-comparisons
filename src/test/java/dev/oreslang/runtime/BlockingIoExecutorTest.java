@@ -2,6 +2,7 @@ package dev.oreslang.runtime;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -174,6 +175,52 @@ final class BlockingIoExecutorTest {
             }
             assertTrue(host.isCancelled(),
                     "OresFuture cancellation must reach the host Future");
+        }
+    }
+
+    @Test
+    void hostFutureCancellationBecomesOresCancellation() throws Exception {
+        try (BlockingIoExecutor executor =
+                     new BlockingIoExecutor("test-", 8, 1, 4);
+             ExecutorService virtualThreads = Executors.newVirtualThreadPerTaskExecutor()) {
+            CountDownLatch started = new CountDownLatch(1);
+            Future<Integer> host = virtualThreads.submit(() -> {
+                started.countDown();
+                Thread.sleep(30_000L);
+                return 1;
+            });
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+
+            OresFuture<Integer> ores = executor.adaptJavaFuture(host);
+            assertTrue(host.cancel(true));
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (!ores.isDone() && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+
+            assertTrue(ores.isCancelled(),
+                    "host Future cancellation state must survive normalization");
+            assertThrows(CancellationException.class, ores::join);
+        }
+    }
+
+    @Test
+    void domainCancellationExceptionFromBlockingCallableRemainsFailure() throws Exception {
+        try (BlockingIoExecutor executor =
+                     new BlockingIoExecutor("test-", 8, 1, 4)) {
+            OresFuture<Integer> result = executor.submitJava(() -> {
+                throw new CancellationException("domain failure");
+            });
+
+            ExecutionException failure = assertThrows(
+                    ExecutionException.class,
+                    () -> result.get(2, TimeUnit.SECONDS));
+
+            assertFalse(result.isCancelled(),
+                    "exception class alone must not manufacture cancellation identity");
+            assertInstanceOf(CancellationException.class, failure.getCause());
+            assertEquals("domain failure", failure.getCause().getMessage());
         }
     }
 

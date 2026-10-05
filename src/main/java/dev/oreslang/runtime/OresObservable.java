@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Native rx-ores observable substrate.
@@ -31,12 +32,24 @@ import java.util.function.Function;
  */
 public abstract class OresObservable<T> {
 
-    public abstract OresSubscription<T> subscribe();
+    /**
+     * Create one independent subscription.
+     *
+     * <p>The public entrypoint is final so runtime sources cannot bypass the
+     * non-null subscription invariant.</p>
+     */
+    public final OresSubscription<T> subscribe() {
+        return Objects.requireNonNull(
+                subscribeFromRuntime(),
+                "subscribeFromRuntime returned null Subscription");
+    }
+
+    protected abstract OresSubscription<T> subscribeFromRuntime();
 
     public static <T> OresObservable<T> empty() {
         return new OresObservable<>() {
             @Override
-            public OresSubscription<T> subscribe() {
+            protected OresSubscription<T> subscribeFromRuntime() {
                 return new OresSubscription<>() {
                     @Override
                     protected OresFuture<OresNotification<T>> nextFromRuntime() {
@@ -62,7 +75,7 @@ public abstract class OresObservable<T> {
 
         return new OresObservable<>() {
             @Override
-            public OresSubscription<T> subscribe() {
+            protected OresSubscription<T> subscribeFromRuntime() {
                 return new OresSubscription<>() {
                     private int index;
 
@@ -92,7 +105,7 @@ public abstract class OresObservable<T> {
 
         return new OresObservable<>() {
             @Override
-            public OresSubscription<T> subscribe() {
+            protected OresSubscription<T> subscribeFromRuntime() {
                 return new OresSubscription<>() {
                     private boolean emitted;
 
@@ -126,7 +139,7 @@ public abstract class OresObservable<T> {
         OresObservable<T> upstream = this;
         return new OresObservable<>() {
             @Override
-            public OresSubscription<T> subscribe() {
+            protected OresSubscription<T> subscribeFromRuntime() {
                 OresSubscription<T> inner = upstream.subscribe();
 
                 return new OresSubscription<>() {
@@ -176,7 +189,12 @@ public abstract class OresObservable<T> {
                 return;
             }
             if (failure != null) {
-                result.failFromRuntime(OresFuture.unwrap(failure));
+                Throwable terminalFailure = OresFuture.unwrap(failure);
+                if (pull.isCancelled()) {
+                    result.cancel(true);
+                } else {
+                    result.failFromRuntime(terminalFailure);
+                }
                 subscription.cancel();
                 return;
             }
@@ -205,24 +223,48 @@ public abstract class OresObservable<T> {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(mapper, "mapper");
 
-        OresFuture<O> result = propagateCancellation
-                ? new OresFuture<>(() -> source.cancel(true))
-                : new OresFuture<>();
+        AtomicReference<OresFuture.RuntimeWaiterRegistration> registrationRef =
+                new AtomicReference<>();
 
-        source.whenCompleteRuntime((value, failure) -> {
-            if (result.isDone()) {
-                return;
-            }
-            if (failure != null) {
-                result.failFromRuntime(OresFuture.unwrap(failure));
-                return;
-            }
-            try {
-                result.completeFromRuntime(mapper.apply(value));
-            } catch (Throwable mappingFailure) {
-                result.failFromRuntime(mappingFailure);
-            }
+        Runnable detach = () -> {
+            OresFuture.RuntimeWaiterRegistration registration =
+                    registrationRef.getAndSet(null);
+            if (registration != null) registration.cancel();
+        };
+
+        OresFuture<O> result = new OresFuture<>(() -> {
+            detach.run();
+            if (propagateCancellation) source.cancel(true);
         });
+
+        OresFuture.RuntimeWaiterRegistration registration =
+                source.whenCompleteRuntime((value, failure) -> {
+                    detach.run();
+                    if (result.isDone()) {
+                        return;
+                    }
+                    if (failure != null) {
+                        Throwable terminalFailure = OresFuture.unwrap(failure);
+                        if (source.isCancelled()) {
+                            result.cancel(true);
+                        } else {
+                            result.failFromRuntime(terminalFailure);
+                        }
+                        return;
+                    }
+                    try {
+                        result.completeFromRuntime(mapper.apply(value));
+                    } catch (Throwable mappingFailure) {
+                        result.failFromRuntime(mappingFailure);
+                    }
+                });
+        registrationRef.set(registration);
+
+        // An already-settled source may invoke the callback before registration
+        // publication. If so, detach the no-longer-needed registration now.
+        if (result.isDone()) {
+            detach.run();
+        }
 
         return result;
     }

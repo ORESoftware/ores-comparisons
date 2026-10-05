@@ -844,3 +844,91 @@ Java_dev_oreslang_runtime_OresThread_nativeCurrentThreadId(
     (void)cls;
     return (jlong)(uintptr_t)pthread_self();
 }
+
+/* ------------------------------------------------------------------------- */
+/* NativeFutureState native settlement arbitration.                          */
+/* ------------------------------------------------------------------------- */
+
+typedef struct {
+    _Atomic int state;
+} ores_future_state;
+
+static ores_future_state *future_state_from_handle(JNIEnv *env, jlong handle) {
+    ores_future_state *state = (ores_future_state *)(intptr_t)handle;
+    if (state == NULL) {
+        throw_illegal_state(env, "native Future state handle is closed");
+    }
+    return state;
+}
+
+JNIEXPORT jlong JNICALL
+Java_dev_oreslang_runtime_NativeFutureState_nativeCreate(
+        JNIEnv *env, jclass cls) {
+    (void)cls;
+    ores_future_state *state = (ores_future_state *)calloc(1, sizeof(*state));
+    if (state == NULL) {
+        throw_illegal_state(env, "failed to allocate native Future state");
+        return 0;
+    }
+    atomic_init(&state->state, 0);
+    return (jlong)(intptr_t)state;
+}
+
+JNIEXPORT void JNICALL
+Java_dev_oreslang_runtime_NativeFutureState_nativeDestroy(
+        JNIEnv *env, jclass cls, jlong handle) {
+    (void)env;
+    (void)cls;
+    ores_future_state *state = (ores_future_state *)(intptr_t)handle;
+    if (state == NULL) return;
+    free(state);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_dev_oreslang_runtime_NativeFutureState_nativeTryBeginSettlement(
+        JNIEnv *env, jclass cls, jlong handle) {
+    (void)cls;
+    ores_future_state *state = future_state_from_handle(env, handle);
+    if (state == NULL) return JNI_FALSE;
+
+    int expected = 0;
+    return atomic_compare_exchange_strong_explicit(
+                   &state->state,
+                   &expected,
+                   1,
+                   memory_order_acq_rel,
+                   memory_order_acquire)
+            ? JNI_TRUE
+            : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_dev_oreslang_runtime_NativeFutureState_nativePublish(
+        JNIEnv *env, jclass cls, jlong handle, jint terminal_state) {
+    (void)cls;
+    ores_future_state *state = future_state_from_handle(env, handle);
+    if (state == NULL) return;
+    if (terminal_state < 2 || terminal_state > 4) {
+        throw_illegal_state(env, "invalid native Future terminal state");
+        return;
+    }
+
+    int expected = 1;
+    if (!atomic_compare_exchange_strong_explicit(
+                &state->state,
+                &expected,
+                (int)terminal_state,
+                memory_order_release,
+                memory_order_acquire)) {
+        throw_illegal_state(env, "native Future publish without settlement ownership");
+    }
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_oreslang_runtime_NativeFutureState_nativeState(
+        JNIEnv *env, jclass cls, jlong handle) {
+    (void)cls;
+    ores_future_state *state = future_state_from_handle(env, handle);
+    if (state == NULL) return 0;
+    return (jint)atomic_load_explicit(&state->state, memory_order_acquire);
+}

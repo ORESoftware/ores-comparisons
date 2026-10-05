@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 /**
  * VM-owned bridge for host operations that cannot participate directly in the
@@ -106,14 +107,16 @@ final class BlockingIoExecutor implements AutoCloseable {
     }
 
     <T> OresFuture<T> submitJava(Callable<? extends T> operation) {
-        return submitJava(operation, () -> { });
+        return submitJava(operation, () -> { }, () -> false);
     }
 
     <T> OresFuture<T> submitJava(
             Callable<? extends T> operation,
-            Runnable externalCancel) {
+            Runnable externalCancel,
+            BooleanSupplier externalCancelled) {
         Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(externalCancel, "externalCancel");
+        Objects.requireNonNull(externalCancelled, "externalCancelled");
         if (closed.get()) return rejected("blocking I/O executor is closed");
         if (!javaAdmissions.tryAcquire()) {
             return rejected(
@@ -158,7 +161,11 @@ final class BlockingIoExecutor implements AutoCloseable {
                         try {
                             result.completeFromRuntime(operation.call());
                         } catch (CancellationException cancelled) {
-                            result.cancel(false);
+                            if (externalCancelled.getAsBoolean()) {
+                                result.cancelFromRuntime(cancelled);
+                            } else {
+                                result.failFromRuntime(cancelled);
+                            }
                         } catch (VirtualMachineError fatal) {
                             result.failFromRuntime(fatal);
                             throw fatal;
@@ -219,7 +226,7 @@ final class BlockingIoExecutor implements AutoCloseable {
                 if (cause instanceof Error error) throw error;
                 throw new RuntimeException(cause);
             }
-        }, () -> future.cancel(true));
+        }, () -> future.cancel(true), future::isCancelled);
     }
 
     <T> OresFuture<T> submitNative(Callable<? extends T> operation) {

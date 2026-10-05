@@ -66,6 +66,45 @@ Host `CompletionStage` values are compatibility inputs only. They are
 immediately normalized into an OresFuture before they participate in Oreslang
 suspension.
 
+## Native ownership floor
+
+Oreslang runtime semantics are **native-first**. The JVM/Truffle implementation
+is a host for the compiler/interpreter and a JNI bridge; Java concurrency and
+I/O classes are not the semantic authority for Oreslang primitives.
+
+The current branch already runs guest scheduler turns on bounded JNI-created
+pthreads. Its remaining Java-side Future bookkeeping (`AtomicReference`,
+waiter queues, and host blocking observation) is transitional interpreter
+plumbing, not the target runtime contract. Do not expand that plumbing into new
+language semantics.
+
+The target boundary is:
+
+- `Future<T>` owns an opaque native runtime handle. Settlement/cancellation
+  arbitration and host-blocking wakeup live in the native kernel; OresScheduler
+  remains the only authority that resumes guest continuations.
+- `Future.all`, `Future.race`, async methods, actor suspension, rx-ores and
+  timers compose Ores Futures directly. They must not lower to
+  `CompletableFuture` or Java executor semantics.
+- `CompletionStage`, `java.util.concurrent.Future`, Java virtual threads and
+  other host facilities are explicit **interop adapters only**. They may settle
+  an Ores Future but never define its scheduling/cancellation semantics or run
+  guest continuations inline.
+- Absence/failure of the required native scheduler/runtime library is fail
+  closed for native-required execution. Do not silently substitute
+  `Executors`, `ThreadPoolExecutor`, or a Java thread-per-task implementation.
+- `Thread`, `File`, sockets/networking, and core collection storage continue to
+  terminate in Ores-owned native code. Higher-level protocol and policy logic
+  belongs in `.ores` standard-library code rather than Java.
+- JNI is a transport boundary, not an ownership boundary. Interpreter-era
+  `jobject` payload handles may be used while Truffle values are Java objects,
+  but new native APIs must use opaque/generation-safe handles and must not make
+  JVM object identity the durable Oreslang value model. The AOT/native value ABI
+  should replace those bridge-only references over time.
+
+In short: Java interop is supported; Java implementation details are not the
+Oreslang runtime specification.
+
 ## Awaitable<T>
 
 `await` is defined in terms of one language-level projection:
