@@ -1277,6 +1277,14 @@ public final class TypeChecker {
                 if (record.members().isEmpty()) return Unknown.INSTANCE;
                 return record.members().values().stream().reduce(Unknown.INSTANCE, this::commonType);
             }
+            if (receiver instanceof Named region
+                    && (region.name().equals("Region") || region.name().equals("RegionView"))) {
+                if (region.arguments().size() != 1) {
+                    throw new IllegalArgumentException(region.name() + " requires exactly one element type");
+                }
+                requireAssignable(index, Primitive.INT, region.name() + " index");
+                return region.arguments().getFirst();
+            }
             requireAssignable(index, Primitive.INT, "array/list index");
             if (receiver instanceof ListType list) return list.element();
             if (receiver instanceof Tuple tuple) return tuple.elements().stream().reduce(Unknown.INSTANCE, this::commonType);

@@ -445,21 +445,231 @@ public final class ComputeContractChecker {
                 }
                 validateComputeBody(loop.body(), scope, loopLocals);
             } else if (stmt instanceof Ast.ForStmt loop) {
-                if (loop.condition() == null) {
-                    throw unsafe(scope.function().name(), "conditionless/unbounded for loop");
-                }
+                validateCanonicalBoundedFor(loop, scope, locals);
                 LinkedHashSet<String> loopLocals = new LinkedHashSet<>(locals);
-                if (loop.initializer() instanceof Ast.BindingStmt binding) {
-                    validateComputeExpr(binding.initializer(), scope, loopLocals);
-                    loopLocals.add(binding.name());
-                } else if (loop.initializer() instanceof Ast.ExprStmt expression) {
-                    validateComputeExpr(expression.expression(), scope, loopLocals);
-                }
+                Ast.BindingStmt binding = (Ast.BindingStmt) loop.initializer();
+                validateComputeExpr(binding.initializer(), scope, loopLocals);
+                loopLocals.add(binding.name());
                 validateComputeExpr(loop.condition(), scope, loopLocals);
                 validateComputeExpr(loop.update(), scope, loopLocals);
                 validateComputeBody(loop.body(), scope, loopLocals);
             }
         }
+    }
+
+    private enum ForDirection { UP, DOWN }
+
+    private record BoundedForShape(
+            String inductionVariable,
+            ForDirection direction,
+            Ast.Expr boundExpression,
+            String boundName) { }
+
+    /**
+     * Device/AOT compute loops must expose a finite iteration space that a
+     * backend can lower without executing an arbitrary host-style while loop.
+     * The v0 floor accepts canonical induction only:
+     *
+     * <pre>
+     * for int i = start; i < bound; i++ { ... }
+     * for int i = start; i >= bound; i = i - 2 { ... }
+     * </pre>
+     *
+     * The bound is a literal or an already-existing scalar/local name and
+     * neither the induction variable nor a named bound may be assigned in the
+     * body. More expressive proofs can be added later without weakening this
+     * conservative floor.
+     */
+    private static void validateCanonicalBoundedFor(
+            Ast.ForStmt loop,
+            ComputeScope scope,
+            Set<String> incomingLocals) {
+        String owner = scope.function().name();
+        if (!(loop.initializer() instanceof Ast.BindingStmt initializer)) {
+            throw unsafe(owner, "non-canonical compute for-loop initializer");
+        }
+        if (!(loop.condition() instanceof Ast.BinaryExpr condition)) {
+            throw unsafe(owner, "compute for-loop without a provable monotonic bound");
+        }
+        if (loop.update() == null) {
+            throw unsafe(owner, "compute for-loop without a monotonic induction update");
+        }
+
+        BoundedForShape shape = boundedForShape(initializer.name(), condition, incomingLocals);
+        if (shape == null) {
+            throw unsafe(owner, "compute for-loop without a canonical finite induction bound");
+        }
+        if (!hasMonotonicStep(loop.update(), shape.inductionVariable(), shape.direction())) {
+            throw unsafe(owner, "compute for-loop update does not monotonically approach its bound");
+        }
+
+        LinkedHashSet<String> protectedNames = new LinkedHashSet<>();
+        protectedNames.add(shape.inductionVariable());
+        if (shape.boundName() != null) protectedNames.add(shape.boundName());
+        if (statementsMutateAny(loop.body(), protectedNames)) {
+            throw unsafe(
+                    owner,
+                    "compute for-loop mutates its induction variable or loop bound inside the body");
+        }
+    }
+
+    private static BoundedForShape boundedForShape(
+            String induction,
+            Ast.BinaryExpr condition,
+            Set<String> incomingLocals) {
+        Ast.Expr bound;
+        ForDirection direction;
+
+        if (isName(condition.left(), induction)) {
+            bound = condition.right();
+            direction = switch (condition.operator()) {
+                case "<", "<=" -> ForDirection.UP;
+                case ">", ">=" -> ForDirection.DOWN;
+                default -> null;
+            };
+        } else if (isName(condition.right(), induction)) {
+            bound = condition.left();
+            direction = switch (condition.operator()) {
+                case ">", ">=" -> ForDirection.UP;
+                case "<", "<=" -> ForDirection.DOWN;
+                default -> null;
+            };
+        } else {
+            return null;
+        }
+        if (direction == null) return null;
+
+        if (bound instanceof Ast.LiteralExpr literal) {
+            if (!(literal.value() instanceof Long)) return null;
+            return new BoundedForShape(induction, direction, bound, null);
+        }
+        if (bound instanceof Ast.NameExpr name
+                && incomingLocals.contains(name.name())
+                && !name.name().equals(induction)) {
+            return new BoundedForShape(induction, direction, bound, name.name());
+        }
+        return null;
+    }
+
+    private static boolean hasMonotonicStep(
+            Ast.Expr update,
+            String induction,
+            ForDirection direction) {
+        if (!(update instanceof Ast.AssignExpr assignment)
+                || !isName(assignment.target(), induction)
+                || !(assignment.value() instanceof Ast.BinaryExpr binary)) {
+            return false;
+        }
+
+        if (direction == ForDirection.UP && binary.operator().equals("+")) {
+            return (isName(binary.left(), induction) && isPositiveLong(binary.right()))
+                    || (isPositiveLong(binary.left()) && isName(binary.right(), induction));
+        }
+        if (direction == ForDirection.DOWN && binary.operator().equals("-")) {
+            return isName(binary.left(), induction) && isPositiveLong(binary.right());
+        }
+        return false;
+    }
+
+    private static boolean isName(Ast.Expr expr, String name) {
+        return expr instanceof Ast.NameExpr candidate && candidate.name().equals(name);
+    }
+
+    private static boolean isPositiveLong(Ast.Expr expr) {
+        return expr instanceof Ast.LiteralExpr literal
+                && literal.value() instanceof Long value
+                && value > 0L;
+    }
+
+    private static boolean statementsMutateAny(
+            List<Ast.Stmt> body,
+            Set<String> protectedNames) {
+        for (Ast.Stmt stmt : body) {
+            if (stmt instanceof Ast.BindingStmt binding) {
+                if (protectedNames.contains(binding.name())
+                        || expressionMutatesAny(binding.initializer(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.DestructureStmt destructure) {
+                for (Ast.DestructureBinding binding : destructure.bindings()) {
+                    if (!binding.isDiscard() && protectedNames.contains(binding.name())) return true;
+                }
+                if (expressionMutatesAny(destructure.initializer(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.ExprStmt expression) {
+                if (expressionMutatesAny(expression.expression(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.ReturnStmt returned) {
+                if (expressionMutatesAny(returned.value(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.BlockStmt block) {
+                if (statementsMutateAny(block.body(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.IfStmt conditional) {
+                for (Ast.IfBranch branch : conditional.branches()) {
+                    if (expressionMutatesAny(branch.condition(), protectedNames)
+                            || statementsMutateAny(branch.body(), protectedNames)) return true;
+                }
+                if (statementsMutateAny(conditional.elseBody(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.ForOfStmt nested) {
+                if (protectedNames.contains(nested.bindingName())
+                        || expressionMutatesAny(nested.iterable(), protectedNames)
+                        || statementsMutateAny(nested.body(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.ForOfDestructureStmt nested) {
+                for (Ast.DestructureBinding binding : nested.bindings()) {
+                    if (!binding.isDiscard() && protectedNames.contains(binding.name())) return true;
+                }
+                if (expressionMutatesAny(nested.iterable(), protectedNames)
+                        || statementsMutateAny(nested.body(), protectedNames)) return true;
+            } else if (stmt instanceof Ast.ForStmt nested) {
+                if (nested.initializer() instanceof Ast.BindingStmt binding
+                        && protectedNames.contains(binding.name())) return true;
+                if (nested.initializer() instanceof Ast.ExprStmt expression
+                        && expressionMutatesAny(expression.expression(), protectedNames)) return true;
+                if (expressionMutatesAny(nested.condition(), protectedNames)
+                        || expressionMutatesAny(nested.update(), protectedNames)
+                        || statementsMutateAny(nested.body(), protectedNames)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean expressionMutatesAny(
+            Ast.Expr expr,
+            Set<String> protectedNames) {
+        if (expr == null) return false;
+        if (expr instanceof Ast.AssignExpr assignment) {
+            if (assignment.target() instanceof Ast.NameExpr name
+                    && protectedNames.contains(name.name())) return true;
+            return expressionMutatesAny(assignment.target(), protectedNames)
+                    || expressionMutatesAny(assignment.value(), protectedNames);
+        }
+        if (expr instanceof Ast.BinaryExpr binary) {
+            return expressionMutatesAny(binary.left(), protectedNames)
+                    || expressionMutatesAny(binary.right(), protectedNames);
+        }
+        if (expr instanceof Ast.UnaryExpr unary) {
+            return expressionMutatesAny(unary.operand(), protectedNames);
+        }
+        if (expr instanceof Ast.ConditionalExpr conditional) {
+            return expressionMutatesAny(conditional.condition(), protectedNames)
+                    || expressionMutatesAny(conditional.whenTrue(), protectedNames)
+                    || expressionMutatesAny(conditional.whenFalse(), protectedNames);
+        }
+        if (expr instanceof Ast.MemberExpr member) {
+            return expressionMutatesAny(member.receiver(), protectedNames);
+        }
+        if (expr instanceof Ast.IndexExpr indexed) {
+            return expressionMutatesAny(indexed.receiver(), protectedNames)
+                    || expressionMutatesAny(indexed.index(), protectedNames);
+        }
+        if (expr instanceof Ast.CallExpr call) {
+            if (expressionMutatesAny(call.callee(), protectedNames)) return true;
+            for (Ast.Expr argument : call.arguments()) {
+                if (expressionMutatesAny(argument, protectedNames)) return true;
+            }
+            return false;
+        }
+        if (expr instanceof Ast.TupleExpr tuple) {
+            for (Ast.Expr element : tuple.elements()) {
+                if (expressionMutatesAny(element, protectedNames)) return true;
+            }
+        }
+        return false;
     }
 
     private void validateComputeExpr(

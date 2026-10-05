@@ -176,6 +176,12 @@ final class ComputeDataOrientedLanguageTest {
     @Test
     void computeBodyMustStayWithinDeclaredRegionEffects() {
         assertComputeRejected("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc bad(Region<Particle> particles, int i): void
                 reads particles.position;
                 {
@@ -185,6 +191,12 @@ final class ComputeDataOrientedLanguageTest {
                 """);
 
         assertComputeRejected("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc bad(Region<Particle> particles, int i): void
                 reads particles.position;
                 {
@@ -194,6 +206,12 @@ final class ComputeDataOrientedLanguageTest {
                 """);
 
         assertDoesNotThrow(() -> OresCompiler.parseAndTypeCheck("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc ok(Region<Particle> particles, int i): void
                 writes particles.position;
                 {
@@ -204,6 +222,12 @@ final class ComputeDataOrientedLanguageTest {
                 """));
 
         assertDoesNotThrow(() -> OresCompiler.parseAndTypeCheck("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc overwrite(Region<Particle> particles, int i): void
                 discards particles.position;
                 {
@@ -213,6 +237,12 @@ final class ComputeDataOrientedLanguageTest {
                 """));
 
         assertComputeRejected("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc badDiscardRead(Region<Particle> particles, int i): void
                 discards particles.position;
                 {
@@ -284,6 +314,63 @@ final class ComputeDataOrientedLanguageTest {
     }
 
     @Test
+    void computeCStyleLoopsRequireProvableMonotonicBounds() {
+        assertDoesNotThrow(() -> OresCompiler.parseAndTypeCheck("""
+                compute fnc ascending(Region<int> values, int n): void {
+                  for int i = 0; i < n; i++ {
+                    val x = i;
+                  }
+                  return;
+                }
+                """));
+
+        assertDoesNotThrow(() -> OresCompiler.parseAndTypeCheck("""
+                compute fnc descending(Region<int> values, int n): void {
+                  for int i = n; i >= 0; i-- {
+                    val x = i;
+                  }
+                  return;
+                }
+                """));
+
+        assertComputeRejected("""
+                compute fnc wrongWay(Region<int> values, int n): void {
+                  for int i = 0; i < n; i-- {
+                    val x = i;
+                  }
+                  return;
+                }
+                """);
+
+        assertComputeRejected("""
+                compute fnc constantTrue(Region<int> values): void {
+                  for int i = 0; true; i++ {
+                    val x = i;
+                  }
+                  return;
+                }
+                """);
+
+        assertComputeRejected("""
+                compute fnc mutatesIndex(Region<int> values, int n): void {
+                  for int i = 0; i < n; i++ {
+                    i = i - 100;
+                  }
+                  return;
+                }
+                """);
+
+        assertComputeRejected("""
+                compute fnc mutatesBound(Region<int> values, int n): void {
+                  for int i = 0; i < n; i++ {
+                    n = n + 1;
+                  }
+                  return;
+                }
+                """);
+    }
+
+    @Test
     void aspectV0RequiresBeforeAfterZeroArgVoidHandlers() {
         assertComputeRejected("""
                 fnc withArg(int x): void { return; }
@@ -313,6 +400,12 @@ final class ComputeDataOrientedLanguageTest {
     @Test
     void computeCallsMustFitCallerEffects() {
         assertDoesNotThrow(() -> OresCompiler.parseAndTypeCheck("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc child(Region<Particle> particles, int i): void
                 writes particles.position;
                 {
@@ -329,6 +422,12 @@ final class ComputeDataOrientedLanguageTest {
                 """));
 
         assertComputeRejected("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc child(Region<Particle> particles, int i): void
                 writes particles.position;
                 {
@@ -345,6 +444,12 @@ final class ComputeDataOrientedLanguageTest {
                 """);
 
         assertComputeRejected("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc child(Region<Particle> particles): void
                 reduces particles.mass by sum;
                 {
@@ -360,6 +465,12 @@ final class ComputeDataOrientedLanguageTest {
                 """);
 
         assertDoesNotThrow(() -> OresCompiler.parseAndTypeCheck("""
+define class Particle as
+  let int position;
+  let int velocity;
+  let int mass;
+end
+
                 compute fnc child(Region<Particle> particles): void
                 reduces particles.mass by sum;
                 {
