@@ -193,6 +193,32 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void movedLetMayBeReinitializedWithFreshOwnership() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub let int value = 0;
+                end
+
+                fnc consume(take Box box) => void {
+                  return;
+                }
+
+                fnc mutate(Box mut box) => void {
+                  box.value = box.value + 1;
+                  return;
+                }
+
+                fnc ok() => void {
+                  let Box box = new Box(1);
+                  consume(rt take box);
+                  box = new Box(2);
+                  mutate(box);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void consumingReceiverRejectsBorrowedSelf() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

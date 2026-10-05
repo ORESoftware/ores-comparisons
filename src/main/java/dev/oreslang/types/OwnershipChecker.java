@@ -246,7 +246,7 @@ public final class OwnershipChecker {
 
                 VarState state = new VarState(
                         elementType,
-                        binding.kind() == Ast.BindingKind.LET && elementKind == ValueKind.MOVE_ONLY,
+                        binding.kind() == Ast.BindingKind.LET,
                         elementKind,
                         Origin.LOCAL);
                 state.borrowSource = elementBorrowSource;
@@ -366,10 +366,10 @@ public final class OwnershipChecker {
                     bindingValueKind = ValueKind.MOVE_ONLY;
                 }
 
-                boolean mutableBinding = binding.kind() == Ast.BindingKind.LET
-                        && bindingValueKind != ValueKind.IMM_BORROW
-                        && bindingValueKind != ValueKind.MUT_BORROW
-                        && bindingValueKind != ValueKind.SHARED;
+                // let controls rebinding of the local slot. Ownership kind
+                // separately controls whether mutation through the current
+                // value is legal.
+                boolean mutableBinding = binding.kind() == Ast.BindingKind.LET;
                 VarState state = new VarState(
                         bindingType,
                         mutableBinding,
@@ -495,10 +495,10 @@ public final class OwnershipChecker {
 
             if (assignment.target() instanceof Ast.NameExpr name) {
                 VarState target = requireState(scope, name.name());
-                // Rebinding a let drops this binding's ownership of its old
-                // value. In particular, a binding that previously became
-                // SHARED via rt share may be rebound to a fresh unique value;
-                // other shared aliases continue owning the old object.
+                // Rebinding a let drops this binding's ownership/alias of
+                // its old value. Release a stored borrow before replacing the
+                // slot; other shared owners remain owners of the old object.
+                releaseBindingBorrow(target);
                 target.kind = assigned.kind;
                 target.borrowSource = assigned.borrowSource;
                 target.moved = false;
@@ -1166,10 +1166,14 @@ public final class OwnershipChecker {
     private void checkAssignmentTarget(Ast.Expr target, Scope scope) {
         if (target instanceof Ast.NameExpr name) {
             VarState state = requireState(scope, name.name());
-            requireUsable(state, name.name(), true);
             if (!state.mutable) throw error("cannot rebind immutable binding '" + name.name()
                     + "'; parameter bindings are immutable, so use a local let binding when rebinding is required");
-            if (state.immutableBorrows > 0 || state.mutableBorrowed) throw error("cannot assign '" + name.name() + "' while it is borrowed");
+            // Reinitializing a moved let is legal. What is forbidden is
+            // replacing storage while outstanding aliases to the current slot
+            // still exist.
+            if (state.immutableBorrows > 0 || state.mutableBorrowed) {
+                throw error("cannot assign '" + name.name() + "' while it is borrowed");
+            }
             return;
         }
         if (target instanceof Ast.MemberExpr member) {
@@ -1263,6 +1267,28 @@ public final class OwnershipChecker {
         } else if (owner.mutableBorrowed) {
             throw error("cannot immutably borrow '" + owner.debugName + "' while a mutable borrow is active");
         }
+    }
+
+    private void releaseBindingBorrow(VarState binding) {
+        VarState source = binding.borrowSource;
+        if (source == null) return;
+
+        if (binding.kind == ValueKind.MUT_BORROW) {
+            if (!source.mutableBorrowed) {
+                throw new IllegalStateException(
+                        "Oreslang ownership checker invariant: rebinding inactive mutable borrow '"
+                                + binding.debugName + "'");
+            }
+            source.mutableBorrowed = false;
+        } else if (binding.kind == ValueKind.IMM_BORROW) {
+            if (source.immutableBorrows <= 0) {
+                throw new IllegalStateException(
+                        "Oreslang ownership checker invariant: rebinding immutable borrow underflow for '"
+                                + binding.debugName + "'");
+            }
+            source.immutableBorrows--;
+        }
+        binding.borrowSource = null;
     }
 
     private void beginPersistentBorrow(VarState owner, boolean mutable) {

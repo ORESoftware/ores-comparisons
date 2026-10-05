@@ -240,6 +240,30 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void destructuredLetBorrowCanRebindWithoutMutatingSourceProjection() throws Exception {
+        String output = run("""
+                define class Box as
+                  pub let int value = 0;
+                end
+
+                pub routine main() => void {
+                  let pairs = arr[(new Box(1), new Box(2))];
+                  for [let a, b] of pairs do
+                    a = new Box(9)
+                    stdio.stdout.write(a.value)
+                    stdio.stdout.write(b.value)
+                  done
+
+                  // Every iteration borrow must be released, including the
+                  // alias ended early by rebinding a.
+                  pairs = arr[(new Box(3), new Box(4))];
+                }
+                """);
+
+        assertEquals("92", output);
+    }
+
+    @Test
     void parenthesizedForCanUseDoDoneBody() throws Exception {
         String output = run("""
                 pub routine main() => void {
