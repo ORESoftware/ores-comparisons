@@ -1,0 +1,24 @@
+import class EmbeddingBatch from './embeddings';
+
+// Low-level inference boundary for embedding engines.
+//
+// This contract is intentionally batch-first and destination-buffer oriented.
+// A backend may be ONNX, GGUF/native, accelerator-specific, remote, or a
+// future Oreslang-native tensor engine. Callers allocate rows * dimensions
+// output storage and the backend fills that storage.
+//
+// This is a synchronous kernel contract, not an actor API. Runtime-facing
+// services should own a backend in an actor/worker, batch requests there, and
+// expose Awaitable/Future completion once mailbox continuation lowering is
+// available for actor callables.
+pub define interface EmbeddingBackend
+  fnc model_id() => String;
+  fnc model_revision() => String;
+  fnc dimensions() => int;
+  fnc max_batch_size() => int;
+
+  fnc embed_batch(
+    List<String> texts,
+    List<float> mut output
+  ) => Result<EmbeddingBatch, String>;
+end
