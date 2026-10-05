@@ -111,14 +111,63 @@ at a process-safe maximum.
 Exceeding that bound is fail-closed rather than silently allocating an
 unbounded queue.
 
-## Scheduler safepoints
+## Scheduler-forced soft preemption
 
-This continuation substrate is separate from scheduler preemption.
+Actor continuation machinery is also the lowering target for BEAM-style soft
+realtime preemption. An actor does not need to reach `await` before another
+actor can receive the carrier.
 
-Compiler/runtime safepoints remain responsible for cancellation, deadlines,
-untrusted fuel, and future reduction-budget handoff. Arbitrary JVM/native stacks
-are never asynchronously snapshotted. Mid-message cooperative preemption is
-legal only when the compiler has emitted a resumable frame at a safe point.
+Each carrier slice has two independent fairness triggers:
+
+- a reduction budget (currently 2,000 compiler/runtime checkpoints);
+- the actor domain's wall-clock batch quantum.
+
+The scheduler may also explicitly request preemption for a running actor. Any
+of those conditions sets a one-shot preemption request. The request is serviced
+at the next **preemption-safe** checkpoint emitted by the compiler:
+
+```text
+actor owns carrier + execution lease
+        |
+        | reductions/time/manual request
+        v
+preemption requested
+        |
+        | next resumable safe point
+        v
+capture heap-safe continuation
+        |
+        v
+unwind guest stack
+release actor execution lease
+requeue actor at scheduler tail
+        |
+        v
+carrier immediately becomes available to peer work
+```
+
+This is scheduler-forced **cooperative** preemption, not Java thread suspension.
+The runtime never uses `Thread.suspend`, `Thread.stop`, or asynchronous stack
+tearing. A request can be raised at any time, but handoff latency is bounded by
+the next compiler safe point. Code that enters an opaque non-resumable host/FFI
+stack cannot be safely detached mid-call; watchdog/sandbox policy remains the
+containment mechanism for such code.
+
+A preempted mailbox event remains the same logical actor turn. Its admitted
+message stays rooted/accounted, later mailbox messages cannot overtake it, and
+untrusted fuel is not replenished. Resumption may use a different carrier but
+still requires the same actor execution lease.
+
+Carrier-thread-affine capabilities form temporary **pinned regions**. For
+example, an `OresRwLock` guard cannot migrate between JVM threads. A pending
+preemption remains pending while such a guard is live and is serviced at the
+next safe checkpoint after the guard closes. The compiler must likewise avoid
+emitting migration-capable checkpoints across foreign/native frames that cannot
+be safely resumed elsewhere.
+
+`await` remains stronger and unconditional: it always ends the current actor
+scheduler turn, including when the Future is already complete. Reduction or
+wall-clock budget does not change that rule.
 
 ## `yield` is not actor scheduling
 
