@@ -80,8 +80,11 @@ public final class OwnershipChecker {
 
     private void checkFunction(Ast.FunctionDecl fn) {
         Scope scope = new Scope(null, fn.nonLexical());
+        Set<String> computeMutableRoots = computeMutableRoots(fn);
         for (Ast.Param param : fn.parameters()) {
-            scope.define(param.name(), stateForParam(param));
+            scope.define(
+                    param.name(),
+                    stateForParam(param, computeMutableRoots.contains(param.name())));
         }
         checkBlock(fn.body(), scope, fn.returnType());
         scope.close();
@@ -111,10 +114,38 @@ public final class OwnershipChecker {
     }
 
     private VarState stateForParam(Ast.Param param) {
-        ValueKind kind = param.structural() && !param.type().isBorrow() ? ValueKind.IMM_BORROW : kindOfType(param.type());
-        boolean mutableOwner = param.mutable();
+        return stateForParam(param, false);
+    }
+
+    private VarState stateForParam(Ast.Param param, boolean effectMutable) {
+        ValueKind kind = param.structural() && !param.type().isBorrow()
+                ? ValueKind.IMM_BORROW
+                : kindOfType(param.type());
+        boolean mutableOwner = param.mutable() || effectMutable;
         if (param.type().isBorrow() && param.type().mutableBorrow()) mutableOwner = false;
         return new VarState(param.type(), mutableOwner, kind, Origin.PARAM);
+    }
+
+    private static Set<String> computeMutableRoots(Ast.FunctionDecl fn) {
+        boolean compute = fn.annotations().stream()
+                .anyMatch(annotation -> annotation.name().equals("Compute"));
+        if (!compute) return Set.of();
+
+        LinkedHashSet<String> roots = new LinkedHashSet<>();
+        for (Ast.Annotation annotation : fn.annotations()) {
+            if (!Set.of("Writes", "Discards", "Reduces", "Atomic").contains(annotation.name())) {
+                continue;
+            }
+            int limit = annotation.name().equals("Reduces")
+                    ? Math.min(1, annotation.arguments().size())
+                    : annotation.arguments().size();
+            for (int i = 0; i < limit; i++) {
+                String path = annotation.arguments().get(i).name();
+                int dot = path.indexOf('.');
+                roots.add(dot < 0 ? path : path.substring(0, dot));
+            }
+        }
+        return Set.copyOf(roots);
     }
 
     private void checkBlock(List<Ast.Stmt> body, Scope parent, Ast.TypeRef returnType) {

@@ -907,6 +907,8 @@ public final class ComputeContractChecker {
         }
 
         ComputeContract calleeContract = contractOf(callee);
+        validateNestedComputePhysicalContract(call, target, calleeContract, caller);
+
         for (RegionEffect effect : calleeContract.effects()) {
             int parameterIndex = parameterIndex(callee.parameters(), effect.rootParameter());
             if (parameterIndex < 0 || parameterIndex >= call.arguments().size()) {
@@ -937,6 +939,76 @@ public final class ComputeContractChecker {
                     new RegionAccessPath(base.root(), mappedField),
                     effect,
                     caller);
+        }
+    }
+
+    private static void validateNestedComputePhysicalContract(
+            Ast.CallExpr call,
+            ResolvedFunction target,
+            ComputeContract calleeContract,
+            ComputeScope caller) {
+        ComputeContract callerContract = contractOf(caller.function());
+
+        String calleePlacement = calleeContract.placement();
+        String callerPlacement = callerContract.placement();
+        if (!calleePlacement.equals("auto")) {
+            if (callerPlacement.equals("auto")) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' hides explicit place " + calleePlacement
+                                + " inside place auto; declare the same explicit placement "
+                                + "on the caller until transitive placement inference exists");
+            }
+            if (!callerPlacement.equals(calleePlacement)) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' requires place " + calleePlacement
+                                + " but caller declares place " + callerPlacement);
+            }
+        }
+
+        for (Map.Entry<String, String> layout : calleeContract.layouts().entrySet()) {
+            String requiredLayout = layout.getValue();
+            if (requiredLayout.equals("auto")) continue;
+
+            int parameterIndex = parameterIndex(
+                    target.declaration().parameters(),
+                    layout.getKey());
+            if (parameterIndex < 0 || parameterIndex >= call.arguments().size()) {
+                throw new IllegalStateException(
+                        "checked compute layout references missing callee parameter: "
+                                + layout.getKey());
+            }
+
+            RegionAccessPath mapped =
+                    regionAccessPath(call.arguments().get(parameterIndex), caller.regionParameters());
+            if (mapped == null || !mapped.field().isEmpty()) {
+                throw unsafe(
+                        caller.function().name(),
+                        "cannot map nested layout requirement for compute fnc '"
+                                + target.id() + "' to a caller region root");
+            }
+
+            String callerLayout = callerContract.layouts().get(mapped.root());
+            if (callerLayout == null || callerLayout.equals("auto")) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' hides explicit layout " + requiredLayout
+                                + " for region '" + mapped.root()
+                                + "'; declare the same layout on the caller "
+                                + "until transitive layout inference exists");
+            }
+            if (!callerLayout.equals(requiredLayout)) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' requires layout " + requiredLayout
+                                + " for region '" + mapped.root()
+                                + "' but caller declares " + callerLayout);
+            }
         }
     }
 
