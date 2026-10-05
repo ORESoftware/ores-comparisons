@@ -40,6 +40,54 @@ final class FutureAllAsyncMethodLanguageTest {
     }
 
     @Test
+    void futureRaceIsTypedAndRunsThroughPublicFactory() throws Exception {
+        String program = """
+                async fnc left() => int {
+                  return 7;
+                }
+
+                async fnc right() => int {
+                  return 8;
+                }
+
+                pub async routine main() => void {
+                  val winner = await Future.race([left(), right()]);
+                  stdio.println(winner);
+                  return;
+                }
+                """;
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(program)));
+
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        async fnc bad() => int {
+                          return await Future.race([1, 2]);
+                        }
+                        """)));
+        assertTrue(failure.getMessage().contains("Future.race"));
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(
+                        OresLanguage.ID,
+                        program,
+                        "future-race-language.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        assertTrue(rendered.contains("7") || rendered.contains("8"));
+    }
+
+    @Test
     void asyncInstanceMethodCanSuspendResumeAndJoinFutureAll() throws Exception {
         String program = """
                 async fnc base_value() => int {
