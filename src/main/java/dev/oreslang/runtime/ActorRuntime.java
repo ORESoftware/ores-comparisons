@@ -44,6 +44,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
@@ -271,6 +272,7 @@ public final class ActorRuntime implements AutoCloseable {
         public static final long DEFAULT_MAX_MESSAGE_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
         public static final int DEFAULT_MIN_POOL_THREADS = 5;
         public static final int DEFAULT_MAX_POOL_THREADS = 20;
+        public static final int HARD_MAX_POOL_THREADS = 1024;
 
         public DispatcherConfig {
             if (privateParallelism <= 0) throw new IllegalArgumentException("privateParallelism must be > 0");
@@ -284,6 +286,14 @@ public final class ActorRuntime implements AutoCloseable {
             }
             if (maxCompensatingThreads < 0) {
                 throw new IllegalArgumentException("maxCompensatingThreads must be >= 0");
+            }
+            if ((long) privateParallelism + maxCompensatingThreads > HARD_MAX_POOL_THREADS
+                    || (long) sharedParallelism + maxCompensatingThreads > HARD_MAX_POOL_THREADS
+                    || (long) untrustedParallelism + maxCompensatingThreads > HARD_MAX_POOL_THREADS) {
+                throw new IllegalArgumentException(
+                        "each scheduler domain is capped at "
+                                + HARD_MAX_POOL_THREADS
+                                + " carrier threads");
             }
             if (maxActors <= 0) throw new IllegalArgumentException("maxActors must be > 0");
             if (maxActors > 1_000_000) {
@@ -1308,6 +1318,9 @@ public final class ActorRuntime implements AutoCloseable {
         private final ThreadPoolExecutor privateDispatcher;
         private final ThreadPoolExecutor sharedDispatcher;
         private final ThreadPoolExecutor untrustedDispatcher;
+        private final CarrierRegistry privateCarrierRegistry;
+        private final CarrierRegistry sharedCarrierRegistry;
+        private final CarrierRegistry untrustedCarrierRegistry;
         private final ScheduledThreadPoolExecutor untrustedWatchdog;
         private final ScheduledThreadPoolExecutor messageWatchdog;
         private final ActorTimerWheel actorTimerWheel;
@@ -1352,26 +1365,37 @@ public final class ActorRuntime implements AutoCloseable {
             } catch (ArithmeticException overflow) {
                 throw new IllegalArgumentException("dispatcher ready-queue capacity overflow", overflow);
             }
+            this.privateCarrierRegistry =
+                    new CarrierRegistry(config.maxParallelismFor(ActorKind.PRIVATE));
+            this.sharedCarrierRegistry =
+                    new CarrierRegistry(config.maxParallelismFor(ActorKind.SHARED));
+            this.untrustedCarrierRegistry =
+                    new CarrierRegistry(config.maxParallelismFor(ActorKind.UNTRUSTED));
+
             this.controlDispatcher = newDispatcher(
                     controlParallelism,
                     readyQueueCapacity,
                     config.maxCompensatingThreads(),
-                    prefix + "control-plane-dispatcher-");
+                    prefix + "control-plane-dispatcher-",
+                    null);
             this.privateDispatcher = newDispatcher(
                     config.privateParallelism(),
                     readyQueueCapacity,
                     config.maxCompensatingThreads(),
-                    prefix + "private-actor-dispatcher-");
+                    prefix + "private-actor-dispatcher-",
+                    privateCarrierRegistry);
             this.sharedDispatcher = newDispatcher(
                     config.sharedParallelism(),
                     readyQueueCapacity,
                     config.maxCompensatingThreads(),
-                    prefix + "shared-actor-dispatcher-");
+                    prefix + "shared-actor-dispatcher-",
+                    sharedCarrierRegistry);
             this.untrustedDispatcher = newDispatcher(
                     config.untrustedParallelism(),
                     readyQueueCapacity,
                     config.maxCompensatingThreads(),
-                    prefix + "untrusted-actor-dispatcher-");
+                    prefix + "untrusted-actor-dispatcher-",
+                    untrustedCarrierRegistry);
             this.untrustedWatchdog = newUntrustedWatchdog(
                     namedFactory(prefix + "untrusted-watchdog-"));
             this.messageWatchdog = newUntrustedWatchdog(
@@ -1418,6 +1442,14 @@ public final class ActorRuntime implements AutoCloseable {
 
         private synchronized int actorCount() {
             return actorCount;
+        }
+
+        private CarrierRegistry carrierRegistry(ActorKind kind) {
+            return switch (kind) {
+                case PRIVATE -> privateCarrierRegistry;
+                case SHARED -> sharedCarrierRegistry;
+                case UNTRUSTED -> untrustedCarrierRegistry;
+            };
         }
 
         private AtomicLong affinityHitCounter(ActorKind kind) {
@@ -5818,80 +5850,212 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
-     * Runnable carrying a soft home-carrier preference. The preferred Thread is
-     * never an ownership token: ActorCell.executionLease remains the only
-     * authority that permits actor execution.
+     * Compact carrier identity table for one actor scheduler domain.
+     *
+     * <p>Hot-path affinity uses primitive tokens rather than retaining Thread
+     * objects. The low 32 bits encode the slot (+1); the high 32 bits are a
+     * generation. Slot reuse therefore cannot make a stale preference look
+     * live. The contiguous AtomicLongArray is intentionally data-oriented:
+     * scheduler metadata stays dense and bounded by the domain carrier cap.</p>
      */
-    static final class AffinityTask implements Runnable {
-        private final Thread preferredCarrier;
-        private final Runnable delegate;
+    static final class CarrierRegistry {
+        private record Binding(CarrierRegistry registry, long token) { }
 
-        AffinityTask(Thread preferredCarrier, Runnable delegate) {
-            this.preferredCarrier = preferredCarrier;
-            this.delegate = Objects.requireNonNull(delegate, "delegate");
+        private static final ThreadLocal<Binding> CURRENT = new ThreadLocal<>();
+
+        private final AtomicLongArray liveTokens;
+        private final AtomicLong nextGeneration = new AtomicLong(1L);
+
+        CarrierRegistry(int capacity) {
+            if (capacity <= 0) {
+                throw new IllegalArgumentException("carrier registry capacity must be positive");
+            }
+            liveTokens = new AtomicLongArray(capacity);
         }
 
-        Thread preferredCarrier() {
-            return preferredCarrier;
+        int capacity() {
+            return liveTokens.length();
         }
 
-        boolean prefers(Thread carrier) {
-            return preferredCarrier != null && preferredCarrier == carrier;
+        long currentToken() {
+            Binding binding = CURRENT.get();
+            return binding != null && binding.registry() == this
+                    ? binding.token()
+                    : 0L;
         }
 
-        boolean hasLiveForeignPreference(Thread carrier) {
-            return preferredCarrier != null
-                    && preferredCarrier != carrier
-                    && preferredCarrier.isAlive();
+        boolean isLive(long token) {
+            int slot = slotOf(token);
+            return slot >= 0
+                    && slot < liveTokens.length()
+                    && liveTokens.get(slot) == token;
         }
 
-        @Override
-        public void run() {
-            delegate.run();
+        Runnable bindWorker(Runnable worker) {
+            Objects.requireNonNull(worker, "worker");
+            return () -> {
+                long token = acquire();
+                Binding prior = CURRENT.get();
+                if (prior != null) {
+                    release(token);
+                    throw new IllegalStateException(
+                            "scheduler carrier cannot enter two affinity registries");
+                }
+                CURRENT.set(new Binding(this, token));
+                try {
+                    worker.run();
+                } finally {
+                    CURRENT.remove();
+                    release(token);
+                }
+            };
+        }
+
+        private long acquire() {
+            for (int slot = 0; slot < liveTokens.length(); slot++) {
+                long token = nextToken(slot);
+                if (liveTokens.compareAndSet(slot, 0L, token)) return token;
+            }
+            throw new IllegalStateException(
+                    "actor dispatcher started more live carriers than its configured maximum");
+        }
+
+        private void release(long token) {
+            int slot = slotOf(token);
+            if (slot < 0
+                    || slot >= liveTokens.length()
+                    || !liveTokens.compareAndSet(slot, token, 0L)) {
+                throw new IllegalStateException("carrier registry token release mismatch");
+            }
+        }
+
+        private long nextToken(int slot) {
+            long generation = nextGeneration.getAndIncrement();
+            if (generation <= 0L || generation > 0xffff_ffffL) {
+                throw new IllegalStateException(
+                        "carrier token generation space exhausted; restart the OresVM");
+            }
+            return (generation << 32) | ((slot + 1L) & 0xffff_ffffL);
+        }
+
+        private static int slotOf(long token) {
+            if (token == 0L) return -1;
+            long encoded = token & 0xffff_ffffL;
+            if (encoded == 0L || encoded > Integer.MAX_VALUE) return -1;
+            return (int) encoded - 1;
         }
     }
 
     /**
-     * Bounded ready queue that biases each worker toward tasks homed to that
-     * same carrier. If only foreign-affine work exists, a worker waits for a
-     * tiny grace interval and then steals normally. Thus affinity improves
-     * cache locality but cannot strand runnable work behind an occupied,
-     * retired, or slow carrier.
+     * Scheduler work that carries primitive affinity metadata. Implementations
+     * are enqueued at most once at a time and may therefore store enqueue age
+     * directly without allocating a per-turn wrapper object.
+     */
+    interface AffinityWork extends Runnable {
+        CarrierRegistry affinityRegistry();
+        long preferredCarrierToken();
+        long affinityEnqueuedNanos();
+        void affinityEnqueuedNanos(long value);
+    }
+
+    /**
+     * Bounded ready queue with cache-locality bias and an explicit fairness cap.
+     *
+     * <p>A worker may bypass a younger foreign-affine head item to pick work
+     * homed to itself. It may not bypass an unbound/stale item, and once the
+     * head has waited for the same small grace interval used for stealing, FIFO
+     * age wins. This preserves bounded fairness even with a one-carrier domain
+     * and a continuously hot actor.</p>
      */
     static final class AffinityBlockingQueue extends LinkedBlockingQueue<Runnable> {
-        AffinityBlockingQueue(int capacity) {
+        private final CarrierRegistry registry;
+
+        AffinityBlockingQueue(int capacity, CarrierRegistry registry) {
             super(capacity);
+            this.registry = Objects.requireNonNull(registry, "registry");
         }
 
-        private Runnable pollEligible(Thread carrier) {
-            int scanned = 0;
-            for (Runnable candidate : this) {
-                if (++scanned > AFFINITY_SCAN_LIMIT) break;
-                if (candidate instanceof AffinityTask affine
-                        && affine.hasLiveForeignPreference(carrier)) {
-                    continue;
+        @Override
+        public boolean offer(Runnable task) {
+            stamp(task);
+            return super.offer(task);
+        }
+
+        @Override
+        public void put(Runnable task) throws InterruptedException {
+            stamp(task);
+            super.put(task);
+        }
+
+        private void stamp(Runnable task) {
+            if (task instanceof AffinityWork work) {
+                if (work.affinityRegistry() != registry) {
+                    throw new IllegalArgumentException(
+                            "affinity work belongs to a different scheduler domain");
                 }
-                if (remove(candidate)) return candidate;
+                work.affinityEnqueuedNanos(System.nanoTime());
             }
-            return null;
         }
 
-        private Runnable pollPreferred(Thread carrier) {
+        private boolean preferredHere(Runnable task, long carrierToken) {
+            if (!(task instanceof AffinityWork work)) return false;
+            long preferred = work.preferredCarrierToken();
+            return carrierToken != 0L
+                    && preferred != 0L
+                    && preferred == carrierToken;
+        }
+
+        private boolean liveForeignPreference(Runnable task, long carrierToken) {
+            if (!(task instanceof AffinityWork work)) return false;
+            long preferred = work.preferredCarrierToken();
+            return preferred != 0L
+                    && preferred != carrierToken
+                    && registry.isLive(preferred);
+        }
+
+        private boolean headMustWin(Runnable head, long carrierToken, long now) {
+            if (!(head instanceof AffinityWork work)) return true;
+            long preferred = work.preferredCarrierToken();
+            if (preferred == 0L || !registry.isLive(preferred)) return true;
+
+            long queuedAt = work.affinityEnqueuedNanos();
+            if (queuedAt == 0L) return true;
+            long age = now - queuedAt;
+            return age < 0L || age >= AFFINITY_STEAL_GRACE_NANOS;
+        }
+
+        private Runnable pollPreferred(long carrierToken) {
+            if (carrierToken == 0L) return null;
             int scanned = 0;
             for (Runnable candidate : this) {
                 if (++scanned > AFFINITY_SCAN_LIMIT) break;
-                if (candidate instanceof AffinityTask affine
-                        && affine.prefers(carrier)
-                        && remove(candidate)) {
+                if (preferredHere(candidate, carrierToken) && remove(candidate)) {
                     return candidate;
                 }
             }
             return null;
         }
 
-        private Runnable pollAffinityFirst(Thread carrier) {
-            Runnable preferred = pollPreferred(carrier);
-            return preferred != null ? preferred : pollEligible(carrier);
+        private Runnable pollEligible(long carrierToken) {
+            int scanned = 0;
+            for (Runnable candidate : this) {
+                if (++scanned > AFFINITY_SCAN_LIMIT) break;
+                if (liveForeignPreference(candidate, carrierToken)) continue;
+                if (remove(candidate)) return candidate;
+            }
+            return null;
+        }
+
+        private Runnable pollAffinityFirst(long carrierToken) {
+            Runnable head = peek();
+            if (head != null
+                    && headMustWin(head, carrierToken, System.nanoTime())
+                    && remove(head)) {
+                return head;
+            }
+
+            Runnable preferred = pollPreferred(carrierToken);
+            return preferred != null ? preferred : pollEligible(carrierToken);
         }
 
         private static void affinityGrace(long nanos) throws InterruptedException {
@@ -5902,16 +6066,16 @@ public final class ActorRuntime implements AutoCloseable {
 
         @Override
         public Runnable take() throws InterruptedException {
-            Thread carrier = Thread.currentThread();
+            long carrierToken = registry.currentToken();
+            if (carrierToken == 0L) return super.take();
+
             while (true) {
-                Runnable task = pollAffinityFirst(carrier);
+                Runnable task = pollAffinityFirst(carrierToken);
                 if (task != null) return task;
                 if (isEmpty()) return super.take();
 
-                // Only live foreign-affine work was visible. Give its home
-                // carrier a short chance to claim it, then permit stealing.
                 affinityGrace(AFFINITY_STEAL_GRACE_NANOS);
-                task = pollAffinityFirst(carrier);
+                task = pollAffinityFirst(carrierToken);
                 if (task != null) return task;
                 return super.take();
             }
@@ -5919,23 +6083,27 @@ public final class ActorRuntime implements AutoCloseable {
 
         @Override
         public Runnable poll() {
-            Runnable task = pollAffinityFirst(Thread.currentThread());
+            long carrierToken = registry.currentToken();
+            if (carrierToken == 0L) return super.poll();
+            Runnable task = pollAffinityFirst(carrierToken);
             return task != null ? task : super.poll();
         }
 
         @Override
         public Runnable poll(long timeout, TimeUnit unit) throws InterruptedException {
+            long carrierToken = registry.currentToken();
+            if (carrierToken == 0L) return super.poll(timeout, unit);
+
             long budget = unit.toNanos(timeout);
             if (budget <= 0L) return poll();
 
             long started = System.nanoTime();
-            Thread carrier = Thread.currentThread();
-            Runnable task = pollAffinityFirst(carrier);
+            Runnable task = pollAffinityFirst(carrierToken);
             if (task != null) return task;
             if (isEmpty()) return super.poll(timeout, unit);
 
             affinityGrace(Math.min(AFFINITY_STEAL_GRACE_NANOS, budget));
-            task = pollAffinityFirst(carrier);
+            task = pollAffinityFirst(carrierToken);
             if (task != null) return task;
 
             long elapsed = System.nanoTime() - started;
@@ -5948,20 +6116,28 @@ public final class ActorRuntime implements AutoCloseable {
             int parallelism,
             int readyQueueCapacity,
             int maxCompensatingThreads,
-            String threadPrefix) {
+            String threadPrefix,
+            CarrierRegistry carrierRegistry) {
         int maxThreads;
         try {
             maxThreads = Math.addExact(parallelism, maxCompensatingThreads);
         } catch (ArithmeticException overflow) {
             maxThreads = Integer.MAX_VALUE;
         }
+        BlockingQueue<Runnable> readyQueue = carrierRegistry == null
+                ? new ArrayBlockingQueue<>(readyQueueCapacity, true)
+                : new AffinityBlockingQueue(readyQueueCapacity, carrierRegistry);
+        ThreadFactory threadFactory = carrierRegistry == null
+                ? namedFactory(threadPrefix)
+                : affinityNamedFactory(threadPrefix, carrierRegistry);
+
         ThreadPoolExecutor executor = new ThreadPoolExecutor(
                 parallelism,
                 maxThreads,
                 50L,
                 TimeUnit.MILLISECONDS,
-                new AffinityBlockingQueue(readyQueueCapacity),
-                namedFactory(threadPrefix),
+                readyQueue,
+                threadFactory,
                 new ThreadPoolExecutor.AbortPolicy());
         return executor;
     }
@@ -5975,7 +6151,20 @@ public final class ActorRuntime implements AutoCloseable {
         };
     }
 
-    private final class ActorCell<M> {
+    private static ThreadFactory affinityNamedFactory(
+            String prefix,
+            CarrierRegistry registry) {
+        AtomicInteger next = new AtomicInteger();
+        return worker -> {
+            Thread thread = new Thread(
+                    registry.bindWorker(worker),
+                    prefix + next.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
+    private final class ActorCell<M> implements AffinityWork {
         private final ActorRef<M> ref;
         private final ActorKind kind;
         private final ActorGroupHandle<?> groupHandle;
@@ -5995,8 +6184,9 @@ public final class ActorRuntime implements AutoCloseable {
         private final long deadlineNanos;
         private volatile Thread activeCarrier;
         private final AtomicReference<Thread> executionLease = new AtomicReference<>();
-        private final AtomicReference<Thread> preferredCarrier = new AtomicReference<>();
-        private final AtomicInteger affinityMissStreak = new AtomicInteger();
+        private volatile long preferredCarrierToken;
+        private volatile long affinityEnqueuedNanos;
+        private int affinityMissStreak;
         private volatile ScheduledFuture<?> lifetimeFuture;
         private volatile ScheduledFuture<?> messageDeadlineFuture;
         private final AtomicLong messageEpoch = new AtomicLong();
@@ -6530,12 +6720,36 @@ public final class ActorRuntime implements AutoCloseable {
                     || !inbox.isEmpty();
         }
 
+        @Override
+        public CarrierRegistry affinityRegistry() {
+            return dispatcherGroup.carrierRegistry(kind);
+        }
+
+        @Override
+        public long preferredCarrierToken() {
+            return preferredCarrierToken;
+        }
+
+        @Override
+        public long affinityEnqueuedNanos() {
+            return affinityEnqueuedNanos;
+        }
+
+        @Override
+        public void affinityEnqueuedNanos(long value) {
+            affinityEnqueuedNanos = value;
+        }
+
+        @Override
+        public void run() {
+            runBatch();
+        }
+
         private void schedule() {
             if (stopped.get() || closed.get()) return;
             if (!scheduled.compareAndSet(false, true)) return;
             try {
-                dispatcherFor(kind).execute(
-                        new AffinityTask(preferredCarrier.get(), this::runBatch));
+                dispatcherFor(kind).execute(this);
                 scaleDispatcherForDemand(kind);
             } catch (RejectedExecutionException rejected) {
                 rejectionCounter(kind).incrementAndGet();
@@ -6545,42 +6759,46 @@ public final class ActorRuntime implements AutoCloseable {
             }
         }
 
-        private void observeCarrierAffinity(Thread carrier) {
-            Thread preferred = preferredCarrier.get();
-            if (preferred == null) {
-                if (preferredCarrier.compareAndSet(null, carrier)) {
-                    affinityMissStreak.set(0);
-                    return;
-                }
-                preferred = preferredCarrier.get();
+        private void observeCarrierAffinity() {
+            CarrierRegistry registry = affinityRegistry();
+            long carrierToken = registry.currentToken();
+            if (carrierToken == 0L) {
+                throw new IllegalStateException(
+                        "actor turn entered without a registered scheduler carrier");
             }
 
-            if (preferred == carrier) {
-                affinityMissStreak.set(0);
+            long preferred = preferredCarrierToken;
+            if (preferred == 0L) {
+                preferredCarrierToken = carrierToken;
+                affinityMissStreak = 0;
+                return;
+            }
+
+            if (preferred == carrierToken) {
+                affinityMissStreak = 0;
                 dispatcherGroup.affinityHitCounter(kind).incrementAndGet();
                 return;
             }
 
             dispatcherGroup.affinityMigrationCounter(kind).incrementAndGet();
-            int misses = affinityMissStreak.incrementAndGet();
-            if (!preferred.isAlive() || misses >= AFFINITY_REHOME_AFTER_MISSES) {
-                if (preferredCarrier.compareAndSet(preferred, carrier)) {
-                    affinityMissStreak.set(0);
-                    dispatcherGroup.affinityRehomeCounter(kind).incrementAndGet();
-                }
+            int misses = ++affinityMissStreak;
+            if (!registry.isLive(preferred) || misses >= AFFINITY_REHOME_AFTER_MISSES) {
+                preferredCarrierToken = carrierToken;
+                affinityMissStreak = 0;
+                dispatcherGroup.affinityRehomeCounter(kind).incrementAndGet();
             }
         }
 
         private void runBatch() {
             ACTOR_CARRIER.set(Boolean.TRUE);
             Thread carrier = Thread.currentThread();
-            observeCarrierAffinity(carrier);
             if (!executionLease.compareAndSet(null, carrier)) {
                 ACTOR_CARRIER.remove();
                 fail(new IllegalStateException(
                         "single-executor actor lease violation for " + ref.id()));
                 return;
             }
+            observeCarrierAffinity();
             boolean turnActive = beginTurn();
             long entryDeadline = 0L;
             try {

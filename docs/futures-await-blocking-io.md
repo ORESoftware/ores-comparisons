@@ -300,17 +300,22 @@ Each actor retains its atomic single-executor lease, so at most one carrier can
 execute that actor's code at a time, including resumed await continuations.
 
 Actor placement inside that selected domain uses **soft last-carrier affinity**.
-After a turn, yield, or await wakeup, the actor's runnable is tagged with its
-preferred carrier. The domain's bounded ready queue lets that carrier select its
-own actor ahead of foreign-affine work. Other workers give the home carrier only
-a tiny grace interval; if it remains occupied they may steal the turn. Repeated
-migration adaptively re-homes the actor. Affinity is therefore a cache-locality
-optimization, never a liveness or correctness condition.
+The hot-path preference is a compact generation-safe carrier token, not a retained
+Thread object. The bounded ready queue may favor young work homed to the current
+carrier, but unbound/stale head work wins immediately and any older head wins once
+the short affinity grace interval expires. Thus affinity cannot let a hot actor
+starve an older peer. Repeated migration adaptively re-homes the actor.
+
+The actor scheduler itself is CPU-only control/state-machine execution. GPU work
+belongs to statically analyzable data-oriented compute tasks over Regions/Views.
+An actor may suspend on such a task, but GPU completion only re-enqueues the actor
+continuation in its owning CPU scheduler domain.
 
 The runtime does not promise source-visible CPU/core pinning. Platform-specific
-logical-CPU or NUMA placement may later strengthen physical locality, but actor
-semantics depend only on scheduler-domain isolation and the single-executor
-lease.
+logical-CPU or NUMA placement may later strengthen physical locality, while
+compute backends may independently choose CPU SIMD/NUMA layouts or GPU tiled/SoA
+device instances. Actor semantics depend only on scheduler-domain isolation and
+the single-executor lease.
 
 ## Async source rule
 
