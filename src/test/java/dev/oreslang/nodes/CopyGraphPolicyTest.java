@@ -1,10 +1,13 @@
 package dev.oreslang.nodes;
 
+import dev.oreslang.runtime.ActorRuntime;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -28,6 +31,27 @@ final class CopyGraphPolicyTest {
                 () -> OresEvalRootNode.requireInspectableCopyGraph(new Object()));
 
         assertTrue(error.getMessage().contains("opaque foreign/host reference"), error.getMessage());
+    }
+
+    @Test
+    void mutableNumberSubclassFailsClosed() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> OresEvalRootNode.requireInspectableCopyGraph(new AtomicInteger(7)));
+
+        assertTrue(error.getMessage().contains("opaque foreign/host reference"), error.getMessage());
+    }
+
+    @Test
+    void publicActorSharedWrapperIsNotTrustedByCopyVerifier() {
+        ArrayList<Integer> mutable = new ArrayList<>(List.of(1, 2));
+        ActorRuntime.Shared<ArrayList<Integer>> shared = new ActorRuntime.Shared<>(mutable);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> OresEvalRootNode.requireInspectableCopyGraph(shared));
+
+        assertTrue(error.getMessage().contains("ActorRuntime.Shared"), error.getMessage());
     }
 
     @Test
