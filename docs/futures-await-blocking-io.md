@@ -199,7 +199,8 @@ OresVM CONTROL domain. Root async turns use bounded admission and the same
 reserved root lanes as legacy root work so they cannot consume every CONTROL
 carrier and starve supervisor/ActorMailman work.
 
-User-created `OresScheduler(n)` values own `n` carrier threads and a bounded
+User-created `OresScheduler(n)` values own `n` bounded native pthread carriers
+(on the current Linux/macOS JNI backend) and a bounded
 ready queue. They are constructed with ordinary Oreslang `new` syntax and are
 owned by the current Ores context:
 
@@ -440,6 +441,13 @@ When a host API is genuinely blocking, OresVM owns two implementation paths.
 
 Trusted Java blocking interop uses bounded admission plus Java virtual threads.
 
+A plain host `java.util.concurrent.Future<T>` (including a `FutureTask`
+returned by a virtual-thread executor) is normalized into `OresFuture<T>` by
+observing `Future.get()` on that bounded virtual-thread bridge. The Ores
+pthread carrier never blocks on the host Future. `CompletionStage` keeps its
+nonblocking completion adapter, and cancellation is propagated back across the
+bridge.
+
 Virtual threads are an implementation substrate only:
 
 - Actor != Java virtual thread.
@@ -459,6 +467,18 @@ Therefore saturation cannot make an actor carrier execute the blocking call.
 Cancellation is a request, not proof that host work stopped. Admission for a
 running uncooperative Java blocking call remains charged until its worker
 actually exits.
+
+## Native carrier domains
+
+CONTROL/root turns, SHARED actors, ISOACTOR/private actors, UNTRUSTED actors,
+and user-created OresSchedulers execute guest turns on bounded JNI-created
+pthread carriers. A pthread attaches to the JVM once and multiplexes many
+logical Ores tasks/actors over its lifetime. Future completion only enqueues a
+continuation; it never grants an I/O/JNI/virtual-thread producer permission to
+execute guest code.
+
+Watchdogs, timer drivers, reactors, and blocking-interop workers remain service
+threads and are deliberately not guest scheduler authorities.
 
 ## Four scheduler domains
 

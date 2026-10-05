@@ -135,6 +135,8 @@ final class OresObservableTest {
 
             OresFuture<Integer> consumed = scheduler.start(resume -> {
                 assertSame(scheduler, OresScheduler.current());
+                assertTrue(NativeCarrierExecutor.isNativeCarrierThread(),
+                        "rx await continuation must execute on an Ores pthread carrier");
 
                 if (pc.getAndIncrement() == 0) {
                     return OresScheduler.await(observable.first());

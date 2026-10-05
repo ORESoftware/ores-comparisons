@@ -24,6 +24,9 @@ final class OresSchedulerTest {
             OresFuture<Integer> result = scheduler.start(resume -> {
                 int pc = state.getAndIncrement();
                 assertSame(scheduler, OresScheduler.current());
+                assertTrue(NativeCarrierExecutor.isNativeCarrierThread(),
+                        "OresScheduler task turns must run on JNI pthread carriers");
+                assertNotEquals(0L, NativeCarrierExecutor.currentNativeThreadId());
 
                 if (pc == 0) {
                     assertTrue(resume.initial());

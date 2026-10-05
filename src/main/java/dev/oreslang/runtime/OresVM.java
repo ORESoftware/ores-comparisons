@@ -363,6 +363,18 @@ final class OresVM {
     }
 
     /**
+     * Adapt a host java.util.concurrent.Future without ever blocking an Ores
+     * carrier. CompletionStage values take their callback path; plain Future
+     * values are observed by the bounded Java virtual-thread bridge.
+     */
+    <T> OresFuture<T> adaptJavaFuture(
+            java.util.concurrent.Future<? extends T> future) {
+        ensureRunning();
+        return blockingIo.adaptJavaFuture(
+                Objects.requireNonNull(future, "future"));
+    }
+
+    /**
      * Run JNI/FFM/unknown native blocking work on the bounded native executor.
      * Saturation fails the Future rather than running on the caller/carrier.
      */
