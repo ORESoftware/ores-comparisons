@@ -309,6 +309,96 @@ final class BorrowCheckerHardeningTest {
 
 
     @Test
+    void catchSeesPossibleMoveEvenAfterTryReinitializesLet() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 1;
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          try {
+                            val moved = rt take box;
+                            box = new Box();
+                            stdio.println(moved.value);
+                          } catch (err) {
+                            stdio.println(box.value);
+                          }
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("moved")
+                || error.getMessage().toLowerCase().contains("ownership"),
+                error.getMessage());
+    }
+
+    @Test
+    void catchDoesNotRegainUniqueMutationAfterPossibleShareTransition() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub let int value = 1;
+                        end
+
+                        fnc mutate(Box mut box) => void {
+                          box.value = box.value + 1;
+                          return;
+                        }
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          try {
+                            rt share box;
+                            box = new Box();
+                            stdio.println("after");
+                          } catch (err) {
+                            mutate(box);
+                          }
+                          return;
+                        }
+                        """)));
+
+        String message = error.getMessage().toLowerCase();
+        assertTrue(message.contains("shared")
+                || message.contains("mut")
+                || message.contains("ownership"),
+                error.getMessage());
+    }
+
+    @Test
+    void finallySeesPossibleMoveFromThrowingCatchPrefix() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 1;
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          try {
+                            stdio.println("try");
+                          } catch (err) {
+                            val moved = rt take box;
+                            box = new Box();
+                            stdio.println(moved.value);
+                          } finally {
+                            stdio.println(box.value);
+                          }
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("moved")
+                || error.getMessage().toLowerCase().contains("ownership"),
+                error.getMessage());
+    }
+
+    @Test
     void ownershipSensitiveLambdaCannotEraseItsContractIntoPlainFnc() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

@@ -313,11 +313,37 @@ public final class OwnershipChecker {
             return;
         }
         if (stmt instanceof Ast.TryStmt attempted) {
+            Map<VarState, StateSnapshot> base = stateSnapshot(scope);
+            Map<VarState, TransitionSnapshot> transitionsBefore = transitionSnapshot(scope);
+
+            // Successful try exit.
+            restoreState(base);
             checkBlock(attempted.body(), scope, returnType);
+            Map<VarState, StateSnapshot> tryExit = stateSnapshot(scope);
+
+            // Catch may be entered after any throwing prefix of the try body.
+            // Joining the entry + successful exit preserves non-monotonic
+            // alias state conservatively; transition history restores moves
+            // and share transitions that may have occurred and then been
+            // hidden by a later let reinitialization.
+            mergeBranchState(base, List.of(base, tryExit));
+            applyExceptionalTransitionHazards(transitionsBefore);
+            Map<VarState, StateSnapshot> catchEntry = stateSnapshot(scope);
+
             Scope caught = new Scope(scope);
-            caught.define(attempted.errorName(), new VarState(Ast.TypeRef.inferred(), false, ValueKind.MOVE_ONLY, Origin.LOCAL));
+            caught.define(
+                    attempted.errorName(),
+                    new VarState(Ast.TypeRef.inferred(), false, ValueKind.MOVE_ONLY, Origin.LOCAL));
             checkBlock(attempted.catchBody(), caught, returnType);
+            Map<VarState, StateSnapshot> catchExit = stateSnapshot(scope);
             caught.close();
+
+            // finally runs after normal try completion, handled catch
+            // completion, and also while unwinding a throwing catch prefix.
+            // Use the conservative catch entry as an additional possible
+            // predecessor, then re-apply monotonic transition history.
+            mergeBranchState(base, List.of(tryExit, catchEntry, catchExit));
+            applyExceptionalTransitionHazards(transitionsBefore);
             checkBlock(attempted.finallyBody(), scope, returnType);
             return;
         }
@@ -808,6 +834,7 @@ public final class OwnershipChecker {
                     // The original binding remains a valid read-only shared
                     // owner. It no longer has unique mutation/take authority.
                     owner.kind = ValueKind.SHARED;
+                    owner.shareTransitions++;
                 } else if (source.borrowSource != null) {
                     throw error("rt share cannot promote a projected/borrowed value into ownership");
                 }
@@ -1847,6 +1874,7 @@ public final class OwnershipChecker {
         }
         if (state.immutableBorrows > 0 || state.mutableBorrowed) throw error("cannot move '" + name + "' while it is borrowed");
         state.moved = true;
+        state.moveTransitions++;
     }
 
     private VarState requireState(Scope scope, String name) {
@@ -1854,6 +1882,34 @@ public final class OwnershipChecker {
         if (state == null) throw error("unknown owned binding '" + name + "'");
         state.debugName = name;
         return state;
+    }
+
+    private Map<VarState, TransitionSnapshot> transitionSnapshot(Scope scope) {
+        Map<VarState, TransitionSnapshot> result = new IdentityHashMap<>();
+        for (VarState state : scope.visibleStates()) {
+            result.put(
+                    state,
+                    new TransitionSnapshot(
+                            state.moveTransitions,
+                            state.shareTransitions));
+        }
+        return result;
+    }
+
+    private void applyExceptionalTransitionHazards(
+            Map<VarState, TransitionSnapshot> before) {
+        for (Map.Entry<VarState, TransitionSnapshot> entry : before.entrySet()) {
+            VarState state = entry.getKey();
+            TransitionSnapshot prior = entry.getValue();
+
+            if (state.moveTransitions > prior.moveTransitions()) {
+                state.moved = true;
+            }
+            if (state.shareTransitions > prior.shareTransitions()
+                    && state.kind == ValueKind.MOVE_ONLY) {
+                state.kind = ValueKind.SHARED;
+            }
+        }
     }
 
     private Map<VarState, StateSnapshot> stateSnapshot(Scope scope) {
@@ -2109,6 +2165,8 @@ public final class OwnershipChecker {
         private int immutableBorrows;
         private boolean mutableBorrowed;
         private VarState borrowSource;
+        private long moveTransitions;
+        private long shareTransitions;
         private String debugName = "<value>";
 
         private VarState(Ast.TypeRef type, boolean mutable, ValueKind kind, Origin origin) {
@@ -2200,6 +2258,10 @@ public final class OwnershipChecker {
             int immutableBorrows,
             boolean mutableBorrowed,
             VarState borrowSource) { }
+
+    private record TransitionSnapshot(
+            long moveTransitions,
+            long shareTransitions) { }
 
     private record Capture(String name, VarState source, boolean write) { }
 
