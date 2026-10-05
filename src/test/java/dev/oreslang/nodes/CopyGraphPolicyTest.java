@@ -3,6 +3,7 @@ package dev.oreslang.nodes;
 import dev.oreslang.runtime.ActorRuntime;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,6 +15,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class CopyGraphPolicyTest {
+    private static final class MutableBigInteger extends BigInteger {
+        private int mutableState;
+
+        MutableBigInteger() {
+            super("7");
+        }
+
+        void mutate() {
+            mutableState++;
+        }
+    }
 
     @Test
     void inspectableGuestGraphIsAccepted() {
@@ -38,6 +50,18 @@ final class CopyGraphPolicyTest {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
                 () -> OresEvalRootNode.requireInspectableCopyGraph(new AtomicInteger(7)));
+
+        assertTrue(error.getMessage().contains("opaque foreign/host reference"), error.getMessage());
+    }
+
+    @Test
+    void subclassOfNominallyImmutableBigNumberFailsClosed() {
+        MutableBigInteger value = new MutableBigInteger();
+        value.mutate();
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> OresEvalRootNode.requireInspectableCopyGraph(value));
 
         assertTrue(error.getMessage().contains("opaque foreign/host reference"), error.getMessage());
     }
