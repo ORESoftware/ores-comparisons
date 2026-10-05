@@ -621,12 +621,25 @@ public final class OresEvalRootNode extends RootNode {
             private AsyncPlan current;
             private AsyncAwait waiting;
             private final ActorRuntime.InvocationCompletion<Object> completion;
+            private final ActorRuntime.ActorContinuation preemptionContinuation;
 
             private ActorPlanRunner(
                     AsyncPlan initial,
                     ActorRuntime.InvocationCompletion<Object> completion) {
                 this.current = Objects.requireNonNull(initial, "initial");
                 this.completion = Objects.requireNonNull(completion, "completion");
+                this.preemptionContinuation = (value, failure, actorContext) -> {
+                    if (value != null || failure != null) {
+                        IllegalStateException invalid = new IllegalStateException(
+                                "scheduler preemption resumed with an unexpected value/failure");
+                        this.completion.fail(invalid);
+                        throw invalid;
+                    }
+                    // current already points at the next heap-safe AsyncPlan
+                    // node. Re-entering with initial=true means resume the
+                    // captured plan directly, not first invocation.
+                    advance(actorContext, true, null, null);
+                };
             }
 
             private void start(ActorRuntime.ActorContext<?> actorContext) {
@@ -660,7 +673,11 @@ public final class OresEvalRootNode extends RootNode {
                 }
 
                 while (true) {
-                    actorContext.checkpoint();
+                    // The plan itself is heap-resident, so this is a genuine
+                    // scheduler handoff point rather than Thread.yield(). A
+                    // pending scheduler request captures current, unwinds the
+                    // carrier, and resumes this runner in a later actor turn.
+                    actorContext.checkpoint(preemptionContinuation);
 
                     if (current instanceof AsyncThunk thunk) {
                         current = safePlan(thunk.body());
