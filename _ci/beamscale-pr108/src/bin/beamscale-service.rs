@@ -47,6 +47,7 @@ struct ServiceStatus {
 }
 
 const MAX_SERVICE_SNAPSHOT_BYTES: u64 = 1024 * 1024;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const MAX_SERVICE_STATUS_BYTES: usize = 16 * 1024;
 const SERVICE_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const SERVICE_STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(7);
@@ -294,6 +295,7 @@ fn status_human() -> Result<(), String> {
     Err("service status is unsupported on this operating system".to_owned())
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn regular_definition_file(path: &Path) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
@@ -421,10 +423,10 @@ fn parse_launchd_running(stdout: &str) -> Result<bool, String> {
     let mut state = None;
     for line in stdout.lines() {
         let line = line.trim();
-        if let Some(value) = line.strip_prefix("state = ") {
-            if state.replace(value.to_owned()).is_some() {
-                return Err("launchctl print returned duplicate state".to_owned());
-            }
+        if let Some(value) = line.strip_prefix("state = ")
+            && state.replace(value.to_owned()).is_some()
+        {
+            return Err("launchctl print returned duplicate state".to_owned());
         }
     }
     Ok(state.ok_or_else(|| "launchctl print omitted state".to_owned())? == "running")
@@ -1821,7 +1823,7 @@ fn xml_escape(path: &Path) -> Result<String, String> {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
     let parent = path
         .parent()

@@ -4140,7 +4140,7 @@ fn read_private_file_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     )?;
 
     let mut bytes = Vec::new();
-    file.by_ref()
+    std::io::Read::by_ref(&mut file)
         .take(maximum as u64 + 1)
         .read_to_end(&mut bytes)
         .with_context(|| format!("read private state file {}", path.display()))?;
@@ -5600,7 +5600,7 @@ mod tests {
             zed_binary: None,
             zed_sha256: None,
             supervisor_root: Some(supervisor.clone()),
-            supervisor_ebin_sha256: Some(supervisor_digest),
+            supervisor_ebin_sha256: Some(supervisor_digest.clone()),
         };
         write_private_file_atomic(
             &service_tools_path(root.path()),
