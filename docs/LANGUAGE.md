@@ -405,6 +405,54 @@ Option matching participates in pointerless ownership:
 
 `Option<null>` is accepted only as an explicit type-level escape hatch when an interoperability boundary truly needs to preserve a null marker. The `null` marker cannot escape that direct `Option<null>` position. `Option<void>` is invalid; use `void` when a function returns no value.
 
+## Explicit pointer capabilities
+
+Ordinary Oreslang calls do not require pointers. Class/object arguments use the
+same managed reference/handle semantics described by the ownership rules above;
+passing an object to a function, routine, or method does not implicitly copy it
+and does not require `Ptr<T>`.
+
+When trusted low-level code genuinely needs pointer-shaped access, Oreslang
+provides the compiler-owned intrinsic type `Ptr<T>` and the reserved runtime
+operations:
+
+```ores
+let Person person = new Person();
+val Ptr<Person> pointer = rt ptr person;
+val view = rt deref pointer;
+```
+
+Both runtime operations also accept parenthesized call form:
+`rt ptr(person)` and `rt deref(pointer)`. Bare `ptr(...)` and
+`deref(...)` are ordinary names and are never compiler intrinsics.
+
+`Ptr<T>` is an opaque, lifetime-bound capability rather than an ordinary
+user-defined class or an integer address. In the current model:
+
+- `rt ptr` requires a named, concrete, reference-backed non-`Copy` owner and
+  creates a read borrow tied to that owner's lifetime;
+- storing the resulting pointer binding keeps that read borrow active, so the
+  pointee cannot be moved or exclusively mutated while the pointer is live;
+- `rt deref` accepts only `Ptr<T>` and yields read-only borrowed access to
+  `T`; it does not restore ownership or mutable authority;
+- a pointer/derived dereference cannot escape the pointee lifetime through a
+  return, aggregate, field, closure, or other storage boundary whose provenance
+  is not explicitly represented;
+- `rt copy` and `rt share` reject `Ptr<T>`;
+- `Ptr<T>` is not actor/isolate message transport authority and is not
+  statically Sendable.
+
+The JVM/JIT backend intentionally does **not** fabricate a stable numeric memory
+address for a managed object because garbage collection may relocate it. It
+carries `Ptr<T>` as an opaque runtime handle. A native/AOT backend may lower
+the same language capability to a pinned or native address when it can preserve
+the same lifetime, ownership, isolation, and capability checks.
+
+Oreslang still has no C/Rust pointer operators: `&T`, `&mut T`, `T*`,
+unary `&value`, and unary `*pointer` are not source forms. Explicit
+address-level work is spelled through `rt ptr` / `rt deref`, while ordinary
+program code remains managed-reference based.
+
 ## Numbers
 
 Built-in numeric families include integral, floating, decimal, and complex types. Imaginary literals use `i`:
