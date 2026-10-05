@@ -18,6 +18,7 @@ import java.util.Objects;
  */
 public final class OresAsyncTrace {
     private static final int DEFAULT_MAX_EVENTS = 96;
+    private static final int MAX_ATTACHED_TRACES = 32;
     private static final ThreadLocal<Trace> CURRENT = new ThreadLocal<>();
 
     private OresAsyncTrace() { }
@@ -107,6 +108,7 @@ public final class OresAsyncTrace {
         }
 
         private TailEvent incremented() {
+            if (repetitions == Long.MAX_VALUE) return this;
             return new TailEvent(from, to, site, repetitions + 1);
         }
     }
@@ -287,13 +289,34 @@ public final class OresAsyncTrace {
     public static Throwable attach(Throwable failure, Trace trace) {
         Objects.requireNonNull(failure, "failure");
         if (trace == null) return failure;
-        for (Throwable suppressed : failure.getSuppressed()) {
-            if (suppressed instanceof LogicalAsyncStackTrace logical
-                    && logical.trace == trace) {
-                return failure;
+
+        /*
+         * A failure may cross arbitrarily many awaiters. Bounding each Trace is
+         * not enough if every boundary adds another suppressed exception, so
+         * bound the number of retained causal traces as well. Synchronizing on
+         * the Throwable also makes shared-Future fan-out deterministic when
+         * several waiters observe the same failure concurrently.
+         */
+        synchronized (failure) {
+            int attached = 0;
+            LogicalAsyncTraceElision elision = null;
+            for (Throwable suppressed : failure.getSuppressed()) {
+                if (suppressed instanceof LogicalAsyncStackTrace logical) {
+                    if (logical.trace == trace) return failure;
+                    attached++;
+                } else if (suppressed instanceof LogicalAsyncTraceElision marker) {
+                    elision = marker;
+                }
+            }
+
+            if (attached < MAX_ATTACHED_TRACES) {
+                failure.addSuppressed(new LogicalAsyncStackTrace(trace));
+            } else if (elision == null) {
+                failure.addSuppressed(new LogicalAsyncTraceElision());
+            } else {
+                elision.increment();
             }
         }
-        failure.addSuppressed(new LogicalAsyncStackTrace(trace));
         return failure;
     }
 
@@ -326,6 +349,32 @@ public final class OresAsyncTrace {
 
         public long elidedEvents() {
             return elidedEvents;
+        }
+    }
+
+    /**
+     * Compact marker used once the per-failure causal-trace budget is full.
+     * The counter is deliberately saturating so diagnostics cannot wrap after
+     * pathological runtimes.
+     */
+    public static final class LogicalAsyncTraceElision extends RuntimeException {
+        private long elidedTraces = 1;
+
+        private LogicalAsyncTraceElision() {
+            super(null, null, false, false);
+        }
+
+        private synchronized void increment() {
+            if (elidedTraces != Long.MAX_VALUE) elidedTraces++;
+        }
+
+        public synchronized long elidedTraces() {
+            return elidedTraces;
+        }
+
+        @Override
+        public synchronized String getMessage() {
+            return elidedTraces + " additional Oreslang logical async trace(s) elided";
         }
     }
 
