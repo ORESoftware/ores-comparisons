@@ -19,7 +19,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *
  * <p>Read guards are a lexical capability. The Oreslang type checker must expose
  * their value as read-only and reject a guard that would live across
- * {@code await}; the JVM lock is thread-affine while Ores continuations are
+ * {@code await}. Scheduler preemption is also deferred while such a guard is
+ * live: the JVM lock is thread-affine while Ores continuations are
  * scheduler-affine and may resume on another carrier.</p>
  */
 public final class OresRwLock<T> {
@@ -60,7 +61,9 @@ public final class OresRwLock<T> {
         } else {
             lock.readLock().lock();
         }
-        return new ReadGuard<>(this, Thread.currentThread());
+        ActorRuntime actorRuntime = ActorRuntime.currentActorRuntime();
+        if (actorRuntime != null) actorRuntime.enterCarrierPinnedSection();
+        return new ReadGuard<>(this, Thread.currentThread(), actorRuntime);
     }
 
     /**
@@ -71,7 +74,9 @@ public final class OresRwLock<T> {
     public Optional<ReadGuard<T>> tryReadLock() {
         requireReadAccess();
         if (!lock.readLock().tryLock()) return Optional.empty();
-        return Optional.of(new ReadGuard<>(this, Thread.currentThread()));
+        ActorRuntime actorRuntime = ActorRuntime.currentActorRuntime();
+        if (actorRuntime != null) actorRuntime.enterCarrierPinnedSection();
+        return Optional.of(new ReadGuard<>(this, Thread.currentThread(), actorRuntime));
     }
 
     /**
@@ -92,13 +97,17 @@ public final class OresRwLock<T> {
         } else {
             lock.writeLock().lock();
         }
-        return new WriteGuard<>(this, Thread.currentThread());
+        ActorRuntime actorRuntime = ActorRuntime.currentActorRuntime();
+        if (actorRuntime != null) actorRuntime.enterCarrierPinnedSection();
+        return new WriteGuard<>(this, Thread.currentThread(), actorRuntime);
     }
 
     public Optional<WriteGuard<T>> tryWriteLock() {
         requireWriteAccess();
         if (!lock.writeLock().tryLock()) return Optional.empty();
-        return Optional.of(new WriteGuard<>(this, Thread.currentThread()));
+        ActorRuntime actorRuntime = ActorRuntime.currentActorRuntime();
+        if (actorRuntime != null) actorRuntime.enterCarrierPinnedSection();
+        return Optional.of(new WriteGuard<>(this, Thread.currentThread(), actorRuntime));
     }
 
     public int readLockCount() {
@@ -167,11 +176,16 @@ public final class OresRwLock<T> {
     public static final class ReadGuard<T> implements AutoCloseable {
         private final OresRwLock<T> owner;
         private final Thread carrier;
+        private final ActorRuntime actorRuntime;
         private boolean closed;
 
-        private ReadGuard(OresRwLock<T> owner, Thread carrier) {
+        private ReadGuard(
+                OresRwLock<T> owner,
+                Thread carrier,
+                ActorRuntime actorRuntime) {
             this.owner = owner;
             this.carrier = carrier;
+            this.actorRuntime = actorRuntime;
         }
 
         /**
@@ -193,7 +207,11 @@ public final class OresRwLock<T> {
             if (closed) return;
             requireCarrier();
             closed = true;
-            owner.lock.readLock().unlock();
+            try {
+                owner.lock.readLock().unlock();
+            } finally {
+                if (actorRuntime != null) actorRuntime.exitCarrierPinnedSection();
+            }
         }
 
         private void requireOpenCarrier() {
@@ -214,11 +232,16 @@ public final class OresRwLock<T> {
     public static final class WriteGuard<T> implements AutoCloseable {
         private final OresRwLock<T> owner;
         private final Thread carrier;
+        private final ActorRuntime actorRuntime;
         private boolean closed;
 
-        private WriteGuard(OresRwLock<T> owner, Thread carrier) {
+        private WriteGuard(
+                OresRwLock<T> owner,
+                Thread carrier,
+                ActorRuntime actorRuntime) {
             this.owner = owner;
             this.carrier = carrier;
+            this.actorRuntime = actorRuntime;
         }
 
         public T value() {
@@ -240,7 +263,11 @@ public final class OresRwLock<T> {
             if (closed) return;
             requireCarrier();
             closed = true;
-            owner.lock.writeLock().unlock();
+            try {
+                owner.lock.writeLock().unlock();
+            } finally {
+                if (actorRuntime != null) actorRuntime.exitCarrierPinnedSection();
+            }
         }
 
         private void requireOpenCarrier() {
