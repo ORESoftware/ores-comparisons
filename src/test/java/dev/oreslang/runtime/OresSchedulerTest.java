@@ -75,6 +75,10 @@ final class OresSchedulerTest {
 
             assertEquals(8, result.get(5, TimeUnit.SECONDS));
             assertEquals(2, state.get());
+            assertEquals(
+                    0,
+                    completed.pendingRuntimeWaiterCount(),
+                    "awaiting an already-settled Future must not retain a claimed continuation waiter");
         }
     }
 
@@ -300,6 +304,205 @@ final class OresSchedulerTest {
                     "failed self-close must leave scheduler usable");
         } finally {
             scheduler.close();
+        }
+    }
+
+    @Test
+    void closingSchedulerDetachesSuspendedWaiterWithoutCancellingSharedFuture() throws Exception {
+        OresFuture<Integer> shared = new OresFuture<>();
+        OresScheduler scheduler = new OresScheduler(1);
+        AtomicInteger pc = new AtomicInteger();
+
+        OresFuture<Integer> task = scheduler.start(resume -> {
+            if (pc.getAndIncrement() == 0) {
+                return OresScheduler.await(shared);
+            }
+            return OresScheduler.done((Integer) resume.value());
+        });
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (shared.pendingRuntimeWaiterCount() != 1
+                && System.nanoTime() < deadline) {
+            Thread.sleep(1);
+        }
+        assertEquals(1, shared.pendingRuntimeWaiterCount());
+
+        scheduler.close();
+
+        assertTrue(task.isCancelled());
+        assertEquals(0, shared.pendingRuntimeWaiterCount(),
+                "closing the scheduler must detach its continuation waiter");
+        assertFalse(shared.isDone(),
+                "detaching a waiter must not cancel the shared producer Future");
+
+        assertTrue(shared.completeFromRuntime(9));
+        assertEquals(1, pc.get(),
+                "detached continuation must never resume after producer completion");
+    }
+
+
+    @Test
+    void parentCompletionWaitsForUnawaitedStructuredChild() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            OresFuture<Integer> gate = new OresFuture<>();
+            AtomicReference<OresFuture<Integer>> childRef = new AtomicReference<>();
+            AtomicInteger childPc = new AtomicInteger();
+
+            OresFuture<Integer> parent = scheduler.start(resume -> {
+                childRef.set(scheduler.start(childResume -> {
+                    if (childPc.getAndIncrement() == 0) {
+                        return OresScheduler.await(gate);
+                    }
+                    return OresScheduler.done(11);
+                }));
+                return OresScheduler.done(7);
+            });
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (gate.pendingRuntimeWaiterCount() != 1
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+
+            assertEquals(1, gate.pendingRuntimeWaiterCount());
+            assertFalse(parent.isDone(),
+                    "a parent scope must not publish success while an owned child is still alive");
+
+            assertTrue(gate.completeFromRuntime(0));
+            assertEquals(11, childRef.get().get(5, TimeUnit.SECONDS));
+            assertEquals(7, parent.get(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void parentCancellationCascadesAndDetachesChildWaiters() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(2)) {
+            OresFuture<Integer> childGate = new OresFuture<>();
+            OresFuture<Integer> parentGate = new OresFuture<>();
+            AtomicReference<OresFuture<Integer>> childRef = new AtomicReference<>();
+            AtomicInteger childPc = new AtomicInteger();
+
+            OresFuture<Integer> parent = scheduler.start(resume -> {
+                childRef.set(scheduler.start(childResume -> {
+                    if (childPc.getAndIncrement() == 0) {
+                        return OresScheduler.await(childGate);
+                    }
+                    return OresScheduler.done(1);
+                }));
+                return OresScheduler.await(parentGate);
+            });
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while ((childGate.pendingRuntimeWaiterCount() != 1
+                    || parentGate.pendingRuntimeWaiterCount() != 1)
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+
+            assertEquals(1, childGate.pendingRuntimeWaiterCount());
+            assertEquals(1, parentGate.pendingRuntimeWaiterCount());
+
+            assertTrue(parent.cancel(false));
+            assertTrue(parent.isCancelled());
+            assertTrue(childRef.get().isCancelled(),
+                    "parent cancellation must cancel owned children");
+
+            assertEquals(0, childGate.pendingRuntimeWaiterCount(),
+                    "child cancellation must detach its suspended continuation");
+            assertEquals(0, parentGate.pendingRuntimeWaiterCount(),
+                    "parent cancellation must detach its suspended continuation");
+            assertFalse(childGate.isDone(),
+                    "structured cancellation must not cancel a shared producer Future");
+            assertFalse(parentGate.isDone(),
+                    "structured cancellation must not cancel a shared producer Future");
+        }
+    }
+
+    @Test
+    void childFailureFailsParentAndCancelsSibling() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(3)) {
+            OresFuture<Integer> failGate = new OresFuture<>();
+            OresFuture<Integer> siblingGate = new OresFuture<>();
+            OresFuture<Integer> parentGate = new OresFuture<>();
+            AtomicReference<OresFuture<Integer>> siblingRef = new AtomicReference<>();
+            AtomicInteger failingPc = new AtomicInteger();
+            AtomicInteger siblingPc = new AtomicInteger();
+
+            OresFuture<Integer> parent = scheduler.start(resume -> {
+                scheduler.start(childResume -> {
+                    if (failingPc.getAndIncrement() == 0) {
+                        return OresScheduler.await(failGate);
+                    }
+                    throw new IllegalStateException("child boom");
+                });
+
+                siblingRef.set(scheduler.start(childResume -> {
+                    if (siblingPc.getAndIncrement() == 0) {
+                        return OresScheduler.await(siblingGate);
+                    }
+                    return OresScheduler.done(2);
+                }));
+
+                return OresScheduler.await(parentGate);
+            });
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while ((failGate.pendingRuntimeWaiterCount() != 1
+                    || siblingGate.pendingRuntimeWaiterCount() != 1
+                    || parentGate.pendingRuntimeWaiterCount() != 1)
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+
+            assertEquals(1, failGate.pendingRuntimeWaiterCount());
+            assertEquals(1, siblingGate.pendingRuntimeWaiterCount());
+            assertEquals(1, parentGate.pendingRuntimeWaiterCount());
+
+            assertTrue(failGate.completeFromRuntime(0));
+
+            java.util.concurrent.ExecutionException failure = assertThrows(
+                    java.util.concurrent.ExecutionException.class,
+                    () -> parent.get(5, TimeUnit.SECONDS));
+            assertInstanceOf(IllegalStateException.class, failure.getCause());
+            assertEquals("child boom", failure.getCause().getMessage());
+
+            assertTrue(siblingRef.get().isCancelled(),
+                    "one child failure must cancel sibling tasks in the same parent scope");
+            assertEquals(0, siblingGate.pendingRuntimeWaiterCount());
+            assertEquals(0, parentGate.pendingRuntimeWaiterCount());
+        }
+    }
+
+    @Test
+    void detachedChildIsNotJoinedByParentScope() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            OresFuture<Integer> gate = new OresFuture<>();
+            AtomicReference<OresFuture<Integer>> detachedRef = new AtomicReference<>();
+            AtomicInteger childPc = new AtomicInteger();
+
+            OresFuture<Integer> parent = scheduler.start(resume -> {
+                detachedRef.set(scheduler.startDetached(childResume -> {
+                    if (childPc.getAndIncrement() == 0) {
+                        return OresScheduler.await(gate);
+                    }
+                    return OresScheduler.done(99);
+                }));
+                return OresScheduler.done(5);
+            });
+
+            assertEquals(5, parent.get(5, TimeUnit.SECONDS),
+                    "explicit detached work must not extend the parent scope lifetime");
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (gate.pendingRuntimeWaiterCount() != 1
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+            assertEquals(1, gate.pendingRuntimeWaiterCount());
+            assertFalse(detachedRef.get().isDone());
+
+            assertTrue(gate.completeFromRuntime(0));
+            assertEquals(99, detachedRef.get().get(5, TimeUnit.SECONDS));
         }
     }
 
