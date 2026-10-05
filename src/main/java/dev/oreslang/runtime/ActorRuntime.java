@@ -313,7 +313,7 @@ public final class ActorRuntime implements AutoCloseable {
         if (value instanceof Boolean || value instanceof Character
                 || value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long
                 || value instanceof Float || value instanceof Double
-                || value instanceof Enum<?> || value instanceof UUID || value instanceof ActorId) {
+                || value instanceof UUID || value instanceof ActorId) {
             budget.addBytes(32);
             return value;
         }
