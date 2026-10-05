@@ -279,10 +279,18 @@ public final class OwnershipChecker {
         }
         if (stmt instanceof Ast.DeferStmt defer) {
             // defer executes at lexical block exit, not at registration time.
-            // Validate it now, then retain every non-Copy capture as a scoped
-            // borrow so later statements cannot move/mutate data the deferred
-            // expression will still access.
-            checkExpr(defer.expression(), scope, false);
+            // Type/ownership-check its eventual effects speculatively: a
+            // deferred take/share must not mutate today's ownership state.
+            // Then reserve every non-Copy capture so later statements cannot
+            // move/mutate data the deferred expression will still need.
+            Map<VarState, StateSnapshot> beforeDefer = stateSnapshot(scope);
+            Map<VarState, TransitionSnapshot> transitionsBeforeDefer = transitionSnapshot(scope);
+            try {
+                checkExpr(defer.expression(), scope, false);
+            } finally {
+                restoreState(beforeDefer);
+                restoreTransitions(transitionsBeforeDefer);
+            }
             reserveDeferredCaptures(defer.expression(), scope);
             return;
         }
@@ -1908,6 +1916,15 @@ public final class OwnershipChecker {
                             state.shareTransitions));
         }
         return result;
+    }
+
+    private void restoreTransitions(Map<VarState, TransitionSnapshot> snapshot) {
+        for (Map.Entry<VarState, TransitionSnapshot> entry : snapshot.entrySet()) {
+            VarState state = entry.getKey();
+            TransitionSnapshot saved = entry.getValue();
+            state.moveTransitions = saved.moveTransitions();
+            state.shareTransitions = saved.shareTransitions();
+        }
     }
 
     private void applyExceptionalTransitionHazards(
