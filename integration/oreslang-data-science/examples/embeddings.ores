@@ -1,6 +1,5 @@
 import class EmbeddingBatch from '../src/ml/embeddings';
-import fnc normalize_embedding_rows_into, top_k_dot_into from '../src/ml/embeddings';
-
+import fnc {normalize_embedding_rows_into, top_k_dot_into} from '../src/ml/embeddings';
 pub routine main(): void {
   val EmbeddingBatch query = new EmbeddingBatch(
     1,

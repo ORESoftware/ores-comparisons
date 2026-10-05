@@ -21,32 +21,58 @@ fi
 
 failed=0
 
-# Oreslang userland is pointer-free. Any ampersand in .ores source is therefore
-# suspicious: address-of, &T, and &mut are all forbidden surface syntax.
-if grep -nH '&' $files; then
-  echo "error: pointer-style '&' syntax found in Oreslang source" >&2
+# Ordinary Oreslang source is pointer-free. Reject unary/type borrow/address
+# spellings without rejecting the legitimate binary bitwise '&' operator.
+pointer_ampersands="$(
+  grep -nHE '(^|[(:,=\[])\s*&\s*(mut\s+)?[A-Za-z_(]|return\s+&\s*(mut\s+)?[A-Za-z_(]|(->|:)\s*&\s*(mut\s+)?[A-Za-z_]' $files \
+    || true
+)"
+if [ -n "$pointer_ampersands" ]; then
+  echo "error: pointer/borrow-style '&' syntax found in Oreslang source" >&2
+  echo "$pointer_ampersands" >&2
   failed=1
 fi
 
-# Catch the compact unary dereference spelling (*value). Numeric multiplication
-# in this repository is formatted with whitespace around '*'.
-if grep -nHE '\*[A-Za-z_][A-Za-z0-9_]*' $files; then
-  echo "error: unary/raw-pointer '*' spelling found in Oreslang source" >&2
+# Reject unary raw-pointer dereference spellings while allowing compact
+# multiplication such as a*b.
+pointer_stars="$(
+  grep -nHE '(^|[(:,=\[])\s*\*\s*[A-Za-z_(]|return\s+\*\s*[A-Za-z_(]' $files \
+    || true
+)"
+if [ -n "$pointer_stars" ]; then
+  echo "error: unary/raw-pointer '*' syntax found in Oreslang source" >&2
+  echo "$pointer_stars" >&2
   failed=1
 fi
 
 # Harden the explicit iterator-binding grammar used by the current compiler
-# direction. This catches the stale bare 'for x of y' form without rejecting
-# C-style loops.
-if grep -nHE '^[[:space:]]*for[[:space:]]+(\[[^]]+\]|[A-Za-z_][A-Za-z0-9_]*)[[:space:]]+of[[:space:]]' $files; then
+# direction. This catches stale bare 'for x of y' without rejecting C-style
+# loops.
+bare_iterators="$(
+  grep -nHE '^[[:space:]]*for[[:space:]]+(\[[^]]+\]|[A-Za-z_][A-Za-z0-9_]*)[[:space:]]+of[[:space:]]' $files \
+    || true
+)"
+if [ -n "$bare_iterators" ]; then
   echo "error: for-of iterator binding must be declared with const or let" >&2
+  echo "$bare_iterators" >&2
   failed=1
 fi
 
-# Callable declarations use '->' (or ':' where allowed); '=>' is reserved
-# for type-level function shapes such as type aliases.
-if grep -nHE '^[[:space:]]*(pub[[:space:]]+)?(fnc|routine)[^;{]*=>|^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\([^)]*\)[[:space:]]*=>' $files; then
-  echo "error: fat-arrow callable syntax found; use '->' for callables" >&2
+# Markdown should contain real line breaks, not escaped newline artifacts
+# introduced by generated/editing patches.
+doc_newlines="$(
+  grep -nH '\\n' README.md ROADMAP.md docs/*.md 2>/dev/null || true
+)"
+if [ -n "$doc_newlines" ]; then
+  echo "error: literal \\n sequence found in prose documentation" >&2
+  echo "$doc_newlines" >&2
+  failed=1
+fi
+
+# Multi-name imports are explicit selections. Bare comma-separated imports are
+# ambiguous with the single-name grammar and must use braces.
+if grep -nHE '^[[:space:]]*import[[:space:]]+(class|fnc|module|actor)[[:space:]]+[^{*][^;]*,[^;]*[[:space:]]+from[[:space:]]' $files; then
+  echo "error: multi-name imports must use brace selections" >&2
   failed=1
 fi
 

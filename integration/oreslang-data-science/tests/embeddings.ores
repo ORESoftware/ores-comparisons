@@ -1,9 +1,7 @@
-import class TestCase, TestSuite, TestOptions, RunSummary, TestOutcome from '../vendor/oreslang/testing';
-import fnc fail, expect_true, expect_near_float, run_suite, require_success from '../vendor/oreslang/testing';
-
-import class EmbeddingBatch, TokenEmbeddingBatch from '../src/ml/embeddings';
-import fnc validate_embedding_batch, validate_token_embedding_batch, mean_pool_token_embeddings_into, normalize_embedding_rows_into, dot_similarity_into, cosine_similarity_into, squared_l2_distance_into, top_k_indices_into, top_k_dot_into from '../src/ml/embeddings';
-
+import class {TestCase, TestSuite, TestOptions, RunSummary, TestOutcome} from '../vendor/oreslang/testing';
+import fnc {fail, expect_true, expect_near_float, run_suite, require_success} from '../vendor/oreslang/testing';
+import class {EmbeddingBatch, TokenEmbeddingBatch} from '../src/ml/embeddings';
+import fnc {validate_embedding_batch, validate_token_embedding_batch, mean_pool_token_embeddings_into, normalize_embedding_rows_into, dot_similarity_into, cosine_similarity_into, squared_l2_distance_into, top_k_indices_into, top_k_dot_into} from '../src/ml/embeddings';
 fnc test_embedding_validation(): TestOutcome {
   val EmbeddingBatch invalid = new EmbeddingBatch(
     2,

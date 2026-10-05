@@ -1,9 +1,8 @@
-import class TestCase, TestSuite, TestOptions, RunSummary, TestOutcome from '../vendor/oreslang/testing';
-import fnc fail, expect_true, expect_near_float, run_suite, require_success from '../vendor/oreslang/testing';
-
+import class {TestCase, TestSuite, TestOptions, RunSummary, TestOutcome} from '../vendor/oreslang/testing';
+import fnc {fail, expect_true, expect_near_float, run_suite, require_success} from '../vendor/oreslang/testing';
 import fnc sqrt from '../src/math/scalar';
-import fnc sum, dot, mean, variance_population, variance_sample, minimum, maximum from '../src/math/reductions';
-import fnc scale, normalize_l2 from '../src/math/vector';
+import fnc {sum, dot, mean, variance_population, variance_sample, minimum, maximum} from '../src/math/reductions';
+import fnc {scale, normalize_l2} from '../src/math/vector';
 import class DenseMatrixF64 from '../src/math/matrix';
 import fnc matvec_into from '../src/math/matrix';
 import class FloatColumn from '../src/data/columnar';

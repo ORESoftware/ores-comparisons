@@ -1,6 +1,5 @@
-import fnc mean, variance_sample from '../src/math/reductions';
-import fnc scale, normalize_l2 from '../src/math/vector';
-
+import fnc {mean, variance_sample} from '../src/math/reductions';
+import fnc {scale, normalize_l2} from '../src/math/vector';
 pub routine main(): void {
   val List<float> values = arr[1.0, 2.0, 3.0, 4.0];
   val List<float> doubled = scale(values, 2.0);
