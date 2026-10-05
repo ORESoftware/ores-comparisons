@@ -11,6 +11,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -82,6 +83,16 @@ public final class OresContext implements AutoCloseable {
     public IsolatePolicy isolatePolicy() { return isolatePolicy; }
     public ExecutionProfile executionProfile() { return executionProfile; }
     public String codeGenerationId() { return codeGenerationId; }
+
+    /**
+     * Runtime-only host interop normalization. This method is public only
+     * because Truffle nodes live in a sibling Java package; it is not a guest
+     * Oreslang capability surface.
+     */
+    public <T> OresFuture<T> adaptHostFuture(
+            java.util.concurrent.Future<? extends T> future) {
+        return vm.adaptJavaFuture(Objects.requireNonNull(future, "future"));
+    }
 
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
         IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();

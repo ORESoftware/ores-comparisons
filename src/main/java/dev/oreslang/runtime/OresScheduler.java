@@ -5,11 +5,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -92,7 +88,7 @@ public final class OresScheduler implements AutoCloseable {
     private final String name;
     private final int parallelism;
     private final Executor executor;
-    private final ExecutorService ownedExecutor;
+    private final NativeCarrierExecutor ownedExecutor;
     private final TurnExecutor turnExecutor;
     private final Set<TaskRunner<?>> tasks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -124,28 +120,19 @@ public final class OresScheduler implements AutoCloseable {
         this.parallelism = parallelism;
         this.turnExecutor = Objects.requireNonNull(turnExecutor, "turnExecutor");
 
-        AtomicInteger carrierId = new AtomicInteger();
-        ThreadFactory factory = task -> Thread.ofPlatform()
-                .daemon(true)
-                .name(name + "-carrier-" + carrierId.getAndIncrement())
-                .unstarted(() -> {
-                    SCHEDULER_CARRIER.set(Boolean.TRUE);
-                    try {
-                        task.run();
-                    } finally {
-                        SCHEDULER_CARRIER.remove();
-                    }
-                });
-        ThreadPoolExecutor pool = new ThreadPoolExecutor(
+        NativeCarrierExecutor pool = new NativeCarrierExecutor(
                 parallelism,
                 parallelism,
-                0L,
-                TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(queueCapacity),
-                factory,
-                new ThreadPoolExecutor.AbortPolicy());
-        pool.prestartAllCoreThreads();
-        this.executor = pool;
+                queueCapacity,
+                name + "-carrier-");
+        this.executor = task -> pool.execute(() -> {
+            SCHEDULER_CARRIER.set(Boolean.TRUE);
+            try {
+                task.run();
+            } finally {
+                SCHEDULER_CARRIER.remove();
+            }
+        });
         this.ownedExecutor = pool;
     }
 
@@ -153,7 +140,7 @@ public final class OresScheduler implements AutoCloseable {
             String name,
             int parallelism,
             Executor executor,
-            ExecutorService ownedExecutor,
+            NativeCarrierExecutor ownedExecutor,
             TurnExecutor turnExecutor) {
         this.name = Objects.requireNonNull(name, "name");
         if (parallelism <= 0) {

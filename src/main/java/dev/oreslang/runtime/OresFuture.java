@@ -11,7 +11,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -73,7 +72,8 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
 
     private final Runnable cancelHook;
     private final AtomicBoolean cancelHookRun = new AtomicBoolean();
-    private final AtomicReference<Object> state = new AtomicReference<>(PENDING);
+    private final NativeFutureState nativeState = new NativeFutureState();
+    private volatile Object state = PENDING;
     private final ConcurrentLinkedQueue<Waiter<T>> waiters = new ConcurrentLinkedQueue<>();
 
     public OresFuture() {
@@ -284,8 +284,8 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
         Waiter<T> waiter = new Waiter<>(callback);
         waiters.add(waiter);
 
-        Object observed = state.get();
-        if (observed != PENDING) {
+        Object observed = state;
+        if (observed != PENDING && nativeState.isDone()) {
             notifyWaiter(waiter, observed);
         }
     }
@@ -310,12 +310,12 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
 
     @Override
     public boolean isCancelled() {
-        return state.get() instanceof Cancelled;
+        return nativeState.isCancelled();
     }
 
     @Override
     public boolean isDone() {
-        return state.get() != PENDING;
+        return nativeState.isDone();
     }
 
     /**
@@ -323,8 +323,9 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
      * CompletableFuture, cancellation is also an exceptional terminal state.
      */
     public boolean isCompletedExceptionally() {
-        Object observed = state.get();
-        return observed instanceof Failure || observed instanceof Cancelled;
+        Object observed = state;
+        return nativeState.isDone()
+                && (observed instanceof Failure || observed instanceof Cancelled);
     }
 
     @Override
@@ -350,9 +351,10 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
      * scheduler suspension ABI rather than calling join on a carrier.
      */
     public T join() {
-        Object observed = state.get();
+        Object observed = state;
         boolean interrupted = false;
-        if (observed == PENDING) {
+        if (observed == PENDING || !nativeState.isDone()) {
+            rejectBlockingOnOresCarrier("join");
             java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
             whenCompleteRuntime((value, failure) -> done.countDown());
             for (;;) {
@@ -363,7 +365,7 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
                     interrupted = true;
                 }
             }
-            observed = state.get();
+            observed = state;
         }
         if (interrupted) Thread.currentThread().interrupt();
         return reportJoin(observed);
@@ -384,13 +386,28 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
     }
 
     private boolean settle(Object terminal) {
-        if (!state.compareAndSet(PENDING, terminal)) return false;
+        int terminalState = terminalState(terminal);
+        if (!nativeState.tryBeginSettlement()) return false;
+
+        // Publish the interpreter payload before publishing the native terminal
+        // state. Runtime waiters check native completion before self-delivery,
+        // so no observer can treat this value as settled during the brief
+        // SETTLING phase.
+        state = terminal;
+        nativeState.publish(terminalState);
 
         Waiter<T> waiter;
         while ((waiter = waiters.poll()) != null) {
             notifyWaiter(waiter, terminal);
         }
         return true;
+    }
+
+    private static int terminalState(Object terminal) {
+        if (terminal instanceof Success<?>) return NativeFutureState.SUCCESS;
+        if (terminal instanceof Failure) return NativeFutureState.FAILURE;
+        if (terminal instanceof Cancelled) return NativeFutureState.CANCELLED;
+        throw new IllegalArgumentException("unknown OresFuture terminal state");
     }
 
     @SuppressWarnings("unchecked")
@@ -414,18 +431,30 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
     }
 
     private Object awaitState(long timeout, TimeUnit unit) throws InterruptedException {
-        Object observed = state.get();
-        if (observed != PENDING) return observed;
+        Object observed = state;
+        if (observed != PENDING && nativeState.isDone()) return observed;
 
+        rejectBlockingOnOresCarrier("get");
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         whenCompleteRuntime((value, failure) -> done.countDown());
 
         if (unit == null) {
             done.await();
         } else if (!done.await(timeout, unit)) {
-            return state.get() == PENDING ? PENDING : state.get();
+            Object after = state;
+            return nativeState.isDone() && after != PENDING ? after : PENDING;
         }
-        return state.get();
+        return state;
+    }
+
+    private static void rejectBlockingOnOresCarrier(String operation) {
+        if (NativeCarrierExecutor.isNativeCarrierThread()
+                || ActorRuntime.isActorCarrierThread()
+                || OresScheduler.isSchedulerCarrierThread()) {
+            throw new IllegalStateException(
+                    "OresFuture." + operation
+                            + "() cannot block an Ores carrier; use await/scheduler suspension");
+        }
     }
 
     @SuppressWarnings("unchecked")

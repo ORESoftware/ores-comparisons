@@ -43,6 +43,11 @@ Calling an async operation is not itself a scheduling boundary.
 
 `Future<T>` is represented by the runtime-owned `OresFuture<T>`.
 
+Host/embedder `get()` / `join()` observation is allowed only off Ores
+carriers. If a Future is still pending, those blocking bridges fail closed when
+called from an actor/root/user-scheduler carrier; Ores code must suspend with
+`await` instead.
+
 It deliberately does **not** implement Java `CompletionStage` and does not
 inherit `thenApply`, `thenAccept`, `thenRun`, or other APIs whose callback
 may execute according to a producer's completion policy.
@@ -60,6 +65,45 @@ continuation. It must not execute Oreslang guest code.
 Host `CompletionStage` values are compatibility inputs only. They are
 immediately normalized into an OresFuture before they participate in Oreslang
 suspension.
+
+## Native ownership floor
+
+Oreslang runtime semantics are **native-first**. The JVM/Truffle implementation
+is a host for the compiler/interpreter and a JNI bridge; Java concurrency and
+I/O classes are not the semantic authority for Oreslang primitives.
+
+The current branch already runs guest scheduler turns on bounded JNI-created
+pthreads. Its remaining Java-side Future bookkeeping (`AtomicReference`,
+waiter queues, and host blocking observation) is transitional interpreter
+plumbing, not the target runtime contract. Do not expand that plumbing into new
+language semantics.
+
+The target boundary is:
+
+- `Future<T>` owns an opaque native runtime handle. Settlement/cancellation
+  arbitration and host-blocking wakeup live in the native kernel; OresScheduler
+  remains the only authority that resumes guest continuations.
+- `Future.all`, `Future.race`, async methods, actor suspension, rx-ores and
+  timers compose Ores Futures directly. They must not lower to
+  `CompletableFuture` or Java executor semantics.
+- `CompletionStage`, `java.util.concurrent.Future`, Java virtual threads and
+  other host facilities are explicit **interop adapters only**. They may settle
+  an Ores Future but never define its scheduling/cancellation semantics or run
+  guest continuations inline.
+- Absence/failure of the required native scheduler/runtime library is fail
+  closed for native-required execution. Do not silently substitute
+  `Executors`, `ThreadPoolExecutor`, or a Java thread-per-task implementation.
+- `Thread`, `File`, sockets/networking, and core collection storage continue to
+  terminate in Ores-owned native code. Higher-level protocol and policy logic
+  belongs in `.ores` standard-library code rather than Java.
+- JNI is a transport boundary, not an ownership boundary. Interpreter-era
+  `jobject` payload handles may be used while Truffle values are Java objects,
+  but new native APIs must use opaque/generation-safe handles and must not make
+  JVM object identity the durable Oreslang value model. The AOT/native value ABI
+  should replace those bridge-only references over time.
+
+In short: Java interop is supported; Java implementation details are not the
+Oreslang runtime specification.
 
 ## Awaitable<T>
 
@@ -199,7 +243,8 @@ OresVM CONTROL domain. Root async turns use bounded admission and the same
 reserved root lanes as legacy root work so they cannot consume every CONTROL
 carrier and starve supervisor/ActorMailman work.
 
-User-created `OresScheduler(n)` values own `n` carrier threads and a bounded
+User-created `OresScheduler(n)` values own `n` bounded native pthread carriers
+(on the current Linux/macOS JNI backend) and a bounded
 ready queue. They are constructed with ordinary Oreslang `new` syntax and are
 owned by the current Ores context:
 
@@ -440,6 +485,13 @@ When a host API is genuinely blocking, OresVM owns two implementation paths.
 
 Trusted Java blocking interop uses bounded admission plus Java virtual threads.
 
+A plain host `java.util.concurrent.Future<T>` (including a `FutureTask`
+returned by a virtual-thread executor) is normalized into `OresFuture<T>` by
+observing `Future.get()` on that bounded virtual-thread bridge. The Ores
+pthread carrier never blocks on the host Future. `CompletionStage` keeps its
+nonblocking completion adapter, and cancellation is propagated back across the
+bridge.
+
 Virtual threads are an implementation substrate only:
 
 - Actor != Java virtual thread.
@@ -459,6 +511,18 @@ Therefore saturation cannot make an actor carrier execute the blocking call.
 Cancellation is a request, not proof that host work stopped. Admission for a
 running uncooperative Java blocking call remains charged until its worker
 actually exits.
+
+## Native carrier domains
+
+CONTROL/root turns, SHARED actors, ISOACTOR/private actors, UNTRUSTED actors,
+and user-created OresSchedulers execute guest turns on bounded JNI-created
+pthread carriers. A pthread attaches to the JVM once and multiplexes many
+logical Ores tasks/actors over its lifetime. Future completion only enqueues a
+continuation; it never grants an I/O/JNI/virtual-thread producer permission to
+execute guest code.
+
+Watchdogs, timer drivers, reactors, and blocking-interop workers remain service
+threads and are deliberately not guest scheduler authorities.
 
 ## Four scheduler domains
 

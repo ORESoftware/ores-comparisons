@@ -722,26 +722,30 @@ public final class TypeChecker {
             }
             if (call.callee() instanceof Ast.MemberExpr futuresCall
                     && futuresCall.receiver() instanceof Ast.NameExpr futures
-                    && futures.name().equals("Futures")) {
+                    && (futures.name().equals("Future")
+                            || futures.name().equals("Futures"))) {
+                String namespace = futures.name();
                 if (call.typeArgumentsPresent()) {
                     throw new IllegalArgumentException(
-                            "Futures." + futuresCall.member() + " does not accept call-site type arguments");
+                            namespace + "." + futuresCall.member()
+                                    + " does not accept call-site type arguments");
                 }
                 if (call.arguments().size() != 1) {
                     throw new IllegalArgumentException(
-                            "Futures." + futuresCall.member() + " expects exactly one list of Future values");
+                            namespace + "." + futuresCall.member()
+                                    + " expects exactly one list of Future values");
                 }
                 Type collection = deref(typeOf(call.arguments().getFirst(), env, generics, self));
                 Type payload = futureCollectionPayload(
                         collection,
-                        "Futures." + futuresCall.member());
+                        namespace + "." + futuresCall.member());
                 return switch (futuresCall.member()) {
                     case "all" -> new Named(
                             "Future",
                             List.of(new ListType(payload)));
                     case "race" -> new Named("Future", List.of(payload));
                     default -> throw new IllegalArgumentException(
-                            "unknown Futures member '" + futuresCall.member() + "'");
+                            "unknown " + namespace + " member '" + futuresCall.member() + "'");
                 };
             }
             if (call.callee() instanceof Ast.MemberExpr factoryCall

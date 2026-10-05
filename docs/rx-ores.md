@@ -57,7 +57,9 @@ producer
   -> execute rx-ores guest operator
 ```
 
-This is the same invariant already used by actor `await`.
+This is the same invariant already used by actor `await`. On the native carrier backend, the resumed
+observer/operator turn runs on its owning Ores pthread scheduler carrier; the
+producer thread merely settles the OresFuture.
 
 ## Why callback-style subscribe is not in the first patch
 
