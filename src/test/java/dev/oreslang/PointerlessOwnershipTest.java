@@ -243,6 +243,33 @@ final class PointerlessOwnershipTest {
     }
 
     @Test
+    void consumingReceiverRejectsSharedOwner() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+
+                          pub identity(take self)() => self {
+                            return self;
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          val shared = rt share box;
+                          val Box moved = box.identity();
+                          stdio.println(shared.value);
+                          stdio.println(moved.value);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("takes self ownership")
+                && error.getMessage().contains("shared"));
+    }
+
+    @Test
     void qualifiedModuleTakeCallsMoveTheCallerValue() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
