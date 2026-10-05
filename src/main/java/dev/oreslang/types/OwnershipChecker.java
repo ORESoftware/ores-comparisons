@@ -340,7 +340,7 @@ public final class OwnershipChecker {
                 if (iterableOwner == null) iterableOwner = projectionOwner(loop.iterable(), scope);
             }
 
-            List<Ast.TypeRef> bindingTypes = loop.bindings().size() == 1
+            List<Ast.TypeRef> bindingTypes = !loop.destructuringPattern()
                     ? List.of(elementType)
                     : destructuredElementTypes(elementType, loop.bindings().size());
 

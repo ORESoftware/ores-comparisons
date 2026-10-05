@@ -1330,7 +1330,7 @@ public final class TypeChecker {
         if (stmt instanceof Ast.ForOfStmt loop) {
             Type iterable = typeOf(loop.iterable(), env, generics, self);
             Type element = iterableElementType(iterable);
-            List<Type> bindingTypes = loop.bindings().size() == 1
+            List<Type> bindingTypes = !loop.destructuringPattern()
                     ? List.of(element)
                     : destructuredLoopElementTypes(element, loop.bindings().size());
             Env loopEnv = new Env(env);

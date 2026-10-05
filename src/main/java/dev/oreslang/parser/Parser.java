@@ -683,19 +683,27 @@ public final class Parser {
         //   for item of values do ... done
         //   for [key, value] of entries do ... done
         //   for [val key, let value] of entries { ... }
-        List<Ast.DestructureBinding> bindings = parseForOfBindings();
+        ForOfBindings parsed = parseForOfBindings();
         consume(OF, "expected 'of' in iterator loop");
         Ast.Expr iterable = parseExpression();
-        return new Ast.ForOfStmt(bindings, iterable, parseLoopBody());
+        return new Ast.ForOfStmt(
+                parsed.bindings(),
+                parsed.destructuringPattern(),
+                iterable,
+                parseLoopBody());
     }
 
     private Ast.Stmt parseParenthesizedFor() {
         if (looksLikeForOfHeader()) {
-            List<Ast.DestructureBinding> bindings = parseForOfBindings();
+            ForOfBindings parsed = parseForOfBindings();
             consume(OF, "expected 'of' in for-of loop");
             Ast.Expr iterable = parseExpression();
             consume(RPAREN, "expected ')' after for-of header");
-            return new Ast.ForOfStmt(bindings, iterable, parseLoopBody());
+            return new Ast.ForOfStmt(
+                    parsed.bindings(),
+                    parsed.destructuringPattern(),
+                    iterable,
+                    parseLoopBody());
         }
 
         if (isBindingKind(peek().type())) {
@@ -767,14 +775,16 @@ public final class Parser {
         return false;
     }
 
-    private List<Ast.DestructureBinding> parseForOfBindings() {
+    private ForOfBindings parseForOfBindings() {
         if (!match(LBRACKET)) {
             Ast.BindingKind kind = isBindingKind(peek().type())
                     ? parseBindingKind()
                     : Ast.BindingKind.VAL;
             String name = consume(IDENT,
                     "expected iterator binding name or '[a, b]' destructuring pattern").lexeme();
-            return List.of(new Ast.DestructureBinding(kind, name));
+            return new ForOfBindings(
+                    List.of(new Ast.DestructureBinding(kind, name)),
+                    false);
         }
 
         List<Ast.DestructureBinding> bindings = new ArrayList<>();
@@ -783,11 +793,28 @@ public final class Parser {
             Ast.BindingKind kind = isBindingKind(peek().type())
                     ? parseBindingKind()
                     : Ast.BindingKind.VAL;
-            String name = consume(IDENT, "expected binding name in for-of destructuring pattern").lexeme();
+            Token nameToken = consume(
+                    IDENT,
+                    "expected binding name in for-of destructuring pattern");
+            String name = nameToken.lexeme();
+            for (Ast.DestructureBinding existing : bindings) {
+                if (existing.name().equals(name)) {
+                    throw error(nameToken,
+                            "duplicate binding '" + name + "' in for-of destructuring pattern");
+                }
+            }
             bindings.add(new Ast.DestructureBinding(kind, name));
         } while (match(COMMA));
         consume(RBRACKET, "expected ']' after for-of destructuring pattern");
-        return bindings;
+        return new ForOfBindings(bindings, true);
+    }
+
+    private record ForOfBindings(
+            List<Ast.DestructureBinding> bindings,
+            boolean destructuringPattern) {
+        private ForOfBindings {
+            bindings = List.copyOf(bindings);
+        }
     }
 
     private List<Ast.Stmt> parseLoopBody() {

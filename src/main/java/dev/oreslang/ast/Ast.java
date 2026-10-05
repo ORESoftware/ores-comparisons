@@ -321,21 +321,29 @@ public final class Ast {
         }
     }
 
-    public record ForOfStmt(List<DestructureBinding> bindings, Expr iterable, List<Stmt> body) implements Stmt {
+    public record ForOfStmt(
+            List<DestructureBinding> bindings,
+            boolean destructuringPattern,
+            Expr iterable,
+            List<Stmt> body) implements Stmt {
         public ForOfStmt {
             bindings = List.copyOf(bindings);
             body = List.copyOf(body);
             if (bindings.isEmpty()) throw new IllegalArgumentException("for-of requires at least one binding");
         }
 
+        public ForOfStmt(List<DestructureBinding> bindings, Expr iterable, List<Stmt> body) {
+            this(bindings, bindings.size() > 1, iterable, body);
+        }
+
         public ForOfStmt(BindingKind bindingKind, String bindingName, Expr iterable, List<Stmt> body) {
-            this(List.of(new DestructureBinding(bindingKind, bindingName)), iterable, body);
+            this(List.of(new DestructureBinding(bindingKind, bindingName)), false, iterable, body);
         }
 
         /** Compatibility helpers for single-binding loops. */
         public BindingKind bindingKind() { return bindings.getFirst().kind(); }
         public String bindingName() { return bindings.getFirst().name(); }
-        public boolean destructuring() { return bindings.size() > 1; }
+        public boolean destructuring() { return destructuringPattern; }
     }
 
     public record ForStmt(Stmt initializer, Expr condition, Expr update, List<Stmt> body) implements Stmt {

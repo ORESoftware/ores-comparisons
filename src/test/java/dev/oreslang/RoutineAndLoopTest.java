@@ -208,6 +208,36 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void singleBindingBracketPatternStillDestructures() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for [value] of arr[arr[7], arr[8]] do
+                    stdio.stdout.write(value)
+                  done
+                }
+                """);
+
+        assertEquals("78", output);
+    }
+
+    @Test
+    void forOfDestructuringRejectsDuplicateBindingNames() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        fnc bad() => void {
+                          for [item, item] of arr[(1, 2)] do
+                            return;
+                          done
+                        }
+                        """));
+
+        String message = error.getMessage().toLowerCase();
+        assertTrue(message.contains("duplicate") && message.contains("item"),
+                error.getMessage());
+    }
+
+    @Test
     void forOfDestructuringArityIsCheckedStatically() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

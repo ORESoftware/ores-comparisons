@@ -560,7 +560,7 @@ public final class OresEvalRootNode extends RootNode {
                 for (Object item : iterableValues(iterable, env.singletonState)) {
                     context.schedulerSafepoint();
                     Env iteration = new Env(env);
-                    if (loop.bindings().size() == 1) {
+                    if (!loop.destructuringPattern()) {
                         Ast.DestructureBinding binding = loop.bindings().getFirst();
                         iteration.define(binding.name(), item, binding.kind());
                     } else {
