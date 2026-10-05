@@ -30,6 +30,7 @@ run_suites() {
 }
 
 audit_source
+sh scripts/verify-source-invariants.sh
 
 if [ -n "${ORESLANG_BIN:-}" ]; then
   run_suites "$ORESLANG_BIN"

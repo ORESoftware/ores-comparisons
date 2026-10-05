@@ -43,6 +43,13 @@ if grep -nHE '^[[:space:]]*for[[:space:]]+(\[[^]]+\]|[A-Za-z_][A-Za-z0-9_]*)[[:s
   failed=1
 fi
 
+# Callable declarations use '->' (or ':' where allowed); '=>' is reserved
+# for type-level function shapes such as type aliases.
+if grep -nHE '^[[:space:]]*(pub[[:space:]]+)?(fnc|routine)[^;{]*=>|^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*\([^)]*\)[[:space:]]*=>' $files; then
+  echo "error: fat-arrow callable syntax found; use '->' for callables" >&2
+  failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi

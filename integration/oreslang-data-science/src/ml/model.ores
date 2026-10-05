@@ -12,13 +12,13 @@ import class EmbeddingBatch from './embeddings';
 // expose Awaitable/Future completion once mailbox continuation lowering is
 // available for actor callables.
 pub define interface EmbeddingBackend
-  fnc model_id() => String;
-  fnc model_revision() => String;
-  fnc dimensions() => int;
-  fnc max_batch_size() => int;
+  fnc model_id() -> String;
+  fnc model_revision() -> String;
+  fnc dimensions() -> int;
+  fnc max_batch_size() -> int;
 
   fnc embed_batch(
     List<String> texts,
     List<float> mut output
-  ) => Result<EmbeddingBatch, String>;
+  ) -> Result<EmbeddingBatch, String>;
 end
