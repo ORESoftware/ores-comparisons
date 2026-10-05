@@ -35,9 +35,8 @@ public final class NativeCarrierExecutor implements java.util.concurrent.Executo
     private static final ThreadLocal<Integer> CURRENT_SLOT = new ThreadLocal<>();
     private static final ThreadLocal<Long> CURRENT_NATIVE_THREAD_ID = new ThreadLocal<>();
 
-    static {
-        loadNativeLibrary();
-    }
+    private static final Object NATIVE_LIBRARY_LOCK = new Object();
+    private static volatile boolean nativeLibraryLoaded;
 
     private final ArrayBlockingQueue<Runnable> queue;
     private final int maximumPoolSize;
@@ -64,6 +63,8 @@ public final class NativeCarrierExecutor implements java.util.concurrent.Executo
         if (queueCapacity <= 0) throw new IllegalArgumentException("queueCapacity must be > 0");
         Objects.requireNonNull(threadPrefix, "threadPrefix");
 
+        ensureNativeLibraryLoaded();
+
         this.queue = new ArrayBlockingQueue<>(queueCapacity, true);
         this.maximumPoolSize = maximumPoolSize;
         this.nativeStackBytes = configuredCarrierStackBytes();
@@ -86,7 +87,12 @@ public final class NativeCarrierExecutor implements java.util.concurrent.Executo
     }
 
     static void ensureNativeLibraryLoaded() {
-        // Class initialization performs the one-time load.
+        if (nativeLibraryLoaded) return;
+        synchronized (NATIVE_LIBRARY_LOCK) {
+            if (nativeLibraryLoaded) return;
+            loadNativeLibrary();
+            nativeLibraryLoaded = true;
+        }
     }
 
     private static long configuredCarrierStackBytes() {
