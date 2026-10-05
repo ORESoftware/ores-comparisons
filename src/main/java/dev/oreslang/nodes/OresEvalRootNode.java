@@ -1911,7 +1911,12 @@ public final class OresEvalRootNode extends RootNode {
         }
 
         private int compare(Object left, Object right) {
-            if (left instanceof Number a && right instanceof Number b) return Double.compare(a.doubleValue(), b.doubleValue());
+            if (left instanceof Number a && right instanceof Number b) {
+                if (isIntegral(a) && isIntegral(b)) {
+                    return Long.compare(a.longValue(), b.longValue());
+                }
+                return Double.compare(a.doubleValue(), b.doubleValue());
+            }
             if (left instanceof String a && right instanceof String b) return a.compareTo(b);
             throw new IllegalArgumentException("values are not comparable");
         }

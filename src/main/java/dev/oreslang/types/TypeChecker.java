@@ -724,11 +724,20 @@ public final class TypeChecker {
                     }
                     requireAssignable(index, Primitive.STRING, "DynamicStruct key");
                     targetType = dynamic.arguments().getFirst();
+                } else if (receiver instanceof Named region
+                        && (region.name().equals("Region") || region.name().equals("RegionView"))) {
+                    if (region.arguments().size() != 1) {
+                        throw new IllegalArgumentException(
+                                region.name() + " requires exactly one element type");
+                    }
+                    requireAssignable(index, Primitive.INT, region.name() + " index");
+                    targetType = region.arguments().getFirst();
                 } else {
                     requireAssignable(index, Primitive.INT, "array/list index");
                     if (receiver instanceof ListType list) targetType = list.element();
                     else if (receiver instanceof Tuple tuple) targetType = tuple.elements().stream().reduce(Unknown.INSTANCE, this::commonType);
-                    else throw new IllegalArgumentException("indexed assignment requires an array/list, tuple, or DynamicStruct");
+                    else throw new IllegalArgumentException(
+                            "indexed assignment requires an array/list, tuple, Region, RegionView, or DynamicStruct");
                 }
                 where = "index";
             } else throw new IllegalArgumentException("unsupported assignment target");
@@ -1276,6 +1285,14 @@ public final class TypeChecker {
                 }
                 if (record.members().isEmpty()) return Unknown.INSTANCE;
                 return record.members().values().stream().reduce(Unknown.INSTANCE, this::commonType);
+            }
+            if (receiver instanceof Named region
+                    && (region.name().equals("Region") || region.name().equals("RegionView"))) {
+                if (region.arguments().size() != 1) {
+                    throw new IllegalArgumentException(region.name() + " requires exactly one element type");
+                }
+                requireAssignable(index, Primitive.INT, region.name() + " index");
+                return region.arguments().getFirst();
             }
             requireAssignable(index, Primitive.INT, "array/list index");
             if (receiver instanceof ListType list) return list.element();

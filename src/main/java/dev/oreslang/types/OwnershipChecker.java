@@ -80,8 +80,11 @@ public final class OwnershipChecker {
 
     private void checkFunction(Ast.FunctionDecl fn) {
         Scope scope = new Scope(null, fn.nonLexical());
+        Set<String> computeMutableRoots = computeMutableRoots(fn);
         for (Ast.Param param : fn.parameters()) {
-            scope.define(param.name(), stateForParam(param));
+            scope.define(
+                    param.name(),
+                    stateForParam(param, computeMutableRoots.contains(param.name())));
         }
         checkBlock(fn.body(), scope, fn.returnType());
         scope.close();
@@ -111,10 +114,38 @@ public final class OwnershipChecker {
     }
 
     private VarState stateForParam(Ast.Param param) {
-        ValueKind kind = param.structural() && !param.type().isBorrow() ? ValueKind.IMM_BORROW : kindOfType(param.type());
-        boolean mutableOwner = param.mutable();
+        return stateForParam(param, false);
+    }
+
+    private VarState stateForParam(Ast.Param param, boolean effectMutable) {
+        ValueKind kind = param.structural() && !param.type().isBorrow()
+                ? ValueKind.IMM_BORROW
+                : kindOfType(param.type());
+        boolean mutableOwner = param.mutable() || effectMutable;
         if (param.type().isBorrow() && param.type().mutableBorrow()) mutableOwner = false;
         return new VarState(param.type(), mutableOwner, kind, Origin.PARAM);
+    }
+
+    private static Set<String> computeMutableRoots(Ast.FunctionDecl fn) {
+        boolean compute = fn.annotations().stream()
+                .anyMatch(annotation -> annotation.name().equals("Compute"));
+        if (!compute) return Set.of();
+
+        LinkedHashSet<String> roots = new LinkedHashSet<>();
+        for (Ast.Annotation annotation : fn.annotations()) {
+            if (!Set.of("Writes", "Discards", "Reduces", "Atomic").contains(annotation.name())) {
+                continue;
+            }
+            int limit = annotation.name().equals("Reduces")
+                    ? Math.min(1, annotation.arguments().size())
+                    : annotation.arguments().size();
+            for (int i = 0; i < limit; i++) {
+                String path = annotation.arguments().get(i).name();
+                int dot = path.indexOf('.');
+                roots.add(dot < 0 ? path : path.substring(0, dot));
+            }
+        }
+        return Set.copyOf(roots);
     }
 
     private void checkBlock(List<Ast.Stmt> body, Scope parent, Ast.TypeRef returnType) {
@@ -858,28 +889,59 @@ public final class OwnershipChecker {
     }
 
     private void ensureMutableReceiver(Ast.Expr receiver, Scope scope, String what) {
-        if (receiver instanceof Ast.NameExpr name) {
-            VarState state = requireState(scope, name.name());
-            requireUsable(state, name.name(), true);
-            if (isMutexGuardType(state.type)) return;
-            boolean mutableBorrow = state.kind == ValueKind.MUT_BORROW || (state.type.isBorrow() && state.type.mutableBorrow());
-            if (!state.mutable && !mutableBorrow) {
-                throw error("cannot mutate " + what + " through immutable parameter/binding '" + name.name() + "'; declare the owned parameter as 'mut' or pass '&mut'");
-            }
-            if (state.kind == ValueKind.IMM_BORROW || (state.type.isBorrow() && !state.type.mutableBorrow())) {
-                throw error("cannot mutate " + what + " through immutable borrow '" + name.name() + "'");
-            }
-            if (state.kind != ValueKind.MUT_BORROW && (state.immutableBorrows > 0 || state.mutableBorrowed)) {
-                throw error("cannot mutate '" + name.name() + "' while borrowed");
-            }
-            return;
-        }
         if (receiver instanceof Ast.UnaryExpr unary && unary.operator().equals("&mut")) {
             VarState owner = borrowOwner(unary.operand(), scope);
             validateBorrow(owner, true);
             return;
         }
-        throw error("mutation target must be rooted in a mutable local/parameter or &mut borrow");
+
+        String rootName = mutationRootName(receiver);
+        if (rootName == null) {
+            throw error("mutation target must be rooted in a mutable local/parameter or &mut borrow");
+        }
+
+        VarState state = requireState(scope, rootName);
+        requireUsable(state, rootName, true);
+        if (!isMutexGuardType(state.type)) {
+            boolean mutableBorrow = state.kind == ValueKind.MUT_BORROW
+                    || (state.type.isBorrow() && state.type.mutableBorrow());
+            if (!state.mutable && !mutableBorrow) {
+                throw error("cannot mutate " + what
+                        + " through immutable parameter/binding '" + rootName
+                        + "'; declare the owned parameter as 'mut' or grant a compute write effect");
+            }
+            if (state.kind == ValueKind.IMM_BORROW
+                    || (state.type.isBorrow() && !state.type.mutableBorrow())) {
+                throw error("cannot mutate " + what
+                        + " through immutable borrow '" + rootName + "'");
+            }
+            if (state.kind != ValueKind.MUT_BORROW
+                    && (state.immutableBorrows > 0 || state.mutableBorrowed)) {
+                throw error("cannot mutate '" + rootName + "' while borrowed");
+            }
+        }
+
+        checkProjectionIndexes(receiver, scope);
+    }
+
+    private static String mutationRootName(Ast.Expr expression) {
+        if (expression instanceof Ast.NameExpr name) return name.name();
+        if (expression instanceof Ast.IndexExpr indexed) {
+            return mutationRootName(indexed.receiver());
+        }
+        if (expression instanceof Ast.MemberExpr member) {
+            return mutationRootName(member.receiver());
+        }
+        return null;
+    }
+
+    private void checkProjectionIndexes(Ast.Expr expression, Scope scope) {
+        if (expression instanceof Ast.IndexExpr indexed) {
+            checkProjectionIndexes(indexed.receiver(), scope);
+            checkExpr(indexed.index(), scope, false);
+        } else if (expression instanceof Ast.MemberExpr member) {
+            checkProjectionIndexes(member.receiver(), scope);
+        }
     }
 
     private VarState borrowOwner(Ast.Expr operand, Scope scope) {
@@ -1072,7 +1134,28 @@ public final class OwnershipChecker {
         if (receiver instanceof Ast.NameExpr name) {
             VarState state = scope.lookup(name.name());
             if (state != null) type = state.type;
-        } else if (receiver instanceof Ast.NewExpr created) type = created.type();
+        } else if (receiver instanceof Ast.NewExpr created) {
+            type = created.type();
+        } else if (receiver instanceof Ast.IndexExpr indexed) {
+            type = collectionElementType(receiverType(indexed.receiver(), scope));
+        } else if (receiver instanceof Ast.MemberExpr member) {
+            Ast.TypeRef ownerType = receiverType(member.receiver(), scope);
+            Ast.ClassDecl ownerClass = ownerType == null ? null : findClass(ownerType.name());
+            if (ownerClass != null) {
+                ResolvedField target = findFieldTarget(
+                        ownerClass,
+                        ownerType,
+                        member.member(),
+                        new LinkedHashSet<>());
+                if (target != null) {
+                    type = substituteType(
+                            ownershipFieldType(target.field()),
+                            genericBindings(
+                                    target.owner().genericParameters(),
+                                    target.ownerType().arguments()));
+                }
+            }
+        }
         if (type == null) return null;
         if (type.isBorrow()) type = type.borrowedTarget();
         if (isMutexGuardType(type)) type = type.arguments().getFirst();
@@ -1447,8 +1530,12 @@ public final class OwnershipChecker {
     private Ast.TypeRef collectionElementType(Ast.TypeRef type) {
         if (type == null) return Ast.TypeRef.inferred();
         Ast.TypeRef concrete = type.isBorrow() ? type.borrowedTarget() : type;
-        if ((concrete.name().equals("Array") || concrete.name().equals("List")
-                || concrete.name().equals("DynamicStruct")) && concrete.arguments().size() == 1) {
+        if ((concrete.name().equals("Array")
+                || concrete.name().equals("List")
+                || concrete.name().equals("DynamicStruct")
+                || concrete.name().equals("Region")
+                || concrete.name().equals("RegionView"))
+                && concrete.arguments().size() == 1) {
             return concrete.arguments().getFirst();
         }
         if (concrete.isTupleType() && !concrete.arguments().isEmpty()) {

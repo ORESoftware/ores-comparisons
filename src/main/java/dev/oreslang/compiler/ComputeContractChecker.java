@@ -105,7 +105,28 @@ public final class ComputeContractChecker {
             }
         }
 
-        return new ComputeContract(fn.name(), effects, layouts, placement);
+        LinkedHashMap<String, RegionEffect> normalized = new LinkedHashMap<>();
+        for (RegionEffect effect : effects) {
+            String key = effect.rootParameter() + "\u0000" + effect.fieldPath();
+            RegionEffect previous = normalized.get(key);
+            if (previous == null) {
+                normalized.put(key, effect);
+            } else if ((previous.privilege().equals("reads") && effect.privilege().equals("writes"))
+                    || (previous.privilege().equals("writes") && effect.privilege().equals("reads"))) {
+                normalized.put(
+                        key,
+                        previous.privilege().equals("writes") ? previous : effect);
+            } else {
+                // validateComputeMetadata rejects other exact-footprint duplicates.
+                normalized.put(key, effect);
+            }
+        }
+
+        return new ComputeContract(
+                fn.name(),
+                List.copyOf(normalized.values()),
+                layouts,
+                placement);
     }
 
     public static boolean isCompute(Ast.FunctionDecl fn) {
@@ -256,6 +277,7 @@ public final class ComputeContractChecker {
     private void validateComputeMetadata(Ast.FunctionDecl fn, Map<String, Ast.Param> params) {
         int placeCount = 0;
         Set<String> layoutTargets = new LinkedHashSet<>();
+        LinkedHashMap<String, String> effectClaims = new LinkedHashMap<>();
 
         for (Ast.Annotation annotation : fn.annotations()) {
             switch (annotation.name()) {
@@ -265,7 +287,9 @@ public final class ComputeContractChecker {
                                 annotation.name().toLowerCase() + " requires at least one region path");
                     }
                     for (Ast.TypeRef argument : annotation.arguments()) {
-                        validateRegionPath(argument, params, annotation.name().toLowerCase());
+                        String privilege = annotation.name().toLowerCase();
+                        validateRegionPath(argument, params, privilege);
+                        claimEffectPath(effectClaims, argument.name(), privilege);
                     }
                 }
                 case "Reduces" -> {
@@ -274,6 +298,10 @@ public final class ComputeContractChecker {
                                 "reduces requires exactly a region path and reduction operator");
                     }
                     validateRegionPath(annotation.arguments().get(0), params, "reduces");
+                    claimEffectPath(
+                            effectClaims,
+                            annotation.arguments().get(0).name(),
+                            "reduces");
                     Ast.TypeRef operator = annotation.arguments().get(1);
                     requireMetadataAtom(operator, "reduction operator");
                 }
@@ -312,6 +340,58 @@ public final class ComputeContractChecker {
                 default -> { }
             }
         }
+    }
+
+    private static void claimEffectPath(
+            Map<String, String> claims,
+            String path,
+            String privilege) {
+        for (Map.Entry<String, String> existing : claims.entrySet()) {
+            if (existing.getKey().equals(path)) continue;
+            if (!effectPathsOverlap(existing.getKey(), path)) continue;
+            if (isSpecialEffect(existing.getValue()) || isSpecialEffect(privilege)) {
+                throw new IllegalArgumentException(
+                        "overlapping region effect footprints '"
+                                + existing.getKey() + "' (" + existing.getValue() + ") and '"
+                                + path + "' (" + privilege + ") are ambiguous; "
+                                + "discard/reduce/atomic footprints must not overlap other effects");
+            }
+        }
+
+        String previous = claims.putIfAbsent(path, privilege);
+        if (previous == null) return;
+
+        // WRITE semantically includes read access. Preserve source compatibility
+        // while normalizing this exact-footprint pair to the stronger privilege.
+        if (previous.equals("reads") && privilege.equals("writes")) {
+            claims.put(path, "writes");
+            return;
+        }
+        if (previous.equals("writes") && privilege.equals("reads")) {
+            return;
+        }
+
+        throw new IllegalArgumentException(
+                "region effect footprint '" + path
+                        + "' has duplicate/conflicting declarations ("
+                        + previous + " and " + privilege + ")");
+    }
+
+    private static boolean isSpecialEffect(String privilege) {
+        return privilege.equals("discards")
+                || privilege.equals("reduces")
+                || privilege.equals("atomic");
+    }
+
+    private static boolean effectPathsOverlap(String left, String right) {
+        if (left.equals(right)) return true;
+        return isEffectPathPrefix(left, right) || isEffectPathPrefix(right, left);
+    }
+
+    private static boolean isEffectPathPrefix(String prefix, String path) {
+        return path.length() > prefix.length()
+                && path.startsWith(prefix)
+                && path.charAt(prefix.length()) == '.';
     }
 
     private void validateRegionPath(
@@ -463,7 +543,8 @@ public final class ComputeContractChecker {
             String inductionVariable,
             ForDirection direction,
             Ast.Expr boundExpression,
-            String boundName) { }
+            String boundName,
+            boolean inclusive) { }
 
     /**
      * Device/AOT compute loops must expose a finite iteration space that a
@@ -488,6 +569,11 @@ public final class ComputeContractChecker {
         if (!(loop.initializer() instanceof Ast.BindingStmt initializer)) {
             throw unsafe(owner, "non-canonical compute for-loop initializer");
         }
+        if (initializer.declaredType() == null
+                || initializer.declaredType().isBorrow()
+                || !initializer.declaredType().name().equals("int")) {
+            throw unsafe(owner, "compute for-loop induction variable must be declared int");
+        }
         if (!(loop.condition() instanceof Ast.BinaryExpr condition)) {
             throw unsafe(owner, "compute for-loop without a provable monotonic bound");
         }
@@ -499,8 +585,27 @@ public final class ComputeContractChecker {
         if (shape == null) {
             throw unsafe(owner, "compute for-loop without a canonical finite induction bound");
         }
-        if (!hasMonotonicStep(loop.update(), shape.inductionVariable(), shape.direction())) {
-            throw unsafe(owner, "compute for-loop update does not monotonically approach its bound");
+        if (shape.boundName() != null
+                && !isIntParameter(scope.function(), shape.boundName())) {
+            throw unsafe(
+                    owner,
+                    "dynamic compute for-loop bound must be an int parameter in the v0 device-safe subset");
+        }
+        if (initializer.initializer() instanceof Ast.NameExpr startName
+                && !isIntParameter(scope.function(), startName.name())) {
+            throw unsafe(
+                    owner,
+                    "dynamic compute for-loop start must be an int parameter in the v0 device-safe subset");
+        }
+        if (!hasUnitStep(loop.update(), shape.inductionVariable(), shape.direction())) {
+            throw unsafe(
+                    owner,
+                    "compute for-loop requires unit-step induction in the v0 device-safe subset");
+        }
+        if (!hasRepresentableTripCount(initializer.initializer(), shape)) {
+            throw unsafe(
+                    owner,
+                    "compute for-loop trip count is not provably finite within signed 64-bit induction");
         }
 
         LinkedHashSet<String> protectedNames = new LinkedHashSet<>();
@@ -520,6 +625,7 @@ public final class ComputeContractChecker {
         Ast.Expr bound;
         ForDirection direction;
 
+        boolean inclusive;
         if (isName(condition.left(), induction)) {
             bound = condition.right();
             direction = switch (condition.operator()) {
@@ -527,6 +633,8 @@ public final class ComputeContractChecker {
                 case ">", ">=" -> ForDirection.DOWN;
                 default -> null;
             };
+            inclusive = condition.operator().equals("<=")
+                    || condition.operator().equals(">=");
         } else if (isName(condition.right(), induction)) {
             bound = condition.left();
             direction = switch (condition.operator()) {
@@ -534,6 +642,8 @@ public final class ComputeContractChecker {
                 case "<", "<=" -> ForDirection.DOWN;
                 default -> null;
             };
+            inclusive = condition.operator().equals("<=")
+                    || condition.operator().equals(">=");
         } else {
             return null;
         }
@@ -541,17 +651,28 @@ public final class ComputeContractChecker {
 
         if (bound instanceof Ast.LiteralExpr literal) {
             if (!(literal.value() instanceof Long)) return null;
-            return new BoundedForShape(induction, direction, bound, null);
+            return new BoundedForShape(induction, direction, bound, null, inclusive);
         }
         if (bound instanceof Ast.NameExpr name
                 && incomingLocals.contains(name.name())
                 && !name.name().equals(induction)) {
-            return new BoundedForShape(induction, direction, bound, name.name());
+            return new BoundedForShape(induction, direction, bound, name.name(), inclusive);
         }
         return null;
     }
 
-    private static boolean hasMonotonicStep(
+    private static boolean isIntParameter(
+            Ast.FunctionDecl function,
+            String name) {
+        for (Ast.Param parameter : function.parameters()) {
+            if (!parameter.name().equals(name)) continue;
+            Ast.TypeRef type = parameter.type();
+            return type != null && !type.isBorrow() && type.name().equals("int");
+        }
+        return false;
+    }
+
+    private static boolean hasUnitStep(
             Ast.Expr update,
             String induction,
             ForDirection direction) {
@@ -562,23 +683,72 @@ public final class ComputeContractChecker {
         }
 
         if (direction == ForDirection.UP && binary.operator().equals("+")) {
-            return (isName(binary.left(), induction) && isPositiveLong(binary.right()))
-                    || (isPositiveLong(binary.left()) && isName(binary.right(), induction));
+            return (isName(binary.left(), induction) && isLongLiteral(binary.right(), 1L))
+                    || (isLongLiteral(binary.left(), 1L) && isName(binary.right(), induction));
         }
         if (direction == ForDirection.DOWN && binary.operator().equals("-")) {
-            return isName(binary.left(), induction) && isPositiveLong(binary.right());
+            return isName(binary.left(), induction) && isLongLiteral(binary.right(), 1L);
         }
         return false;
+    }
+
+    private static boolean hasRepresentableTripCount(
+            Ast.Expr startExpression,
+            BoundedForShape shape) {
+        Long start = longLiteral(startExpression);
+        Long bound = longLiteral(shape.boundExpression());
+
+        if (start != null && bound != null) {
+            try {
+                long distance;
+                if (shape.direction() == ForDirection.UP) {
+                    if (start > bound || (!shape.inclusive() && start.equals(bound))) return true;
+                    distance = Math.subtractExact(bound, start);
+                } else {
+                    if (start < bound || (!shape.inclusive() && start.equals(bound))) return true;
+                    distance = Math.subtractExact(start, bound);
+                }
+                if (shape.inclusive()) Math.addExact(distance, 1L);
+                return true;
+            } catch (ArithmeticException overflow) {
+                return false;
+            }
+        }
+
+        // Dynamic upper bounds are safe for the canonical 0-or-positive start,
+        // exclusive ascending unit-step shape: max trip count is Long.MAX_VALUE.
+        if (shape.direction() == ForDirection.UP
+                && !shape.inclusive()
+                && start != null
+                && start >= 0L
+                && shape.boundName() != null) {
+            return true;
+        }
+
+        // Dynamic starts are safe against a non-negative exclusive lower bound:
+        // max(start - bound) cannot exceed Long.MAX_VALUE.
+        return shape.direction() == ForDirection.DOWN
+                && !shape.inclusive()
+                && start == null
+                && startExpression instanceof Ast.NameExpr
+                && bound != null
+                && bound >= 0L;
     }
 
     private static boolean isName(Ast.Expr expr, String name) {
         return expr instanceof Ast.NameExpr candidate && candidate.name().equals(name);
     }
 
-    private static boolean isPositiveLong(Ast.Expr expr) {
+    private static Long longLiteral(Ast.Expr expr) {
         return expr instanceof Ast.LiteralExpr literal
                 && literal.value() instanceof Long value
-                && value > 0L;
+                ? value
+                : null;
+    }
+
+    private static boolean isLongLiteral(Ast.Expr expr, long expected) {
+        Long value = longLiteral(expr);
+        return value != null && value == expected;
     }
 
     private static boolean statementsMutateAny(
@@ -907,6 +1077,8 @@ public final class ComputeContractChecker {
         }
 
         ComputeContract calleeContract = contractOf(callee);
+        validateNestedComputePhysicalContract(call, target, calleeContract, caller);
+
         for (RegionEffect effect : calleeContract.effects()) {
             int parameterIndex = parameterIndex(callee.parameters(), effect.rootParameter());
             if (parameterIndex < 0 || parameterIndex >= call.arguments().size()) {
@@ -937,6 +1109,76 @@ public final class ComputeContractChecker {
                     new RegionAccessPath(base.root(), mappedField),
                     effect,
                     caller);
+        }
+    }
+
+    private static void validateNestedComputePhysicalContract(
+            Ast.CallExpr call,
+            ResolvedFunction target,
+            ComputeContract calleeContract,
+            ComputeScope caller) {
+        ComputeContract callerContract = contractOf(caller.function());
+
+        String calleePlacement = calleeContract.placement();
+        String callerPlacement = callerContract.placement();
+        if (!calleePlacement.equals("auto")) {
+            if (callerPlacement.equals("auto")) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' hides explicit place " + calleePlacement
+                                + " inside place auto; declare the same explicit placement "
+                                + "on the caller until transitive placement inference exists");
+            }
+            if (!callerPlacement.equals(calleePlacement)) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' requires place " + calleePlacement
+                                + " but caller declares place " + callerPlacement);
+            }
+        }
+
+        for (Map.Entry<String, String> layout : calleeContract.layouts().entrySet()) {
+            String requiredLayout = layout.getValue();
+            if (requiredLayout.equals("auto")) continue;
+
+            int parameterIndex = parameterIndex(
+                    target.declaration().parameters(),
+                    layout.getKey());
+            if (parameterIndex < 0 || parameterIndex >= call.arguments().size()) {
+                throw new IllegalStateException(
+                        "checked compute layout references missing callee parameter: "
+                                + layout.getKey());
+            }
+
+            RegionAccessPath mapped =
+                    regionAccessPath(call.arguments().get(parameterIndex), caller.regionParameters());
+            if (mapped == null || !mapped.field().isEmpty()) {
+                throw unsafe(
+                        caller.function().name(),
+                        "cannot map nested layout requirement for compute fnc '"
+                                + target.id() + "' to a caller region root");
+            }
+
+            String callerLayout = callerContract.layouts().get(mapped.root());
+            if (callerLayout == null || callerLayout.equals("auto")) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' hides explicit layout " + requiredLayout
+                                + " for region '" + mapped.root()
+                                + "'; declare the same layout on the caller "
+                                + "until transitive layout inference exists");
+            }
+            if (!callerLayout.equals(requiredLayout)) {
+                throw unsafe(
+                        caller.function().name(),
+                        "call to compute fnc '" + target.id()
+                                + "' requires layout " + requiredLayout
+                                + " for region '" + mapped.root()
+                                + "' but caller declares " + callerLayout);
+            }
         }
     }
 
@@ -998,7 +1240,12 @@ public final class ComputeContractChecker {
     private record ResolvedFunction(String id, Ast.FunctionDecl declaration) { }
 
     private void validateFlow(String module, Ast.FlowDecl flow) {
+        if (flow.edges().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "flow '" + flow.name() + "' requires at least one dependency edge");
+        }
         LinkedHashMap<String, LinkedHashSet<String>> outgoing = new LinkedHashMap<>();
+        LinkedHashSet<String> seenEdges = new LinkedHashSet<>();
         for (Ast.FlowEdge edge : flow.edges()) {
             ResolvedFunction from = resolveFunctionRef(module, edge.from());
             ResolvedFunction to = resolveFunctionRef(module, edge.to());
@@ -1009,6 +1256,12 @@ public final class ComputeContractChecker {
             if (to == null || !isCompute(to.declaration())) {
                 throw new IllegalArgumentException(
                         "flow '" + flow.name() + "' target '" + edge.to() + "' is not a compute fnc");
+            }
+            String canonicalEdge = from.id() + "\u0000" + to.id();
+            if (!seenEdges.add(canonicalEdge)) {
+                throw new IllegalArgumentException(
+                        "flow '" + flow.name() + "' contains duplicate dependency edge "
+                                + edge.from() + " -> " + edge.to());
             }
             outgoing.computeIfAbsent(from.id(), ignored -> new LinkedHashSet<>()).add(to.id());
             outgoing.computeIfAbsent(to.id(), ignored -> new LinkedHashSet<>());
@@ -1042,6 +1295,10 @@ public final class ComputeContractChecker {
     }
 
     private void validateAspect(String module, Ast.AspectDecl aspect) {
+        if (aspect.rules().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "aspect '" + aspect.name() + "' requires at least one advice rule");
+        }
         Set<String> rules = new LinkedHashSet<>();
         for (Ast.AspectRule rule : aspect.rules()) {
             Ast.FunctionDecl handler = resolveFunction(module, rule.handler());

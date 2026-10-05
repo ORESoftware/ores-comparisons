@@ -185,6 +185,23 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void integerComparisonsRemainExactAboveDoublePrecisionRange() throws Exception {
+        String output = run("""
+                pub routine main(): void {
+                  if 9007199254740993 > 9007199254740992 {
+                    stdio.stdout.write("a");
+                  }
+                  if 9223372036854775807 > 9223372036854775806 {
+                    stdio.stdout.write("b");
+                  }
+                  return;
+                }
+                """);
+
+        assertEquals("ab", output);
+    }
+
+    @Test
     void doDoneBodiesAndIteratorShorthandRemainUnambiguous() throws Exception {
         String output = run("""
                 fnc done(): void {
