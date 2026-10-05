@@ -129,18 +129,20 @@ public final class OresEvalRootNode extends RootNode {
     }
 
     private static boolean isKnownImmutableCopyScalar(Object value) {
-        return value instanceof String
-                || value instanceof Byte
-                || value instanceof Short
-                || value instanceof Integer
-                || value instanceof Long
-                || value instanceof Float
-                || value instanceof Double
-                || value instanceof BigInteger
-                || value instanceof BigDecimal
-                || value instanceof Boolean
-                || value instanceof Character
-                || value instanceof Complex;
+        if (value == null) return false;
+        Class<?> type = value.getClass();
+        return type == String.class
+                || type == Byte.class
+                || type == Short.class
+                || type == Integer.class
+                || type == Long.class
+                || type == Float.class
+                || type == Double.class
+                || type == BigInteger.class
+                || type == BigDecimal.class
+                || type == Boolean.class
+                || type == Character.class
+                || type == Complex.class;
     }
 
     private static String digestText(String text) {
