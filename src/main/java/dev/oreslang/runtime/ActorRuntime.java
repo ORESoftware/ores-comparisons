@@ -97,6 +97,9 @@ public final class ActorRuntime implements AutoCloseable {
     private static final int MAX_MESSAGE_GRAPH_DEPTH = 256;
     private static final int MAX_MESSAGE_GRAPH_NODES = 100_000;
     private static final long CLOSE_WAIT_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
+    // BEAM-style reduction budget between scheduler handoffs. Wall-clock
+    // maxBatchNanos is an independent backstop; either may request preemption.
+    private static final int DEFAULT_ACTOR_REDUCTIONS_PER_SLICE = 2_000;
     public static final Duration HARD_MAX_UNTRUSTED_LIFETIME = Duration.ofSeconds(300);
     private static final long DEFAULT_UNTRUSTED_FUEL_PER_TURN = 100_000L;
     private static final long DEFAULT_UNTRUSTED_MAILBOX_RETURN_BYTES = 1024L * 1024L;
@@ -1661,6 +1664,8 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     private final Map<ActorId, ActorCell<?>> actors = new ConcurrentHashMap<>();
+    private final AtomicLongArray cooperativePreemptions =
+            new AtomicLongArray(ActorKind.values().length);
     private final Map<ActorGroupId, ActorGroupRuntime<?>> actorGroups = new ConcurrentHashMap<>();
     private final AtomicLong nextActorGroupGeneration = new AtomicLong();
     private final AtomicInteger actorCount = new AtomicInteger();
@@ -2988,8 +2993,22 @@ public final class ActorRuntime implements AutoCloseable {
          */
         TimerHandle setTimer(Duration delay, ActorContinuation continuation);
 
-        /** Mandatory compiler/runtime scheduling checkpoint. */
+        /** Mandatory non-suspending compiler/runtime scheduling checkpoint. */
         void checkpoint();
+
+        /**
+         * Compiler-facing preemption-safe checkpoint.
+         *
+         * <p>The supplied continuation must capture a heap-safe frame for the
+         * instruction immediately after this checkpoint. The scheduler may
+         * request a handoff at any time, but an actor is only detached from its
+         * carrier through this overload, where the compiler has proved that no
+         * carrier-pinned/foreign stack state crosses the boundary.</p>
+         */
+        default void checkpoint(ActorContinuation continuation) {
+            Objects.requireNonNull(continuation, "continuation");
+            checkpoint();
+        }
 
         /** Remaining per-message execution fuel, or Long.MAX_VALUE for trusted actors. */
         long fuelRemaining();
@@ -4443,14 +4462,49 @@ public final class ActorRuntime implements AutoCloseable {
     /**
      * Compiler-injected scheduling/cancellation checkpoint.
      *
-     * Do not use Thread.yield() here: yielding the carrier thread does not
-     * return the current actor to the dispatcher, so a single-worker pool still
-     * cannot run a queued peer. Actor fairness is provided at resumable mailbox
-     * boundaries by the bounded message/time quantum. UNTRUSTED guest code is
-     * additionally charged fuel here and is hard-bounded by its sandbox
-     * deadline/isolate. A future resumable Oreslang fiber/continuation backend
-     * may turn this checkpoint into a true mid-message cooperative handoff.
+     * <p>Do not use Thread.yield() here: yielding the carrier thread does not
+     * release the actor execution lease and therefore cannot let a queued peer
+     * use a one-worker actor domain. This non-suspending form observes control
+     * state and records reduction/wall-clock preemption requests. Compiler
+     * lowering services such a request at the next
+     * {@link ActorContext#checkpoint(ActorContinuation)} by capturing a
+     * heap-safe continuation and unwinding the current carrier turn.</p>
      */
+    /**
+     * Ask a currently executing actor to yield at its next preemption-safe
+     * compiler checkpoint. This never uses Thread.suspend/stop and never tears
+     * through an arbitrary host stack. A false result means the actor is not
+     * currently holding an execution lease (or no longer belongs to this
+     * runtime), so no forced handoff is necessary.
+     */
+    public boolean requestPreemption(ActorRef<?> ref) {
+        Objects.requireNonNull(ref, "ref");
+        ActorCell<?> cell = actors.get(ref.id());
+        if (cell == null || cell.ref != ref) return false;
+        return cell.requestPreemption();
+    }
+
+    /** Number of safe cooperative preemptions completed in one actor domain. */
+    public long cooperativePreemptionCount(ActorKind kind) {
+        Objects.requireNonNull(kind, "kind");
+        return cooperativePreemptions.get(kind.ordinal());
+    }
+
+    /**
+     * Runtime hook for carrier-thread-affine capabilities such as OresRwLock.
+     * A pending scheduler yield stays pending until the outermost pinned region
+     * exits and the compiler reaches another preemption-safe checkpoint.
+     */
+    void enterCarrierPinnedSection() {
+        ActorCell<?> cell = currentActor.get();
+        if (cell != null) cell.enterCarrierPinnedSection();
+    }
+
+    void exitCarrierPinnedSection() {
+        ActorCell<?> cell = currentActor.get();
+        if (cell != null) cell.exitCarrierPinnedSection();
+    }
+
     public void schedulerSafepoint() {
         if (closed.get()) throw new CancellationException("actor runtime is closing");
         if (CURRENT_ROOT_RUNTIME.get() == this) {
@@ -4471,7 +4525,7 @@ public final class ActorRuntime implements AutoCloseable {
         ActorCell<?> cell = currentActor.get();
         if (cell != null) {
             cell.throwIfControlStopped();
-            cell.checkUntrustedBudget(1);
+            cell.observeSchedulingCheckpoint();
         }
         if (Thread.currentThread().isInterrupted()) {
             if (cell != null) cell.throwIfControlStopped();
@@ -6279,6 +6333,12 @@ public final class ActorRuntime implements AutoCloseable {
         private final long deadlineNanos;
         private volatile Thread activeCarrier;
         private final AtomicReference<Thread> executionLease = new AtomicReference<>();
+        private final AtomicBoolean preemptRequested = new AtomicBoolean();
+        private final AtomicReference<ContinuationEnvelope> preemptedContinuation =
+                new AtomicReference<>();
+        private long schedulingSliceStartedNanos;
+        private int schedulingReductionsRemaining;
+        private int carrierPinnedDepth;
         private volatile long preferredCarrierToken;
         private volatile long affinityEnqueuedNanos;
         private int affinityMissStreak;
@@ -6730,6 +6790,89 @@ public final class ActorRuntime implements AutoCloseable {
             schedule();
         }
 
+        private void beginSchedulingSlice() {
+            synchronized (lifecycleLock) {
+                schedulingSliceStartedNanos = System.nanoTime();
+                schedulingReductionsRemaining = DEFAULT_ACTOR_REDUCTIONS_PER_SLICE;
+            }
+        }
+
+        private void endSchedulingSlice() {
+            synchronized (lifecycleLock) {
+                schedulingSliceStartedNanos = 0L;
+                schedulingReductionsRemaining = 0;
+                // A turn boundary already relinquishes the carrier. Serialize
+                // with requestPreemption() so a request racing natural turn
+                // completion cannot leak into the actor's next slice.
+                preemptRequested.set(false);
+            }
+        }
+
+        private void observeSchedulingCheckpoint() {
+            checkUntrustedBudget(1);
+            if (preemptRequested.get()) return;
+
+            boolean reductionsExhausted = --schedulingReductionsRemaining <= 0;
+            long started = schedulingSliceStartedNanos;
+            boolean wallQuantumExpired = started != 0L
+                    && System.nanoTime() - started >= dispatcherConfig.maxBatchNanos();
+            if (reductionsExhausted || wallQuantumExpired) {
+                preemptRequested.compareAndSet(false, true);
+            }
+        }
+
+        private boolean requestPreemption() {
+            synchronized (lifecycleLock) {
+                if (stopped.get() || closed.get()) return false;
+                if (executionLease.get() == null || schedulingSliceStartedNanos == 0L) {
+                    return false;
+                }
+                preemptRequested.set(true);
+                return true;
+            }
+        }
+
+        private void enterCarrierPinnedSection() {
+            if (currentActor.get() != this) {
+                throw new IllegalStateException(
+                        "carrier-pinned section must belong to the current actor");
+            }
+            carrierPinnedDepth++;
+        }
+
+        private void exitCarrierPinnedSection() {
+            if (currentActor.get() != this || carrierPinnedDepth <= 0) {
+                throw new IllegalStateException(
+                        "actor carrier-pinned section accounting underflow");
+            }
+            carrierPinnedDepth--;
+        }
+
+        private void preemptIfRequested(ActorContinuation continuation) {
+            Objects.requireNonNull(continuation, "continuation");
+            if (currentActor.get() != this) {
+                throw new IllegalStateException(
+                        "actor preemption checkpoint must run inside the owning actor turn");
+            }
+            throwIfControlStopped();
+            if (!preemptRequested.get() || carrierPinnedDepth != 0) return;
+            if (!preemptRequested.compareAndSet(true, false)) return;
+            if (logicalTurnSuspended) {
+                throw new IllegalStateException(
+                        "actor turn is already suspended; compiler emitted an overlapping preemption");
+            }
+
+            ContinuationEnvelope envelope =
+                    new ContinuationEnvelope(continuation, null, null);
+            if (!preemptedContinuation.compareAndSet(null, envelope)) {
+                throw new IllegalStateException(
+                        "actor already owns a pending scheduler preemption continuation");
+            }
+            logicalTurnSuspended = true;
+            cooperativePreemptions.incrementAndGet(kind.ordinal());
+            throw ActorTurnSuspendedSignal.INSTANCE;
+        }
+
         private void suspendOn(OresFuture<?> awaited, ActorContinuation continuation) {
             Objects.requireNonNull(awaited, "awaited");
             Objects.requireNonNull(continuation, "continuation");
@@ -6809,7 +6952,10 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         private boolean hasRunnableWork() {
-            if (logicalTurnSuspended) return !readyContinuations.isEmpty();
+            if (logicalTurnSuspended) {
+                return preemptedContinuation.get() != null
+                        || !readyContinuations.isEmpty();
+            }
             return !readyContinuations.isEmpty()
                     || !nextTickContinuations.isEmpty()
                     || !inbox.isEmpty();
@@ -6903,6 +7049,7 @@ public final class ActorRuntime implements AutoCloseable {
             long entryDeadline = 0L;
             try {
                 if (!turnActive) return;
+                beginSchedulingSlice();
 
                 // Cover the entire runtime/Truffle admission path, not only the
                 // guest callback. In adversarial contexts TurnExecutor may wait
@@ -6923,6 +7070,7 @@ public final class ActorRuntime implements AutoCloseable {
                 if (failure instanceof LinkageError fatal) throw fatal;
             } finally {
                 disarmMessageDeadline(entryDeadline);
+                endSchedulingSlice();
                 activeCarrier = null;
                 if (turnActive) endTurn();
                 if (!executionLease.compareAndSet(carrier, null)) {
@@ -7008,6 +7156,10 @@ public final class ActorRuntime implements AutoCloseable {
                     @Override public void checkpoint() {
                         ActorRuntime.this.schedulerSafepoint();
                     }
+                    @Override public void checkpoint(ActorContinuation continuation) {
+                        ActorRuntime.this.schedulerSafepoint();
+                        ActorCell.this.preemptIfRequested(continuation);
+                    }
                     @Override public long fuelRemaining() {
                         return kind == ActorKind.UNTRUSTED
                                 ? ActorCell.this.fuelRemaining.get()
@@ -7040,9 +7192,15 @@ public final class ActorRuntime implements AutoCloseable {
                 // resumes here under the actor lease, possibly on a different
                 // carrier from the one that observed await.
                 if (logicalTurnSuspended) {
-                    ContinuationEnvelope continuation = readyContinuations.poll();
-                    if (continuation == null) return;
-                    releaseControlEvent();
+                    ContinuationEnvelope continuation =
+                            preemptedContinuation.getAndSet(null);
+                    boolean chargedControlEvent = false;
+                    if (continuation == null) {
+                        continuation = readyContinuations.poll();
+                        if (continuation == null) return;
+                        chargedControlEvent = true;
+                    }
+                    if (chargedControlEvent) releaseControlEvent();
                     logicalTurnSuspended = false;
                     long continuationDeadline = armMessageDeadline("await continuation");
                     boolean suspendedAgain = false;
@@ -7184,6 +7342,8 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         private void drainControlEvents() {
+            preemptedContinuation.set(null);
+            preemptRequested.set(false);
             while (readyContinuations.poll() != null) releaseControlEvent();
             while (nextTickContinuations.poll() != null) releaseControlEvent();
             logicalTurnSuspended = false;
