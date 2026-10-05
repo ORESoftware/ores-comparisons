@@ -849,28 +849,34 @@ public final class TypeChecker {
                                             + " does not accept call-site type arguments");
                         }
                         return switch (member.member()) {
-                            case "start" -> {
+                            case "start", "start_detached" -> {
+                                String api = "OresScheduler." + member.member();
                                 if (call.arguments().size() != 1) {
                                     throw new IllegalArgumentException(
-                                            "OresScheduler.start expects exactly one async zero-argument lambda");
+                                            api + " expects exactly one zero-argument lambda");
                                 }
                                 Ast.Expr work = call.arguments().getFirst();
                                 if (!(work instanceof Ast.LambdaExpr lambda)
-                                        || !lambda.async()
                                         || !lambda.parameters().isEmpty()) {
                                     throw new IllegalArgumentException(
-                                            "OresScheduler.start requires an inline async zero-argument lambda");
+                                            api + " requires an inline zero-argument lambda");
                                 }
                                 Type callback = typeOf(lambda, env, generics, self);
                                 if (!(callback instanceof Function fn)
-                                        || !fn.parameters().isEmpty()
-                                        || !(fn.result() instanceof Named future)
-                                        || !future.name().equals("Future")
-                                        || future.arguments().size() != 1) {
+                                        || !fn.parameters().isEmpty()) {
                                     throw new IllegalArgumentException(
-                                            "OresScheduler.start requires an async lambda producing Future<T>");
+                                            api + " requires a zero-argument lambda");
                                 }
-                                yield fn.result();
+                                if (lambda.async()) {
+                                    if (!(fn.result() instanceof Named future)
+                                            || !future.name().equals("Future")
+                                            || future.arguments().size() != 1) {
+                                        throw new IllegalArgumentException(
+                                                "async scheduler lambda must produce Future<T>");
+                                    }
+                                    yield fn.result();
+                                }
+                                yield futureOf(fn.result());
                             }
                             case "parallelism" -> {
                                 if (!call.arguments().isEmpty()) {
