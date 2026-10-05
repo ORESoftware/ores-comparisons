@@ -2060,6 +2060,20 @@ public final class TypeChecker {
         if (assignable(b, a) && assignable(a, b)) return a;
         if (Types.isNumeric(a) && Types.isNumeric(b)) return Types.numericJoin(a, b);
         if (isStringLike(a) && isStringLike(b)) return Primitive.STRING;
+
+        if (a instanceof Tuple left && b instanceof Tuple right
+                && left.elements().size() == right.elements().size()) {
+            List<Type> joined = new ArrayList<>(left.elements().size());
+            for (int i = 0; i < left.elements().size(); i++) {
+                joined.add(commonType(left.elements().get(i), right.elements().get(i)));
+            }
+            return new Tuple(joined);
+        }
+
+        if (a instanceof ListType left && b instanceof ListType right) {
+            return new ListType(commonType(left.element(), right.element()));
+        }
+
         return Unknown.INSTANCE;
     }
 

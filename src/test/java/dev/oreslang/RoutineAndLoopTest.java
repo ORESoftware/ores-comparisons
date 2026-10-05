@@ -194,6 +194,20 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void forOfDestructuringPreservesTupleComponentTypesAcrossElements() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for [key, value] of arr[(1, "a"), (2, "b")] do
+                    stdio.stdout.write(key + 10)
+                    stdio.stdout.write(value + "!")
+                  done
+                }
+                """);
+
+        assertEquals("11a!12b!", output);
+    }
+
+    @Test
     void forOfDestructuringArityIsCheckedStatically() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
