@@ -5996,26 +5996,37 @@ public final class ActorRuntime implements AutoCloseable {
         }
 
         @Override
+        public boolean offer(
+                Runnable task,
+                long timeout,
+                TimeUnit unit) throws InterruptedException {
+            stamp(task);
+            return super.offer(task, timeout, unit);
+        }
+
+        @Override
         public void put(Runnable task) throws InterruptedException {
             stamp(task);
             super.put(task);
         }
 
         private void stamp(Runnable task) {
-            if (task instanceof AffinityWork work) {
-                if (work.affinityRegistry() != registry) {
-                    throw new IllegalArgumentException(
-                            "affinity work belongs to a different scheduler domain");
-                }
-                if (work.affinityWorkClass() != AffinityWorkClass.ACTOR_TURN) {
-                    throw new IllegalArgumentException(
-                            "actor dispatcher cannot admit "
-                                    + work.affinityWorkClass()
-                                    + "; CPU data chunks and GPU kernels require "
-                                    + "the heterogeneous compute/dataflow scheduler");
-                }
-                work.affinityEnqueuedNanos(System.nanoTime());
+            if (!(task instanceof AffinityWork work)) {
+                throw new IllegalArgumentException(
+                        "actor dispatcher accepts classified ACTOR_TURN work only");
             }
+            if (work.affinityRegistry() != registry) {
+                throw new IllegalArgumentException(
+                        "affinity work belongs to a different scheduler domain");
+            }
+            if (work.affinityWorkClass() != AffinityWorkClass.ACTOR_TURN) {
+                throw new IllegalArgumentException(
+                        "actor dispatcher cannot admit "
+                                + work.affinityWorkClass()
+                                + "; CPU data chunks and GPU kernels require "
+                                + "the heterogeneous compute/dataflow scheduler");
+            }
+            work.affinityEnqueuedNanos(System.nanoTime());
         }
 
         private boolean preferredHere(Runnable task, long carrierToken) {

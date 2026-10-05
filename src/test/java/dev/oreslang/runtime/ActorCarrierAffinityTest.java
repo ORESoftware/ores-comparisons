@@ -174,9 +174,15 @@ final class ActorCarrierAffinityTest {
     }
 
     @Test
-    void actorAffinityQueueRejectsCpuDataChunksAndGpuKernels() {
+    void actorAffinityQueueRejectsUnclassifiedCpuDataChunksAndGpuKernels() {
         CarrierRegistry registry = new CarrierRegistry(1);
         AffinityBlockingQueue queue = new AffinityBlockingQueue(4, registry);
+
+        IllegalArgumentException rawFailure = assertThrows(
+                IllegalArgumentException.class,
+                () -> queue.offer(() -> { }));
+        assertTrue(rawFailure.getMessage().contains("ACTOR_TURN"));
+        assertTrue(queue.isEmpty());
 
         for (AffinityWorkClass workClass : new AffinityWorkClass[] {
                 AffinityWorkClass.CPU_DATA_CHUNK,
@@ -197,6 +203,18 @@ final class ActorCarrierAffinityTest {
                     IllegalArgumentException.class,
                     () -> queue.offer(computeWork));
             assertTrue(failure.getMessage().contains("heterogeneous compute/dataflow scheduler"));
+            assertTrue(queue.isEmpty());
+
+            IllegalArgumentException timedFailure = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> queue.offer(computeWork, 1, TimeUnit.MILLISECONDS));
+            assertTrue(timedFailure.getMessage().contains("heterogeneous compute/dataflow scheduler"));
+            assertTrue(queue.isEmpty());
+
+            IllegalArgumentException putFailure = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> queue.put(computeWork));
+            assertTrue(putFailure.getMessage().contains("heterogeneous compute/dataflow scheduler"));
             assertTrue(queue.isEmpty());
         }
     }
