@@ -338,12 +338,23 @@ public final class OwnershipChecker {
             Map<VarState, StateSnapshot> catchExit = stateSnapshot(scope);
             caught.close();
 
-            // finally runs after normal try completion, handled catch
-            // completion, and also while unwinding a throwing catch prefix.
-            // Use the conservative catch entry as an additional possible
-            // predecessor, then re-apply monotonic transition history.
+            // A successful continuation after try/catch is reachable only
+            // from a successful try exit or a successfully completed catch.
+            // Preserve that state separately from the more conservative state
+            // needed to prove finally safe during exception unwinding.
+            mergeBranchState(base, List.of(tryExit, catchExit));
+            Map<VarState, StateSnapshot> normalFinallyEntry = stateSnapshot(scope);
+
+            // finally also runs while a catch prefix is throwing. Check it once
+            // against the worst exceptional entry, including monotonic
+            // move/share history that may have been hidden by reinitialization.
             mergeBranchState(base, List.of(tryExit, catchEntry, catchExit));
             applyExceptionalTransitionHazards(transitionsBefore);
+            checkBlock(attempted.finallyBody(), scope, returnType);
+
+            // For code that actually continues after the try statement, run
+            // finally from normal successful predecessors and keep that exit.
+            restoreState(normalFinallyEntry);
             checkBlock(attempted.finallyBody(), scope, returnType);
             return;
         }

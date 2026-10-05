@@ -370,6 +370,31 @@ final class BorrowCheckerHardeningTest {
     }
 
     @Test
+    void successfulCatchReinitializationDoesNotPoisonPostTryContinuation() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 1;
+                end
+
+                fnc ok() => void {
+                  let Box box = new Box();
+                  try {
+                    stdio.println("try");
+                  } catch (err) {
+                    val moved = rt take box;
+                    box = new Box();
+                    stdio.println(moved.value);
+                  } finally {
+                    stdio.println("cleanup");
+                  }
+
+                  stdio.println(box.value);
+                  return;
+                }
+                """)));
+    }
+
+    @Test
     void finallySeesPossibleMoveFromThrowingCatchPrefix() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
