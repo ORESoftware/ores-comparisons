@@ -215,9 +215,11 @@ val response = await work;
 io.close();
 ```
 
-`scheduler.start(async || -> { ... })` currently accepts an inline async
-zero-argument lambda and creates a task whose continuations remain
-scheduler-affine until completion. The context also closes any remaining user
+`scheduler.start(...)` accepts an inline zero-argument lambda. A synchronous
+`|| -> { ... }` body is ordinary CPU/non-suspending work and is submitted as a
+scheduler task; an `async || -> { ... }` body may use `await` and its captured
+continuation remains scheduler-affine until completion. Both forms return an
+`OresFuture<T>` for the lambda's logical result `T`. The context also closes any remaining user
 schedulers during teardown, so forgotten scheduler handles cannot leak carrier
 threads. A scheduler cannot close itself from one of its own task turns; close
 is initiated from an outside/root task so teardown cannot self-cancel the turn
@@ -543,3 +545,47 @@ The recursive reference evaluator remains only as a host/root compatibility
 path. All actor/async guest execution uses heap-safe continuations. Interpreter,
 JIT, AOT-interpreted, and hybrid execution must preserve the same guest-level
 scheduling, tail-transfer, and logical-trace semantics.
+
+
+## Structured concurrency
+
+Ordinary Oreslang async work is structured by default. Every executing scheduler task owns an implicit child-task scope. A task started with `OresScheduler.start(...)` while another Ores task is running is attached to that parent scope, even when the child uses a different OresScheduler.
+
+The lifetime rules are:
+
+- a parent does not publish successful completion until all owned children are terminal;
+- cancelling a parent cancels all owned descendants recursively;
+- a child failure fails the parent scope and cancels its remaining siblings;
+- cancellation detaches suspended await registrations without cancelling unrelated/shared producer Futures;
+- child continuations retain their own scheduler affinity; structured ownership does not move work between schedulers;
+- the task tree is runtime ownership metadata only and does not expose scheduler/runtime implementation objects to guest code.
+
+This means ignoring a child Future does **not** create an accidental background task:
+
+```ores
+pub async routine main() => void {
+  val workers = new OresScheduler(4);
+
+  workers.start(async || -> {
+    await do_work();
+    return;
+  });
+
+  // The main task may reach its source-level return here, but its completion
+  // Future stays pending until the owned child finishes.
+  return;
+}
+```
+
+Unstructured lifetime is an explicit escape hatch:
+
+```ores
+val background = workers.start_detached(async || -> {
+  await service_loop();
+  return;
+});
+```
+
+`start_detached` is intended for deliberately independent runtime/service lifetimes. It is never inferred from a dropped Future, and callers remain responsible for arranging explicit shutdown/cancellation of detached work.
+
+These rules compose with the hard-await invariant: cancelling a suspended parent/child detaches its waiter, but neither parent-child ownership nor waiter detachment permits inline continuation execution. Resumption still occurs only through the owning scheduler after the suspending turn has fully unwound.
