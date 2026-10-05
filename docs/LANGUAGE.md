@@ -455,13 +455,15 @@ try {
 
 `defer` executes in LIFO order when its lexical scope unwinds, including returns and exceptional exits.
 
+Ownership analysis is exception-aware and fail-closed. A `catch` is checked against the worst ownership state that may be visible after any throwing prefix of the `try` body, not merely the successful end of the block. In particular, a possible `rt take` or `rt share` remains visible to `catch`/`finally` even if the successful path later reinitializes that `let` binding. Branch-local borrow releases are merged path-wise; ownership is considered unique again only when every continuing path proves the aliases ended.
+
 ## Async / await
 
 `async` and `await` are reserved and parsed. `await` unwraps future-like runtime values. The scheduler is intentionally separate from the language surface so actor isolation does not depend on a specific OS-thread implementation.
 
 ## Actors
 
-Actors own their mutable heaps. Cross-actor communication occurs through mailboxes, and message values are frozen/copied/serialized at the runtime boundary. Arbitrary mutable host objects are rejected as messages. Deeply immutable values may use read-only sharing.
+Actors own their mutable heaps. Cross-actor communication occurs through mailboxes, and message values are frozen/copied/serialized at the runtime boundary. Arbitrary mutable host objects are rejected as messages. The runtime may expose an explicit deeply frozen read-only transport wrapper to shared actors when policy allows it; that transport capability is **not** source-level `rt share`. Local `rt share` preserves the same reference only inside one ownership domain and never grants permission to cross private/untrusted actor or isolate boundaries.
 
 A `singleton module` is a language-level process service built on the same ownership rule: one actor owns the module bindings for the entire OS process, while all other actors/isolates communicate with it through generated/runtime proxies. It is not one singleton per isolate or per Graal context.
 
@@ -633,7 +635,7 @@ for [val key, let value] of entries {
 }
 ```
 
-Destructuring preserves ownership. A non-consuming loop yields read borrows for non-`Copy` components; it never manufactures owners from projections. To transfer non-`Copy` element/component ownership into loop bindings, explicitly consume the iterable with `rt take`.
+Destructuring preserves ownership. A non-consuming loop yields read borrows for non-`Copy` components; it never manufactures owners from projections. To transfer non-`Copy` element/component ownership into loop bindings, explicitly consume the iterable with `rt take`. Bracket form is semantically significant even with one binding: `for [x] of rows` destructures a one-element row, while `for x of rows` binds the row itself. Ordinary statement terminator rules still apply inside `do ... done`; newlines alone are not statement terminators.
 
 Classes can expose a JavaScript-like iterator symbol:
 
