@@ -43,6 +43,11 @@ Calling an async operation is not itself a scheduling boundary.
 
 `Future<T>` is represented by the runtime-owned `OresFuture<T>`.
 
+Host/embedder `get()` / `join()` observation is allowed only off Ores
+carriers. If a Future is still pending, those blocking bridges fail closed when
+called from an actor/root/user-scheduler carrier; Ores code must suspend with
+`await` instead.
+
 It deliberately does **not** implement Java `CompletionStage` and does not
 inherit `thenApply`, `thenAccept`, `thenRun`, or other APIs whose callback
 may execute according to a producer's completion policy.
