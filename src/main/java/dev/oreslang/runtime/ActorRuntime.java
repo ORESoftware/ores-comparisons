@@ -5786,6 +5786,8 @@ public final class ActorRuntime implements AutoCloseable {
                 new ConcurrentLinkedQueue<>();
         private final ConcurrentLinkedQueue<ContinuationEnvelope> nextTickContinuations =
                 new ConcurrentLinkedQueue<>();
+        private final AtomicReference<OresFuture.RuntimeWaiterRegistration>
+                activeAwaitRegistration = new AtomicReference<>();
         private final Set<ActorTimerWheel.Handle> timers = ConcurrentHashMap.newKeySet();
         private final AtomicLong sharedInboxBytes = new AtomicLong();
         private final Object lifecycleLock = new Object();
@@ -6234,15 +6236,29 @@ public final class ActorRuntime implements AutoCloseable {
 
             logicalTurnSuspended = true;
             try {
-                awaited.whenCompleteRuntime((value, failure) -> enqueueContinuation(
-                        readyContinuations,
-                        new ContinuationEnvelope(
-                                continuation,
-                                value,
-                                unwrapCompletionFailure(failure)),
-                        "resume"));
+                OresFuture.RuntimeWaiterRegistration registration =
+                        awaited.whenCompleteRuntimeCancellable((value, failure) -> enqueueContinuation(
+                                readyContinuations,
+                                new ContinuationEnvelope(
+                                        continuation,
+                                        value,
+                                        unwrapCompletionFailure(failure)),
+                                "resume"));
+
+                OresFuture.RuntimeWaiterRegistration previous =
+                        activeAwaitRegistration.getAndSet(registration);
+                if (previous != null) previous.detach();
+
+                // A pre-settled Future may have synchronously claimed its waiter
+                // before registration returned. In that case there is no pending
+                // producer-side retention to cancel; do not retain the Future
+                // through the registration until the actor resumes.
+                if (registration.claimed()) {
+                    activeAwaitRegistration.compareAndSet(registration, null);
+                }
             } catch (RuntimeException | Error registrationFailure) {
                 logicalTurnSuspended = false;
+                detachActiveAwaitRegistration();
                 throw registrationFailure;
             }
             throw ActorTurnSuspendedSignal.INSTANCE;
@@ -6473,6 +6489,7 @@ public final class ActorRuntime implements AutoCloseable {
                     ContinuationEnvelope continuation = readyContinuations.poll();
                     if (continuation == null) return;
                     releaseControlEvent();
+                    clearActiveAwaitRegistration();
                     logicalTurnSuspended = false;
                     long continuationDeadline = armMessageDeadline("await continuation");
                     boolean suspendedAgain = false;
@@ -6613,7 +6630,18 @@ public final class ActorRuntime implements AutoCloseable {
             if (envelope != null) envelope.close();
         }
 
+        private void clearActiveAwaitRegistration() {
+            activeAwaitRegistration.set(null);
+        }
+
+        private void detachActiveAwaitRegistration() {
+            OresFuture.RuntimeWaiterRegistration registration =
+                    activeAwaitRegistration.getAndSet(null);
+            if (registration != null) registration.detach();
+        }
+
         private void drainControlEvents() {
+            detachActiveAwaitRegistration();
             while (readyContinuations.poll() != null) releaseControlEvent();
             while (nextTickContinuations.poll() != null) releaseControlEvent();
             logicalTurnSuspended = false;
