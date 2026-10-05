@@ -17,6 +17,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class ActorRuntimeTest {
+    private enum MutableHostEnum {
+        VALUE;
+
+        private int counter;
+
+        void bump() {
+            counter++;
+        }
+    }
+
     @Test
     void actorLocalRuntimeStatePersistsPerActorAndNeverAliasesAcrossActors() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
@@ -68,6 +78,15 @@ final class ActorRuntimeTest {
             assertEquals(List.of(1, 2), observed.get());
             assertThrows(UnsupportedOperationException.class, () -> ((List<Object>) observed.get()).add(9));
         }
+    }
+
+    @Test
+    void rejectsArbitraryHostEnumsInsteadOfAssumingTheyAreImmutable() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> ActorRuntime.freeze(MutableHostEnum.VALUE));
+
+        assertTrue(error.getMessage().contains("not Sendable"), error.getMessage());
     }
 
     @Test
