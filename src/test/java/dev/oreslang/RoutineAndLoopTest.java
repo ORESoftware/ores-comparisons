@@ -184,7 +184,7 @@ final class RoutineAndLoopTest {
         String output = run("""
                 pub routine main() => void {
                   for [key, value] of arr[(1, "a"), (2, "b")] do
-                    stdio.stdout.write(key)
+                    stdio.stdout.write(key);
                     stdio.stdout.write(value)
                   done
                 }
@@ -198,7 +198,7 @@ final class RoutineAndLoopTest {
         String output = run("""
                 pub routine main() => void {
                   for [key, value] of arr[(1, "a"), (2, "b")] do
-                    stdio.stdout.write(key + 10)
+                    stdio.stdout.write(key + 10);
                     stdio.stdout.write(value + "!")
                   done
                 }
@@ -254,6 +254,49 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void takenForOfTransfersNonCopyTupleComponents() throws Exception {
+        String output = run("""
+                define class Box as
+                  pub val int value = 0;
+                end
+
+                pub routine main() => void {
+                  let pairs = arr[(new Box(1), new Box(2))];
+                  for [left, right] of rt take pairs do
+                    stdio.stdout.write(left.value);
+                    stdio.stdout.write(right.value)
+                  done
+                }
+                """);
+
+        assertEquals("12", output);
+    }
+
+    @Test
+    void takenForOfInvalidatesOriginalIterable() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 0;
+                        end
+
+                        fnc bad() => void {
+                          let pairs = arr[(new Box(1), new Box(2))];
+                          for [left, right] of rt take pairs do
+                            stdio.println(left.value);
+                          done
+                          stdio.println(pairs);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("moved")
+                || error.getMessage().toLowerCase().contains("take"),
+                error.getMessage());
+    }
+
+    @Test
     void destructuredLetBorrowCanRebindWithoutMutatingSourceProjection() throws Exception {
         String output = run("""
                 define class Box as
@@ -263,8 +306,8 @@ final class RoutineAndLoopTest {
                 pub routine main() => void {
                   let pairs = arr[(new Box(1), new Box(2))];
                   for [let a, b] of pairs do
-                    a = new Box(9)
-                    stdio.stdout.write(a.value)
+                    a = new Box(9);
+                    stdio.stdout.write(a.value);
                     stdio.stdout.write(b.value)
                   done
 
