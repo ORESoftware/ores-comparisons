@@ -154,9 +154,10 @@ comparison      = additive { ( "<" | "<=" | ">" | ">=" ) additive } ;
 additive        = multiplicative { ( "+" | "-" ) multiplicative } ;
 multiplicative  = unary { ( "*" | "/" | "%" ) unary } ;
 unary           = ( "!" | "-" | "+" | "await" ) unary
-                | rt_ownership
+                | rt_intrinsic
                 | postfix ;
-rt_ownership    = "rt" ( "copy" | "take" | "borrow" | "share" )
+rt_intrinsic    = "rt" ( "copy" | "take" | "borrow" | "share"
+                       | "ptr" | "deref" )
                   ( "(" expression ")" | unary ) ;
 postfix         = primary { call_suffix | member_suffix | index_suffix } ;
 call_suffix     = "(" [ argument_list ] ")" ;
@@ -295,19 +296,27 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
      "Type mut name" is an exclusive temporary mutable reference; contextual
      "take Type name" transfers ownership to the callee. "mut Type name" is a
      migration spelling only.
-   - Oreslang exposes no pointer/reference syntax: "&T", "&mut T", "T*",
-     unary "&value", and dereference "*value" are not language forms. STAR is
+   - Ordinary object calls use managed references/handles and need no pointer
+     syntax. Oreslang exposes no C/Rust pointer operators: "&T", "&mut T",
+     "T*", unary "&value", and unary "*pointer" are not language forms. STAR is
      multiplication only.
-   - Ownership operations live under the reserved rt namespace. Both command and
-     call forms are valid and equivalent: "rt borrow value"/"rt borrow(value)",
-     "rt take value"/"rt take(value)", "rt copy value"/"rt copy(value)", and
-     "rt share value"/"rt share(value)".
+   - Compiler/runtime operations live under the reserved rt namespace. Both
+     command and call forms are valid and equivalent: "rt borrow value"/
+     "rt borrow(value)", "rt take value"/"rt take(value)", "rt copy value"/
+     "rt copy(value)", "rt share value"/"rt share(value)", "rt ptr value"/
+     "rt ptr(value)", and "rt deref pointer"/"rt deref(pointer)".
    - The non-parenthesized rt form has unary precedence; parentheses widen/group
      the operand when needed. rt is unshadowable compiler syntax.
    - rt borrow is non-owning and lifetime-bound; rt take transfers unique
      ownership; rt copy creates independent storage; rt share preserves object
      identity while converting unique ownership into read-only shared ownership.
      Shared ownership never implies actor/isolate transport permission.
+   - Ptr<T> is a compiler-owned opaque, lifetime-bound low-level capability.
+     rt ptr requires a concrete reference-backed owner and holds a read borrow;
+     rt deref yields read-only borrowed T access. Ptr<T> cannot be copied,
+     shared, or used as actor/isolate transport authority. The JVM backend does
+     not promise a numeric/stable address for managed objects; native/AOT
+     backends may use pinned/native addresses while preserving these rules.
    - First-class Fnc/callable values and unresolved/imported nominal types are
      not shareable until callable effects/share-safety or linked foreign share
      contracts are represented explicitly.
