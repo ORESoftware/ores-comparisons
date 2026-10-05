@@ -220,4 +220,60 @@ final class OresFuturesTest {
                 "completed race must not retain its continuation on a pending loser");
     }
 
+    @Test
+    void futureAllAggregatesIndependentlyRunningOresTasksWithoutSerializingThem()
+            throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(2)) {
+            OresFuture<Integer> leftGate = new OresFuture<>();
+            OresFuture<Integer> rightGate = new OresFuture<>();
+            AtomicInteger entered = new AtomicInteger();
+
+            OresFuture<Integer> left = scheduler.start(new OresScheduler.Task<>() {
+                private int pc;
+                @Override
+                public OresScheduler.Step<Integer> resume(OresScheduler.Resume resume) {
+                    if (pc++ == 0) {
+                        entered.incrementAndGet();
+                        return OresScheduler.await(leftGate);
+                    }
+                    assertNull(resume.failure());
+                    return OresScheduler.done(((Integer) resume.value()) + 1);
+                }
+            });
+
+            OresFuture<Integer> right = scheduler.start(new OresScheduler.Task<>() {
+                private int pc;
+                @Override
+                public OresScheduler.Step<Integer> resume(OresScheduler.Resume resume) {
+                    if (pc++ == 0) {
+                        entered.incrementAndGet();
+                        return OresScheduler.await(rightGate);
+                    }
+                    assertNull(resume.failure());
+                    return OresScheduler.done(((Integer) resume.value()) + 2);
+                }
+            });
+
+            OresFuture<List<Integer>> both = OresFutures.all(List.of(left, right));
+
+            long deadline = System.nanoTime()
+                    + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+            while (entered.get() != 2 && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertEquals(2, entered.get(),
+                    "both async tasks must start and suspend independently before either dependency settles");
+            assertFalse(both.isDone());
+
+            // Completion order differs from result order, Promise.all-style.
+            assertTrue(rightGate.completeFromRuntime(20));
+            assertFalse(both.isDone());
+            assertTrue(leftGate.completeFromRuntime(10));
+
+            assertEquals(
+                    List.of(11, 22),
+                    both.get(2, java.util.concurrent.TimeUnit.SECONDS));
+        }
+    }
+
 }
