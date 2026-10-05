@@ -1,0 +1,67 @@
+name: beamscale-pr108-exact-validation
+
+on:
+  push:
+    branches: ["ci/beamscale-pr108-exact-b956893d"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/beamscale-pr108
+
+jobs:
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify exact mirrored source tree
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD:_ci/beamscale-pr108)" = "61f7bbf9b60d0ddf336451a4d9c3366b68db8fb9"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: "1.90.0"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: "_ci/beamscale-pr108 -> target"
+      - name: Prepare dependency lock for audit
+        shell: bash
+        run: |
+          if git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
+            cargo +1.90.0 fetch --locked
+          else
+            cargo +1.90.0 generate-lockfile
+          fi
+      - name: Validate Rust at declared MSRV
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            cargo +1.90.0 fmt --all -- --check
+            cargo +1.90.0 clippy --locked --all-targets --all-features -- -D warnings
+            cargo +1.90.0 test --locked --all-targets
+          } 2>&1 | tee ci.log
+      - name: Require committed deterministic lockfile
+        shell: bash
+        run: |
+          git ls-files --error-unmatch Cargo.lock >/dev/null
+          git diff --exit-code -- Cargo.lock
+      - name: Preserve CI diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: beamscale-pr108-${{ matrix.os }}
+          path: _ci/beamscale-pr108/ci.log
+          if-no-files-found: ignore
