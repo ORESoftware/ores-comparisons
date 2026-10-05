@@ -221,10 +221,7 @@ fn install_platform(binary: &Path, root: &Path, start_now: bool) -> Result<(), S
     Err("service installation is unsupported on this operating system".to_owned())
 }
 
-fn combine_install_rollback_error(
-    install_error: String,
-    rollback: Result<(), String>,
-) -> String {
+fn combine_install_rollback_error(install_error: String, rollback: Result<(), String>) -> String {
     match rollback {
         Ok(()) => install_error,
         Err(rollback_error) => {
@@ -309,7 +306,10 @@ fn regular_definition_file(path: &Path) -> Result<bool, String> {
             Ok(true)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("inspect service definition {}: {error}", path.display())),
+        Err(error) => Err(format!(
+            "inspect service definition {}: {error}",
+            path.display()
+        )),
     }
 }
 
@@ -344,7 +344,8 @@ fn service_status() -> Result<ServiceStatus, String> {
         ]),
         SERVICE_STATUS_COMMAND_TIMEOUT,
         MAX_SERVICE_STATUS_BYTES,
-    ).map_err(|error| format!("query systemd service state: {error}"))?;
+    )
+    .map_err(|error| format!("query systemd service state: {error}"))?;
     if output.stdout.len() > 16 * 1024 || output.stderr.len() > 16 * 1024 {
         return Err("systemctl status output exceeded 16384 bytes".to_owned());
     }
@@ -426,9 +427,7 @@ fn parse_launchd_running(stdout: &str) -> Result<bool, String> {
             }
         }
     }
-    Ok(state
-        .ok_or_else(|| "launchctl print omitted state".to_owned())?
-        == "running")
+    Ok(state.ok_or_else(|| "launchctl print omitted state".to_owned())? == "running")
 }
 
 #[cfg(target_os = "macos")]
@@ -437,7 +436,8 @@ fn launchd_running_state(target: &str) -> Result<Option<bool>, String> {
         launchctl_command()?.args(["print", target]),
         SERVICE_STATUS_COMMAND_TIMEOUT,
         MAX_SERVICE_STATUS_BYTES,
-    ).map_err(|error| format!("query launchd service state: {error}"))?;
+    )
+    .map_err(|error| format!("query launchd service state: {error}"))?;
     if output.stdout.len() > MAX_SERVICE_STATUS_BYTES
         || output.stderr.len() > MAX_SERVICE_STATUS_BYTES
     {
@@ -529,10 +529,9 @@ fn snapshot_regular_file(path: PathBuf, label: &str) -> Result<FileSnapshot, Str
                 bytes: Some(bytes),
             })
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(FileSnapshot {
-            path,
-            bytes: None,
-        }),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(FileSnapshot { path, bytes: None })
+        }
         Err(error) => Err(format!("inspect {label} {}: {error}", path.display())),
     }
 }
@@ -552,7 +551,10 @@ fn restore_file_snapshot(snapshot: &FileSnapshot) -> Result<(), String> {
                     .map_err(|error| format!("remove {}: {error}", snapshot.path.display()))
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(format!("inspect rollback path {}: {error}", snapshot.path.display())),
+            Err(error) => Err(format!(
+                "inspect rollback path {}: {error}",
+                snapshot.path.display()
+            )),
         },
     }
 }
@@ -576,15 +578,11 @@ fn macos_definition_path() -> Result<PathBuf, String> {
 }
 
 #[cfg(any(target_os = "linux", test))]
-fn parse_systemd_state_output(
-    stdout: &[u8],
-    stderr: &[u8],
-    label: &str,
-) -> Result<String, String> {
-    let stdout = std::str::from_utf8(stdout)
-        .map_err(|_| format!("systemd {label} state was not UTF-8"))?;
-    let stderr = std::str::from_utf8(stderr)
-        .map_err(|_| format!("systemd {label} stderr was not UTF-8"))?;
+fn parse_systemd_state_output(stdout: &[u8], stderr: &[u8], label: &str) -> Result<String, String> {
+    let stdout =
+        std::str::from_utf8(stdout).map_err(|_| format!("systemd {label} state was not UTF-8"))?;
+    let stderr =
+        std::str::from_utf8(stderr).map_err(|_| format!("systemd {label} stderr was not UTF-8"))?;
     let mut lines = stdout.lines().filter(|line| !line.trim().is_empty());
     let state = lines
         .next()
@@ -783,10 +781,8 @@ fn rollback_install_state(snapshot: &InstallSnapshot) -> Result<(), String> {
         // unit definition still exists; removing/reloading first can make
         // cleanup dependent on systemd retaining the transient loaded unit.
         for action in linux_pre_restore_actions(prior_definition) {
-            let status = run_status_bounded(
-                systemctl_command()?.args(&action),
-                SERVICE_COMMAND_TIMEOUT,
-            );
+            let status =
+                run_status_bounded(systemctl_command()?.args(&action), SERVICE_COMMAND_TIMEOUT);
             match status {
                 Ok(status) if status.success() => {}
                 Ok(status) => errors.push(format!(
@@ -812,20 +808,15 @@ fn rollback_install_state(snapshot: &InstallSnapshot) -> Result<(), String> {
             snapshot.linux_enabled,
             snapshot.linux_running,
         ) {
-            let status = run_status_bounded(
-                systemctl_command()?.args(&action),
-                SERVICE_COMMAND_TIMEOUT,
-            );
+            let status =
+                run_status_bounded(systemctl_command()?.args(&action), SERVICE_COMMAND_TIMEOUT);
             match status {
                 Ok(status) if status.success() => {}
                 Ok(status) => errors.push(format!(
                     "restore systemd state {:?} exited with {status}",
                     action
                 )),
-                Err(error) => errors.push(format!(
-                    "restore systemd state {:?}: {error}",
-                    action
-                )),
+                Err(error) => errors.push(format!("restore systemd state {:?}: {error}", action)),
             }
         }
     }
@@ -897,9 +888,9 @@ fn rollback_install_state(snapshot: &InstallSnapshot) -> Result<(), String> {
                     );
                     match create {
                         Ok(status) if status.success() => {}
-                        Ok(status) => errors.push(format!(
-                            "restore Scheduled Task exited with {status}"
-                        )),
+                        Ok(status) => {
+                            errors.push(format!("restore Scheduled Task exited with {status}"))
+                        }
                         Err(error) => {
                             errors.push(format!("restore Scheduled Task: {error}"));
                         }
@@ -1041,7 +1032,10 @@ fn validate_executable_path(path: &Path, label: &str) -> Result<(), String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("inspect {label} {}: {error}", path.display()))?;
     if !metadata.is_file() {
-        return Err(format!("{label} must resolve to a regular file: {}", path.display()));
+        return Err(format!(
+            "{label} must resolve to a regular file: {}",
+            path.display()
+        ));
     }
 
     #[cfg(unix)]
@@ -1099,7 +1093,10 @@ fn find_optional_on_path(name: &str) -> Result<Option<PathBuf>, String> {
             Ok(_) => continue,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => {
-                return Err(format!("inspect PATH candidate {}: {error}", candidate.display()));
+                return Err(format!(
+                    "inspect PATH candidate {}: {error}",
+                    candidate.display()
+                ));
             }
         }
     }
@@ -1124,8 +1121,9 @@ fn persist_service_tools(
     daemon_binary: &Path,
     supervisor_root: Option<&Path>,
 ) -> Result<(), String> {
-    let bmscl = find_on_path(service_tool_name("bmscl"))
-        .map_err(|error| format!("cannot install persistent BeamScale service without bmscl: {error}"))?;
+    let bmscl = find_on_path(service_tool_name("bmscl")).map_err(|error| {
+        format!("cannot install persistent BeamScale service without bmscl: {error}")
+    })?;
     let cloudflared = find_optional_on_path(service_tool_name("cloudflared"))?;
     let zed = find_optional_on_path(service_tool_name("zed"))?;
 
@@ -1139,9 +1137,7 @@ fn persist_service_tools(
         .as_deref()
         .map(|path| executable_sha256(path, "zed"))
         .transpose()?;
-    let supervisor_ebin_sha256 = supervisor_root
-        .map(supervisor_ebin_sha256)
-        .transpose()?;
+    let supervisor_ebin_sha256 = supervisor_root.map(supervisor_ebin_sha256).transpose()?;
 
     let document = serde_json::json!({
         "daemon_binary": daemon_binary,
@@ -1223,10 +1219,7 @@ fn executable_sha256(path: &Path, label: &str) -> Result<String, String> {
     }
     let before_modified = before.modified().ok();
     let after_modified = after.modified().ok();
-    if before_modified.is_some()
-        && after_modified.is_some()
-        && before_modified != after_modified
-    {
+    if before_modified.is_some() && after_modified.is_some() && before_modified != after_modified {
         return Err(format!(
             "pinned {label} modification time changed while hashing: {}",
             path.display()
@@ -1249,15 +1242,19 @@ fn write_service_state_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     #[cfg(windows)]
     {
         match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.file_type().is_file() => {
-                return Err(format!("service state file must be a regular non-symlink file: {}", path.display()));
+            Ok(metadata)
+                if metadata.file_type().is_symlink() || !metadata.file_type().is_file() =>
+            {
+                return Err(format!(
+                    "service state file must be a regular non-symlink file: {}",
+                    path.display()
+                ));
             }
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(format!("inspect {}: {error}", path.display())),
         }
-        fs::write(path, bytes)
-            .map_err(|error| format!("write {}: {error}", path.display()))?;
+        fs::write(path, bytes).map_err(|error| format!("write {}: {error}", path.display()))?;
         return Ok(());
     }
     #[allow(unreachable_code)]
@@ -1342,8 +1339,9 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String, String> {
             return Err("supervisor ebin filename contains invalid control text".to_owned());
         }
         let path = entry.path();
-        let metadata = fs::symlink_metadata(&path)
-            .map_err(|error| format!("inspect supervisor ebin entry {}: {error}", path.display()))?;
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            format!("inspect supervisor ebin entry {}: {error}", path.display())
+        })?;
         if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
             return Err(format!(
                 "supervisor ebin may contain only regular non-symlink files: {}",
@@ -1379,11 +1377,14 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String, String> {
 
         let mut file = fs::File::open(&path)
             .map_err(|error| format!("open supervisor ebin file {}: {error}", path.display()))?;
-        let before = file
-            .metadata()
-            .map_err(|error| format!("inspect opened supervisor file {}: {error}", path.display()))?;
+        let before = file.metadata().map_err(|error| {
+            format!("inspect opened supervisor file {}: {error}", path.display())
+        })?;
         if before.len() != expected_len {
-            return Err(format!("supervisor ebin file changed before hashing: {}", path.display()));
+            return Err(format!(
+                "supervisor ebin file changed before hashing: {}",
+                path.display()
+            ));
         }
 
         let mut buffer = [0_u8; 64 * 1024];
@@ -1404,7 +1405,9 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String, String> {
             if read_total > MAX_SUPERVISOR_EBIN_FILE_BYTES
                 || total > MAX_SUPERVISOR_EBIN_TOTAL_BYTES
             {
-                return Err("supervisor ebin exceeded configured byte limits while hashing".to_owned());
+                return Err(
+                    "supervisor ebin exceeded configured byte limits while hashing".to_owned(),
+                );
             }
             digest.update(&buffer[..read]);
         }
@@ -1413,13 +1416,19 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String, String> {
             .metadata()
             .map_err(|error| format!("re-inspect supervisor file {}: {error}", path.display()))?;
         if after.len() != before.len() || after.len() != read_total {
-            return Err(format!("supervisor ebin file changed size while hashing: {}", path.display()));
+            return Err(format!(
+                "supervisor ebin file changed size while hashing: {}",
+                path.display()
+            ));
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
             if after.dev() != before.dev() || after.ino() != before.ino() {
-                return Err(format!("supervisor ebin file identity changed while hashing: {}", path.display()));
+                return Err(format!(
+                    "supervisor ebin file identity changed while hashing: {}",
+                    path.display()
+                ));
             }
         }
         if before.modified().ok().is_some()
@@ -1598,26 +1607,24 @@ fn uninstall_linux() -> Result<(), String> {
             "disable",
             "beamscale-desktop-daemon.service",
         ]))?;
-        fs::remove_file(&unit)
-            .map_err(|error| format!("remove {}: {error}", unit.display()))?;
+        fs::remove_file(&unit).map_err(|error| format!("remove {}: {error}", unit.display()))?;
     }
 
     checked(systemctl_command()?.args(["--user", "daemon-reload"]))?;
     let reset = run_status_bounded(
-        systemctl_command()?.args([
-            "--user",
-            "reset-failed",
-            "beamscale-desktop-daemon.service",
-        ]),
+        systemctl_command()?.args(["--user", "reset-failed", "beamscale-desktop-daemon.service"]),
         SERVICE_COMMAND_TIMEOUT,
-    ).map_err(|error| format!("reset removed systemd service state: {error}"))?;
+    )
+    .map_err(|error| format!("reset removed systemd service state: {error}"))?;
     if !reset.success() {
         // reset-failed can legitimately report a missing unit after a complete
         // uninstall, so it is advisory only.
         eprintln!("warning: systemctl reset-failed exited with {reset}");
     }
 
-    println!("removed service registration; current daemon remains running; daemon state was preserved");
+    println!(
+        "removed service registration; current daemon remains running; daemon state was preserved"
+    );
     Ok(())
 }
 
@@ -1677,7 +1684,9 @@ fn uninstall_macos() -> Result<(), String> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(format!("remove {}: {error}", plist.display())),
     }
-    println!("removed service registration; current daemon remains running; daemon state was preserved");
+    println!(
+        "removed service registration; current daemon remains running; daemon state was preserved"
+    );
     Ok(())
 }
 
@@ -1687,7 +1696,8 @@ fn current_uid() -> Result<String, String> {
         id_command()?.arg("-u"),
         SERVICE_STATUS_COMMAND_TIMEOUT,
         1024,
-    ).map_err(|error| format!("run id -u: {error}"))?;
+    )
+    .map_err(|error| format!("run id -u: {error}"))?;
     if !output.status.success() {
         return Err("id -u failed".to_owned());
     }
@@ -1701,11 +1711,8 @@ fn current_uid() -> Result<String, String> {
 
 #[cfg(target_os = "windows")]
 fn current_windows_identity() -> Result<String, String> {
-    let output = run_output_bounded(
-        &mut whoami_command()?,
-        SERVICE_COMMAND_TIMEOUT,
-        4096,
-    ).map_err(|error| format!("run whoami: {error}"))?;
+    let output = run_output_bounded(&mut whoami_command()?, SERVICE_COMMAND_TIMEOUT, 4096)
+        .map_err(|error| format!("run whoami: {error}"))?;
     if !output.status.success() {
         return Err("whoami failed".to_owned());
     }
@@ -1752,9 +1759,7 @@ fn install_windows(binary: &Path, root: &Path, start_now: bool) -> Result<(), St
 #[cfg(target_os = "windows")]
 fn uninstall_windows() -> Result<(), String> {
     if windows_task_installed()? {
-        checked(schtasks_command()?.args([
-            "/Delete", "/F", "/TN", TASK_NAME,
-        ]))?;
+        checked(schtasks_command()?.args(["/Delete", "/F", "/TN", TASK_NAME]))?;
 
         if windows_task_installed()? {
             return Err(
@@ -1764,7 +1769,9 @@ fn uninstall_windows() -> Result<(), String> {
         }
     }
 
-    println!("removed service registration; current daemon remains running; daemon state was preserved");
+    println!(
+        "removed service registration; current daemon remains running; daemon state was preserved"
+    );
     Ok(())
 }
 
@@ -1872,7 +1879,7 @@ fn configure_subprocess_tree(_command: &mut Command) {}
 fn terminate_subprocess_tree(child: &mut Child) -> Result<(), String> {
     use nix::{
         errno::Errno,
-        sys::signal::{killpg, Signal},
+        sys::signal::{Signal, killpg},
         unistd::Pid,
     };
 
@@ -1934,7 +1941,9 @@ fn terminate_subprocess_tree(child: &mut Child) -> Result<(), String> {
                 if !status.success() && child.try_wait().ok().flatten().is_none() {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err(format!("taskkill for service command tree exited with {status}"));
+                    return Err(format!(
+                        "taskkill for service command tree exited with {status}"
+                    ));
                 }
                 break;
             }
@@ -2027,7 +2036,11 @@ fn run_status_bounded(command: &mut Command, timeout: Duration) -> Result<ExitSt
     }
 }
 
-fn read_bounded<R: Read>(mut reader: R, maximum: usize, label: &'static str) -> Result<Vec<u8>, String> {
+fn read_bounded<R: Read>(
+    mut reader: R,
+    maximum: usize,
+    label: &'static str,
+) -> Result<Vec<u8>, String> {
     let mut output = Vec::new();
     let mut limited = reader.by_ref().take((maximum + 1) as u64);
     limited
@@ -2081,18 +2094,10 @@ fn run_output_bounded(
     let (stdout_tx, stdout_rx) = mpsc::sync_channel(1);
     let (stderr_tx, stderr_rx) = mpsc::sync_channel(1);
     thread::spawn(move || {
-        let _ = stdout_tx.send(read_bounded(
-            stdout,
-            maximum,
-            "service command stdout",
-        ));
+        let _ = stdout_tx.send(read_bounded(stdout, maximum, "service command stdout"));
     });
     thread::spawn(move || {
-        let _ = stderr_tx.send(read_bounded(
-            stderr,
-            maximum,
-            "service command stderr",
-        ));
+        let _ = stderr_tx.send(read_bounded(stderr, maximum, "service command stderr"));
     });
 
     let deadline = Instant::now() + timeout;
@@ -2102,10 +2107,7 @@ fn run_output_bounded(
             Ok(None) if Instant::now() >= deadline => {
                 let cleanup = terminate_subprocess_tree(&mut child);
                 return Err(match cleanup {
-                    Ok(()) => format!(
-                        "{display} timed out after {} seconds",
-                        timeout.as_secs()
-                    ),
+                    Ok(()) => format!("{display} timed out after {} seconds", timeout.as_secs()),
                     Err(error) => format!(
                         "{display} timed out after {} seconds; process-tree cleanup failed: {error}",
                         timeout.as_secs()
@@ -2157,7 +2159,9 @@ fn run_output_bounded(
             let cleanup = terminate_subprocess_tree(&mut child);
             return Err(match cleanup {
                 Ok(()) => error,
-                Err(cleanup_error) => format!("{error}; process-tree cleanup failed: {cleanup_error}"),
+                Err(cleanup_error) => {
+                    format!("{error}; process-tree cleanup failed: {cleanup_error}")
+                }
             });
         }
     };
@@ -2167,7 +2171,9 @@ fn run_output_bounded(
             let cleanup = terminate_subprocess_tree(&mut child);
             return Err(match cleanup {
                 Ok(()) => error,
-                Err(cleanup_error) => format!("{error}; process-tree cleanup failed: {cleanup_error}"),
+                Err(cleanup_error) => {
+                    format!("{error}; process-tree cleanup failed: {cleanup_error}")
+                }
             });
         }
     };
@@ -2201,7 +2207,9 @@ mod tests {
     fn uninstall_source_never_stops_invoking_daemon() {
         let source = include_str!("beamscale-service.rs");
 
-        let linux_start = source.find("fn uninstall_linux()").expect("linux uninstall");
+        let linux_start = source
+            .find("fn uninstall_linux()")
+            .expect("linux uninstall");
         let linux_end = source[linux_start..]
             .find("fn install_macos(")
             .map(|offset| linux_start + offset)
@@ -2221,7 +2229,9 @@ mod tests {
         assert!(mac.contains("\"disable\""));
         assert!(mac.contains("current daemon remains running"));
 
-        let windows_start = source.find("fn uninstall_windows()").expect("windows uninstall");
+        let windows_start = source
+            .find("fn uninstall_windows()")
+            .expect("windows uninstall");
         let windows_end = source[windows_start..]
             .find("fn render_linux(")
             .map(|offset| windows_start + offset)
@@ -2241,16 +2251,14 @@ mod tests {
         assert_eq!(options.action, Action::Install);
         assert!(!options.start_now);
 
-        assert!(parse_args(vec![
-            OsString::from("status"),
-            OsString::from("--no-start"),
-        ])
-        .is_err());
-        assert!(parse_args(vec![
-            OsString::from("uninstall"),
-            OsString::from("--no-start"),
-        ])
-        .is_err());
+        assert!(parse_args(vec![OsString::from("status"), OsString::from("--no-start"),]).is_err());
+        assert!(
+            parse_args(vec![
+                OsString::from("uninstall"),
+                OsString::from("--no-start"),
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -2280,10 +2288,12 @@ mod tests {
         scrub_service_subprocess_environment(&mut command);
         let envs = command
             .get_envs()
-            .map(|(key, value)| (
-                key.to_string_lossy().to_string(),
-                value.map(|value| value.to_string_lossy().to_string()),
-            ))
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|value| value.to_string_lossy().to_string()),
+                )
+            })
             .collect::<std::collections::HashMap<_, _>>();
 
         for key in [
@@ -2303,8 +2313,7 @@ mod tests {
     #[test]
     fn status_command_timeout_stays_inside_client_budget() {
         assert!(
-            SERVICE_STATUS_COMMAND_TIMEOUT + SERVICE_TREE_CLEANUP_TIMEOUT
-                < Duration::from_secs(10)
+            SERVICE_STATUS_COMMAND_TIMEOUT + SERVICE_TREE_CLEANUP_TIMEOUT < Duration::from_secs(10)
         );
         assert!(SERVICE_STATUS_COMMAND_TIMEOUT < SERVICE_COMMAND_TIMEOUT);
     }
@@ -2386,7 +2395,6 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 
-
     #[cfg(unix)]
     #[test]
     fn timed_out_service_command_does_not_orphan_descendant() {
@@ -2463,7 +2471,10 @@ mod tests {
         fs::write(ebin.join("a.beam"), b"a").expect("rewrite a");
         fs::write(ebin.join("z.beam"), b"z").expect("rewrite z");
         let reordered = supervisor_ebin_sha256(&supervisor).expect("reordered digest");
-        assert_eq!(first, reordered, "directory enumeration order must not affect digest");
+        assert_eq!(
+            first, reordered,
+            "directory enumeration order must not affect digest"
+        );
 
         fs::write(ebin.join("a.beam"), b"changed").expect("mutate a");
         let changed = supervisor_ebin_sha256(&supervisor).expect("changed digest");
@@ -2479,8 +2490,7 @@ mod tests {
         let root = tempfile::tempdir().expect("temp root");
         let daemon = root.path().join("beamscale-desktop-daemon");
         fs::write(&daemon, b"daemon-bytes").expect("write daemon");
-        let digest = executable_sha256(&daemon, "beamscale-desktop-daemon")
-            .expect("hash daemon");
+        let digest = executable_sha256(&daemon, "beamscale-desktop-daemon").expect("hash daemon");
         assert_eq!(digest.len(), 64);
         assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
     }
@@ -2557,33 +2567,31 @@ mod tests {
 
     #[test]
     fn parses_strict_json_status_option() {
-        let parsed = parse_args(vec![
-            OsString::from("status"),
-            OsString::from("--json"),
-        ])
-        .expect("parse json status");
+        let parsed = parse_args(vec![OsString::from("status"), OsString::from("--json")])
+            .expect("parse json status");
         assert_eq!(parsed.action, Action::Status);
         assert!(parsed.json);
 
-        assert!(parse_args(vec![
-            OsString::from("install"),
-            OsString::from("--json"),
-        ])
-        .is_err());
-        assert!(parse_args(vec![
-            OsString::from("status"),
-            OsString::from("--json"),
-            OsString::from("--json"),
-        ])
-        .is_err());
+        assert!(parse_args(vec![OsString::from("install"), OsString::from("--json"),]).is_err());
+        assert!(
+            parse_args(vec![
+                OsString::from("status"),
+                OsString::from("--json"),
+                OsString::from("--json"),
+            ])
+            .is_err()
+        );
     }
 
     #[test]
     fn parses_launchd_running_state_strictly() {
-        assert!(parse_launchd_running("path = /tmp/x\nstate = running\npid = 123\n")
-            .expect("running state"));
-        assert!(!parse_launchd_running("state = exited\nlast exit code = 0\n")
-            .expect("exited state"));
+        assert!(
+            parse_launchd_running("path = /tmp/x\nstate = running\npid = 123\n")
+                .expect("running state")
+        );
+        assert!(
+            !parse_launchd_running("state = exited\nlast exit code = 0\n").expect("exited state")
+        );
         assert!(parse_launchd_running("path = /tmp/x\n").is_err());
         assert!(parse_launchd_running("state = running\nstate = exited\n").is_err());
     }
@@ -2618,14 +2626,13 @@ mod tests {
             ("loaded".into(), "active".into())
         );
         assert!(parse_systemd_show("LoadState=loaded\n").is_err());
-        assert!(parse_systemd_show(
-            "LoadState=loaded\nActiveState=active\nActiveState=inactive\n"
-        )
-        .is_err());
-        assert!(parse_systemd_show(
-            "LoadState=loaded\nActiveState=active\nUnexpected=value\n"
-        )
-        .is_err());
+        assert!(
+            parse_systemd_show("LoadState=loaded\nActiveState=active\nActiveState=inactive\n")
+                .is_err()
+        );
+        assert!(
+            parse_systemd_show("LoadState=loaded\nActiveState=active\nUnexpected=value\n").is_err()
+        );
     }
 
     #[test]
@@ -2670,7 +2677,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn package_manager_symlinks_are_resolved_to_a_pinned_executable_target() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
 
         let root = tempfile::tempdir().expect("temp root");
         let first = root.path().join("daemon-v1");
@@ -2690,7 +2697,10 @@ mod tests {
 
         fs::remove_file(&link).expect("remove old symlink");
         symlink(&second, &link).expect("retarget symlink");
-        assert_eq!(pinned, fs::canonicalize(&first).expect("first remains pinned"));
+        assert_eq!(
+            pinned,
+            fs::canonicalize(&first).expect("first remains pinned")
+        );
 
         fs::set_permissions(&first, fs::Permissions::from_mode(0o600)).expect("remove execute");
         assert!(pin_executable_path(&first, "daemon binary").is_err());

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -60,7 +60,10 @@ fn validate_path_text(path: &Path, label: &str) -> Result<()> {
 fn resolve_manifest_candidate(path: PathBuf, label: &str) -> Result<PathBuf> {
     validate_path_text(&path, &format!("{label} runtime manifest"))?;
     if !path.is_absolute() {
-        bail!("{label} runtime manifest path must be absolute: {}", path.display());
+        bail!(
+            "{label} runtime manifest path must be absolute: {}",
+            path.display()
+        );
     }
 
     let metadata = fs::symlink_metadata(&path)
@@ -369,7 +372,10 @@ mod tests {
 
     #[test]
     fn manifest_candidate_requires_absolute_non_symlink_file() {
-        assert!(resolve_manifest_candidate(PathBuf::from("runtime-manifest.json"), "configured").is_err());
+        assert!(
+            resolve_manifest_candidate(PathBuf::from("runtime-manifest.json"), "configured")
+                .is_err()
+        );
 
         let root = tempfile::tempdir().expect("temp root");
         let manifest = root.path().join("runtime-manifest.json");
@@ -499,10 +505,7 @@ mod tests {
         );
         assert_eq!(schema["properties"]["runtime_kind"]["const"], RUNTIME_KIND);
         assert_eq!(schema["additionalProperties"], false);
-        assert_eq!(
-            schema["properties"]["sha256"]["pattern"],
-            "^[0-9a-f]{64}$"
-        );
+        assert_eq!(schema["properties"]["sha256"]["pattern"], "^[0-9a-f]{64}$");
 
         let required = schema["required"].as_array().expect("required array");
         for field in [

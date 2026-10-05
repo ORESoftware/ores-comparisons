@@ -1,16 +1,18 @@
 mod runtime_manifest;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use axum::{
+    Json, Router,
     extract::{DefaultBodyLimit, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post, put},
-    Json, Router,
 };
 use rand::RngCore;
 use ring::digest::{Context as DigestContext, SHA256};
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::thread;
 use std::{
     collections::{HashSet, VecDeque},
     env, fs,
@@ -21,8 +23,6 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-#[cfg(unix)]
-use std::thread;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -416,8 +416,8 @@ async fn main() -> Result<()> {
     let desired = load_desired_state(&data_root)?;
     let replay = load_replay_state(&data_root)?;
     let (recent_idempotency, idempotency_order) = replay_collections(replay)?;
-    let ingress_raw = env::var("BMSCL_LOCAL_INGRESS_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8080".into());
+    let ingress_raw =
+        env::var("BMSCL_LOCAL_INGRESS_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
     let ingress_url = validate_loopback_http_origin(&ingress_raw)?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -462,10 +462,16 @@ async fn main() -> Result<()> {
         let runtime_running = slot_running(&mut daemon.runtime);
         if let Some(request) = daemon.last_tunnel.clone() {
             if !runtime_running {
-                warn!("skipping desired Cloudflare tunnel restore because BeamScale runtime is not running");
+                warn!(
+                    "skipping desired Cloudflare tunnel restore because BeamScale runtime is not running"
+                );
             } else if pending_dns_route_for_request(&daemon, &request) {
-                warn!("skipping desired Cloudflare tunnel restore because its DNS route requires reconciliation");
-            } else if let Err(error) = start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request) {
+                warn!(
+                    "skipping desired Cloudflare tunnel restore because its DNS route requires reconciliation"
+                );
+            } else if let Err(error) =
+                start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request)
+            {
                 warn!(%error, "failed to restore desired Cloudflare tunnel");
             }
         }
@@ -531,7 +537,7 @@ async fn main() -> Result<()> {
 
 #[cfg(unix)]
 async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
 
     let mut terminate = match signal(SignalKind::terminate()) {
         Ok(signal) => signal,
@@ -592,8 +598,7 @@ async fn update_operator_settings(
     let mut daemon = lock_state_api(&state)?;
     reject_maintenance(&daemon)?;
     reject_replayed_idempotency(&daemon, &idempotency)?;
-    reserve_idempotency(&mut daemon, &state.data_root, idempotency)
-        .map_err(internal_error)?;
+    reserve_idempotency(&mut daemon, &state.data_root, idempotency).map_err(internal_error)?;
 
     let mut proposed_settings = daemon.settings.clone();
     proposed_settings.update_root = update_root;
@@ -693,8 +698,7 @@ async fn service_install(
         let mut daemon = lock_state_api(&state)?;
         reject_maintenance(&daemon)?;
         reject_replayed_idempotency(&daemon, &idempotency)?;
-        reserve_idempotency(&mut daemon, &state.data_root, idempotency)
-            .map_err(internal_error)?;
+        reserve_idempotency(&mut daemon, &state.data_root, idempotency).map_err(internal_error)?;
         daemon.maintenance_in_progress = true;
     }
     let maintenance = MaintenanceLease::new(&state);
@@ -703,14 +707,9 @@ async fn service_install(
     // owned by the blocking mutation itself, not this request future, so an
     // aborted/disconnected request cannot permit a concurrent mutation.
     let (status, _stdout, stderr) =
-        run_service_mutation_async(
-            helper,
-            args,
-            SERVICE_HELPER_MUTATION_TIMEOUT,
-            maintenance,
-        )
-        .await
-        .map_err(internal_error)?;
+        run_service_mutation_async(helper, args, SERVICE_HELPER_MUTATION_TIMEOUT, maintenance)
+            .await
+            .map_err(internal_error)?;
     if !status.success() {
         return Err(internal_error(format!(
             "beamscale-service install failed with {status}: {}",
@@ -737,21 +736,19 @@ async fn service_uninstall(
         let mut daemon = lock_state_api(&state)?;
         reject_maintenance(&daemon)?;
         reject_replayed_idempotency(&daemon, &idempotency)?;
-        reserve_idempotency(&mut daemon, &state.data_root, idempotency)
-            .map_err(internal_error)?;
+        reserve_idempotency(&mut daemon, &state.data_root, idempotency).map_err(internal_error)?;
         daemon.maintenance_in_progress = true;
     }
     let maintenance = MaintenanceLease::new(&state);
 
-    let (status, _stdout, stderr) =
-        run_service_mutation_async(
-            helper,
-            vec!["uninstall".into()],
-            SERVICE_HELPER_MUTATION_TIMEOUT,
-            maintenance,
-        )
-        .await
-        .map_err(internal_error)?;
+    let (status, _stdout, stderr) = run_service_mutation_async(
+        helper,
+        vec!["uninstall".into()],
+        SERVICE_HELPER_MUTATION_TIMEOUT,
+        maintenance,
+    )
+    .await
+    .map_err(internal_error)?;
     if !status.success() {
         return Err(internal_error(format!(
             "beamscale-service uninstall failed with {status}: {}",
@@ -794,7 +791,8 @@ fn current_daemon_executable() -> Result<PathBuf> {
     if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
         bail!("current BeamScale daemon executable must be a regular non-symlink file");
     }
-    fs::canonicalize(&path).with_context(|| format!("canonicalize current daemon {}", path.display()))
+    fs::canonicalize(&path)
+        .with_context(|| format!("canonicalize current daemon {}", path.display()))
 }
 
 fn service_helper_executable() -> Result<PathBuf> {
@@ -827,11 +825,18 @@ fn service_helper_executable() -> Result<PathBuf> {
     {
         use std::os::unix::fs::PermissionsExt;
         if metadata.permissions().mode() & 0o111 == 0 {
-            bail!("packaged service helper is not executable: {}", candidate.display());
+            bail!(
+                "packaged service helper is not executable: {}",
+                candidate.display()
+            );
         }
     }
-    fs::canonicalize(&candidate)
-        .with_context(|| format!("canonicalize packaged service helper {}", candidate.display()))
+    fs::canonicalize(&candidate).with_context(|| {
+        format!(
+            "canonicalize packaged service helper {}",
+            candidate.display()
+        )
+    })
 }
 
 fn path_to_service_arg(path: &Path) -> Result<String> {
@@ -848,12 +853,16 @@ fn path_to_service_arg(path: &Path) -> Result<String> {
 fn default_data_root() -> Result<PathBuf> {
     if let Ok(home) = env::var("HOME") {
         if !home.trim().is_empty() {
-            return Ok(PathBuf::from(home).join(".beamscale").join("desktop-daemon"));
+            return Ok(PathBuf::from(home)
+                .join(".beamscale")
+                .join("desktop-daemon"));
         }
     }
     if let Ok(home) = env::var("USERPROFILE") {
         if !home.trim().is_empty() {
-            return Ok(PathBuf::from(home).join(".beamscale").join("desktop-daemon"));
+            return Ok(PathBuf::from(home)
+                .join(".beamscale")
+                .join("desktop-daemon"));
         }
     }
     bail!("cannot locate default home directory")
@@ -1155,7 +1164,8 @@ async fn runtime_restart(
     start_runtime(&mut daemon, request).map_err(internal_error)?;
     if let Some(tunnel_request) = tunnel_request {
         if !pending_dns_route_for_request(&daemon, &tunnel_request) {
-            start_tunnel_process(&mut daemon, state.ingress_url.as_str(), tunnel_request).map_err(internal_error)?;
+            start_tunnel_process(&mut daemon, state.ingress_url.as_str(), tunnel_request)
+                .map_err(internal_error)?;
         }
     }
     record_lifecycle_event(
@@ -1192,13 +1202,15 @@ async fn tunnel_start(
     if pending_dns_route_for_request(&daemon, &request) {
         return Err((
             StatusCode::CONFLICT,
-            "Cloudflare DNS route outcome is uncertain; reconcile it before retrying exposure".into(),
+            "Cloudflare DNS route outcome is uncertain; reconcile it before retrying exposure"
+                .into(),
         ));
     }
     reserve_idempotency(&mut daemon, &state.data_root, idempotency.clone())
         .map_err(internal_error)?;
     let _ = route_tunnel_dns(&mut daemon, &state.data_root, &request).map_err(internal_error)?;
-    start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request).map_err(internal_error)?;
+    start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request)
+        .map_err(internal_error)?;
     if let Err(error) = save_desired_state(&state.data_root, &daemon) {
         let _ = stop_slot(&mut daemon.tunnel, "Cloudflare tunnel");
         daemon.last_tunnel = None;
@@ -1231,13 +1243,7 @@ async fn tunnel_stop(
     daemon.last_tunnel = None;
     save_desired_state(&state.data_root, &daemon).map_err(internal_error)?;
     stop_slot(&mut daemon.tunnel, "Cloudflare tunnel").map_err(internal_error)?;
-    record_lifecycle_event(
-        &mut daemon,
-        "tunnel",
-        "stop",
-        "ok",
-        "public tunnel stopped",
-    );
+    record_lifecycle_event(&mut daemon, "tunnel", "stop", "ok", "public tunnel stopped");
 
     return Ok(Json(ActionResponse {
         ok: true,
@@ -1267,12 +1273,14 @@ async fn tunnel_restart(
     if pending_dns_route_for_request(&daemon, &request) {
         return Err((
             StatusCode::CONFLICT,
-            "Cloudflare DNS route outcome is uncertain; reconcile it before restarting exposure".into(),
+            "Cloudflare DNS route outcome is uncertain; reconcile it before restarting exposure"
+                .into(),
         ));
     }
     reserve_idempotency(&mut daemon, &state.data_root, idempotency.clone())
         .map_err(internal_error)?;
-    start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request).map_err(internal_error)?;
+    start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request)
+        .map_err(internal_error)?;
     record_lifecycle_event(
         &mut daemon,
         "tunnel",
@@ -1313,12 +1321,13 @@ async fn resolve_tunnel_dns(
         ));
     }
 
-    reserve_idempotency(&mut daemon, &state.data_root, idempotency)
-        .map_err(internal_error)?;
+    reserve_idempotency(&mut daemon, &state.data_root, idempotency).map_err(internal_error)?;
 
     let previous_pending = daemon.pending_dns_routes.clone();
     let previous_known = daemon.known_dns_routes.clone();
-    daemon.pending_dns_routes.retain(|candidate| candidate != &route);
+    daemon
+        .pending_dns_routes
+        .retain(|candidate| candidate != &route);
     if resolution.applied && !daemon.known_dns_routes.contains(&route) {
         daemon.known_dns_routes.push(route.clone());
     }
@@ -1339,10 +1348,7 @@ async fn resolve_tunnel_dns(
     }));
 }
 
-async fn doctor(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> ApiResult<DoctorResponse> {
+async fn doctor(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<DoctorResponse> {
     require_auth(&headers, &state)?;
 
     let (
@@ -1514,7 +1520,11 @@ async fn doctor(
             ok: runtime_running && request.project_dir.is_dir(),
             detail: format!(
                 "{}; project={}",
-                if runtime_running { "running" } else { "desired but stopped" },
+                if runtime_running {
+                    "running"
+                } else {
+                    "desired but stopped"
+                },
                 request.project_dir.display()
             ),
         },
@@ -1607,9 +1617,7 @@ async fn doctor_ingress_check(state: &AppState) -> DoctorCheck {
             .map_err(|error| format!("invalid health JSON: {error}"))?;
 
         let ok = value.get("ok").and_then(serde_json::Value::as_bool) == Some(true);
-        let service = value
-            .get("service")
-            .and_then(serde_json::Value::as_str);
+        let service = value.get("service").and_then(serde_json::Value::as_str);
 
         if !ok || service != Some("beamscale-local-ingress") {
             return Err("unexpected local ingress health identity".into());
@@ -1818,12 +1826,16 @@ fn validate_tunnel_request(request: &TunnelRequest) -> Result<()> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
     {
-        bail!("tunnel name must be 1..=128 ASCII letters, digits, '.', '_' or '-', start/end alphanumeric, and have no edge whitespace");
+        bail!(
+            "tunnel name must be 1..=128 ASCII letters, digits, '.', '_' or '-', start/end alphanumeric, and have no edge whitespace"
+        );
     }
 
     if let Some(hostname) = &request.hostname {
         if !valid_dns_hostname(hostname) {
-            bail!("hostname must be a valid ASCII DNS hostname or wildcard hostname with no edge whitespace");
+            bail!(
+                "hostname must be a valid ASCII DNS hostname or wildcard hostname with no edge whitespace"
+            );
         }
     }
 
@@ -1968,7 +1980,9 @@ fn route_tunnel_dns(
     // the mutation, restart will not blindly issue a second create.
     daemon.pending_dns_routes.push(route.clone());
     if let Err(error) = save_desired_state(root, daemon) {
-        daemon.pending_dns_routes.retain(|candidate| candidate != &route);
+        daemon
+            .pending_dns_routes
+            .retain(|candidate| candidate != &route);
         return Err(error).context("persist pending Cloudflare DNS route");
     }
 
@@ -1989,10 +2003,14 @@ fn route_tunnel_dns(
         );
     }
 
-    daemon.pending_dns_routes.retain(|candidate| candidate != &route);
+    daemon
+        .pending_dns_routes
+        .retain(|candidate| candidate != &route);
     daemon.known_dns_routes.push(route.clone());
     if let Err(error) = save_desired_state(root, daemon) {
-        daemon.known_dns_routes.retain(|candidate| candidate != &route);
+        daemon
+            .known_dns_routes
+            .retain(|candidate| candidate != &route);
         if !daemon.pending_dns_routes.contains(&route) {
             daemon.pending_dns_routes.push(route);
         }
@@ -2055,8 +2073,7 @@ fn start_tunnel_process(
 }
 
 fn apply_keep_awake(daemon: &mut DaemonState) -> Result<()> {
-    let should_run =
-        daemon.settings.keep_alive_during_lock && slot_running(&mut daemon.runtime);
+    let should_run = daemon.settings.keep_alive_during_lock && slot_running(&mut daemon.runtime);
     if should_run {
         return ensure_keep_awake(daemon);
     }
@@ -2070,10 +2087,8 @@ fn ensure_keep_awake(daemon: &mut DaemonState) -> Result<()> {
 
     let pid = std::process::id().to_string();
     let mut command = if cfg!(target_os = "macos") {
-        let mut command = Command::new(trusted_system_tool(
-            &["/usr/bin/caffeinate"],
-            "caffeinate",
-        )?);
+        let mut command =
+            Command::new(trusted_system_tool(&["/usr/bin/caffeinate"], "caffeinate")?);
         command.args(["-i", "-w", &pid]);
         command
     } else if cfg!(target_os = "linux") {
@@ -2226,7 +2241,9 @@ async fn desired_state_watchdog(state: AppState) {
                     "attempt",
                     "desired public tunnel was not running",
                 );
-                if let Err(error) = start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request) {
+                if let Err(error) =
+                    start_tunnel_process(&mut daemon, state.ingress_url.as_str(), request)
+                {
                     let delay = daemon.tunnel_restart.record_failure();
                     record_lifecycle_event(
                         &mut daemon,
@@ -2285,7 +2302,11 @@ impl RestartBackoff {
     fn view(&self) -> RestartView {
         let retry_in_ms = self
             .next_attempt
-            .map(|deadline| deadline.saturating_duration_since(Instant::now()).as_millis())
+            .map(|deadline| {
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis()
+            })
             .unwrap_or_default()
             .min(u128::from(u64::MAX)) as u64;
         return RestartView {
@@ -2318,11 +2339,7 @@ fn reject_service_mode_self_update(root: &Path) -> std::result::Result<(), ApiEr
     Ok(())
 }
 fn apply_updates(settings: &Settings) -> Result<()> {
-    revalidate_tool_before_exec(
-        &settings.zed_binary,
-        settings.zed_sha256.as_deref(),
-        "zed",
-    )?;
+    revalidate_tool_before_exec(&settings.zed_binary, settings.zed_sha256.as_deref(), "zed")?;
     let mut self_update = Command::new(&settings.zed_binary);
     self_update.args(["self-update"]);
     let status = run_status_with_timeout(
@@ -2367,7 +2384,12 @@ fn probe_pinned(
 }
 
 fn probe(program: &str, args: &[&str]) -> VersionProbe {
-    match run_probe_bounded(program, args, Duration::from_secs(5), MAX_PROBE_OUTPUT_BYTES) {
+    match run_probe_bounded(
+        program,
+        args,
+        Duration::from_secs(5),
+        MAX_PROBE_OUTPUT_BYTES,
+    ) {
         Ok((status, stdout, stderr)) => {
             let mut text = String::from_utf8_lossy(&stdout).trim().to_string();
             let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
@@ -2513,7 +2535,6 @@ where
     }
     Ok(output)
 }
-
 
 impl ManagedChild {
     fn new(child: Child, command: Vec<String>) -> Self {
@@ -2908,13 +2929,10 @@ fn require_operator_auth(
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    if !actual.is_some_and(|token| {
-        constant_time_eq(token.as_bytes(), state.operator_token.as_bytes())
-    }) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "operator credential required".into(),
-        ));
+    if !actual
+        .is_some_and(|token| constant_time_eq(token.as_bytes(), state.operator_token.as_bytes()))
+    {
+        return Err((StatusCode::FORBIDDEN, "operator credential required".into()));
     }
 
     let protocol = headers
@@ -2970,9 +2988,7 @@ fn valid_idempotency_key(key: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'));
 }
 
-fn reject_maintenance(
-    daemon: &DaemonState,
-) -> std::result::Result<(), ApiError> {
+fn reject_maintenance(daemon: &DaemonState) -> std::result::Result<(), ApiError> {
     if daemon.maintenance_in_progress {
         return Err((
             StatusCode::CONFLICT,
@@ -3048,8 +3064,8 @@ fn bad_request(error: impl std::fmt::Display) -> ApiError {
 }
 
 fn validate_loopback_http_origin(raw: &str) -> Result<String> {
-    let parsed = reqwest::Url::parse(raw)
-        .with_context(|| format!("parse BMSCL_LOCAL_INGRESS_URL={raw}"))?;
+    let parsed =
+        reqwest::Url::parse(raw).with_context(|| format!("parse BMSCL_LOCAL_INGRESS_URL={raw}"))?;
     if parsed.scheme() != "http" {
         bail!("BMSCL_LOCAL_INGRESS_URL must use http://");
     }
@@ -3084,7 +3100,11 @@ async fn read_response_body_bounded(
     }
 
     let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.context("read loopback ingress response")? {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("read loopback ingress response")?
+    {
         if body.len().saturating_add(chunk.len()) > maximum {
             bail!("loopback ingress response exceeds {maximum} byte limit");
         }
@@ -3114,7 +3134,9 @@ fn data_root() -> Result<PathBuf> {
             .join("desktop-daemon"));
     }
     if let Ok(home) = env::var("USERPROFILE") {
-        return Ok(PathBuf::from(home).join(".beamscale").join("desktop-daemon"));
+        return Ok(PathBuf::from(home)
+            .join(".beamscale")
+            .join("desktop-daemon"));
     }
     bail!("cannot locate home directory; set BMSCL_DESKTOP_HOME")
 }
@@ -3189,11 +3211,8 @@ fn apply_service_tool_overrides(
         "cloudflared",
     )?;
     settings.cloudflared_sha256 = cloudflared_sha256;
-    settings.zed_binary = validate_optional_service_tool_pin(
-        overrides.zed_binary,
-        overrides.zed_sha256,
-        "zed",
-    )?;
+    settings.zed_binary =
+        validate_optional_service_tool_pin(overrides.zed_binary, overrides.zed_sha256, "zed")?;
     settings.zed_sha256 = zed_sha256;
 
     let supervisor_pin = match (overrides.supervisor_root, overrides.supervisor_ebin_sha256) {
@@ -3225,19 +3244,14 @@ fn apply_service_tool_overrides(
     Ok(supervisor_pin)
 }
 
-fn validate_current_daemon_pin(
-    path: Option<&Path>,
-    digest: Option<&str>,
-) -> Result<()> {
-    let path = path.context(
-        "service-tools.json must pin daemon_binary; reinstall the persistent service",
-    )?;
-    let digest = digest.context(
-        "service-tools.json must pin daemon_sha256; reinstall the persistent service",
-    )?;
+fn validate_current_daemon_pin(path: Option<&Path>, digest: Option<&str>) -> Result<()> {
+    let path = path
+        .context("service-tools.json must pin daemon_binary; reinstall the persistent service")?;
+    let digest = digest
+        .context("service-tools.json must pin daemon_sha256; reinstall the persistent service")?;
     let pinned = validate_service_tool_pin(path, digest, "beamscale-desktop-daemon")?;
-    let current = env::current_exe()
-        .context("resolve current BeamScale desktop daemon executable")?;
+    let current =
+        env::current_exe().context("resolve current BeamScale desktop daemon executable")?;
     let current = fs::canonicalize(&current)
         .with_context(|| format!("canonicalize current daemon {}", current.display()))?;
     if Path::new(&pinned) != current {
@@ -3324,8 +3338,8 @@ fn executable_sha256(path: &Path, label: &str) -> Result<String> {
         );
     }
 
-    let mut file = fs::File::open(path)
-        .with_context(|| format!("open pinned {label} {}", path.display()))?;
+    let mut file =
+        fs::File::open(path).with_context(|| format!("open pinned {label} {}", path.display()))?;
     let before = file
         .metadata()
         .with_context(|| format!("inspect opened {label} {}", path.display()))?;
@@ -3359,21 +3373,24 @@ fn executable_sha256(path: &Path, label: &str) -> Result<String> {
         .metadata()
         .with_context(|| format!("re-inspect pinned {label} {}", path.display()))?;
     if before.len() != total || after.len() != total {
-        bail!("pinned {label} changed size while hashing: {}", path.display());
+        bail!(
+            "pinned {label} changed size while hashing: {}",
+            path.display()
+        );
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         if before.dev() != after.dev() || before.ino() != after.ino() {
-            bail!("pinned {label} identity changed while hashing: {}", path.display());
+            bail!(
+                "pinned {label} identity changed while hashing: {}",
+                path.display()
+            );
         }
     }
     let before_modified = before.modified().ok();
     let after_modified = after.modified().ok();
-    if before_modified.is_some()
-        && after_modified.is_some()
-        && before_modified != after_modified
-    {
+    if before_modified.is_some() && after_modified.is_some() && before_modified != after_modified {
         bail!(
             "pinned {label} modification time changed while hashing: {}",
             path.display()
@@ -3416,10 +3433,7 @@ fn ensure_pinned_path_matches_open_file(
     }
     let path_modified = path_metadata.modified().ok();
     let opened_modified = opened_metadata.modified().ok();
-    if path_modified.is_some()
-        && opened_modified.is_some()
-        && path_modified != opened_modified
-    {
+    if path_modified.is_some() && opened_modified.is_some() && path_modified != opened_modified {
         bail!("pinned {label} {phase}: {}", path.display());
     }
 
@@ -3438,11 +3452,10 @@ fn ensure_pinned_path_matches_open_file(
 
 fn doctor_service_tool_integrity_checks(root: &Path) -> Vec<DoctorCheck> {
     let path = service_tools_path(root);
-    let overrides = match read_private_file_bounded(&path, MAX_STATE_FILE_BYTES)
-        .and_then(|bytes| {
-            serde_json::from_slice::<ServiceToolOverrides>(&bytes)
-                .with_context(|| format!("parse {}", path.display()))
-        }) {
+    let overrides = match read_private_file_bounded(&path, MAX_STATE_FILE_BYTES).and_then(|bytes| {
+        serde_json::from_slice::<ServiceToolOverrides>(&bytes)
+            .with_context(|| format!("parse {}", path.display()))
+    }) {
         Ok(overrides) => overrides,
         Err(error) => {
             return vec![DoctorCheck {
@@ -3472,24 +3485,31 @@ fn doctor_service_tool_integrity_checks(root: &Path) -> Vec<DoctorCheck> {
             overrides.cloudflared_sha256,
             false,
         ),
-        ("zed_binary", overrides.zed_binary, overrides.zed_sha256, false),
+        (
+            "zed_binary",
+            overrides.zed_binary,
+            overrides.zed_sha256,
+            false,
+        ),
     ]
     .into_iter()
     .map(|(name, path, digest, required)| {
         let label = name.trim_end_matches("_binary");
         match (path, digest) {
-            (Some(path), Some(expected)) => match validate_service_tool_pin(&path, &expected, label) {
-                Ok(_) => DoctorCheck {
-                    name,
-                    ok: true,
-                    detail: format!("content matches pinned sha256 at {}", path.display()),
-                },
-                Err(error) => DoctorCheck {
-                    name,
-                    ok: false,
-                    detail: format!("{error:#}"),
-                },
-            },
+            (Some(path), Some(expected)) => {
+                match validate_service_tool_pin(&path, &expected, label) {
+                    Ok(_) => DoctorCheck {
+                        name,
+                        ok: true,
+                        detail: format!("content matches pinned sha256 at {}", path.display()),
+                    },
+                    Err(error) => DoctorCheck {
+                        name,
+                        ok: false,
+                        detail: format!("{error:#}"),
+                    },
+                }
+            }
             (None, None) if !required => DoctorCheck {
                 name,
                 ok: true,
@@ -3550,8 +3570,12 @@ fn validate_service_supervisor_root(path: &Path) -> Result<PathBuf> {
         "bmscl_runtime.beam",
     ] {
         let module_path = ebin.join(module);
-        let metadata = fs::symlink_metadata(&module_path)
-            .with_context(|| format!("inspect service supervisor module {}", module_path.display()))?;
+        let metadata = fs::symlink_metadata(&module_path).with_context(|| {
+            format!(
+                "inspect service supervisor module {}",
+                module_path.display()
+            )
+        })?;
         if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
             bail!(
                 "service supervisor module must be a regular non-symlink file: {}",
@@ -3586,8 +3610,8 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String> {
     }
 
     let mut files = Vec::new();
-    for entry in fs::read_dir(&ebin)
-        .with_context(|| format!("read supervisor ebin {}", ebin.display()))?
+    for entry in
+        fs::read_dir(&ebin).with_context(|| format!("read supervisor ebin {}", ebin.display()))?
     {
         let entry = entry.context("read supervisor ebin entry")?;
         let name = entry
@@ -3637,7 +3661,10 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String> {
             .metadata()
             .with_context(|| format!("inspect opened supervisor file {}", path.display()))?;
         if before.len() != expected_len {
-            bail!("supervisor ebin file changed before hashing: {}", path.display());
+            bail!(
+                "supervisor ebin file changed before hashing: {}",
+                path.display()
+            );
         }
 
         let mut buffer = [0_u8; 64 * 1024];
@@ -3667,13 +3694,19 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String> {
             .metadata()
             .with_context(|| format!("re-inspect supervisor file {}", path.display()))?;
         if after.len() != before.len() || after.len() != read_total {
-            bail!("supervisor ebin file changed size while hashing: {}", path.display());
+            bail!(
+                "supervisor ebin file changed size while hashing: {}",
+                path.display()
+            );
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
             if after.dev() != before.dev() || after.ino() != before.ino() {
-                bail!("supervisor ebin file identity changed while hashing: {}", path.display());
+                bail!(
+                    "supervisor ebin file identity changed while hashing: {}",
+                    path.display()
+                );
             }
         }
         let before_modified = before.modified().ok();
@@ -3699,7 +3732,10 @@ fn supervisor_ebin_sha256(root: &Path) -> Result<String> {
 
 fn validate_service_tool_path(path: &Path, label: &str) -> Result<String> {
     if !path.is_absolute() {
-        bail!("service tool path for {label} must be absolute: {}", path.display());
+        bail!(
+            "service tool path for {label} must be absolute: {}",
+            path.display()
+        );
     }
 
     let metadata = fs::symlink_metadata(path)
@@ -3741,8 +3777,7 @@ fn load_desired_state(root: &Path) -> Result<DesiredState> {
     let mut desired: DesiredState =
         serde_json::from_slice(&bytes).with_context(|| format!("parse {}", path.display()))?;
     canonicalize_dns_route_state(&mut desired);
-    validate_dns_route_state(&desired)
-        .with_context(|| format!("validate {}", path.display()))?;
+    validate_dns_route_state(&desired).with_context(|| format!("validate {}", path.display()))?;
     return Ok(desired);
 }
 
@@ -3895,26 +3930,18 @@ fn secure_data_root(root: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn current_windows_identity() -> Result<String> {
-    let whoami = trusted_system_tool(
-        &[r"C:\Windows\System32\whoami.exe"],
-        "whoami.exe",
-    )?;
+    let whoami = trusted_system_tool(&[r"C:\Windows\System32\whoami.exe"], "whoami.exe")?;
     let whoami_text = whoami.to_string_lossy().to_string();
-    let (status, stdout, stderr) = run_probe_bounded(
-        &whoami_text,
-        &[],
-        Duration::from_secs(5),
-        4096,
-    )
-    .context("run fixed whoami for state ACL")?;
+    let (status, stdout, stderr) =
+        run_probe_bounded(&whoami_text, &[], Duration::from_secs(5), 4096)
+            .context("run fixed whoami for state ACL")?;
     if !status.success() {
         bail!(
             "fixed whoami failed while securing state ACL: {}",
             String::from_utf8_lossy(&stderr).trim()
         );
     }
-    let identity = String::from_utf8(stdout)
-        .context("fixed whoami returned non-UTF8 identity")?;
+    let identity = String::from_utf8(stdout).context("fixed whoami returned non-UTF8 identity")?;
     let identity = identity.trim();
     if identity.is_empty()
         || identity.len() > 512
@@ -3929,10 +3956,7 @@ fn current_windows_identity() -> Result<String> {
 
 #[cfg(windows)]
 fn run_icacls(args: &[String]) -> Result<()> {
-    let icacls = trusted_system_tool(
-        &[r"C:\Windows\System32\icacls.exe"],
-        "icacls.exe",
-    )?;
+    let icacls = trusted_system_tool(&[r"C:\Windows\System32\icacls.exe"], "icacls.exe")?;
     let mut command = Command::new(icacls);
     command.args(args);
     let status = run_status_with_timeout(
@@ -4174,10 +4198,7 @@ fn ensure_private_path_matches_open_file(
 
     let path_modified = path_metadata.modified().ok();
     let opened_modified = opened_metadata.modified().ok();
-    if path_modified.is_some()
-        && opened_modified.is_some()
-        && path_modified != opened_modified
-    {
+    if path_modified.is_some() && opened_modified.is_some() && path_modified != opened_modified {
         bail!("{phase}: {}", path.display());
     }
 
@@ -4330,8 +4351,7 @@ mod tests {
         let root = tempfile::tempdir().expect("temp root");
         let path = root.path().join("state.json");
         fs::write(&path, b"{}").expect("write state");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
-            .expect("loosen state mode");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("loosen state mode");
 
         assert_eq!(read_private_file_bounded(&path, 16).expect("read"), b"{}");
         let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
@@ -4400,13 +4420,8 @@ mod tests {
         let root = tempfile::tempdir().expect("temp root");
         let helper_path = root.path().join("beamscale-service");
         let marker = root.path().join("started");
-        fs::write(
-            &helper_path,
-            b"#!/bin/sh\n: > \"$1\"\nsleep 1\nexit 0\n",
-        )
-        .expect("write helper");
-        fs::set_permissions(&helper_path, fs::Permissions::from_mode(0o700))
-            .expect("chmod helper");
+        fs::write(&helper_path, b"#!/bin/sh\n: > \"$1\"\nsleep 1\nexit 0\n").expect("write helper");
+        fs::set_permissions(&helper_path, fs::Permissions::from_mode(0o700)).expect("chmod helper");
         let pinned = PinnedServiceHelper {
             path: helper_path.clone(),
             sha256: executable_sha256(&helper_path, "beamscale-service").expect("hash helper"),
@@ -4468,7 +4483,10 @@ mod tests {
             if !state.inner.lock().expect("lock").maintenance_in_progress {
                 break;
             }
-            assert!(Instant::now() < deadline, "maintenance lease never released");
+            assert!(
+                Instant::now() < deadline,
+                "maintenance lease never released"
+            );
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     }
@@ -4481,8 +4499,7 @@ mod tests {
         let root = tempfile::tempdir().expect("temp root");
         let helper_path = root.path().join("beamscale-service");
         fs::write(&helper_path, b"#!/bin/sh\nexit 0\n").expect("write helper");
-        fs::set_permissions(&helper_path, fs::Permissions::from_mode(0o700))
-            .expect("chmod helper");
+        fs::set_permissions(&helper_path, fs::Permissions::from_mode(0o700)).expect("chmod helper");
         let pinned = PinnedServiceHelper {
             path: helper_path.clone(),
             sha256: executable_sha256(&helper_path, "beamscale-service").expect("hash helper"),
@@ -4494,7 +4511,10 @@ mod tests {
 
         let error = run_service_helper(&pinned, &[], Duration::from_secs(1))
             .expect_err("content drift must be rejected before execution");
-        assert!(error.to_string().contains("changed after validation"), "{error:#}");
+        assert!(
+            error.to_string().contains("changed after validation"),
+            "{error:#}"
+        );
     }
 
     #[test]
@@ -4537,10 +4557,12 @@ mod tests {
 
     #[test]
     fn service_install_request_rejects_unknown_fields() {
-        assert!(serde_json::from_str::<ServiceInstallRequest>(
-            r#"{\"supervisor_root\":null,\"unexpected\":true}"#
-        )
-        .is_err());
+        assert!(
+            serde_json::from_str::<ServiceInstallRequest>(
+                r#"{\"supervisor_root\":null,\"unexpected\":true}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -4559,8 +4581,14 @@ mod tests {
         let defaults = LifecycleEventsQuery::default();
         assert_eq!(defaults.since_sequence, None);
         assert_eq!(defaults.limit, None);
-        assert_eq!(defaults.limit.unwrap_or(100).clamp(1, MAX_LIFECYCLE_EVENTS), 100);
-        assert_eq!(Some(0_usize).unwrap_or(100).clamp(1, MAX_LIFECYCLE_EVENTS), 1);
+        assert_eq!(
+            defaults.limit.unwrap_or(100).clamp(1, MAX_LIFECYCLE_EVENTS),
+            100
+        );
+        assert_eq!(
+            Some(0_usize).unwrap_or(100).clamp(1, MAX_LIFECYCLE_EVENTS),
+            1
+        );
         assert_eq!(
             Some(MAX_LIFECYCLE_EVENTS + 100)
                 .unwrap_or(100)
@@ -4633,7 +4661,10 @@ mod tests {
         }
 
         assert_eq!(daemon.lifecycle_events.len(), MAX_LIFECYCLE_EVENTS);
-        assert_eq!(daemon.lifecycle_events.front().map(|event| event.sequence), Some(21));
+        assert_eq!(
+            daemon.lifecycle_events.front().map(|event| event.sequence),
+            Some(21)
+        );
         assert_eq!(
             daemon.lifecycle_events.back().map(|event| event.sequence),
             Some((MAX_LIFECYCLE_EVENTS + 20) as u64)
@@ -4679,16 +4710,12 @@ mod tests {
     #[test]
     fn secret_tokens_require_visible_ascii() {
         assert!(validate_secret_token(&"a".repeat(MIN_TOKEN_BYTES), "test").is_ok());
-        assert!(validate_secret_token(
-            &format!("{}é", "a".repeat(MIN_TOKEN_BYTES)),
-            "test",
-        )
-        .is_err());
-        assert!(validate_secret_token(
-            &format!("{} ", "a".repeat(MIN_TOKEN_BYTES)),
-            "test",
-        )
-        .is_err());
+        assert!(
+            validate_secret_token(&format!("{}é", "a".repeat(MIN_TOKEN_BYTES)), "test",).is_err()
+        );
+        assert!(
+            validate_secret_token(&format!("{} ", "a".repeat(MIN_TOKEN_BYTES)), "test",).is_err()
+        );
     }
 
     #[test]
@@ -4784,12 +4811,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn bounded_probe_times_out() {
-        let result = run_probe_bounded(
-            "sh",
-            &["-c", "sleep 5"],
-            Duration::from_millis(50),
-            1024,
-        );
+        let result = run_probe_bounded("sh", &["-c", "sleep 5"], Duration::from_millis(50), 1024);
         assert!(result.is_err());
     }
 
@@ -5070,12 +5092,8 @@ mod tests {
         assert!(validate_tunnel_request(&custom_config).is_err());
 
         let settings = Settings::default();
-        let command = build_tunnel_command(
-            &settings,
-            "http://127.0.0.1:8080",
-            &ok,
-        )
-        .expect("build pinned tunnel command");
+        let command = build_tunnel_command(&settings, "http://127.0.0.1:8080", &ok)
+            .expect("build pinned tunnel command");
         let args = command
             .get_args()
             .map(|arg| arg.to_string_lossy().to_string())
@@ -5116,9 +5134,9 @@ mod tests {
                 recent_idempotency: HashSet::new(),
                 idempotency_order: VecDeque::new(),
                 maintenance_in_progress: false,
-            runtime_restart: RestartBackoff::default(),
-            tunnel_restart: RestartBackoff::default(),
-            lifecycle_events: VecDeque::new(),
+                runtime_restart: RestartBackoff::default(),
+                tunnel_restart: RestartBackoff::default(),
+                lifecycle_events: VecDeque::new(),
             })),
             token: Arc::new("test-token".into()),
             operator_token: Arc::new("operator-test-token-1234567890".into()),
@@ -5129,7 +5147,9 @@ mod tests {
         };
 
         assert_eq!(
-            require_auth(&headers, &state).expect_err("protocol must be required").0,
+            require_auth(&headers, &state)
+                .expect_err("protocol must be required")
+                .0,
             StatusCode::PRECONDITION_FAILED
         );
 
@@ -5159,7 +5179,7 @@ mod tests {
                 maintenance_in_progress: false,
                 runtime_restart: RestartBackoff::default(),
                 tunnel_restart: RestartBackoff::default(),
-            lifecycle_events: VecDeque::new(),
+                lifecycle_events: VecDeque::new(),
             })),
             token: Arc::new("normal-test-token-1234567890".into()),
             operator_token: Arc::new("operator-test-token-1234567890".into()),
@@ -5205,7 +5225,14 @@ mod tests {
         };
         assert!(validate_tunnel_request(&valid).is_ok());
 
-        for name in ["--url", "-config", ".hidden", "_private", "trailing-", "trailing."] {
+        for name in [
+            "--url",
+            "-config",
+            ".hidden",
+            "_private",
+            "trailing-",
+            "trailing.",
+        ] {
             let request = TunnelRequest {
                 name: name.into(),
                 hostname: Some("dev.example.com".into()),
@@ -5286,18 +5313,12 @@ mod tests {
         let root = tempfile::tempdir().expect("tempdir");
         let path = replay_state_path(root.path());
 
-        write_private_file_atomic(
-            &path,
-            br#"{"keys":["valid","bad key"]}"#,
-        )
-        .expect("write invalid replay state");
+        write_private_file_atomic(&path, br#"{"keys":["valid","bad key"]}"#)
+            .expect("write invalid replay state");
         assert!(load_replay_state(root.path()).is_err());
 
-        write_private_file_atomic(
-            &path,
-            br#"{"keys":["duplicate","duplicate"]}"#,
-        )
-        .expect("write duplicate replay state");
+        write_private_file_atomic(&path, br#"{"keys":["duplicate","duplicate"]}"#)
+            .expect("write duplicate replay state");
         assert!(load_replay_state(root.path()).is_err());
     }
 
@@ -5510,7 +5531,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn service_tool_overrides_reject_symlink_paths() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
 
         let root = tempfile::tempdir().expect("temp root");
         let target = root.path().join("bmscl-real");
@@ -5566,8 +5587,7 @@ mod tests {
             fs::write(ebin.join(module), b"beam").expect("write module");
         }
 
-        let supervisor_digest =
-            supervisor_ebin_sha256(&supervisor).expect("hash supervisor");
+        let supervisor_digest = supervisor_ebin_sha256(&supervisor).expect("hash supervisor");
         let overrides = ServiceToolOverrides {
             daemon_binary: env::current_exe().ok(),
             daemon_sha256: env::current_exe()
@@ -5640,8 +5660,8 @@ mod tests {
         assert!(trusted_system_tool(&[value.as_str()], "test-tool").is_err());
 
         fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).expect("chmod executable");
-        let pinned = trusted_system_tool(&[value.as_str()], "test-tool")
-            .expect("trusted fixed tool");
+        let pinned =
+            trusted_system_tool(&[value.as_str()], "test-tool").expect("trusted fixed tool");
         assert_eq!(pinned, fs::canonicalize(&tool).expect("canonical tool"));
     }
 
@@ -5728,7 +5748,6 @@ mod tests {
         assert!(validate_dns_route_state(&desired).is_err());
     }
 
-
     #[test]
     fn operator_update_root_contract_fails_closed() {
         let root = tempfile::tempdir().expect("tempdir");
@@ -5746,7 +5765,10 @@ mod tests {
             update_root: None,
             clear_update_root: true,
         };
-        assert_eq!(resolve_operator_update_root(clear).expect("clear root"), None);
+        assert_eq!(
+            resolve_operator_update_root(clear).expect("clear root"),
+            None
+        );
 
         assert!(
             resolve_operator_update_root(OperatorSettingsPatch {
@@ -5797,7 +5819,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn public_settings_view_does_not_expose_operator_paths_or_tool_paths() {
         let settings = Settings {
@@ -5826,7 +5847,6 @@ mod tests {
         assert!(!encoded.contains("bmscl_binary"));
         assert!(!encoded.contains("zed_binary"));
     }
-
 
     #[test]
     fn persisted_state_rejects_unknown_fields_on_downgrade() {
@@ -5862,5 +5882,4 @@ mod tests {
             .is_err()
         );
     }
-
 }
