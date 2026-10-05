@@ -212,58 +212,6 @@ public final class OresScheduler implements AutoCloseable {
                 turnExecutor);
     }
 
-    /**
-     * Drive one host/embedder task on the current thread without attempting a
-     * second concurrent entry into an already-entered Polyglot context.
-     *
-     * <p>Turns are still queue-dispatched: every await/tail-await fully returns
-     * to this pump before the next turn receives a fresh dispatch id. External
-     * completion threads may only enqueue a runnable.</p>
-     */
-    static <T> T driveOnCurrentThread(
-            Task<T> task,
-            TurnExecutor turnExecutor) {
-        Objects.requireNonNull(task, "task");
-        Objects.requireNonNull(turnExecutor, "turnExecutor");
-
-        LinkedBlockingQueue<Runnable> ready =
-                new LinkedBlockingQueue<>(DEFAULT_QUEUE_CAPACITY);
-        Executor pump = command -> {
-            if (!ready.offer(Objects.requireNonNull(command, "command"))) {
-                throw new RejectedExecutionException(
-                        "host-pumped OresScheduler ready queue is full");
-            }
-        };
-
-        OresScheduler scheduler = new OresScheduler(
-                "ores-host-pump-" + NEXT_ID.incrementAndGet(),
-                1,
-                pump,
-                null,
-                turnExecutor);
-
-        boolean interrupted = false;
-        try {
-            OresFuture<T> completion = scheduler.start(task);
-            while (!completion.isDone()) {
-                Runnable next;
-                for (;;) {
-                    try {
-                        next = ready.take();
-                        break;
-                    } catch (InterruptedException interruption) {
-                        interrupted = true;
-                    }
-                }
-                next.run();
-            }
-            return completion.join();
-        } finally {
-            scheduler.close();
-            if (interrupted) Thread.currentThread().interrupt();
-        }
-    }
-
     /** True only on private carriers owned by user-created OresSchedulers. */
     public static boolean isSchedulerCarrierThread() {
         return Boolean.TRUE.equals(SCHEDULER_CARRIER.get());
@@ -458,6 +406,8 @@ public final class OresScheduler implements AutoCloseable {
                 new AtomicReference<>(Resume.initialResume());
         private final AtomicReference<TerminalOutcome<T>> terminalOutcome =
                 new AtomicReference<>();
+        private final AtomicReference<OresFuture.RuntimeWaiterRegistration>
+                activeAwaitRegistration = new AtomicReference<>();
         private final OresFuture<T> completion;
 
         private TaskRunner(Task<T> task) {
@@ -492,6 +442,7 @@ public final class OresScheduler implements AutoCloseable {
             Object priorTaskDomain = CURRENT_TASK_DOMAIN.get();
             CURRENT_TASK_DOMAIN.set(this);
             try {
+                detachActiveAwaitRegistration();
                 Resume resume = pendingResume.getAndSet(null);
                 if (resume == null) {
                     failTerminal(new IllegalStateException(
@@ -558,17 +509,37 @@ public final class OresScheduler implements AutoCloseable {
             }
 
             try {
-                awaited.whenCompleteRuntime((value, failure) -> {
-                    Resume resume = Resume.completed(
-                            value,
-                            failure == null ? null : OresFuture.unwrap(failure));
-                    if (!pendingResume.compareAndSet(null, resume)) {
-                        failTerminal(new IllegalStateException(
-                                "await delivered more than one resume to the same task"));
-                        return;
-                    }
-                    scheduleReadyResume();
-                });
+                OresFuture.RuntimeWaiterRegistration registration =
+                        awaited.whenCompleteRuntimeCancellable((value, failure) -> {
+                            if (phase.get() == TERMINAL) return;
+
+                            Resume resume = Resume.completed(
+                                    value,
+                                    failure == null ? null : OresFuture.unwrap(failure));
+                            if (!pendingResume.compareAndSet(null, resume)) {
+                                failTerminal(new IllegalStateException(
+                                        "await delivered more than one resume to the same task"));
+                                return;
+                            }
+
+                            if (phase.get() == TERMINAL) {
+                                pendingResume.compareAndSet(resume, null);
+                                return;
+                            }
+                            scheduleReadyResume();
+                        });
+
+                OresFuture.RuntimeWaiterRegistration previous =
+                        activeAwaitRegistration.getAndSet(registration);
+                if (previous != null) previous.detach();
+
+                // A terminal/already-completed Future may have invoked the
+                // callback synchronously before the registration was published.
+                // In that case the waiter is already claimed; clear our strong
+                // reference immediately.
+                if (phase.get() != WAITING || pendingResume.get() != null) {
+                    detachActiveAwaitRegistration();
+                }
             } catch (RuntimeException | Error registrationFailure) {
                 failTerminal(registrationFailure);
             }
@@ -605,7 +576,14 @@ public final class OresScheduler implements AutoCloseable {
             }
         }
 
+        private void detachActiveAwaitRegistration() {
+            OresFuture.RuntimeWaiterRegistration registration =
+                    activeAwaitRegistration.getAndSet(null);
+            if (registration != null) registration.detach();
+        }
+
         private void finish(T value) {
+            detachActiveAwaitRegistration();
             if (!phase.compareAndSet(RUNNING, TERMINAL)) {
                 return;
             }
@@ -617,6 +595,7 @@ public final class OresScheduler implements AutoCloseable {
 
         private void failTerminal(Throwable failure) {
             Objects.requireNonNull(failure, "failure");
+            detachActiveAwaitRegistration();
             int observed;
             do {
                 observed = phase.get();
@@ -647,6 +626,7 @@ public final class OresScheduler implements AutoCloseable {
         }
 
         private void cancelFromFuture() {
+            detachActiveAwaitRegistration();
             int observed;
             do {
                 observed = phase.get();

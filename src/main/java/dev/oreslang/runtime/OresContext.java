@@ -83,30 +83,6 @@ public final class OresContext implements AutoCloseable {
     public ExecutionProfile executionProfile() { return executionProfile; }
     public String codeGenerationId() { return codeGenerationId; }
 
-    /**
-     * True when main is being entered by a host/embedder lifecycle rather than
-     * by this context's own root scheduler or an actor turn.
-     */
-    public boolean externalHostEntry() {
-        return ActorRuntime.currentActorRuntime() == null
-                && ActorRuntime.currentRootRuntime() != actors;
-    }
-
-    /**
-     * Drive compiler-lowered main turns on the already-entered context thread.
-     * This avoids a second concurrent Truffle-context entry in strict isolate
-     * mode while preserving scheduler dispatch boundaries.
-     */
-    public <T> T driveHostTask(OresScheduler.Task<T> task) {
-        if (!externalHostEntry()) {
-            throw new IllegalStateException(
-                    "host task pump is only valid at an external context entry");
-        }
-        return OresScheduler.driveOnCurrentThread(
-                task,
-                actors::executeHostPumpedRootTurn);
-    }
-
     public void requireCapability(IsolatePolicy.Capability capability, String api) {
         IsolatePolicy actorPolicy = ActorRuntime.currentActorPolicy();
         if (actorPolicy != null && ActorRuntime.currentActorRuntime() != actors) {

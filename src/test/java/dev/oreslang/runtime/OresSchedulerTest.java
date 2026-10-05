@@ -8,7 +8,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -76,6 +75,10 @@ final class OresSchedulerTest {
 
             assertEquals(8, result.get(5, TimeUnit.SECONDS));
             assertEquals(2, state.get());
+            assertEquals(
+                    0,
+                    completed.pendingRuntimeWaiterCount(),
+                    "awaiting an already-settled Future must not retain a claimed continuation waiter");
         }
     }
 
@@ -150,36 +153,6 @@ final class OresSchedulerTest {
             carrier.shutdownNow();
             assertTrue(carrier.awaitTermination(5, TimeUnit.SECONDS));
         }
-    }
-
-    @Test
-    void hostPumpKeepsSameThreadButUsesFreshDispatchAfterReadyAwait() {
-        AtomicInteger pc = new AtomicInteger();
-        AtomicReference<Thread> firstThread = new AtomicReference<>();
-        AtomicLong firstDispatch = new AtomicLong();
-
-        int result = OresScheduler.driveOnCurrentThread(
-                resume -> {
-                    int turn = pc.getAndIncrement();
-                    if (turn == 0) {
-                        assertTrue(resume.initial());
-                        firstThread.set(Thread.currentThread());
-                        firstDispatch.set(OresScheduler.currentDispatchId());
-                        return OresScheduler.await(OresFuture.completed(41));
-                    }
-
-                    assertFalse(resume.initial());
-                    assertSame(firstThread.get(), Thread.currentThread(),
-                            "host pump must remain on the context-owning thread");
-                    assertNotEquals(firstDispatch.get(), OresScheduler.currentDispatchId(),
-                            "ready await must still resume through a fresh dispatch");
-                    assertEquals(41, resume.value());
-                    return OresScheduler.done(42);
-                },
-                Runnable::run);
-
-        assertEquals(42, result);
-        assertEquals(2, pc.get());
     }
 
     @Test
@@ -332,6 +305,39 @@ final class OresSchedulerTest {
         } finally {
             scheduler.close();
         }
+    }
+
+    @Test
+    void closingSchedulerDetachesSuspendedWaiterWithoutCancellingSharedFuture() throws Exception {
+        OresFuture<Integer> shared = new OresFuture<>();
+        OresScheduler scheduler = new OresScheduler(1);
+        AtomicInteger pc = new AtomicInteger();
+
+        OresFuture<Integer> task = scheduler.start(resume -> {
+            if (pc.getAndIncrement() == 0) {
+                return OresScheduler.await(shared);
+            }
+            return OresScheduler.done((Integer) resume.value());
+        });
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (shared.pendingRuntimeWaiterCount() != 1
+                && System.nanoTime() < deadline) {
+            Thread.sleep(1);
+        }
+        assertEquals(1, shared.pendingRuntimeWaiterCount());
+
+        scheduler.close();
+
+        assertTrue(task.isCancelled());
+        assertEquals(0, shared.pendingRuntimeWaiterCount(),
+                "closing the scheduler must detach its continuation waiter");
+        assertFalse(shared.isDone(),
+                "detaching a waiter must not cancel the shared producer Future");
+
+        assertTrue(shared.completeFromRuntime(9));
+        assertEquals(1, pc.get(),
+                "detached continuation must never resume after producer completion");
     }
 
 }

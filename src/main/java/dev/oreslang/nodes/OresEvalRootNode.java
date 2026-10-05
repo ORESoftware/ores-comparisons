@@ -197,31 +197,28 @@ public final class OresEvalRootNode extends RootNode {
             if (main == null) return null;
             final Ast.FunctionDecl entryMain = main;
 
-            if (context.externalHostEntry()) {
+            boolean hostEntry = OresScheduler.current() == null
+                    && !ActorRuntime.inRootExecution()
+                    && !ActorRuntime.inActorExecution();
+
+            if (hostEntry) {
                 List<?> normalized = normalizeFunctionArguments(
                         entryMain,
                         List.of(arguments));
+                OresFuture<Object> task = entryMain.async()
+                        ? startAsyncFunction(entryMain, normalized)
+                        : context.actors().rootScheduler().startSync(
+                                () -> callFunctionBody(entryMain, normalized));
 
-                if (entryMain.async()) {
-                    return context.driveHostTask(
-                            new AsyncPlanTask(
-                                    asyncFunctionPlan(entryMain, normalized),
-                                    traceForInvocation(functionTraceFrame(entryMain))));
-                }
-
-                return context.driveHostTask(resume -> {
-                    if (!resume.initial()) {
-                        throw new IllegalStateException(
-                                "synchronous main resumed more than once");
-                    }
-                    return OresScheduler.done(
-                            callFunctionBody(entryMain, normalized));
-                });
+                // The host/embedder thread may block waiting for the root task;
+                // no Ores carrier is consumed. Completion is published only
+                // after the final scheduler turn fully unwinds.
+                return task.join();
             }
 
-            // Internal callers already executing under this context's root
-            // scheduler keep that scheduler. Async callables return their
-            // Future to the enclosing Ores frame, which may await normally.
+            // Internal callers already executing under an Ores scheduler keep
+            // that scheduler. Async callables return their Future to the
+            // enclosing Ores frame, which may await it normally.
             return callFunction(entryMain, List.of(arguments));
         }
 
@@ -523,11 +520,15 @@ public final class OresEvalRootNode extends RootNode {
                     case "start" -> (Invokable) args -> {
                         requireOne(args, "OresScheduler.start");
                         Object work = args.getFirst();
-                        if (!(work instanceof AsyncLambdaValue asyncLambda)) {
-                            throw new IllegalArgumentException(
-                                    "OresScheduler.start currently requires an async zero-argument lambda");
+                        if (work instanceof AsyncLambdaValue asyncLambda) {
+                            return asyncLambda.startOn(scheduler, List.of());
                         }
-                        return asyncLambda.startOn(scheduler, List.of());
+                        if (work instanceof Invokable synchronous) {
+                            return scheduler.startSync(
+                                    () -> synchronous.call(List.of()));
+                        }
+                        throw new IllegalArgumentException(
+                                "OresScheduler.start requires a zero-argument lambda");
                     };
                     case "parallelism" -> (Invokable) args -> {
                         requireZero(args, "OresScheduler.parallelism");
