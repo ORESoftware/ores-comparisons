@@ -76,6 +76,18 @@ if grep -nHE '^[[:space:]]*import[[:space:]]+(class|fnc|module|actor)[[:space:]]
   failed=1
 fi
 
+# Callable declarations use '->' (or ':' where the grammar permits it).
+# Fat arrows are reserved for type-level function shapes.
+fat_arrow_callables="$(
+  grep -nHE '^[[:space:]]*(pub[[:space:]]+)?(fnc|routine)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\([^;{]*\)[[:space:]]*=>' $files \
+    || true
+)"
+if [ -n "$fat_arrow_callables" ]; then
+  echo "error: fat-arrow callable syntax found; use '->' for callables" >&2
+  echo "$fat_arrow_callables" >&2
+  failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi
