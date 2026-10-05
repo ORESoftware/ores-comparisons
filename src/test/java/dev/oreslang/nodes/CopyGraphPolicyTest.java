@@ -46,6 +46,13 @@ final class CopyGraphPolicyTest {
     }
 
     @Test
+    void runtimeNumericGateRejectsForeignNumberSubclasses() {
+        assertTrue(OresEvalRootNode.isKnownRuntimeNumber(7L));
+        assertTrue(!OresEvalRootNode.isKnownRuntimeNumber(new AtomicInteger(7)));
+        assertTrue(!OresEvalRootNode.isKnownRuntimeNumber(new MutableBigInteger()));
+    }
+
+    @Test
     void mutableNumberSubclassFailsClosed() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
