@@ -3,6 +3,7 @@ package dev.oreslang.runtime;
 import dev.oreslang.runtime.ActorRuntime.ActorAffinityPolicy;
 import dev.oreslang.runtime.ActorRuntime.AffinityBlockingQueue;
 import dev.oreslang.runtime.ActorRuntime.AffinityWork;
+import dev.oreslang.runtime.ActorRuntime.AffinityWorkClass;
 import dev.oreslang.runtime.ActorRuntime.CarrierRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -19,16 +20,27 @@ final class ActorCarrierAffinityTest {
     private static final class TestWork implements AffinityWork {
         private final CarrierRegistry registry;
         private final Runnable action;
+        private final AffinityWorkClass workClass;
         private volatile long preferred;
         private volatile long enqueuedNanos;
 
         private TestWork(CarrierRegistry registry, long preferred, Runnable action) {
+            this(registry, AffinityWorkClass.ACTOR_TURN, preferred, action);
+        }
+
+        private TestWork(
+                CarrierRegistry registry,
+                AffinityWorkClass workClass,
+                long preferred,
+                Runnable action) {
             this.registry = registry;
+            this.workClass = workClass;
             this.preferred = preferred;
             this.action = action;
         }
 
         @Override public CarrierRegistry affinityRegistry() { return registry; }
+        @Override public AffinityWorkClass affinityWorkClass() { return workClass; }
         @Override public long preferredCarrierToken() { return preferred; }
         @Override public long affinityEnqueuedNanos() { return enqueuedNanos; }
         @Override public void affinityEnqueuedNanos(long value) { enqueuedNanos = value; }
@@ -86,6 +98,32 @@ final class ActorCarrierAffinityTest {
     }
 
     @Test
+    void actorQueueRejectsDataOrientedCpuAndGpuWork() {
+        CarrierRegistry registry = new CarrierRegistry(1);
+        AffinityBlockingQueue queue = new AffinityBlockingQueue(4, registry);
+
+        var cpuChunk = new TestWork(
+                registry,
+                AffinityWorkClass.CPU_DATA_CHUNK,
+                0L,
+                () -> { });
+        var gpuKernel = new TestWork(
+                registry,
+                AffinityWorkClass.GPU_KERNEL,
+                0L,
+                () -> { });
+
+        IllegalArgumentException cpuFailure =
+                assertThrows(IllegalArgumentException.class, () -> queue.offer(cpuChunk));
+        assertTrue(cpuFailure.getMessage().contains("heterogeneous compute/dataflow scheduler"));
+
+        IllegalArgumentException gpuFailure =
+                assertThrows(IllegalArgumentException.class, () -> queue.offer(gpuKernel));
+        assertTrue(gpuFailure.getMessage().contains("heterogeneous compute/dataflow scheduler"));
+        assertTrue(queue.isEmpty());
+    }
+
+    @Test
     void queuePrefersCurrentCarrierAheadOfYoungForeignAffineWork() throws Exception {
         CarrierRegistry registry = new CarrierRegistry(2);
         AffinityBlockingQueue queue = new AffinityBlockingQueue(8, registry);
@@ -132,6 +170,34 @@ final class ActorCarrierAffinityTest {
             releaseForeign.countDown();
             local.join(2_000);
             foreign.join(2_000);
+        }
+    }
+
+    @Test
+    void actorAffinityQueueRejectsCpuDataChunksAndGpuKernels() {
+        CarrierRegistry registry = new CarrierRegistry(1);
+        AffinityBlockingQueue queue = new AffinityBlockingQueue(4, registry);
+
+        for (AffinityWorkClass workClass : new AffinityWorkClass[] {
+                AffinityWorkClass.CPU_DATA_CHUNK,
+                AffinityWorkClass.GPU_KERNEL
+        }) {
+            AffinityWork computeWork = new AffinityWork() {
+                private volatile long enqueued;
+
+                @Override public CarrierRegistry affinityRegistry() { return registry; }
+                @Override public AffinityWorkClass affinityWorkClass() { return workClass; }
+                @Override public long preferredCarrierToken() { return 0L; }
+                @Override public long affinityEnqueuedNanos() { return enqueued; }
+                @Override public void affinityEnqueuedNanos(long value) { enqueued = value; }
+                @Override public void run() { }
+            };
+
+            IllegalArgumentException failure = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> queue.offer(computeWork));
+            assertTrue(failure.getMessage().contains("heterogeneous compute/dataflow scheduler"));
+            assertTrue(queue.isEmpty());
         }
     }
 

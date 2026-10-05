@@ -252,6 +252,19 @@ public final class ActorRuntime implements AutoCloseable {
     }
 
     /**
+     * Scheduler work classes are deliberately separated. Actor-domain ready
+     * queues may carry only ACTOR_TURN work. Dense CPU data chunks and GPU
+     * kernels have region/layout/residency semantics and must be submitted to
+     * the heterogeneous compute/dataflow scheduler instead of piggybacking on
+     * actor carrier affinity.
+     */
+    enum AffinityWorkClass {
+        ACTOR_TURN,
+        CPU_DATA_CHUNK,
+        GPU_KERNEL
+    }
+
+    /**
      * Actor dispatcher configuration.
      *
      * Fairness is bounded by both mailbox throughput and wall-clock batch time.
@@ -5953,6 +5966,7 @@ public final class ActorRuntime implements AutoCloseable {
      */
     interface AffinityWork extends Runnable {
         CarrierRegistry affinityRegistry();
+        AffinityWorkClass affinityWorkClass();
         long preferredCarrierToken();
         long affinityEnqueuedNanos();
         void affinityEnqueuedNanos(long value);
@@ -5967,11 +5981,11 @@ public final class ActorRuntime implements AutoCloseable {
      * age wins. This preserves bounded fairness even with a one-carrier domain
      * and a continuously hot actor.</p>
      */
-    static final class AffinityBlockingQueue extends LinkedBlockingQueue<Runnable> {
+    static final class AffinityBlockingQueue extends ArrayBlockingQueue<Runnable> {
         private final CarrierRegistry registry;
 
         AffinityBlockingQueue(int capacity, CarrierRegistry registry) {
-            super(capacity);
+            super(capacity, true);
             this.registry = Objects.requireNonNull(registry, "registry");
         }
 
@@ -5992,6 +6006,13 @@ public final class ActorRuntime implements AutoCloseable {
                 if (work.affinityRegistry() != registry) {
                     throw new IllegalArgumentException(
                             "affinity work belongs to a different scheduler domain");
+                }
+                if (work.affinityWorkClass() != AffinityWorkClass.ACTOR_TURN) {
+                    throw new IllegalArgumentException(
+                            "actor dispatcher cannot admit "
+                                    + work.affinityWorkClass()
+                                    + "; CPU data chunks and GPU kernels require "
+                                    + "the heterogeneous compute/dataflow scheduler");
                 }
                 work.affinityEnqueuedNanos(System.nanoTime());
             }
@@ -6718,6 +6739,11 @@ public final class ActorRuntime implements AutoCloseable {
             return !readyContinuations.isEmpty()
                     || !nextTickContinuations.isEmpty()
                     || !inbox.isEmpty();
+        }
+
+        @Override
+        public AffinityWorkClass affinityWorkClass() {
+            return AffinityWorkClass.ACTOR_TURN;
         }
 
         @Override
