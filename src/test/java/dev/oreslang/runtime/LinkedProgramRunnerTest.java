@@ -1,5 +1,6 @@
 package dev.oreslang.runtime;
 
+import dev.oreslang.compiler.IncrementalCompiler;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -91,6 +92,44 @@ final class LinkedProgramRunnerTest {
                     out.toString(StandardCharsets.UTF_8).contains("42"),
                     () -> "expected async main output, stderr="
                             + err.toString(StandardCharsets.UTF_8));
+        } finally {
+            Files.deleteIfExists(source);
+        }
+    }
+
+
+    @Test
+    void bundledStdlibImportsExecuteThroughNormalLinker() throws Exception {
+        Path source = Files.createTempFile("ores-linked-stdlib-", ".ores");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        try {
+            Files.writeString(source, """
+                    import module http_wire from "std/net/http";
+
+                    pub routine main() => void {
+                      stdio.println(http_wire.is_redirect(302));
+                      stdio.println(http_wire.default_port("https").unwrap());
+                      stdio.println(http_wire.default_port("ftp").is_none());
+                      return;
+                    }
+                    """);
+
+            IncrementalCompiler.BuildResult build = assertDoesNotThrow(
+                    () -> LinkedProgramRunner.run(
+                            source,
+                            IsolatePolicy.developer(),
+                            ExecutionProfile.serverJit(),
+                            out,
+                            err));
+
+            assertTrue(build.units().containsKey("std/net/http.ores"));
+            String output = out.toString(StandardCharsets.UTF_8);
+            assertTrue(output.contains("true"), () -> "expected stdlib bool output, stderr="
+                    + err.toString(StandardCharsets.UTF_8));
+            assertTrue(output.contains("443"), () -> "expected stdlib default port, stderr="
+                    + err.toString(StandardCharsets.UTF_8));
         } finally {
             Files.deleteIfExists(source);
         }
