@@ -14,6 +14,8 @@ import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.ProcessSingletonRegistry;
 import dev.oreslang.types.TypeChecker;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayDeque;
@@ -77,15 +79,16 @@ public final class OresEvalRootNode extends RootNode {
             Object value,
             IdentityHashMap<Object, Boolean> seen) {
         if (value == null
-                || value instanceof String
-                || value instanceof Number
-                || value instanceof Boolean
-                || value instanceof Character
-                || value instanceof Complex
+                || isKnownImmutableCopyScalar(value)
                 || value instanceof ActorRuntime.ActorId
-                || value instanceof ActorRuntime.ActorRef<?>
-                || value instanceof ActorRuntime.Shared<?>) {
+                || value instanceof ActorRuntime.ActorRef<?>) {
             return;
+        }
+        if (value instanceof ActorRuntime.Shared<?>) {
+            throw new IllegalArgumentException(
+                    "rt copy cannot trust ActorRuntime.Shared as an immutable copy capability: "
+                            + "the public host wrapper can be constructed around mutable storage; "
+                            + "keep actor-transport sharing outside copyable class graphs");
         }
         if (seen.put(value, Boolean.TRUE) != null) return;
 
@@ -123,6 +126,21 @@ public final class OresEvalRootNode extends RootNode {
                 "rt copy cannot verify opaque foreign/host reference of type "
                         + value.getClass().getName()
                         + "; provide an explicit immutable/copy adapter instead");
+    }
+
+    private static boolean isKnownImmutableCopyScalar(Object value) {
+        return value instanceof String
+                || value instanceof Byte
+                || value instanceof Short
+                || value instanceof Integer
+                || value instanceof Long
+                || value instanceof Float
+                || value instanceof Double
+                || value instanceof BigInteger
+                || value instanceof BigDecimal
+                || value instanceof Boolean
+                || value instanceof Character
+                || value instanceof Complex;
     }
 
     private static String digestText(String text) {
@@ -1183,9 +1201,7 @@ public final class OresEvalRootNode extends RootNode {
                 Object value,
                 SingletonState singletonState,
                 IdentityHashMap<Object, Object> copies) {
-            if (value == null || value instanceof String || value instanceof Number
-                    || value instanceof Boolean || value instanceof Character
-                    || value instanceof Complex) {
+            if (value == null || isKnownImmutableCopyScalar(value)) {
                 return value;
             }
 
@@ -1364,14 +1380,9 @@ public final class OresEvalRootNode extends RootNode {
 
         private boolean isMutableComposite(Object value) {
             return value != null
-                    && !(value instanceof String)
-                    && !(value instanceof Number)
-                    && !(value instanceof Boolean)
-                    && !(value instanceof Character)
-                    && !(value instanceof Complex)
+                    && !isKnownImmutableCopyScalar(value)
                     && !(value instanceof ActorRuntime.ActorId)
-                    && !(value instanceof ActorRuntime.ActorRef<?>)
-                    && !(value instanceof ActorRuntime.Shared<?>);
+                    && !(value instanceof ActorRuntime.ActorRef<?>);
         }
 
         private boolean sameValueGraph(
@@ -1544,12 +1555,7 @@ public final class OresEvalRootNode extends RootNode {
     private static Object copySingletonValue(
             Object value,
             IdentityHashMap<Object, Object> copies) {
-        if (value == null
-                || value instanceof String
-                || value instanceof Number
-                || value instanceof Boolean
-                || value instanceof Character
-                || value instanceof Complex) {
+        if (value == null || isKnownImmutableCopyScalar(value)) {
             return value;
         }
         Object existing = copies.get(value);
