@@ -31,3 +31,11 @@ jobs:
         run: |
           mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/showcase.ores"
           mvn -B -ntp -DskipTests exec:java -Dexec.args="examples/together.ores"
+      - name: Audit mirrored data-science source
+        run: |
+          cd integration/oreslang-data-science
+          sh scripts/verify-source-invariants.sh
+      - name: Run mirrored data-science native suites
+        run: |
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="integration/oreslang-data-science/tests/main.ores"
+          mvn -B -ntp -DskipTests exec:java -Dexec.args="integration/oreslang-data-science/tests/embeddings.ores"
