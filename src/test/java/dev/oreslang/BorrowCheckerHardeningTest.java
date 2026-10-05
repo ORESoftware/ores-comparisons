@@ -166,6 +166,47 @@ final class BorrowCheckerHardeningTest {
     }
 
     @Test
+    void deferredTakeIsCheckedNowButConsumesOnlyAtBlockExit() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 7;
+                end
+
+                fnc consume(take Box box) => void {
+                  return;
+                }
+
+                fnc ok() => void {
+                  let Box box = new Box();
+                  defer consume(box);
+                  stdio.println(box.value);
+                  return;
+                }
+                """)));
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 7;
+                        end
+
+                        fnc consume(take Box box) => void {
+                          return;
+                        }
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          defer consume(box);
+                          consume(box);
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow"), error.getMessage());
+    }
+
+    @Test
     void deferRetainsReadBorrowUntilBlockExit() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
