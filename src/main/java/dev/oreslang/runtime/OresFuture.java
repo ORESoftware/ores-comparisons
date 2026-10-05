@@ -353,6 +353,7 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
         Object observed = state.get();
         boolean interrupted = false;
         if (observed == PENDING) {
+            rejectBlockingOnOresCarrier("join");
             java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
             whenCompleteRuntime((value, failure) -> done.countDown());
             for (;;) {
@@ -417,6 +418,7 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
         Object observed = state.get();
         if (observed != PENDING) return observed;
 
+        rejectBlockingOnOresCarrier("get");
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         whenCompleteRuntime((value, failure) -> done.countDown());
 
@@ -426,6 +428,16 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
             return state.get() == PENDING ? PENDING : state.get();
         }
         return state.get();
+    }
+
+    private static void rejectBlockingOnOresCarrier(String operation) {
+        if (NativeCarrierExecutor.isNativeCarrierThread()
+                || ActorRuntime.isActorCarrierThread()
+                || OresScheduler.isSchedulerCarrierThread()) {
+            throw new IllegalStateException(
+                    "OresFuture." + operation
+                            + "() cannot block an Ores carrier; use await/scheduler suspension");
+        }
     }
 
     @SuppressWarnings("unchecked")
