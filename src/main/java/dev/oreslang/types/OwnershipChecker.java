@@ -1859,7 +1859,12 @@ public final class OwnershipChecker {
     private Map<VarState, StateSnapshot> stateSnapshot(Scope scope) {
         Map<VarState, StateSnapshot> result = new IdentityHashMap<>();
         for (VarState state : scope.visibleStates()) {
-            result.put(state, new StateSnapshot(state.kind, state.moved, state.immutableBorrows, state.mutableBorrowed));
+            result.put(state, new StateSnapshot(
+                    state.kind,
+                    state.moved,
+                    state.immutableBorrows,
+                    state.mutableBorrowed,
+                    state.borrowSource));
         }
         return result;
     }
@@ -1872,26 +1877,114 @@ public final class OwnershipChecker {
             state.moved = saved.moved();
             state.immutableBorrows = saved.immutableBorrows();
             state.mutableBorrowed = saved.mutableBorrowed();
+            state.borrowSource = saved.borrowSource();
         }
     }
 
-    private void mergeBranchState(Map<VarState, StateSnapshot> base, List<Map<VarState, StateSnapshot>> exits) {
+    private void mergeBranchState(
+            Map<VarState, StateSnapshot> base,
+            List<Map<VarState, StateSnapshot>> exits) {
         restoreState(base);
         for (VarState state : base.keySet()) {
-            boolean movedOnAnyPath = base.get(state).moved();
-            boolean sharedOnAnyPath = base.get(state).kind() == ValueKind.SHARED;
+            ValueKind mergedKind = null;
+            boolean movedOnAnyPath = false;
+            int immutableBorrowsOnAnyPath = 0;
+            boolean mutableBorrowedOnAnyPath = false;
+
+            VarState mergedBorrowSource = null;
+            boolean sawBorrow = false;
+            boolean sawUntrackedBorrow = false;
+
             for (Map<VarState, StateSnapshot> exit : exits) {
                 StateSnapshot saved = exit.get(state);
-                if (saved != null) {
-                    movedOnAnyPath |= saved.moved();
-                    sharedOnAnyPath |= saved.kind() == ValueKind.SHARED;
+                if (saved == null) saved = base.get(state);
+
+                mergedKind = mergedKind == null
+                        ? saved.kind()
+                        : mergeBranchKind(mergedKind, saved.kind());
+                movedOnAnyPath |= saved.moved();
+                immutableBorrowsOnAnyPath = Math.max(
+                        immutableBorrowsOnAnyPath,
+                        saved.immutableBorrows());
+                mutableBorrowedOnAnyPath |= saved.mutableBorrowed();
+
+                if (saved.kind() == ValueKind.IMM_BORROW
+                        || saved.kind() == ValueKind.MUT_BORROW) {
+                    sawBorrow = true;
+                    if (saved.borrowSource() == null) {
+                        sawUntrackedBorrow = true;
+                    } else if (mergedBorrowSource == null) {
+                        mergedBorrowSource = saved.borrowSource();
+                    } else if (mergedBorrowSource != saved.borrowSource()) {
+                        throw error(
+                                "branch merge has ambiguous borrow provenance for '"
+                                        + state.debugName
+                                        + "'; rebind/copy to one owner before branches rejoin");
+                    }
                 }
             }
+
+            if (sawBorrow && sawUntrackedBorrow && mergedBorrowSource != null) {
+                throw error(
+                        "branch merge mixes tracked and untracked borrow provenance for '"
+                                + state.debugName
+                                + "'; make the ownership source explicit before branches rejoin");
+            }
+
+            state.kind = mergedKind == null ? base.get(state).kind() : mergedKind;
             state.moved = movedOnAnyPath;
-            if (sharedOnAnyPath && state.kind == ValueKind.MOVE_ONLY) {
-                state.kind = ValueKind.SHARED;
+            state.immutableBorrows = immutableBorrowsOnAnyPath;
+            state.mutableBorrowed = mutableBorrowedOnAnyPath;
+            state.borrowSource = state.kind == ValueKind.IMM_BORROW
+                            || state.kind == ValueKind.MUT_BORROW
+                    ? mergedBorrowSource
+                    : null;
+        }
+
+        // Path correlation can make max(exit.borrowCount) too small. Example:
+        // branch A retains b, branch B retains a. Each exit has one active
+        // borrow, but after conservative joining both a and b are potential
+        // read aliases. Keep the owner's counter at least as large as the
+        // number of visible merged aliases that may release against it.
+        Map<VarState, Integer> mergedReadAliases = new IdentityHashMap<>();
+        Set<VarState> mergedMutableAliases = java.util.Collections.newSetFromMap(
+                new IdentityHashMap<>());
+        for (VarState state : base.keySet()) {
+            if (state.borrowSource == null) continue;
+            if (state.kind == ValueKind.IMM_BORROW) {
+                mergedReadAliases.merge(state.borrowSource, 1, Integer::sum);
+            } else if (state.kind == ValueKind.MUT_BORROW) {
+                mergedMutableAliases.add(state.borrowSource);
             }
         }
+        for (VarState owner : base.keySet()) {
+            owner.immutableBorrows = Math.max(
+                    owner.immutableBorrows,
+                    mergedReadAliases.getOrDefault(owner, 0));
+            owner.mutableBorrowed |= mergedMutableAliases.contains(owner);
+        }
+    }
+
+    private ValueKind mergeBranchKind(ValueKind left, ValueKind right) {
+        if (left == right) return left;
+
+        // A binding must be safe to use under every possible branch result.
+        // Borrowed is therefore more restrictive than shared, which is more
+        // restrictive than a unique owner. COPY/MOVE_ONLY mixtures should not
+        // occur for one declared type, but MOVE_ONLY is the conservative join.
+        if (left == ValueKind.IMM_BORROW || right == ValueKind.IMM_BORROW) {
+            return ValueKind.IMM_BORROW;
+        }
+        if (left == ValueKind.MUT_BORROW || right == ValueKind.MUT_BORROW) {
+            return ValueKind.IMM_BORROW;
+        }
+        if (left == ValueKind.SHARED || right == ValueKind.SHARED) {
+            return ValueKind.SHARED;
+        }
+        if (left == ValueKind.MOVE_ONLY || right == ValueKind.MOVE_ONLY) {
+            return ValueKind.MOVE_ONLY;
+        }
+        return ValueKind.COPY;
     }
 
     private Map<VarState,Boolean> movedSnapshot(Scope scope) {
@@ -2105,7 +2198,8 @@ public final class OwnershipChecker {
             ValueKind kind,
             boolean moved,
             int immutableBorrows,
-            boolean mutableBorrowed) { }
+            boolean mutableBorrowed,
+            VarState borrowSource) { }
 
     private record Capture(String name, VarState source, boolean write) { }
 

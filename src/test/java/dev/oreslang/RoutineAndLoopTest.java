@@ -351,6 +351,89 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void branchMergeReleasesDestructuredBorrowsWhenEveryPathRebinds() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                define class Box as
+                  pub val int value = 0;
+                end
+
+                fnc ok(bool flag) => void {
+                  let pairs = arr[(new Box(1), new Box(2))];
+                  for [let a, let b] of pairs do
+                    if flag do
+                      a = new Box(9);
+                      b = new Box(9);
+                    else
+                      a = new Box(8);
+                      b = new Box(8);
+                    fi
+                    pairs = arr[(new Box(3), new Box(4))];
+                  done
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void branchMergeCountsComplementaryPotentialAliasesConservatively() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 0;
+                        end
+
+                        fnc bad(bool flag) => void {
+                          let pairs = arr[(new Box(1), new Box(2))];
+                          for [let a, let b] of pairs do
+                            if flag do
+                              a = new Box(9);
+                            else
+                              b = new Box(8);
+                            fi
+
+                            // After the join, either a or b still aliases
+                            // pairs. Rebinding only a cannot make pairs unique.
+                            a = new Box(7);
+                            pairs = arr[(new Box(3), new Box(4))];
+                          done
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow"),
+                error.getMessage());
+    }
+
+    @Test
+    void branchMergeRetainsDestructuredBorrowWhenAnyPathKeepsIt() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub val int value = 0;
+                        end
+
+                        fnc bad(bool flag) => void {
+                          let pairs = arr[(new Box(1), new Box(2))];
+                          for [let a, let b] of pairs do
+                            if flag do
+                              a = new Box(9);
+                              b = new Box(9);
+                            else
+                              stdio.println(a.value);
+                            fi
+                            pairs = arr[(new Box(3), new Box(4))];
+                          done
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().toLowerCase().contains("borrow"),
+                error.getMessage());
+    }
+
+    @Test
     void parenthesizedForCanUseDoDoneBody() throws Exception {
         String output = run("""
                 pub routine main() => void {
