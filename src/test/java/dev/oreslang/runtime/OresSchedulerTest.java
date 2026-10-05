@@ -30,6 +30,13 @@ final class OresSchedulerTest {
 
                 if (pc == 0) {
                     assertTrue(resume.initial());
+                    IllegalStateException joinFailure = assertThrows(
+                            IllegalStateException.class,
+                            source::join);
+                    assertTrue(joinFailure.getMessage().contains("use await"));
+                    assertThrows(
+                            IllegalStateException.class,
+                            () -> source.get(1, TimeUnit.MILLISECONDS));
                     return OresScheduler.await(source);
                 }
 
