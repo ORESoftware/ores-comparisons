@@ -462,6 +462,23 @@ public final class OresEvalRootNode extends RootNode {
                 Ast.LambdaExpr lambda,
                 Env captured,
                 List<Object> args) {
+            return startAsyncLambdaOn(scheduler, lambda, captured, args, false);
+        }
+
+        private OresFuture<Object> startAsyncLambdaDetachedOn(
+                OresScheduler scheduler,
+                Ast.LambdaExpr lambda,
+                Env captured,
+                List<Object> args) {
+            return startAsyncLambdaOn(scheduler, lambda, captured, args, true);
+        }
+
+        private OresFuture<Object> startAsyncLambdaOn(
+                OresScheduler scheduler,
+                Ast.LambdaExpr lambda,
+                Env captured,
+                List<Object> args,
+                boolean detached) {
             Objects.requireNonNull(scheduler, "scheduler");
             if (args.size() != lambda.parameters().size()) {
                 throw new IllegalArgumentException("lambda arity mismatch");
@@ -481,10 +498,10 @@ public final class OresEvalRootNode extends RootNode {
             AsyncPlan body = asyncBlock(lambda.blockBody(), base, callable);
             AsyncPlan completed = asyncFlatMap(body, flow ->
                     asyncPure(flow instanceof AsyncReturn returned ? returned.value() : null));
-            return scheduler.start(
-                    new AsyncPlanTask(
-                            completed,
-                            traceForInvocation(lambdaTraceFrame())));
+            AsyncPlanTask task = new AsyncPlanTask(
+                    completed,
+                    traceForInvocation(lambdaTraceFrame()));
+            return detached ? scheduler.startDetached(task) : scheduler.start(task);
         }
 
         private final class AsyncLambdaValue implements Invokable {
@@ -506,6 +523,12 @@ public final class OresEvalRootNode extends RootNode {
                     List<Object> args) {
                 return startAsyncLambdaOn(scheduler, lambda, captured, args);
             }
+
+            private OresFuture<Object> startDetachedOn(
+                    OresScheduler scheduler,
+                    List<Object> args) {
+                return startAsyncLambdaDetachedOn(scheduler, lambda, captured, args);
+            }
         }
 
         private final class SchedulerFacade {
@@ -520,11 +543,28 @@ public final class OresEvalRootNode extends RootNode {
                     case "start" -> (Invokable) args -> {
                         requireOne(args, "OresScheduler.start");
                         Object work = args.getFirst();
-                        if (!(work instanceof AsyncLambdaValue asyncLambda)) {
-                            throw new IllegalArgumentException(
-                                    "OresScheduler.start currently requires an async zero-argument lambda");
+                        if (work instanceof AsyncLambdaValue asyncLambda) {
+                            return asyncLambda.startOn(scheduler, List.of());
                         }
-                        return asyncLambda.startOn(scheduler, List.of());
+                        if (work instanceof Invokable synchronous) {
+                            return scheduler.startSync(
+                                    () -> synchronous.call(List.of()));
+                        }
+                        throw new IllegalArgumentException(
+                                "OresScheduler.start requires a zero-argument lambda");
+                    };
+                    case "start_detached" -> (Invokable) args -> {
+                        requireOne(args, "OresScheduler.start_detached");
+                        Object work = args.getFirst();
+                        if (work instanceof AsyncLambdaValue asyncLambda) {
+                            return asyncLambda.startDetachedOn(scheduler, List.of());
+                        }
+                        if (work instanceof Invokable synchronous) {
+                            return scheduler.startSyncDetached(
+                                    () -> synchronous.call(List.of()));
+                        }
+                        throw new IllegalArgumentException(
+                                "OresScheduler.start_detached requires a zero-argument lambda");
                     };
                     case "parallelism" -> (Invokable) args -> {
                         requireZero(args, "OresScheduler.parallelism");
