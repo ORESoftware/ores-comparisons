@@ -28,6 +28,23 @@ final class OresFutureCallbackTest {
     }
 
     @Test
+    void lateRuntimeWaiterOnSettledFutureIsDeliveredAndReleased() {
+        OresFuture<Integer> future = OresFuture.completed(42);
+        AtomicReference<Integer> observed = new AtomicReference<>();
+
+        future.whenCompleteRuntime((value, failure) -> {
+            assertNull(failure);
+            observed.set(value);
+        });
+
+        assertEquals(42, observed.get());
+        assertEquals(
+                0,
+                future.pendingRuntimeWaiterCount(),
+                "late terminal registrations must not remain retained in the waiter queue");
+    }
+
+    @Test
     void registrarThrowRejectsFutureWhenCallbackHasNotSettled() {
         OresFuture<Integer> future = OresFuture.fromCallback(callback -> {
             throw new IllegalStateException("registration failed");
@@ -38,6 +55,81 @@ final class OresFutureCallbackTest {
                 () -> future.get(5, TimeUnit.SECONDS));
         assertInstanceOf(IllegalStateException.class, failure.getCause());
         assertEquals("registration failed", failure.getCause().getMessage());
+    }
+
+    @Test
+    void actorAwaitOfPreSettledFutureStillResumesOnLaterTurn() throws Exception {
+        OresFuture<Integer> ready = OresFuture.completed(42);
+        AtomicBoolean insideOriginalBehavior = new AtomicBoolean();
+        AtomicBoolean resumedInline = new AtomicBoolean();
+        java.util.concurrent.CountDownLatch resumed =
+                new java.util.concurrent.CountDownLatch(1);
+
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var actor = runtime.<String>spawn(() -> (message, context) -> {
+                insideOriginalBehavior.set(true);
+                try {
+                    context.suspendOn(
+                            ready,
+                            (value, failure, resumedContext) -> {
+                                resumedInline.set(insideOriginalBehavior.get());
+                                assertNull(failure);
+                                assertEquals(42, value);
+                                resumed.countDown();
+                                resumedContext.self().stop();
+                            });
+                } finally {
+                    insideOriginalBehavior.set(false);
+                }
+            });
+
+            actor.send("await-ready");
+
+            assertTrue(resumed.await(2, TimeUnit.SECONDS));
+            assertTrue(actor.awaitTermination(2, TimeUnit.SECONDS));
+            assertFalse(
+                    resumedInline.get(),
+                    "pre-settled await must unwind the original actor turn before resumption");
+            assertEquals(0, ready.pendingRuntimeWaiterCount());
+        }
+    }
+
+    @Test
+    void stoppingSuspendedActorDetachesNeverSettlingFutureWaiter() throws Exception {
+        OresFuture<Integer> never = new OresFuture<>();
+
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            var actor = runtime.<String>spawn(() -> (message, context) ->
+                    context.suspendOn(
+                            never,
+                            (value, failure, resumedContext) ->
+                                    fail("stopped actor continuation must never resume")));
+
+            actor.send("wait");
+
+            long registrationDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (never.pendingRuntimeWaiterCount() != 1
+                    && System.nanoTime() < registrationDeadline) {
+                Thread.sleep(2);
+            }
+            assertEquals(
+                    1,
+                    never.pendingRuntimeWaiterCount(),
+                    "suspended actor must own exactly one detachable Future waiter");
+
+            actor.stop();
+            assertTrue(actor.awaitTermination(2, TimeUnit.SECONDS));
+
+            long detachDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (never.pendingRuntimeWaiterCount() != 0
+                    && System.nanoTime() < detachDeadline) {
+                Thread.sleep(2);
+            }
+            assertEquals(
+                    0,
+                    never.pendingRuntimeWaiterCount(),
+                    "actor teardown must detach its pending Future waiter");
+        }
     }
 
     @Test
