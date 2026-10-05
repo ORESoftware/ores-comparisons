@@ -778,6 +778,32 @@ public final class OwnershipChecker {
                         payload.kind == ValueKind.COPY ? ValueKind.COPY : ValueKind.MOVE_ONLY,
                         null);
             }
+            if (intrinsic.name().startsWith("$rt$") && ownershipOperation.equals("ptr")) {
+                VarState owner = intrinsicOwner(call, scope, "ptr");
+                validateBorrow(owner, false);
+                Ast.TypeRef target = owner.type.isBorrow() ? owner.type.borrowedTarget() : owner.type;
+                if (isCopyType(target)) {
+                    throw error("rt ptr requires a reference-backed non-Copy value; ordinary scalar values do not expose stable addresses");
+                }
+                Ast.TypeRef pointerType = new Ast.TypeRef("Ptr", List.of(target), false);
+                return new ValueInfo(pointerType, ValueKind.IMM_BORROW, owner);
+            }
+            if (intrinsic.name().startsWith("$rt$") && ownershipOperation.equals("deref")) {
+                requireIntrinsicArity(call, "deref", 1);
+                ValueInfo pointer = checkExpr(call.arguments().getFirst(), scope, false);
+                Ast.TypeRef pointerType = pointer.type;
+                while (pointerType != null && pointerType.isBorrow()) pointerType = pointerType.borrowedTarget();
+                if (pointerType == null
+                        || !pointerType.name().equals("Ptr")
+                        || pointerType.arguments().size() != 1) {
+                    throw error("rt deref requires Ptr<T>");
+                }
+                Ast.TypeRef target = pointerType.arguments().getFirst();
+                return new ValueInfo(
+                        Ast.TypeRef.borrowed(target, false),
+                        ValueKind.IMM_BORROW,
+                        pointer.borrowSource);
+            }
             if (ownershipOperation.equals("borrow")) {
                 VarState owner = intrinsicOwner(call, scope, "borrow");
                 // Borrow is always non-owning, even when the source itself is
@@ -1639,11 +1665,25 @@ public final class OwnershipChecker {
         if (expression instanceof Ast.IndexExpr indexed) return indexedElementType(indexed, scope);
         if (expression instanceof Ast.CallExpr call) {
             if (call.callee() instanceof Ast.NameExpr name) {
-                if ((name.name().equals("borrow") || name.name().equals("take") || name.name().equals("copy"))
+                String operation = ownershipIntrinsicOperation(name.name());
+                boolean namespaced = name.name().startsWith("$rt$");
+                if ((operation.equals("borrow") || operation.equals("take")
+                        || operation.equals("copy") || operation.equals("share")
+                        || (namespaced && (operation.equals("ptr") || operation.equals("deref"))))
                         && call.arguments().size() == 1) {
                     Ast.TypeRef target = ownershipTypeOfExpr(call.arguments().getFirst(), scope);
                     if (target == null) return null;
-                    return name.name().equals("borrow") ? Ast.TypeRef.borrowed(target, false) : target;
+                    if (operation.equals("borrow")) return Ast.TypeRef.borrowed(target, false);
+                    if (operation.equals("ptr")) {
+                        while (target.isBorrow()) target = target.borrowedTarget();
+                        return new Ast.TypeRef("Ptr", List.of(target), false);
+                    }
+                    if (operation.equals("deref")) {
+                        while (target.isBorrow()) target = target.borrowedTarget();
+                        if (!target.name().equals("Ptr") || target.arguments().size() != 1) return null;
+                        return Ast.TypeRef.borrowed(target.arguments().getFirst(), false);
+                    }
+                    return target;
                 }
                 Ast.FunctionDecl fn = findFunction(name.name());
                 return fn == null ? null : fn.returnType();
