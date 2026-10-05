@@ -5781,6 +5781,8 @@ public final class ActorRuntime implements AutoCloseable {
                 new ConcurrentLinkedQueue<>();
         private final ConcurrentLinkedQueue<ContinuationEnvelope> nextTickContinuations =
                 new ConcurrentLinkedQueue<>();
+        private final AtomicReference<OresFuture.RuntimeWaiterRegistration> suspendedAwaitRegistration =
+                new AtomicReference<>();
         private final Set<ActorTimerWheel.Handle> timers = ConcurrentHashMap.newKeySet();
         private final AtomicLong sharedInboxBytes = new AtomicLong();
         private final Object lifecycleLock = new Object();
@@ -6057,6 +6059,7 @@ public final class ActorRuntime implements AutoCloseable {
             activeMessageEpoch = 0L;
             if (messageTimer != null) messageTimer.cancel(false);
             drainInboxReservations();
+            detachSuspendedAwaitRegistration();
             closeSuspendedInboxEnvelope();
             drainControlEvents();
             for (ActorTimerWheel.Handle actorTimer : List.copyOf(timers)) actorTimer.cancel();
@@ -6228,15 +6231,33 @@ public final class ActorRuntime implements AutoCloseable {
             }
 
             logicalTurnSuspended = true;
+            AtomicBoolean completionDelivered = new AtomicBoolean();
             try {
-                awaited.whenCompleteRuntime((value, failure) -> enqueueContinuation(
-                        readyContinuations,
-                        new ContinuationEnvelope(
-                                continuation,
-                                value,
-                                unwrapCompletionFailure(failure)),
-                        "resume"));
+                OresFuture.RuntimeWaiterRegistration registration =
+                        awaited.whenCompleteRuntime((value, failure) -> {
+                            completionDelivered.set(true);
+                            detachSuspendedAwaitRegistration();
+                            enqueueContinuation(
+                                    readyContinuations,
+                                    new ContinuationEnvelope(
+                                            continuation,
+                                            value,
+                                            unwrapCompletionFailure(failure)),
+                                    "resume");
+                        });
+
+                suspendedAwaitRegistration.set(registration);
+
+                // Completion may run inline for an already-settled Future, and
+                // actor stop may race registration after finalization has begun.
+                // In either case detach only after the callback has claimed the
+                // waiter (or the actor is definitively stopping), so we never
+                // suppress a legitimate resume.
+                if (completionDelivered.get() || stopped.get() || closed.get()) {
+                    detachSuspendedAwaitRegistration();
+                }
             } catch (RuntimeException | Error registrationFailure) {
+                detachSuspendedAwaitRegistration();
                 logicalTurnSuspended = false;
                 throw registrationFailure;
             }
@@ -6600,6 +6621,12 @@ public final class ActorRuntime implements AutoCloseable {
                 releaseInboxSlot();
                 envelope.close();
             }
+        }
+
+        private void detachSuspendedAwaitRegistration() {
+            OresFuture.RuntimeWaiterRegistration registration =
+                    suspendedAwaitRegistration.getAndSet(null);
+            if (registration != null) registration.cancel();
         }
 
         private void closeSuspendedInboxEnvelope() {

@@ -91,9 +91,14 @@ final class OresObservableTest {
         OresFuture<OresNotification<Integer>> first = one.next();
         OresFuture<OresNotification<Integer>> second = two.next();
 
+        assertEquals(2, source.runtimeWaiterCountForTesting(),
+                "each shared subscription should own one detachable mapping waiter");
+
         assertTrue(one.cancel());
         assertFalse(source.isCancelled(),
                 "one rx subscriber must not cancel a shared source Future");
+        assertEquals(1, source.runtimeWaiterCountForTesting(),
+                "cancelled shared subscription must detach its producer waiter immediately");
 
         source.completeFromRuntime(99);
 

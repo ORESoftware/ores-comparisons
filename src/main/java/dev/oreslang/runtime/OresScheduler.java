@@ -393,6 +393,8 @@ public final class OresScheduler implements AutoCloseable {
                 new AtomicReference<>(Resume.initialResume());
         private final AtomicReference<TerminalOutcome<T>> terminalOutcome =
                 new AtomicReference<>();
+        private final AtomicReference<OresFuture.RuntimeWaiterRegistration> awaitRegistration =
+                new AtomicReference<>();
         private final OresFuture<T> completion;
 
         private TaskRunner(Task<T> task) {
@@ -493,17 +495,32 @@ public final class OresScheduler implements AutoCloseable {
             }
 
             try {
-                awaited.whenCompleteRuntime((value, failure) -> {
-                    Resume resume = Resume.completed(
-                            value,
-                            failure == null ? null : OresFuture.unwrap(failure));
-                    if (!pendingResume.compareAndSet(null, resume)) {
-                        failTerminal(new IllegalStateException(
-                                "await delivered more than one resume to the same task"));
-                        return;
-                    }
-                    scheduleReadyResume();
-                });
+                OresFuture.RuntimeWaiterRegistration registration =
+                        awaited.whenCompleteRuntime((value, failure) -> {
+                            OresFuture.RuntimeWaiterRegistration registered =
+                                    awaitRegistration.getAndSet(null);
+                            if (registered != null) registered.cancel();
+
+                            Resume resume = Resume.completed(
+                                    value,
+                                    failure == null ? null : OresFuture.unwrap(failure));
+                            if (!pendingResume.compareAndSet(null, resume)) {
+                                failTerminal(new IllegalStateException(
+                                        "await delivered more than one resume to the same task"));
+                                return;
+                            }
+                            scheduleReadyResume();
+                        });
+
+                awaitRegistration.set(registration);
+
+                // An already-settled Future may invoke the callback before
+                // whenCompleteRuntime returns, and cancellation may race this
+                // registration from another thread. In either case, do not
+                // leave a dead continuation rooted in the awaited Future.
+                if (phase.get() == TERMINAL || pendingResume.get() != null) {
+                    detachAwaitRegistration();
+                }
             } catch (RuntimeException | Error registrationFailure) {
                 failTerminal(registrationFailure);
             }
@@ -559,6 +576,7 @@ public final class OresScheduler implements AutoCloseable {
             } while (!phase.compareAndSet(observed, TERMINAL));
 
             terminalOutcome.compareAndSet(null, new TerminalFailure<>(failure));
+            detachAwaitRegistration();
             tasks.remove(this);
             if (!executing.get()) {
                 publishTerminalIfReady();
@@ -587,8 +605,15 @@ public final class OresScheduler implements AutoCloseable {
                 observed = phase.get();
                 if (observed == TERMINAL) return;
             } while (!phase.compareAndSet(observed, TERMINAL));
+            detachAwaitRegistration();
             tasks.remove(this);
             pendingResume.set(null);
+        }
+
+        private void detachAwaitRegistration() {
+            OresFuture.RuntimeWaiterRegistration registration =
+                    awaitRegistration.getAndSet(null);
+            if (registration != null) registration.cancel();
         }
 
         private void cancelFromSchedulerClose() {

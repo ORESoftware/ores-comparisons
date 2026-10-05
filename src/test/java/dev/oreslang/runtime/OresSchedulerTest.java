@@ -321,4 +321,39 @@ final class OresSchedulerTest {
         }
     }
 
+    @Test
+    void cancellingSuspendedTaskDetachesWaiterFromNeverCompletingFuture()
+            throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            OresFuture<Integer> never = new OresFuture<>();
+            AtomicInteger pc = new AtomicInteger();
+
+            OresFuture<Integer> task = scheduler.start(resume -> {
+                if (pc.getAndIncrement() == 0) {
+                    return OresScheduler.await(never);
+                }
+                fail("cancelled suspended task must never resume");
+                return OresScheduler.done(0);
+            });
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (never.runtimeWaiterCountForTesting() != 1
+                    && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertEquals(1, never.runtimeWaiterCountForTesting());
+
+            assertTrue(task.cancel(true));
+
+            deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (never.runtimeWaiterCountForTesting() != 0
+                    && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertEquals(0, never.runtimeWaiterCountForTesting(),
+                    "cancelled scheduler task must not stay rooted by awaited Future");
+            assertEquals(1, pc.get());
+        }
+    }
+
 }
