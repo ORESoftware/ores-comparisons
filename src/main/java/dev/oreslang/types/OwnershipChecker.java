@@ -906,8 +906,11 @@ public final class OwnershipChecker {
             if (method != null) {
                 if (requiresTakeReceiver(method)) {
                     ValueInfo receiver = checkExpr(member.receiver(), scope, true);
-                    if (receiver.kind == ValueKind.IMM_BORROW || receiver.kind == ValueKind.MUT_BORROW) {
-                        throw error("method '" + method.name() + "' takes self ownership but receiver is borrowed");
+                    if (receiver.kind == ValueKind.IMM_BORROW
+                            || receiver.kind == ValueKind.MUT_BORROW
+                            || receiver.kind == ValueKind.SHARED) {
+                        throw error("method '" + method.name()
+                                + "' takes self ownership but receiver is borrowed/shared");
                     }
                     checkArguments(call.arguments(), method.parameters(), scope, "method " + method.name());
                     return new ValueInfo(method.returnType(), kindOfType(method.returnType()), null);
