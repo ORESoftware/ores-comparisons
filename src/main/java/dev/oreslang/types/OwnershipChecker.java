@@ -109,10 +109,16 @@ public final class OwnershipChecker {
     }
 
     private VarState stateForParam(Ast.Param param) {
-        ValueKind kind = param.structural() && !param.type().isBorrow() ? ValueKind.IMM_BORROW : kindOfType(param.type());
+        return stateForParam(param, param.type());
+    }
+
+    private VarState stateForParam(Ast.Param param, Ast.TypeRef effectiveType) {
+        ValueKind kind = param.structural() && !effectiveType.isBorrow()
+                ? ValueKind.IMM_BORROW
+                : kindOfType(effectiveType);
         boolean mutableOwner = param.mutable();
-        if (param.type().isBorrow() && param.type().mutableBorrow()) mutableOwner = false;
-        return new VarState(param.type(), mutableOwner, kind, Origin.PARAM);
+        if (effectiveType.isBorrow() && effectiveType.mutableBorrow()) mutableOwner = false;
+        return new VarState(effectiveType, mutableOwner, kind, Origin.PARAM);
     }
 
     private void checkBlock(List<Ast.Stmt> body, Scope parent, Ast.TypeRef returnType) {
@@ -898,8 +904,11 @@ public final class OwnershipChecker {
             }
         }
 
+        Ast.TypeRef callbackInput = compositionCallbackInput(type, family, operation);
         for (Ast.Expr argument : call.arguments()) {
-            ValueInfo callback = checkExpr(argument, scope, true);
+            ValueInfo callback = argument instanceof Ast.LambdaExpr lambda && callbackInput != null
+                    ? checkLambda(lambda, scope, null, List.of(callbackInput))
+                    : checkExpr(argument, scope, true);
             if (containsMutexGuardType(callback.type)) {
                 throw error(family + "." + operation
                         + " callback cannot capture or contain MutexGuard");
@@ -939,6 +948,26 @@ public final class OwnershipChecker {
             default -> Ast.TypeRef.inferred();
         };
         return new ValueInfo(result, kindOfType(result), null);
+    }
+
+    private Ast.TypeRef compositionCallbackInput(
+            Ast.TypeRef receiverType,
+            String family,
+            String operation) {
+        if (operation.equals("flatten")) return null;
+        if (family.equals("Option") && operation.equals("or_else")) return null;
+        if (receiverType.arguments().isEmpty()) return null;
+
+        if (family.equals("Result")) {
+            if (operation.equals("map_err") || operation.equals("or_else")) {
+                return receiverType.arguments().size() > 1
+                        ? receiverType.arguments().get(1)
+                        : null;
+            }
+            return receiverType.arguments().getFirst();
+        }
+
+        return receiverType.arguments().getFirst();
     }
 
     private ValueInfo checkBuiltinSumCall(Ast.MemberExpr member, List<Ast.Expr> arguments, Scope scope) {
@@ -1124,6 +1153,14 @@ public final class OwnershipChecker {
     }
 
     private ValueInfo checkLambda(Ast.LambdaExpr lambda, Scope outer, String recursiveBinding) {
+        return checkLambda(lambda, outer, recursiveBinding, List.of());
+    }
+
+    private ValueInfo checkLambda(
+            Ast.LambdaExpr lambda,
+            Scope outer,
+            String recursiveBinding,
+            List<Ast.TypeRef> contextualParameterTypes) {
         boolean nonLexical = lambda.nonLexical() || outer.descendantsNonLexical();
         CaptureSet captures = nonLexical ? new CaptureSet() : collectCaptures(lambda, outer, recursiveBinding);
         Scope closure = new Scope(null, nonLexical);
@@ -1153,7 +1190,16 @@ public final class OwnershipChecker {
             }
         }
 
-        for (Ast.Param param : lambda.parameters()) closure.define(param.name(), stateForParam(param));
+        for (int i = 0; i < lambda.parameters().size(); i++) {
+            Ast.Param param = lambda.parameters().get(i);
+            Ast.TypeRef contextual = i < contextualParameterTypes.size()
+                    ? contextualParameterTypes.get(i)
+                    : null;
+            Ast.TypeRef effectiveType = param.type().name().equals("$infer$") && contextual != null
+                    ? contextual
+                    : param.type();
+            closure.define(param.name(), stateForParam(param, effectiveType));
+        }
         for (Ast.Stmt stmt : lambda.blockBody()) checkStatement(stmt, closure, Ast.TypeRef.inferred());
         closure.close();
         return new ValueInfo(Ast.TypeRef.simple("Fnc"), ValueKind.MOVE_ONLY, null);

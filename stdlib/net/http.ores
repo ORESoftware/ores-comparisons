@@ -10,10 +10,10 @@ define module http_wire
   }
 
   pub fnc default_port(String scheme) => Int {
-    if scheme == "http"
+    if scheme == "http" do
       return 80;
     fi
-    if scheme == "https"
+    if scheme == "https" do
       return 443;
     fi
     raise "unsupported URI scheme";
