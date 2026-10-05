@@ -21,7 +21,7 @@ define module http_wire
 
   pub fnc framing_is_ambiguous(
       String transfer_encoding,
-      Array<String> content_lengths) => bool {
-    return transfer_encoding != "" && content_lengths.length > 0;
+      bool has_content_length) => bool {
+    return transfer_encoding != "" && has_content_length;
   }
 end
