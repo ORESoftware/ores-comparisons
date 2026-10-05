@@ -287,18 +287,34 @@ final class AsyncSchedulerLanguageTest {
     }
 
     @Test
-    void tailAwaitReleasesNestedLexicalMutexGuardBeforeTransfer() throws Exception {
-        String program = """
+    void tailAwaitRequiresGuardReleaseAndRemainsEligibleAfterExplicitRelease() throws Exception {
+        String invalid = """
                 async fnc leaf() => int {
                   return 42;
                 }
 
                 async fnc guarded(Mutex<int> mutex) => int {
-                  if true do
-                    val guard = mutex.lock();
-                    return await leaf();
-                  fi
-                  return 0;
+                  val guard = mutex.lock();
+                  return await leaf();
+                }
+                """;
+
+        IllegalArgumentException ownershipFailure =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> TypeChecker.check(Parser.parse(invalid)));
+        assertTrue(ownershipFailure.getMessage().contains(
+                "cannot await while holding a lock guard"));
+
+        String valid = """
+                async fnc leaf() => int {
+                  return 42;
+                }
+
+                async fnc guarded(Mutex<int> mutex) => int {
+                  val guard = mutex.lock();
+                  guard.release();
+                  return await leaf();
                 }
 
                 pub async routine main() => void {
@@ -310,13 +326,13 @@ final class AsyncSchedulerLanguageTest {
                 }
                 """;
 
-        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(program)));
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(valid)));
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         Source source = Source.newBuilder(
                         OresLanguage.ID,
-                        program,
-                        "async-tail-guard-cleanup.ores")
+                        valid,
+                        "async-tail-guard-release.ores")
                 .mimeType(OresLanguage.MIME_TYPE)
                 .build();
 
@@ -330,7 +346,7 @@ final class AsyncSchedulerLanguageTest {
         String rendered = output.toString(StandardCharsets.UTF_8);
         assertTrue(rendered.contains("42"));
         assertTrue(rendered.contains("true"),
-                "tail transfer must release the nested lexical mutex guard before entering the callee frame");
+                "explicit guard release must permit tail transfer and lock reacquisition");
     }
 
     @Test
