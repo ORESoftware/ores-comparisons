@@ -213,7 +213,27 @@ public final class OwnershipChecker {
             checkExpr(loop.iterable(), scope, false);
             Map<VarState,Boolean> before = movedSnapshot(scope);
             Scope loopScope = new Scope(scope);
-            loopScope.define(loop.bindingName(), new VarState(Ast.TypeRef.inferred(), loop.bindingKind() == Ast.BindingKind.LET, ValueKind.MOVE_ONLY, Origin.LOCAL));
+            if (loop.destructuresSequence()) {
+                for (Ast.DestructureBinding binding : loop.sequenceBindings()) {
+                    if (!binding.isDiscard()) {
+                        loopScope.define(
+                                binding.name(),
+                                new VarState(
+                                        Ast.TypeRef.inferred(),
+                                        binding.kind() == Ast.BindingKind.LET,
+                                        ValueKind.MOVE_ONLY,
+                                        Origin.LOCAL));
+                    }
+                }
+            } else {
+                loopScope.define(
+                        loop.bindingName(),
+                        new VarState(
+                                Ast.TypeRef.inferred(),
+                                loop.bindingKind() == Ast.BindingKind.LET,
+                                ValueKind.MOVE_ONLY,
+                                Origin.LOCAL));
+            }
             checkBlock(loop.body(), loopScope, returnType);
             loopScope.close();
             rejectLoopMoves(before, scope);
@@ -228,6 +248,21 @@ public final class OwnershipChecker {
             if (loop.update() != null) checkExpr(loop.update(), loopScope, false);
             rejectLoopMoves(before, scope);
             loopScope.close();
+            return;
+        }
+        if (stmt instanceof Ast.WhileStmt loop) {
+            if (loop.condition() != null) checkExpr(loop.condition(), scope, false);
+            Map<VarState,Boolean> before = movedSnapshot(scope);
+            checkBlock(loop.body(), scope, returnType);
+            rejectLoopMoves(before, scope);
+            return;
+        }
+        if (stmt instanceof Ast.DoWhileStmt loop) {
+            Map<VarState,Boolean> before = movedSnapshot(scope);
+            checkBlock(loop.body(), scope, returnType);
+            checkExpr(loop.condition(), scope, false);
+            rejectLoopMoves(before, scope);
+            return;
         }
     }
 
@@ -349,6 +384,29 @@ public final class OwnershipChecker {
                             ? ValueKind.COPY
                             : ValueKind.MOVE_ONLY,
                     null);
+        }
+        if (expr instanceof Ast.TryPropagateExpr propagated) {
+            ValueInfo wrapper = checkExpr(propagated.expression(), scope, true);
+            Ast.TypeRef type = wrapper.type;
+            if (type != null && !type.isBorrow()
+                    && type.name().equals("Option")
+                    && type.arguments().size() == 1) {
+                Ast.TypeRef payload = type.arguments().getFirst();
+                if (payload.isBorrow()) {
+                    throw error("postfix ? cannot extract a borrow from an owned Option");
+                }
+                return new ValueInfo(payload, kindOfType(payload), null);
+            }
+            if (type != null && !type.isBorrow()
+                    && type.name().equals("Result")
+                    && type.arguments().size() == 2) {
+                Ast.TypeRef payload = type.arguments().getFirst();
+                if (payload.isBorrow()) {
+                    throw error("postfix ? cannot extract a borrow from an owned Result");
+                }
+                return new ValueInfo(payload, kindOfType(payload), null);
+            }
+            return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
         }
         if (expr instanceof Ast.CallExpr call) {
             return checkCall(call, scope);
@@ -487,6 +545,66 @@ public final class OwnershipChecker {
     }
 
     private ValueInfo checkCall(Ast.CallExpr call, Scope scope) {
+        if (call.callee() instanceof Ast.MemberExpr sequenceFactoryCall
+                && sequenceFactoryCall.receiver() instanceof Ast.NameExpr sequenceFactory
+                && (sequenceFactory.name().equals("Iterator")
+                        || sequenceFactory.name().equals("Stream"))) {
+            String member = sequenceFactoryCall.member();
+            if (member.equals("from_values") && call.arguments().size() == 1) {
+                ValueInfo source = checkExpr(call.arguments().getFirst(), scope, true);
+                if (source.type != null && source.type.isBorrow()) {
+                    throw error(sequenceFactory.name()
+                            + ".from_values requires owned iterable state");
+                }
+                if (containsMutexGuardType(source.type)) {
+                    throw error(sequenceFactory.name()
+                            + ".from_values cannot capture guard-bearing state");
+                }
+                Ast.TypeRef element = collectionElementType(source.type);
+                return new ValueInfo(
+                        new Ast.TypeRef(sequenceFactory.name(), List.of(element), false),
+                        ValueKind.MOVE_ONLY,
+                        null);
+            }
+            if (sequenceFactory.name().equals("Stream")
+                    && member.equals("from_future")
+                    && call.arguments().size() == 1) {
+                ValueInfo source = checkExpr(call.arguments().getFirst(), scope, true);
+                if (containsMutexGuardType(source.type)) {
+                    throw error("Stream.from_future cannot capture guard-bearing state");
+                }
+                Ast.TypeRef payload = source.type != null
+                        && !source.type.isBorrow()
+                        && source.type.name().equals("Future")
+                        && source.type.arguments().size() == 1
+                        ? source.type.arguments().getFirst()
+                        : Ast.TypeRef.inferred();
+                return new ValueInfo(
+                        new Ast.TypeRef("Stream", List.of(payload), false),
+                        ValueKind.MOVE_ONLY,
+                        null);
+            }
+        }
+
+        if (call.callee() instanceof Ast.MemberExpr futureFactoryCall
+                && futureFactoryCall.receiver() instanceof Ast.NameExpr futureFactory
+                && futureFactory.name().equals("Future")
+                && futureFactoryCall.member().equals("from_callback")) {
+            for (Ast.Expr argument : call.arguments()) {
+                ValueInfo callback = checkExpr(argument, scope, true);
+                if (containsMutexGuardType(callback.type)) {
+                    throw error("Future.from_callback cannot capture guard-bearing state");
+                }
+            }
+            Ast.TypeRef payload = call.typeArguments().size() == 1
+                    ? call.typeArguments().getFirst()
+                    : Ast.TypeRef.inferred();
+            return new ValueInfo(
+                    new Ast.TypeRef("Future", List.of(payload), false),
+                    ValueKind.MOVE_ONLY,
+                    null);
+        }
+
         if (call.callee() instanceof Ast.MemberExpr factoryCall
                 && factoryCall.receiver() instanceof Ast.NameExpr factory
                 && (factory.name().equals("Mutex")
@@ -563,6 +681,9 @@ public final class OwnershipChecker {
         }
 
         if (call.callee() instanceof Ast.MemberExpr member) {
+            ValueInfo compositionCall =
+                    checkBuiltinCompositionCall(member, call, scope);
+            if (compositionCall != null) return compositionCall;
             ValueInfo sumCall = checkBuiltinSumCall(member, call.arguments(), scope);
             if (sumCall != null) return sumCall;
 
@@ -744,6 +865,80 @@ public final class OwnershipChecker {
             }
         }
         return new ValueInfo(Ast.TypeRef.inferred(), ValueKind.MOVE_ONLY, null);
+    }
+
+    private ValueInfo checkBuiltinCompositionCall(
+            Ast.MemberExpr member,
+            Ast.CallExpr call,
+            Scope scope) {
+        String operation = member.member();
+        ValueInfo receiver = checkExpr(member.receiver(), scope, false);
+        Ast.TypeRef type = receiver.type;
+        if (type == null || type.isBorrow()) return null;
+
+        String family = type.name();
+        boolean recognized = switch (family) {
+            case "Option" -> java.util.Set.of(
+                    "map", "flat_map", "and_then", "or_else", "flatten")
+                    .contains(operation);
+            case "Result" -> java.util.Set.of(
+                    "map", "flat_map", "and_then", "map_err", "or_else", "flatten")
+                    .contains(operation);
+            case "Future", "Iterator", "Stream" -> java.util.Set.of(
+                    "map", "flat_map", "and_then", "flatten")
+                    .contains(operation);
+            default -> false;
+        };
+        if (!recognized) return null;
+
+        if (member.receiver() instanceof Ast.NameExpr receiverName) {
+            VarState state = scope.lookup(receiverName.name());
+            if (state != null && state.kind == ValueKind.MOVE_ONLY) {
+                move(state, receiverName.name());
+            }
+        }
+
+        for (Ast.Expr argument : call.arguments()) {
+            ValueInfo callback = checkExpr(argument, scope, true);
+            if (containsMutexGuardType(callback.type)) {
+                throw error(family + "." + operation
+                        + " callback cannot capture or contain MutexGuard");
+            }
+        }
+
+        if (operation.equals("flatten")
+                && !type.arguments().isEmpty()
+                && type.arguments().getFirst().name().equals(family)) {
+            Ast.TypeRef nested = type.arguments().getFirst();
+            return new ValueInfo(nested, kindOfType(nested), null);
+        }
+
+        if (family.equals("Option") && operation.equals("or_else")) {
+            return new ValueInfo(type, kindOfType(type), null);
+        }
+
+        Ast.TypeRef output = call.typeArguments().size() == 1
+                ? call.typeArguments().getFirst()
+                : Ast.TypeRef.inferred();
+        Ast.TypeRef result = switch (family) {
+            case "Option" -> new Ast.TypeRef("Option", List.of(output), false);
+            case "Result" -> {
+                Ast.TypeRef ok = type.arguments().size() > 0
+                        ? type.arguments().get(0)
+                        : Ast.TypeRef.inferred();
+                Ast.TypeRef error = type.arguments().size() > 1
+                        ? type.arguments().get(1)
+                        : Ast.TypeRef.inferred();
+                if (operation.equals("map_err") || operation.equals("or_else")) {
+                    yield new Ast.TypeRef("Result", List.of(ok, output), false);
+                }
+                yield new Ast.TypeRef("Result", List.of(output, error), false);
+            }
+            case "Future", "Iterator", "Stream" ->
+                    new Ast.TypeRef(family, List.of(output), false);
+            default -> Ast.TypeRef.inferred();
+        };
+        return new ValueInfo(result, kindOfType(result), null);
     }
 
     private ValueInfo checkBuiltinSumCall(Ast.MemberExpr member, List<Ast.Expr> arguments, Scope scope) {
@@ -1002,13 +1197,31 @@ public final class OwnershipChecker {
             } else if (stmt instanceof Ast.ForOfStmt s) {
                 scanExpr(s.iterable(), blockLocals, outer, recursiveBinding, captures, false);
                 Set<String> loop = new HashSet<>(blockLocals);
-                loop.add(s.bindingName());
+                if (s.destructuresSequence()) {
+                    for (Ast.DestructureBinding binding : s.sequenceBindings()) {
+                        if (!binding.isDiscard()) loop.add(binding.name());
+                    }
+                } else {
+                    loop.add(s.bindingName());
+                }
                 scanStatements(s.body(), loop, outer, recursiveBinding, captures);
             } else if (stmt instanceof Ast.ForStmt s) {
-                if (s.initializer() instanceof Ast.ExprStmt e) scanExpr(e.expression(), blockLocals, outer, recursiveBinding, captures, false);
+                Set<String> loop = new HashSet<>(blockLocals);
+                if (s.initializer() instanceof Ast.BindingStmt binding) {
+                    scanExpr(binding.initializer(), loop, outer, recursiveBinding, captures, false);
+                    loop.add(binding.name());
+                } else if (s.initializer() instanceof Ast.ExprStmt e) {
+                    scanExpr(e.expression(), loop, outer, recursiveBinding, captures, false);
+                }
+                if (s.condition() != null) scanExpr(s.condition(), loop, outer, recursiveBinding, captures, false);
+                if (s.update() != null) scanExpr(s.update(), loop, outer, recursiveBinding, captures, false);
+                scanStatements(s.body(), loop, outer, recursiveBinding, captures);
+            } else if (stmt instanceof Ast.WhileStmt s) {
                 if (s.condition() != null) scanExpr(s.condition(), blockLocals, outer, recursiveBinding, captures, false);
-                if (s.update() != null) scanExpr(s.update(), blockLocals, outer, recursiveBinding, captures, false);
                 scanStatements(s.body(), blockLocals, outer, recursiveBinding, captures);
+            } else if (stmt instanceof Ast.DoWhileStmt s) {
+                scanStatements(s.body(), blockLocals, outer, recursiveBinding, captures);
+                scanExpr(s.condition(), blockLocals, outer, recursiveBinding, captures, false);
             }
         }
     }
@@ -1033,6 +1246,8 @@ public final class OwnershipChecker {
             scanExpr(e.condition(), locals, outer, recursiveBinding, captures, false);
             scanExpr(e.whenTrue(), locals, outer, recursiveBinding, captures, false);
             scanExpr(e.whenFalse(), locals, outer, recursiveBinding, captures, false);
+        } else if (expr instanceof Ast.TryPropagateExpr e) {
+            scanExpr(e.expression(), locals, outer, recursiveBinding, captures, false);
         } else if (expr instanceof Ast.CallExpr e) {
             scanExpr(e.callee(), locals, outer, recursiveBinding, captures, false);
             for (Ast.Expr arg : e.arguments()) scanExpr(arg, locals, outer, recursiveBinding, captures, false);

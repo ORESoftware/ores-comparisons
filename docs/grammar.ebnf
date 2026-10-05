@@ -123,6 +123,8 @@ statement       = binding_decl
                 | try_stmt
                 | defer_stmt
                 | for_stmt
+                | while_stmt
+                | do_while_stmt
                 | expression stmt_terminator ;
 
 return_stmt     = "return" [ expression ] stmt_terminator ;
@@ -136,12 +138,28 @@ condition_and   = equality { "," equality } ;
 
 try_stmt        = "try" block "catch" "(" IDENT ")" block [ "finally" block ] ;
 
-for_stmt        = "for" "(" for_of_head ")" block
-                | "for" "(" [ for_init ] ";" [ expression ] ";" [ expression ] ")" block ;
+loop_body       = block
+                | "do" { statement } "done" ;
 
-for_of_head     = [ binding_kind ] IDENT "of" expression ;
+for_stmt        = "for" "(" for_header ")" loop_body
+                | "for" for_header loop_body ;
+
+for_header      = for_of_head
+                | [ for_init ] ";" [ expression ] ";" [ for_update ] ;
+
+for_of_head     = [ binding_kind ] ( IDENT | for_sequence_pattern ) "of" expression ;
+for_sequence_pattern
+                = "[" for_pattern_item { "," for_pattern_item } "]" ;
+for_pattern_item= [ binding_kind ] ( IDENT | "_" ) ;
+
 for_init        = binding_kind [ type_ref ] IDENT "=" expression
+                | type_ref IDENT "=" expression
                 | expression ;
+for_update      = IDENT ( "++" | "--" )
+                | expression ;
+
+while_stmt      = "while" expression loop_body ;
+do_while_stmt   = "do" block "while" expression [ ";" ] ;
 
 expression      = assignment ;
 assignment      = conditional [ "=" assignment ] ;
@@ -154,7 +172,8 @@ multiplicative  = unary { ( "*" | "/" | "%" ) unary } ;
 unary           = ( "!" | "-" | "+" | "await" | "spawn" ) unary
                 | "&" [ "mut" ] unary
                 | postfix ;
-postfix         = primary { call_suffix | member_suffix | index_suffix } ;
+postfix         = primary { call_suffix | member_suffix | index_suffix | propagate_suffix } ;
+propagate_suffix= "?" ;
 call_suffix     = "(" [ argument_list ] ")" ;
 member_suffix   = "." IDENT ;
 index_suffix    = "[" expression "]" ;
@@ -274,6 +293,18 @@ member_terminator = ";" | INTERFACE_CLOSING_BOUNDARY ;
      actor statement/expression execution and call/recursion boundaries are
      metered as additional checkpoints.
    - [Symbol.iterator]() may provide iterator behavior for for-of.
+   - Postfix "?" is a sealed Try-like propagation operator. It accepts
+     Option<T> and Result<T,E> only. None/Err returns the residual wrapper from
+     the enclosing callable; Some/Ok yields its payload.
+   - A QUESTION token with a same-expression-depth ":" remains the existing
+     ternary operator. Parentheses explicitly disambiguate nested combinations.
+   - Postfix "?" is forbidden inside defer expressions so propagation cannot
+     bypass or reorder lexical cleanup.
+   - Option/Result/Future/Iterator/Stream expose map + flat_map/and_then
+     composition. Iterator is lazy pull-based; Stream is asynchronous and
+     next() returns Future<Option<T>>.
+   - Stateful Iterator/Stream values are non-shareable capabilities and may not
+     cross actor boundaries by value.
    - standalone null values are illegal.
    - null is a type marker only directly inside Option<null>.
    - inline obj{} / arr[] values cannot be subclassed; extend Object/List.

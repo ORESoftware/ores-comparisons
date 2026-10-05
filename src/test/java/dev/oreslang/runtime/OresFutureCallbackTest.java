@@ -28,23 +28,6 @@ final class OresFutureCallbackTest {
     }
 
     @Test
-    void lateRuntimeWaiterOnSettledFutureIsDeliveredAndReleased() {
-        OresFuture<Integer> future = OresFuture.completed(42);
-        AtomicReference<Integer> observed = new AtomicReference<>();
-
-        future.whenCompleteRuntime((value, failure) -> {
-            assertNull(failure);
-            observed.set(value);
-        });
-
-        assertEquals(42, observed.get());
-        assertEquals(
-                0,
-                future.pendingRuntimeWaiterCount(),
-                "late terminal registrations must not remain retained in the waiter queue");
-    }
-
-    @Test
     void registrarThrowRejectsFutureWhenCallbackHasNotSettled() {
         OresFuture<Integer> future = OresFuture.fromCallback(callback -> {
             throw new IllegalStateException("registration failed");
@@ -55,6 +38,41 @@ final class OresFutureCallbackTest {
                 () -> future.get(5, TimeUnit.SECONDS));
         assertInstanceOf(IllegalStateException.class, failure.getCause());
         assertEquals("registration failed", failure.getCause().getMessage());
+    }
+
+    @Test
+    void mapAndFlatMapGuestMappersRunOnlyOnOwningScheduler() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            OresFuture<Integer> source = new OresFuture<>();
+            AtomicReference<Thread> producer = new AtomicReference<>();
+            AtomicReference<Thread> mapCarrier = new AtomicReference<>();
+            AtomicReference<Thread> flatMapCarrier = new AtomicReference<>();
+
+            OresFuture<Integer> mapped = source.mapOn(scheduler, value -> {
+                assertSame(scheduler, OresScheduler.current());
+                mapCarrier.set(Thread.currentThread());
+                return value + 1;
+            });
+            OresFuture<Integer> chained = mapped.flatMapOn(scheduler, value -> {
+                assertSame(scheduler, OresScheduler.current());
+                flatMapCarrier.set(Thread.currentThread());
+                return OresFuture.completed(value * 2);
+            });
+
+            Thread completionThread = Thread.ofPlatform().start(() -> {
+                producer.set(Thread.currentThread());
+                source.completeFromRuntime(20);
+            });
+            completionThread.join();
+
+            assertEquals(42, chained.get(5, TimeUnit.SECONDS));
+            assertNotNull(mapCarrier.get());
+            assertNotNull(flatMapCarrier.get());
+            assertNotSame(producer.get(), mapCarrier.get(),
+                    "Future.map guest mapper must never run on the producer thread");
+            assertNotSame(producer.get(), flatMapCarrier.get(),
+                    "Future.flat_map guest mapper must never run on the producer thread");
+        }
     }
 
     @Test

@@ -286,7 +286,7 @@ public final class Ast {
     public enum BindingKind { CONST, VAL, LET }
 
     public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, ExprStmt, DeferStmt,
-            IfStmt, TryStmt, ForOfStmt, ForStmt { }
+            IfStmt, TryStmt, ForOfStmt, ForStmt, WhileStmt, DoWhileStmt { }
 
     public record BindingStmt(BindingKind kind, TypeRef declaredType, String name, Expr initializer) implements Stmt { }
     public record DestructureBinding(BindingKind kind, String name) {
@@ -344,16 +344,59 @@ public final class Ast {
         }
     }
 
-    public record ForOfStmt(BindingKind bindingKind, String bindingName, Expr iterable, List<Stmt> body) implements Stmt {
-        public ForOfStmt { body = List.copyOf(body); }
+    public record ForOfStmt(
+            BindingKind bindingKind,
+            String bindingName,
+            List<DestructureBinding> sequenceBindings,
+            Expr iterable,
+            List<Stmt> body) implements Stmt {
+        public ForOfStmt {
+            sequenceBindings = sequenceBindings == null ? List.of() : List.copyOf(sequenceBindings);
+            body = List.copyOf(body);
+            boolean named = bindingName != null && !bindingName.isBlank();
+            boolean destructured = !sequenceBindings.isEmpty();
+            if (named == destructured) {
+                throw new IllegalArgumentException("for-of requires exactly one named or sequence-destructuring binding");
+            }
+            if (named && bindingKind == null) {
+                throw new IllegalArgumentException("named for-of binding requires a binding kind");
+            }
+        }
+
+        public ForOfStmt(BindingKind bindingKind, String bindingName, Expr iterable, List<Stmt> body) {
+            this(bindingKind, bindingName, List.of(), iterable, body);
+        }
+
+        public static ForOfStmt sequence(
+                List<DestructureBinding> bindings,
+                Expr iterable,
+                List<Stmt> body) {
+            return new ForOfStmt(null, null, bindings, iterable, body);
+        }
+
+        public boolean destructuresSequence() {
+            return !sequenceBindings.isEmpty();
+        }
     }
 
     public record ForStmt(Stmt initializer, Expr condition, Expr update, List<Stmt> body) implements Stmt {
         public ForStmt { body = List.copyOf(body); }
     }
 
+    /** A null condition is the explicit infinite-loop shorthand: while { ... } / while do ... done. */
+    public record WhileStmt(Expr condition, List<Stmt> body) implements Stmt {
+        public WhileStmt { body = List.copyOf(body); }
+    }
+
+    public record DoWhileStmt(List<Stmt> body, Expr condition) implements Stmt {
+        public DoWhileStmt {
+            body = List.copyOf(body);
+            if (condition == null) throw new IllegalArgumentException("do-while requires a condition");
+        }
+    }
+
     public sealed interface Expr permits LiteralExpr, NameExpr, BinaryExpr, UnaryExpr, AssignExpr, ConditionalExpr,
-            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, SpawnExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
+            TryPropagateExpr, CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, SpawnExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
 
     public record LiteralExpr(Object value) implements Expr { }
     public record Imaginary(double coefficient) { }
@@ -362,6 +405,12 @@ public final class Ast {
     public record UnaryExpr(String operator, Expr operand) implements Expr { }
     public record AssignExpr(Expr target, Expr value) implements Expr { }
     public record ConditionalExpr(Expr condition, Expr whenTrue, Expr whenFalse) implements Expr { }
+
+    /**
+     * Postfix {@code ?} propagation. The type checker restricts this to
+     * compiler-approved Try-like families (currently Option and Result).
+     */
+    public record TryPropagateExpr(Expr expression) implements Expr { }
 
     public record CallExpr(
             Expr callee,

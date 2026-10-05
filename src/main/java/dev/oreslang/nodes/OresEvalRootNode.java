@@ -361,16 +361,19 @@ public final class OresEvalRootNode extends RootNode {
                     Set.copyOf(fn.genericParameters()),
                     fn.actorKind() == Ast.ActorKind.NONE);
             AsyncPlan body = asyncBlock(fn.body(), base, callable);
-            return asyncFlatMap(body, flow -> {
-                Object raw =
-                        flow instanceof AsyncReturn returned
-                                ? returned.value()
-                                : null;
-                return asyncPure(shapeReturnedValue(
-                        fn.returnType(),
-                        raw,
-                        "function " + fn.name()));
-            });
+            return asyncFold(
+                    body,
+                    flow -> {
+                        Object raw =
+                                flow instanceof AsyncReturn returned
+                                        ? returned.value()
+                                        : null;
+                        return asyncPure(shapeReturnedValue(
+                                fn.returnType(),
+                                raw,
+                                "function " + fn.name()));
+                    },
+                    OresEvalRootNode.Evaluator::asyncFailure);
         }
 
         private OresFuture<Object> startAsyncMethod(
@@ -403,13 +406,18 @@ public final class OresEvalRootNode extends RootNode {
                     asyncGenericParameters(receiver.klass, method),
                     receiver.klass.actorKind() == Ast.ActorKind.NONE);
             AsyncPlan body = asyncBlock(method.body(), base, callable);
-            return asyncFlatMap(body, flow -> {
-                Object raw = flow instanceof AsyncReturn returned ? returned.value() : null;
-                return asyncPure(shapeReturnedValue(
-                        method.returnType(),
-                        raw,
-                        "method " + method.name()));
-            });
+            return asyncFold(
+                    body,
+                    flow -> {
+                        Object raw = flow instanceof AsyncReturn returned
+                                ? returned.value()
+                                : null;
+                        return asyncPure(shapeReturnedValue(
+                                method.returnType(),
+                                raw,
+                                "method " + method.name()));
+                    },
+                    OresEvalRootNode.Evaluator::asyncFailure);
         }
 
         private OresFuture<Object> startAsyncStaticFunction(
@@ -441,13 +449,18 @@ public final class OresEvalRootNode extends RootNode {
                     asyncGenericParameters(klass, fn),
                     klass.actorKind() == Ast.ActorKind.NONE);
             AsyncPlan body = asyncBlock(fn.body(), base, callable);
-            return asyncFlatMap(body, flow -> {
-                Object raw = flow instanceof AsyncReturn returned ? returned.value() : null;
-                return asyncPure(shapeReturnedValue(
-                        fn.returnType(),
-                        raw,
-                        "static function " + klass.name() + "." + fn.name()));
-            });
+            return asyncFold(
+                    body,
+                    flow -> {
+                        Object raw = flow instanceof AsyncReturn returned
+                                ? returned.value()
+                                : null;
+                        return asyncPure(shapeReturnedValue(
+                                fn.returnType(),
+                                raw,
+                                "static function " + klass.name() + "." + fn.name()));
+                    },
+                    OresEvalRootNode.Evaluator::asyncFailure);
         }
 
         private OresFuture<Object> startAsyncLambda(
@@ -479,8 +492,13 @@ public final class OresEvalRootNode extends RootNode {
                     Set.of(),
                     false);
             AsyncPlan body = asyncBlock(lambda.blockBody(), base, callable);
-            AsyncPlan completed = asyncFlatMap(body, flow ->
-                    asyncPure(flow instanceof AsyncReturn returned ? returned.value() : null));
+            AsyncPlan completed = asyncFold(
+                    body,
+                    flow -> asyncPure(
+                            flow instanceof AsyncReturn returned
+                                    ? returned.value()
+                                    : null),
+                    OresEvalRootNode.Evaluator::asyncFailure);
             return scheduler.start(
                     new AsyncPlanTask(
                             completed,
@@ -520,15 +538,11 @@ public final class OresEvalRootNode extends RootNode {
                     case "start" -> (Invokable) args -> {
                         requireOne(args, "OresScheduler.start");
                         Object work = args.getFirst();
-                        if (work instanceof AsyncLambdaValue asyncLambda) {
-                            return asyncLambda.startOn(scheduler, List.of());
+                        if (!(work instanceof AsyncLambdaValue asyncLambda)) {
+                            throw new IllegalArgumentException(
+                                    "OresScheduler.start currently requires an async zero-argument lambda");
                         }
-                        if (work instanceof Invokable synchronous) {
-                            return scheduler.startSync(
-                                    () -> synchronous.call(List.of()));
-                        }
-                        throw new IllegalArgumentException(
-                                "OresScheduler.start requires a zero-argument lambda");
+                        return asyncLambda.startOn(scheduler, List.of());
                     };
                     case "parallelism" -> (Invokable) args -> {
                         requireZero(args, "OresScheduler.parallelism");
@@ -633,6 +647,8 @@ public final class OresEvalRootNode extends RootNode {
                 throw fatal;
             } catch (LinkageError fatal) {
                 throw fatal;
+            } catch (ReturnSignal signal) {
+                return asyncPure(new AsyncReturn(signal.value));
             } catch (Throwable failure) {
                 return asyncFailure(failure);
             }
@@ -648,6 +664,7 @@ public final class OresEvalRootNode extends RootNode {
         private static AsyncPlan asyncFlatMap(AsyncPlan plan, AsyncMapper next) {
             if (plan instanceof AsyncTailTransfer) return plan;
             if (plan instanceof AsyncPure pure) {
+                if (pure.value() instanceof AsyncReturn) return plan;
                 return new AsyncThunk(() -> safePlan(() -> next.apply(pure.value())));
             }
             if (plan instanceof AsyncFailure) return plan;
@@ -1115,6 +1132,18 @@ public final class OresEvalRootNode extends RootNode {
                         initialized,
                         ignored -> asyncFor(loop, loopEnv, noLoopTail));
             }
+            if (stmt instanceof Ast.WhileStmt loop) {
+                return asyncWhile(
+                        loop,
+                        env,
+                        callable.withTailTransfers(false));
+            }
+            if (stmt instanceof Ast.DoWhileStmt loop) {
+                return asyncDoWhile(
+                        loop,
+                        env,
+                        callable.withTailTransfers(false));
+            }
             return asyncFailure(new IllegalArgumentException(
                     "unsupported async statement " + stmt));
         }
@@ -1143,10 +1172,8 @@ public final class OresEvalRootNode extends RootNode {
             return new AsyncThunk(() -> {
                 if (index >= values.size()) return asyncPure(ASYNC_NORMAL);
                 Env iteration = new Env(env);
-                iteration.define(
-                        loop.bindingName(),
-                        values.get(index),
-                        loop.bindingKind());
+                bindForOfIteration(loop, values.get(index), iteration);
+                context.schedulerSafepoint();
                 return asyncFlatMap(
                         asyncBlock(loop.body(), iteration, callable),
                         flow -> flow instanceof AsyncReturn
@@ -1170,6 +1197,7 @@ public final class OresEvalRootNode extends RootNode {
                         : asyncEval(loop.condition(), loopEnv);
                 return asyncFlatMap(condition, value -> {
                     if (!truth(value)) return asyncPure(ASYNC_NORMAL);
+                    context.schedulerSafepoint();
                     return asyncFlatMap(
                             asyncBlock(loop.body(), loopEnv, callable),
                             flow -> {
@@ -1182,6 +1210,45 @@ public final class OresEvalRootNode extends RootNode {
                                         ignored -> asyncFor(loop, loopEnv, callable));
                             });
                 });
+            });
+        }
+
+        private AsyncPlan asyncWhile(
+                Ast.WhileStmt loop,
+                Env env,
+                AsyncCallableContext callable) {
+            return new AsyncThunk(() -> {
+                AsyncPlan condition = loop.condition() == null
+                        ? asyncPure(Boolean.TRUE)
+                        : asyncEval(loop.condition(), env);
+                return asyncFlatMap(condition, value -> {
+                    if (!truth(value)) return asyncPure(ASYNC_NORMAL);
+                    context.schedulerSafepoint();
+                    return asyncFlatMap(
+                            asyncBlock(loop.body(), env, callable),
+                            flow -> flow instanceof AsyncReturn
+                                    ? asyncPure(flow)
+                                    : asyncWhile(loop, env, callable));
+                });
+            });
+        }
+
+        private AsyncPlan asyncDoWhile(
+                Ast.DoWhileStmt loop,
+                Env env,
+                AsyncCallableContext callable) {
+            return new AsyncThunk(() -> {
+                context.schedulerSafepoint();
+                return asyncFlatMap(
+                        asyncBlock(loop.body(), env, callable),
+                        flow -> {
+                            if (flow instanceof AsyncReturn) return asyncPure(flow);
+                            return asyncFlatMap(
+                                    asyncEval(loop.condition(), env),
+                                    condition -> truth(condition)
+                                            ? asyncDoWhile(loop, env, callable)
+                                            : asyncPure(ASYNC_NORMAL));
+                        });
             });
         }
 
@@ -1563,6 +1630,12 @@ public final class OresEvalRootNode extends RootNode {
                                 : asyncEval(conditional.whenFalse(), env));
             }
 
+            if (expr instanceof Ast.TryPropagateExpr propagated) {
+                return asyncFlatMap(
+                        asyncEval(propagated.expression(), env),
+                        value -> safePlan(() -> asyncPure(tryPropagate(value))));
+            }
+
             if (expr instanceof Ast.UnaryExpr unary) {
                 return asyncFlatMap(asyncEval(unary.operand(), env), value ->
                         safePlan(() -> asyncPure(switch (unary.operator()) {
@@ -1914,6 +1987,9 @@ public final class OresEvalRootNode extends RootNode {
                         || containsAwait(conditional.whenTrue())
                         || containsAwait(conditional.whenFalse());
             }
+            if (expr instanceof Ast.TryPropagateExpr propagated) {
+                return containsAwait(propagated.expression());
+            }
             if (expr instanceof Ast.CallExpr call) {
                 if (containsAwait(call.callee())) return true;
                 for (Ast.Expr argument : call.arguments()) {
@@ -2094,7 +2170,7 @@ public final class OresEvalRootNode extends RootNode {
                 for (Object item : iterableValues(iterable)) {
                     context.schedulerSafepoint();
                     Env iteration = new Env(env);
-                    iteration.define(loop.bindingName(), item, loop.bindingKind());
+                    bindForOfIteration(loop, item, iteration);
                     executeBlock(loop.body(), iteration);
                 }
                 return;
@@ -2107,6 +2183,21 @@ public final class OresEvalRootNode extends RootNode {
                     executeBlock(loop.body(), loopEnv);
                     if (loop.update() != null) eval(loop.update(), loopEnv);
                 }
+                return;
+            }
+            if (stmt instanceof Ast.WhileStmt loop) {
+                while (loop.condition() == null || truth(eval(loop.condition(), env))) {
+                    context.schedulerSafepoint();
+                    executeBlock(loop.body(), env);
+                }
+                return;
+            }
+            if (stmt instanceof Ast.DoWhileStmt loop) {
+                do {
+                    context.schedulerSafepoint();
+                    executeBlock(loop.body(), env);
+                } while (truth(eval(loop.condition(), env)));
+                return;
             }
         }
 
@@ -2127,6 +2218,8 @@ public final class OresEvalRootNode extends RootNode {
                 if (name.name().equals("actor")) return new ActorFacade(context);
                 if (name.name().equals("Futures")) return new FuturesFacade();
                 if (name.name().equals("Future")) return new FutureFactory();
+                if (name.name().equals("Iterator")) return new IteratorFactory();
+                if (name.name().equals("Stream")) return new StreamFactory();
                 if (name.name().equals("Mutex")) return new MutexFactory(false, context);
                 if (name.name().equals("SharedMutex")) return new MutexFactory(true, context);
                 if (name.name().equals("RwLock")) return new RwLockFactory(context);
@@ -2201,6 +2294,9 @@ public final class OresEvalRootNode extends RootNode {
                 return truth(eval(conditional.condition(), env))
                         ? eval(conditional.whenTrue(), env)
                         : eval(conditional.whenFalse(), env);
+            }
+            if (expr instanceof Ast.TryPropagateExpr propagated) {
+                return tryPropagate(eval(propagated.expression(), env));
             }
             if (expr instanceof Ast.UnaryExpr unary) {
                 Object value = eval(unary.operand(), env);
@@ -2404,6 +2500,21 @@ public final class OresEvalRootNode extends RootNode {
                             "unknown Future static member " + name);
                 };
             }
+            if (receiver instanceof IteratorFactory factory) {
+                return switch (name) {
+                    case "from_values" -> (Invokable) factory::fromValues;
+                    default -> throw new IllegalArgumentException(
+                            "unknown Iterator static member " + name);
+                };
+            }
+            if (receiver instanceof StreamFactory factory) {
+                return switch (name) {
+                    case "from_values" -> (Invokable) factory::fromValues;
+                    case "from_future" -> (Invokable) factory::fromFuture;
+                    default -> throw new IllegalArgumentException(
+                            "unknown Stream static member " + name);
+                };
+            }
             if (receiver instanceof CallbackFacade callback) {
                 return callback.member(name);
             }
@@ -2447,6 +2558,47 @@ public final class OresEvalRootNode extends RootNode {
                     case "get_awaited" -> (Invokable) args -> {
                         requireZero(args, "Future.get_awaited");
                         return future.getAwaited();
+                    };
+                    case "map" -> (Invokable) args -> {
+                        Invokable mapper = requireInvokableArg(args, "Future.map");
+                        @SuppressWarnings("unchecked")
+                        OresFuture<Object> source = (OresFuture<Object>) future;
+                        return source.mapOn(
+                                asyncScheduler(),
+                                value -> mapper.call(List.of(value)));
+                    };
+                    case "flat_map", "and_then" -> (Invokable) args -> {
+                        Invokable mapper = requireInvokableArg(
+                                args, "Future." + name);
+                        @SuppressWarnings("unchecked")
+                        OresFuture<Object> source = (OresFuture<Object>) future;
+                        return source.flatMapOn(asyncScheduler(), value -> {
+                            Object mapped = mapper.call(List.of(value));
+                            if (!(mapped instanceof Awaitable<?> awaited)) {
+                                throw new IllegalArgumentException(
+                                        "Future." + name
+                                                + " callback must return Awaitable<T>");
+                            }
+                            @SuppressWarnings("unchecked")
+                            Awaitable<Object> typed =
+                                    (Awaitable<Object>) awaited;
+                            return typed;
+                        });
+                    };
+                    case "flatten" -> (Invokable) args -> {
+                        requireZero(args, "Future.flatten");
+                        @SuppressWarnings("unchecked")
+                        OresFuture<Object> source = (OresFuture<Object>) future;
+                        return source.flatMapOn(asyncScheduler(), value -> {
+                            if (!(value instanceof Awaitable<?> awaited)) {
+                                throw new IllegalArgumentException(
+                                        "Future.flatten requires Future<Awaitable<T>>");
+                            }
+                            @SuppressWarnings("unchecked")
+                            Awaitable<Object> typed =
+                                    (Awaitable<Object>) awaited;
+                            return typed;
+                        });
                     };
                     case "attach_callback" -> (Invokable) args -> {
                         requireOne(args, "Future.attach_callback");
@@ -2502,6 +2654,8 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (receiver instanceof OptionValue option) return optionMember(option, name);
             if (receiver instanceof ResultValue result) return resultMember(result, name);
+            if (receiver instanceof IteratorValue iterator) return iteratorMember(iterator, name);
+            if (receiver instanceof StreamValue stream) return streamMember(stream, name);
             if (receiver instanceof OresRwLock<?> rwLock) return rwLockMember(rwLock, name);
             if (receiver instanceof OresRwLock.ReadGuard<?> guard) {
                 return switch (name) {
@@ -2579,6 +2733,19 @@ public final class OresEvalRootNode extends RootNode {
             throw new IllegalArgumentException("cannot access member '" + name + "' on " + receiver);
         }
 
+        private Object tryPropagate(Object value) {
+            if (value instanceof OptionValue option) {
+                if (option.present()) return option.value();
+                throw new ReturnSignal(option);
+            }
+            if (value instanceof ResultValue result) {
+                if (result.ok()) return result.value();
+                throw new ReturnSignal(result);
+            }
+            throw new IllegalArgumentException(
+                    "postfix ? requires Option<T> or Result<T,E>");
+        }
+
         private Object optionMember(OptionValue option, String name) {
             return switch (name) {
                 case "is_some" -> (Invokable) args -> { requireZero(args, "Option.is_some"); return option.present(); };
@@ -2602,6 +2769,41 @@ public final class OresEvalRootNode extends RootNode {
                 case "unwrap_or" -> (Invokable) args -> {
                     requireOne(args, "Option.unwrap_or");
                     return option.present() ? option.value() : args.getFirst();
+                };
+                case "map" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(args, "Option.map");
+                    return option.present()
+                            ? new OptionValue(true, mapper.call(List.of(option.value())))
+                            : option;
+                };
+                case "flat_map", "and_then" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(args, "Option." + name);
+                    if (!option.present()) return option;
+                    Object mapped = mapper.call(List.of(option.value()));
+                    if (!(mapped instanceof OptionValue)) {
+                        throw new IllegalArgumentException(
+                                "Option." + name + " callback must return Option<T>");
+                    }
+                    return mapped;
+                };
+                case "or_else" -> (Invokable) args -> {
+                    Invokable fallback = requireInvokableArg(args, "Option.or_else");
+                    if (option.present()) return option;
+                    Object mapped = fallback.call(List.of());
+                    if (!(mapped instanceof OptionValue)) {
+                        throw new IllegalArgumentException(
+                                "Option.or_else callback must return Option<T>");
+                    }
+                    return mapped;
+                };
+                case "flatten" -> (Invokable) args -> {
+                    requireZero(args, "Option.flatten");
+                    if (!option.present()) return option;
+                    if (!(option.value() instanceof OptionValue nested)) {
+                        throw new IllegalArgumentException(
+                                "Option.flatten requires Option<Option<T>>");
+                    }
+                    return nested;
                 };
                 default -> throw new IllegalArgumentException("unknown Option member " + name);
             };
@@ -2631,7 +2833,189 @@ public final class OresEvalRootNode extends RootNode {
                     requireOne(args, "Result.unwrap_or");
                     return result.ok() ? result.value() : args.getFirst();
                 };
+                case "map" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(args, "Result.map");
+                    return result.ok()
+                            ? new ResultValue(true, mapper.call(List.of(result.value())))
+                            : result;
+                };
+                case "flat_map", "and_then" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(args, "Result." + name);
+                    if (!result.ok()) return result;
+                    Object mapped = mapper.call(List.of(result.value()));
+                    if (!(mapped instanceof ResultValue)) {
+                        throw new IllegalArgumentException(
+                                "Result." + name + " callback must return Result<T,E>");
+                    }
+                    return mapped;
+                };
+                case "map_err" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(args, "Result.map_err");
+                    return result.ok()
+                            ? result
+                            : new ResultValue(false, mapper.call(List.of(result.value())));
+                };
+                case "or_else" -> (Invokable) args -> {
+                    Invokable fallback = requireInvokableArg(args, "Result.or_else");
+                    if (result.ok()) return result;
+                    Object mapped = fallback.call(List.of(result.value()));
+                    if (!(mapped instanceof ResultValue)) {
+                        throw new IllegalArgumentException(
+                                "Result.or_else callback must return Result<T,E>");
+                    }
+                    return mapped;
+                };
+                case "flatten" -> (Invokable) args -> {
+                    requireZero(args, "Result.flatten");
+                    if (!result.ok()) return result;
+                    if (!(result.value() instanceof ResultValue nested)) {
+                        throw new IllegalArgumentException(
+                                "Result.flatten requires Result<Result<T,E>,E>");
+                    }
+                    return nested;
+                };
                 default -> throw new IllegalArgumentException("unknown Result member " + name);
+            };
+        }
+
+        private Object iteratorMember(IteratorValue iterator, String name) {
+            return switch (name) {
+                case "next" -> (Invokable) args -> {
+                    requireZero(args, "Iterator.next");
+                    return iterator.nextValue();
+                };
+                case "map" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(args, "Iterator.map");
+                    return new IteratorValue(() -> {
+                        OptionValue next = iterator.nextValue();
+                        if (!next.present()) return next;
+                        return new OptionValue(
+                                true,
+                                mapper.call(List.of(next.value())));
+                    });
+                };
+                case "flat_map", "and_then" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(
+                            args, "Iterator." + name);
+                    final class FlatMapState {
+                        private IteratorValue inner;
+
+                        private OptionValue next() {
+                            while (true) {
+                                if (inner != null) {
+                                    OptionValue nested = inner.nextValue();
+                                    if (nested.present()) return nested;
+                                    inner = null;
+                                }
+
+                                OptionValue outer = iterator.nextValue();
+                                if (!outer.present()) return outer;
+                                Object mapped = mapper.call(List.of(outer.value()));
+                                if (!(mapped instanceof IteratorValue nested)) {
+                                    throw new IllegalArgumentException(
+                                            "Iterator." + name
+                                                    + " callback must return Iterator<T>");
+                                }
+                                inner = nested;
+                            }
+                        }
+                    }
+                    FlatMapState state = new FlatMapState();
+                    return new IteratorValue(state::next);
+                };
+                case "flatten" -> (Invokable) args -> {
+                    requireZero(args, "Iterator.flatten");
+                    Invokable identity = values -> {
+                        requireOne(values, "Iterator.flatten identity");
+                        Object nested = values.getFirst();
+                        if (!(nested instanceof IteratorValue)) {
+                            throw new IllegalArgumentException(
+                                    "Iterator.flatten requires Iterator<Iterator<T>>");
+                        }
+                        return nested;
+                    };
+                    return ((Invokable) iteratorMember(
+                            iterator, "flat_map")).call(List.of(identity));
+                };
+                default -> throw new IllegalArgumentException(
+                        "unknown Iterator member " + name);
+            };
+        }
+
+        private Object streamMember(StreamValue stream, String name) {
+            return switch (name) {
+                case "next" -> (Invokable) args -> {
+                    requireZero(args, "Stream.next");
+                    return stream.nextValue();
+                };
+                case "map" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(args, "Stream.map");
+                    return new StreamValue(() ->
+                            stream.nextValue().mapOn(
+                                    asyncScheduler(),
+                                    next -> next.present()
+                                            ? new OptionValue(
+                                                    true,
+                                                    mapper.call(List.of(next.value())))
+                                            : next));
+                };
+                case "flat_map", "and_then" -> (Invokable) args -> {
+                    Invokable mapper = requireInvokableArg(
+                            args, "Stream." + name);
+                    final class FlatMapState {
+                        private StreamValue inner;
+
+                        private OresFuture<OptionValue> next() {
+                            StreamValue current = inner;
+                            if (current != null) {
+                                return current.nextValue().flatMapOn(
+                                        asyncScheduler(),
+                                        nested -> {
+                                            if (nested.present()) {
+                                                return OresFuture.completed(nested);
+                                            }
+                                            if (inner == current) inner = null;
+                                            return next();
+                                        });
+                            }
+
+                            return stream.nextValue().flatMapOn(
+                                    asyncScheduler(),
+                                    outer -> {
+                                        if (!outer.present()) {
+                                            return OresFuture.completed(outer);
+                                        }
+                                        Object mapped =
+                                                mapper.call(List.of(outer.value()));
+                                        if (!(mapped instanceof StreamValue nested)) {
+                                            throw new IllegalArgumentException(
+                                                    "Stream." + name
+                                                            + " callback must return Stream<T>");
+                                        }
+                                        inner = nested;
+                                        return next();
+                                    });
+                        }
+                    }
+                    FlatMapState state = new FlatMapState();
+                    return new StreamValue(state::next);
+                };
+                case "flatten" -> (Invokable) args -> {
+                    requireZero(args, "Stream.flatten");
+                    Invokable identity = values -> {
+                        requireOne(values, "Stream.flatten identity");
+                        Object nested = values.getFirst();
+                        if (!(nested instanceof StreamValue)) {
+                            throw new IllegalArgumentException(
+                                    "Stream.flatten requires Stream<Stream<T>>");
+                        }
+                        return nested;
+                    };
+                    return ((Invokable) streamMember(
+                            stream, "flat_map")).call(List.of(identity));
+                };
+                default -> throw new IllegalArgumentException(
+                        "unknown Stream member " + name);
             };
         }
 
@@ -2975,9 +3359,124 @@ public final class OresEvalRootNode extends RootNode {
             return List.copyOf(result.values());
         }
 
+        @FunctionalInterface
+        private interface IteratorPull {
+            OptionValue pull();
+        }
+
+        private final class IteratorValue {
+            private final IteratorPull pull;
+            private boolean pulling;
+
+            private IteratorValue(IteratorPull pull) {
+                this.pull = Objects.requireNonNull(pull, "pull");
+            }
+
+            private synchronized OptionValue nextValue() {
+                if (pulling) {
+                    throw new IllegalStateException(
+                            "Iterator.next is not re-entrant");
+                }
+                pulling = true;
+                try {
+                    return Objects.requireNonNull(
+                            pull.pull(),
+                            "Iterator pull returned null");
+                } finally {
+                    pulling = false;
+                }
+            }
+        }
+
+        private final class IteratorFactory {
+            private Object fromValues(List<Object> args) {
+                requireOne(args, "Iterator.from_values");
+                List<?> source = iterableValues(args.getFirst());
+                ArrayList<Object> snapshot = new ArrayList<>(source);
+                final class State {
+                    private int index;
+                    private synchronized OptionValue next() {
+                        if (index >= snapshot.size()) {
+                            return new OptionValue(false, null);
+                        }
+                        return new OptionValue(true, snapshot.get(index++));
+                    }
+                }
+                State state = new State();
+                return new IteratorValue(state::next);
+            }
+        }
+
+        @FunctionalInterface
+        private interface StreamPull {
+            OresFuture<OptionValue> pull();
+        }
+
+        private final class StreamValue {
+            private final StreamPull pull;
+
+            private StreamValue(StreamPull pull) {
+                this.pull = Objects.requireNonNull(pull, "pull");
+            }
+
+            private OresFuture<OptionValue> nextValue() {
+                return Objects.requireNonNull(
+                        pull.pull(),
+                        "Stream pull returned null");
+            }
+        }
+
+        private final class StreamFactory {
+            private Object fromValues(List<Object> args) {
+                requireOne(args, "Stream.from_values");
+                List<?> source = iterableValues(args.getFirst());
+                ArrayList<Object> snapshot = new ArrayList<>(source);
+                final class State {
+                    private int index;
+                    private synchronized OresFuture<OptionValue> next() {
+                        OptionValue value = index >= snapshot.size()
+                                ? new OptionValue(false, null)
+                                : new OptionValue(true, snapshot.get(index++));
+                        return OresFuture.completed(value);
+                    }
+                }
+                State state = new State();
+                return new StreamValue(state::next);
+            }
+
+            private Object fromFuture(List<Object> args) {
+                requireOne(args, "Stream.from_future");
+                OresFuture<?> source = awaitableFuture(args.getFirst());
+                final class State {
+                    private boolean consumed;
+                    private synchronized OresFuture<OptionValue> next() {
+                        if (consumed) {
+                            return OresFuture.completed(
+                                    new OptionValue(false, null));
+                        }
+                        consumed = true;
+                        return source.mapOn(
+                                asyncScheduler(),
+                                value -> new OptionValue(true, value));
+                    }
+                }
+                State state = new State();
+                return new StreamValue(state::next);
+            }
+        }
+
         private List<?> iterableValues(Object value) {
             if (value instanceof List<?> list) return list;
             if (value instanceof Object[] array) return List.of(array);
+            if (value instanceof IteratorValue iterator) {
+                ArrayList<Object> drained = new ArrayList<>();
+                while (true) {
+                    OptionValue next = iterator.nextValue();
+                    if (!next.present()) break;
+                    drained.add(next.value());
+                }
+                return List.copyOf(drained);
+            }
             if (value instanceof OresObject object) {
                 Ast.MethodDecl iterator = findMethod(object.klass, "Symbol.iterator", 0, new LinkedHashSet<>());
                 if (iterator == null) throw new IllegalArgumentException("value has no [Symbol.iterator]()");
@@ -3173,6 +3672,23 @@ public final class OresEvalRootNode extends RootNode {
         private IllegalArgumentException returnTypeMismatch(String callable, Ast.TypeRef declared, Object value) {
             return new IllegalArgumentException(callable + " returned " + (value == null ? "null" : value.getClass().getSimpleName())
                     + " but declared " + declared);
+        }
+
+        private void bindForOfIteration(Ast.ForOfStmt loop, Object value, Env env) {
+            if (!loop.destructuresSequence()) {
+                env.define(loop.bindingName(), value, loop.bindingKind());
+                return;
+            }
+            List<?> items = asSequence(value);
+            if (items.size() != loop.sequenceBindings().size()) {
+                throw new IllegalArgumentException(
+                        "for-of destructure arity mismatch: value has " + items.size()
+                                + " element(s), pattern has " + loop.sequenceBindings().size());
+            }
+            for (int i = 0; i < items.size(); i++) {
+                Ast.DestructureBinding binding = loop.sequenceBindings().get(i);
+                if (!binding.isDiscard()) env.define(binding.name(), items.get(i), binding.kind());
+            }
         }
 
         private List<?> asSequence(Object value) { if (value instanceof List<?> l) return l; if (value instanceof Object[] a) return List.of(a); throw new IllegalArgumentException("value is not sequence-destructurable"); }
@@ -3569,6 +4085,13 @@ public final class OresEvalRootNode extends RootNode {
     }
     private static void requireZero(List<Object> args,String name){if(!args.isEmpty())throw new IllegalArgumentException(name+" expects no arguments");}
     private static void requireOne(List<Object> args,String name){if(args.size()!=1)throw new IllegalArgumentException(name+" expects one argument");}
+    private static Invokable requireInvokableArg(List<Object> args,String name){
+        requireOne(args,name);
+        if(!(args.getFirst() instanceof Invokable callback)) {
+            throw new IllegalArgumentException(name+" expects one callable argument");
+        }
+        return callback;
+    }
     private static String requireStringArg(List<Object> args,String name){
         requireOne(args,name);
         if(!(args.getFirst() instanceof String message)) throw new IllegalArgumentException(name+" expects a String message");

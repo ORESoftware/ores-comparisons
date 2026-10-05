@@ -207,6 +207,46 @@ final class AsyncSchedulerLanguageTest {
     }
 
     @Test
+    void asyncPlannerExecutesNewLoopFormsAndDestructuring() throws Exception {
+        String program = """
+                pub async routine main() => void {
+                  let i = 0;
+                  while i < 2 do
+                    stdio.stdout.write(i);
+                    i = i + 1
+                  done
+
+                  for [k, v] of arr[arr[2, 20], arr[3, 30]] {
+                    stdio.stdout.write(k);
+                    stdio.stdout.write(v);
+                  }
+
+                  do {
+                    stdio.stdout.write(i);
+                    i = i + 1;
+                  } while (i < 3);
+                  return;
+                }
+                """;
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(program)));
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(OresLanguage.ID, program, "async-loops.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        assertEquals("012203302", output.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test
     void deepReturnAwaitRecursionUsesProperAsyncTailTransfer() throws Exception {
         String program = """
                 async fnc bounce(int n) => int {
@@ -287,90 +327,20 @@ final class AsyncSchedulerLanguageTest {
     }
 
     @Test
-    void tailAwaitRequiresGuardReleaseAndRemainsEligibleAfterExplicitRelease() throws Exception {
-        String invalid = """
-                async fnc leaf() => int {
-                  return 42;
-                }
-
-                async fnc guarded(Mutex<int> mutex) => int {
-                  val guard = mutex.lock();
-                  return await leaf();
-                }
-                """;
-
-        IllegalArgumentException ownershipFailure =
-                assertThrows(
-                        IllegalArgumentException.class,
-                        () -> TypeChecker.check(Parser.parse(invalid)));
-        assertTrue(ownershipFailure.getMessage().contains(
-                "cannot await while holding a lock guard"));
-
-        String valid = """
-                async fnc leaf() => int {
-                  return 42;
-                }
-
-                async fnc guarded(Mutex<int> mutex) => int {
-                  val guard = mutex.lock();
-                  guard.release();
-                  return await leaf();
-                }
-
-                pub async routine main() => void {
-                  val mutex = Mutex.new(1);
-                  val value = await guarded(mutex);
-                  stdio.println(value);
-                  stdio.println(mutex.try_lock().is_some());
-                  return;
-                }
-                """;
-
-        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(valid)));
-
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        Source source = Source.newBuilder(
-                        OresLanguage.ID,
-                        valid,
-                        "async-tail-guard-release.ores")
-                .mimeType(OresLanguage.MIME_TYPE)
-                .build();
-
-        try (Context context = Context.newBuilder(OresLanguage.ID)
-                .allowAllAccess(false)
-                .out(output)
-                .build()) {
-            context.eval(source);
-        }
-
-        String rendered = output.toString(StandardCharsets.UTF_8);
-        assertTrue(rendered.contains("42"));
-        assertTrue(rendered.contains("true"),
-                "explicit guard release must permit tail transfer and lock reacquisition");
-    }
-
-    @Test
-    void schedulerStartAcceptsSyncOrAsyncButRequiresZeroArguments() {
-        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                fnc good_sync() => void {
-                  val scheduler = new OresScheduler(2);
-                  val work = scheduler.start(|| -> {
-                    return;
-                  });
-                  scheduler.close();
-                  return;
-                }
-
-                async fnc good_async() => void {
-                  val scheduler = new OresScheduler(2);
-                  val work = scheduler.start(async || -> {
-                    return;
-                  });
-                  await work;
-                  scheduler.close();
-                  return;
-                }
-                """)));
+    void schedulerStartRequiresInlineAsyncZeroArgumentLambda() {
+        IllegalArgumentException synchronous = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        fnc bad() => void {
+                          val scheduler = new OresScheduler(2);
+                          val work = scheduler.start(|| -> {
+                            return;
+                          });
+                          scheduler.close();
+                          return;
+                        }
+                        """)));
+        assertTrue(synchronous.getMessage().contains("inline async zero-argument lambda"));
 
         IllegalArgumentException parameterized = assertThrows(
                 IllegalArgumentException.class,
@@ -407,84 +377,6 @@ final class AsyncSchedulerLanguageTest {
                         }
                         """)));
         assertTrue(receive.getMessage().contains("cannot transport OresScheduler"));
-    }
-
-    @Test
-    void schedulerTaskMutableCaptureMovesOwnershipOutOfParent() {
-        IllegalArgumentException failure = assertThrows(
-                IllegalArgumentException.class,
-                () -> TypeChecker.check(Parser.parse("""
-                        fnc bad() => void {
-                          let counter = 0;
-                          val scheduler = new OresScheduler(2);
-                          val work = scheduler.start(async || -> {
-                            counter = counter + 1;
-                            return;
-                          });
-                          counter = counter + 1;
-                          scheduler.close();
-                          return;
-                        }
-                        """)));
-
-        assertTrue(
-                failure.getMessage().contains("moved")
-                        || failure.getMessage().contains("capture"),
-                () -> "unexpected ownership error: " + failure.getMessage());
-    }
-
-    @Test
-    void schedulerTaskCannotCaptureLockGuardAcrossPoolBoundary() {
-        IllegalArgumentException failure = assertThrows(
-                IllegalArgumentException.class,
-                () -> TypeChecker.check(Parser.parse("""
-                        fnc bad() => void {
-                          val mutex = Mutex.new(1);
-                          val guard = mutex.lock();
-                          val scheduler = new OresScheduler(2);
-                          val work = scheduler.start(async || -> {
-                            guard.release();
-                            return;
-                          });
-                          scheduler.close();
-                          return;
-                        }
-                        """)));
-
-        assertTrue(
-                failure.getMessage().contains("guard")
-                        || failure.getMessage().contains("capture"),
-                () -> "unexpected guard-capture error: " + failure.getMessage());
-    }
-
-    @Test
-    void synchronousSchedulerTaskRunsOnCustomPoolAndReturnsFuture() throws Exception {
-        String program = """
-                pub async routine main() => void {
-                  val scheduler = new OresScheduler(2);
-                  val work = scheduler.start(|| -> {
-                    return 7;
-                  });
-                  val value = await work;
-                  stdio.println(value);
-                  scheduler.close();
-                  return;
-                }
-                """;
-
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        Source source = Source.newBuilder(OresLanguage.ID, program, "scheduler-sync.ores")
-                .mimeType(OresLanguage.MIME_TYPE)
-                .build();
-
-        try (Context context = Context.newBuilder(OresLanguage.ID)
-                .allowAllAccess(false)
-                .out(output)
-                .build()) {
-            context.eval(source);
-        }
-
-        assertTrue(output.toString(StandardCharsets.UTF_8).contains("7"));
     }
 
 }

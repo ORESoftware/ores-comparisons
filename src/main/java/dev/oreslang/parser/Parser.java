@@ -798,6 +798,11 @@ public final class Parser {
         if (match(IF)) return parseIf();
         if (match(TRY)) return parseTry();
         if (match(FOR)) return parseFor();
+        if (match(WHILE)) return parseWhile();
+        if (check(DO) && checkNext(LBRACE)) {
+            advance();
+            return parseDoWhile();
+        }
 
         Ast.Expr expression = parseExpression();
         consumeStatementTerminator("expression statement should end with ';'");
@@ -805,52 +810,184 @@ public final class Parser {
     }
 
     private Ast.Stmt parseFor() {
-        consume(LPAREN, "expected '(' after for");
+        boolean parenthesized = match(LPAREN);
 
         if (isBindingKind(peek().type())) {
             Ast.BindingKind kind = parseBindingKind();
+
+            if (check(LBRACKET)) {
+                List<Ast.DestructureBinding> bindings = parseForSequencePattern(kind);
+                consume(OF, "expected 'of' after for destructuring pattern");
+                Ast.Expr iterable = parseExpression();
+                closeForHeader(parenthesized);
+                return Ast.ForOfStmt.sequence(bindings, iterable, parseLoopBody());
+            }
+
             if (check(IDENT) && checkNext(OF)) {
                 String name = advance().lexeme();
                 consume(OF, "expected 'of' in for-of loop");
                 Ast.Expr iterable = parseExpression();
-                consume(RPAREN, "expected ')' after for-of header");
-                return new Ast.ForOfStmt(kind, name, iterable, parseBlock());
+                closeForHeader(parenthesized);
+                return new Ast.ForOfStmt(kind, name, iterable, parseLoopBody());
             }
 
             Ast.TypeRef type = null;
             String name;
-            if (check(IDENT) && checkNext(EQUAL)) name = advance().lexeme();
-            else {
+            if (check(IDENT) && checkNext(EQUAL)) {
+                name = advance().lexeme();
+            } else {
                 type = parseTypeRef();
                 name = consume(IDENT, "expected loop initializer binding name").lexeme();
             }
             consume(EQUAL, "for initializer binding requires '='");
             Ast.Expr initializer = parseExpression();
             Ast.BindingStmt init = new Ast.BindingStmt(kind, type, name, initializer);
-            consume(SEMICOLON, "expected ';' after for initializer");
-            Ast.Expr condition = check(SEMICOLON) ? null : parseExpression();
-            consume(SEMICOLON, "expected ';' after for condition");
-            Ast.Expr update = check(RPAREN) ? null : parseExpression();
-            consume(RPAREN, "expected ')' after for header");
-            return new Ast.ForStmt(init, condition, update, parseBlock());
+            return finishCStyleFor(parenthesized, init);
+        }
+
+        if (check(LBRACKET)) {
+            List<Ast.DestructureBinding> bindings = parseForSequencePattern(Ast.BindingKind.VAL);
+            consume(OF, "expected 'of' after for destructuring pattern");
+            Ast.Expr iterable = parseExpression();
+            closeForHeader(parenthesized);
+            return Ast.ForOfStmt.sequence(bindings, iterable, parseLoopBody());
         }
 
         if (check(IDENT) && checkNext(OF)) {
             String name = advance().lexeme();
             consume(OF, "expected 'of' in for-of loop");
             Ast.Expr iterable = parseExpression();
-            consume(RPAREN, "expected ')' after for-of header");
-            return new Ast.ForOfStmt(Ast.BindingKind.VAL, name, iterable, parseBlock());
+            closeForHeader(parenthesized);
+            return new Ast.ForOfStmt(Ast.BindingKind.VAL, name, iterable, parseLoopBody());
         }
 
         Ast.Stmt initializer = null;
-        if (!check(SEMICOLON)) initializer = new Ast.ExprStmt(parseExpression());
+        if (!check(SEMICOLON)) {
+            initializer = tryParseTypedForInitializer();
+            if (initializer == null) initializer = new Ast.ExprStmt(parseExpression());
+        }
+        return finishCStyleFor(parenthesized, initializer);
+    }
+
+    private Ast.ForStmt finishCStyleFor(boolean parenthesized, Ast.Stmt initializer) {
         consume(SEMICOLON, "expected ';' after for initializer");
         Ast.Expr condition = check(SEMICOLON) ? null : parseExpression();
         consume(SEMICOLON, "expected ';' after for condition");
-        Ast.Expr update = check(RPAREN) ? null : parseExpression();
-        consume(RPAREN, "expected ')' after for header");
-        return new Ast.ForStmt(initializer, condition, update, parseBlock());
+        Ast.Expr update = isForHeaderEnd(parenthesized) ? null : parseForUpdate();
+        closeForHeader(parenthesized);
+        return new Ast.ForStmt(initializer, condition, update, parseLoopBody());
+    }
+
+    private Ast.Expr parseForUpdate() {
+        if (current + 2 < tokens.size() && check(IDENT)) {
+            Token name = tokens.get(current);
+            Token first = tokens.get(current + 1);
+            Token second = tokens.get(current + 2);
+            if ((first.type() == PLUS || first.type() == MINUS)
+                    && second.type() == first.type()
+                    && adjacent(name, first)
+                    && adjacent(first, second)) {
+                advance();
+                Token.Type operator = first.type();
+                advance();
+                advance();
+                Ast.NameExpr target = new Ast.NameExpr(name.lexeme());
+                return new Ast.AssignExpr(
+                        target,
+                        new Ast.BinaryExpr(
+                                operator == PLUS ? "+" : "-",
+                                new Ast.NameExpr(name.lexeme()),
+                                new Ast.LiteralExpr(1L)));
+            }
+        }
+        return parseExpression();
+    }
+
+    private List<Ast.DestructureBinding> parseForSequencePattern(Ast.BindingKind inheritedKind) {
+        consume(LBRACKET, "expected '[' in for destructuring pattern");
+        if (check(RBRACKET)) throw error(peek(), "for destructuring pattern cannot be empty");
+
+        List<Ast.DestructureBinding> bindings = new ArrayList<>();
+        Ast.BindingKind currentKind = inheritedKind == null ? Ast.BindingKind.VAL : inheritedKind;
+        do {
+            if (isBindingKind(peek().type())) currentKind = parseBindingKind();
+            if (isDiscardToken(peek())) {
+                advance();
+                bindings.add(Ast.DestructureBinding.discard());
+            } else {
+                String name = consume(IDENT, "expected binding name in for destructuring pattern").lexeme();
+                bindings.add(new Ast.DestructureBinding(currentKind, name));
+            }
+        } while (match(COMMA));
+
+        consume(RBRACKET, "expected ']' after for destructuring pattern");
+        return List.copyOf(bindings);
+    }
+
+    private Ast.Stmt parseWhile() {
+        if (check(LBRACE) || check(DO)) {
+            throw error(peek(), "while requires a condition; unconditional looping uses the canonical loop statement");
+        }
+        Ast.Expr condition = parseExpression();
+        return new Ast.WhileStmt(condition, parseLoopBody());
+    }
+
+    private Ast.Stmt parseDoWhile() {
+        List<Ast.Stmt> body = parseBlock();
+        consume(WHILE, "expected 'while' after do-while body");
+        Ast.Expr condition = parseExpression();
+        match(SEMICOLON);
+        return new Ast.DoWhileStmt(body, condition);
+    }
+
+    private List<Ast.Stmt> parseLoopBody() {
+        if (check(LBRACE)) return parseBlock();
+        if (match(DO)) {
+            List<Ast.Stmt> body = parseUntil(DONE);
+            consume(DONE, "expected 'done' to close loop body");
+            return body;
+        }
+        throw error(peek(), "expected '{' or 'do' to start loop body");
+    }
+
+    private void closeForHeader(boolean parenthesized) {
+        if (parenthesized) {
+            consume(RPAREN, "expected ')' after for header");
+            return;
+        }
+        if (!check(LBRACE) && !check(DO)) {
+            throw error(peek(), "expected '{' or 'do' after for header");
+        }
+    }
+
+    private boolean isForHeaderEnd(boolean parenthesized) {
+        return parenthesized ? check(RPAREN) : check(LBRACE) || check(DO);
+    }
+
+    private Ast.BindingStmt tryParseTypedForInitializer() {
+        if (!check(IDENT)) return null;
+
+        int start = current;
+        Ast.TypeRef type;
+        try {
+            type = parseTypeRef();
+        } catch (IllegalArgumentException notAType) {
+            current = start;
+            return null;
+        }
+
+        if (!check(IDENT) || !checkNext(EQUAL)) {
+            current = start;
+            return null;
+        }
+
+        String name = advance().lexeme();
+        consume(EQUAL, "typed for initializer requires '='");
+        return new Ast.BindingStmt(
+                Ast.BindingKind.LET,
+                type,
+                name,
+                parseExpression());
     }
 
     private Ast.BindingStmt parseBindingStatement() {
@@ -1155,9 +1292,55 @@ public final class Parser {
                 Ast.Expr index = parseExpression();
                 consume(RBRACKET, "expected ']' after index");
                 expr = new Ast.IndexExpr(expr, index);
+            } else if (check(QUESTION) && !questionStartsTernary()) {
+                advance();
+                expr = new Ast.TryPropagateExpr(expr);
             } else break;
         }
         return expr;
+    }
+
+    /**
+     * A question mark belongs to the existing ternary operator when a colon is
+     * visible at this expression depth before the expression boundary.
+     * Otherwise it is the postfix Try-like propagation operator.
+     *
+     * Parentheses are the explicit disambiguator for deliberately nested forms
+     * such as {@code (value?) ? when_true : when_false}.
+     */
+    private boolean questionStartsTernary() {
+        if (!check(QUESTION)) return false;
+        int parens = 0;
+        int brackets = 0;
+        int braces = 0;
+        for (int i = current + 1; i < tokens.size(); i++) {
+            Token.Type type = tokens.get(i).type();
+            switch (type) {
+                case LPAREN -> parens++;
+                case RPAREN -> {
+                    if (parens == 0 && brackets == 0 && braces == 0) return false;
+                    parens--;
+                }
+                case LBRACKET -> brackets++;
+                case RBRACKET -> {
+                    if (brackets == 0 && parens == 0 && braces == 0) return false;
+                    brackets--;
+                }
+                case LBRACE -> braces++;
+                case RBRACE -> {
+                    if (braces == 0 && parens == 0 && brackets == 0) return false;
+                    braces--;
+                }
+                case COLON -> {
+                    if (parens == 0 && brackets == 0 && braces == 0) return true;
+                }
+                case SEMICOLON, COMMA, EOF, DO, DONE, FI, ELSE, ELSEIF, END -> {
+                    if (parens == 0 && brackets == 0 && braces == 0) return false;
+                }
+                default -> { }
+            }
+        }
+        return false;
     }
 
     private List<Ast.TypeRef> parseCallTypeArguments() {
@@ -1204,7 +1387,7 @@ public final class Parser {
         return switch (type) {
             case IDENT,
                     DEFINE, CLASS, MODULE, NAMESPACE, IMPORT, FROM, AS, EXTENDS, IMPLEMENTS,
-                    TRY, CATCH, FINALLY, END, FI, IF, DO, ELSE, THEN,
+                    TRY, CATCH, FINALLY, END, FI, IF, DO, WHILE, ELSE, THEN,
                     NEW, DONE, AWAIT, SPAWN, ASYNC, NLEX, ACTOR, ISOACTOR, SHARED, UNTRUSTED, DEF, FNC, ROUTINE, FOR, OF, YIELD, SUPER, ELSEIF, SWITCH, TYPE, TYPEOF,
                     INTERFACE, IMPL, ABSTRACT, VOID, STATIC, PUB, PRIVATE, STRUCTURAL, RETURN, DEFER,
                     VAL, CONST, LET, MUT, SELF, TRUE, FALSE, NULL, OBJ, ARR -> true;
@@ -1359,7 +1542,7 @@ public final class Parser {
     }
 
     private boolean isSafeStatementBoundary() {
-        return check(RBRACE) || check(FI) || check(END) || check(ELSE) || check(ELSEIF)
+        return check(RBRACE) || check(FI) || check(END) || check(DONE) || check(ELSE) || check(ELSEIF)
                 || check(CATCH) || check(FINALLY) || check(EOF);
     }
 

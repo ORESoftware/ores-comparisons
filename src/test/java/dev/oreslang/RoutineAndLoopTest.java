@@ -3,6 +3,7 @@ package dev.oreslang;
 import dev.oreslang.parser.Parser;
 import dev.oreslang.types.TypeChecker;
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Source;
 import org.junit.jupiter.api.Test;
 
@@ -205,6 +206,144 @@ final class RoutineAndLoopTest {
                 }
                 """);
         assertEquals("45", output);
+    }
+
+    @Test
+    void forOfSupportsDoDoneAndImplicitVal() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for item of arr[1, 2, 3] do
+                    stdio.stdout.write(item)
+                  done
+                }
+                """);
+        assertEquals("123", output);
+    }
+
+    @Test
+    void forOfSupportsSequenceDestructuring() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for [k, v] of arr[arr[1, 10], arr[2, 20]] do
+                    stdio.stdout.write(k);
+                    stdio.stdout.write(":");
+                    stdio.stdout.write(v);
+                    stdio.stdout.write(";")
+                  done
+                }
+                """);
+        assertEquals("1:10;2:20;", output);
+    }
+
+    @Test
+    void forOfDestructuringRejectsArityMismatch() {
+        PolyglotException failure = assertThrows(PolyglotException.class, () -> run("""
+                pub routine main() => void {
+                  for [k, v] of arr[arr[1]] {
+                    stdio.stdout.write(k);
+                  }
+                }
+                """));
+        assertTrue(failure.getMessage().contains("arity mismatch"));
+    }
+
+    @Test
+    void cStyleForSupportsTypedInitializerPostfixAndDoDone() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for int i = 0; i < 3; i++ do
+                    stdio.stdout.write(i)
+                  done
+                }
+                """);
+        assertEquals("012", output);
+    }
+
+    @Test
+    void cStyleForSupportsTypedInitializerAndBracesWithoutParentheses() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  for int i = 0; i < 3; i++ {
+                    stdio.stdout.write(i);
+                  }
+                }
+                """);
+        assertEquals("012", output);
+    }
+
+    @Test
+    void typedForInitializerUsesFullTypeGrammar() {
+        assertDoesNotThrow(() -> Parser.parse("""
+                pub routine main() => void {
+                  for pkg.Counter<int> item = source; false; item = item {
+                  }
+                }
+                """));
+    }
+
+    @Test
+    void whileSupportsBraceAndDoDoneBodies() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  let i = 0;
+                  while i < 2 {
+                    stdio.stdout.write(i);
+                    i = i + 1;
+                  }
+                  while i < 4 do
+                    stdio.stdout.write(i);
+                    i = i + 1
+                  done
+                }
+                """);
+        assertEquals("0123", output);
+    }
+
+    @Test
+    void whileRequiresConditionAndDoesNotAliasCanonicalLoop() {
+        PolyglotException braceFailure = assertThrows(PolyglotException.class, () -> run("""
+                pub routine main() => void {
+                  while {
+                    return;
+                  }
+                }
+                """));
+        assertTrue(braceFailure.getMessage().contains("while requires a condition"));
+
+        PolyglotException doneFailure = assertThrows(PolyglotException.class, () -> run("""
+                pub routine main() => void {
+                  while do
+                    return
+                  done
+                }
+                """));
+        assertTrue(doneFailure.getMessage().contains("while requires a condition"));
+    }
+
+    @Test
+    void doWhileSupportsBraceForm() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  let i = 0;
+                  do {
+                    stdio.stdout.write(i);
+                    i = i + 1;
+                  } while (i < 2);
+                }
+                """);
+        assertEquals("01", output);
+    }
+
+    @Test
+    void loopDoDoneRequiresDoneNotEnd() {
+        PolyglotException failure = assertThrows(PolyglotException.class, () -> run("""
+                pub routine main() => void {
+                  for item of arr[1] do
+                    stdio.stdout.write(item)
+                  end
+                }
+                """));
+        assertTrue(failure.getMessage().contains("parse error"));
     }
 
     private static String run(String program) throws Exception {

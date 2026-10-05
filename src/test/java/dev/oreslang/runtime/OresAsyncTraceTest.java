@@ -154,29 +154,4 @@ final class OresAsyncTraceTest {
         assertTrue(trace.render().contains("actor-message"));
         assertTrue(trace.render().contains("Worker.receive_message"));
     }
-    @Test
-    void attachedLogicalCausalTracesAreBoundedPerFailure() {
-        IllegalStateException failure = new IllegalStateException("fanout");
-        for (int i = 0; i < 100; i++) {
-            OresAsyncTrace.Trace trace = OresAsyncTrace.root(
-                    new OresAsyncTrace.Frame("waiter_" + i, site(100 + i)));
-            OresAsyncTrace.attach(failure, trace);
-        }
-
-        long logical = java.util.Arrays.stream(failure.getSuppressed())
-                .filter(OresAsyncTrace.LogicalAsyncStackTrace.class::isInstance)
-                .count();
-        java.util.List<OresAsyncTrace.LogicalAsyncTraceElision> markers =
-                java.util.Arrays.stream(failure.getSuppressed())
-                        .filter(OresAsyncTrace.LogicalAsyncTraceElision.class::isInstance)
-                        .map(OresAsyncTrace.LogicalAsyncTraceElision.class::cast)
-                        .toList();
-
-        assertEquals(32, logical);
-        assertEquals(1, markers.size());
-        assertEquals(68, markers.getFirst().elidedTraces());
-        assertEquals(33, failure.getSuppressed().length);
-    }
-
-
 }

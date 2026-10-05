@@ -18,7 +18,6 @@ public abstract class OresSubscription<T> {
     private boolean cancelled;
     private boolean terminal;
     private boolean pulling;
-    private boolean runtimeCancelIssued;
     private OresFuture<OresNotification<T>> active;
 
     /**
@@ -49,7 +48,6 @@ public abstract class OresSubscription<T> {
                 pulling = false;
                 terminal = true;
             }
-            cancelRuntimeOnce();
             return OresFuture.failed(failure);
         }
 
@@ -88,7 +86,11 @@ public abstract class OresSubscription<T> {
             }
 
             if (shouldCancelRuntime) {
-                cancelRuntimeOnce();
+                try {
+                    cancelFromRuntime();
+                } catch (RuntimeException | Error ignored) {
+                    // Stream terminal state is already authoritative.
+                }
             }
 
             if (exposed.isDone()) {
@@ -123,22 +125,8 @@ public abstract class OresSubscription<T> {
         if (toCancel != null) {
             toCancel.cancel(true);
         }
-        cancelRuntimeOnce();
+        cancelFromRuntime();
         return true;
-    }
-
-    private void cancelRuntimeOnce() {
-        synchronized (gate) {
-            if (runtimeCancelIssued) return;
-            runtimeCancelIssued = true;
-        }
-
-        try {
-            cancelFromRuntime();
-        } catch (RuntimeException | Error ignored) {
-            // Cancellation/terminal state is already authoritative. Runtime
-            // cleanup hooks must not roll it back or execute guest code.
-        }
     }
 
     public final boolean isCancelled() {
