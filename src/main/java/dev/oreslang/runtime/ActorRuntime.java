@@ -6022,7 +6022,9 @@ public final class ActorRuntime implements AutoCloseable {
             super.put(task);
         }
 
-        private void stamp(Runnable task) {
+        static AffinityWork requireActorTurn(
+                Runnable task,
+                CarrierRegistry registry) {
             if (!(task instanceof AffinityWork work)) {
                 throw new IllegalArgumentException(
                         "actor dispatcher accepts classified ACTOR_TURN work only");
@@ -6038,6 +6040,11 @@ public final class ActorRuntime implements AutoCloseable {
                                 + "; CPU data chunks and GPU kernels require "
                                 + "the heterogeneous compute/dataflow scheduler");
             }
+            return work;
+        }
+
+        private void stamp(Runnable task) {
+            AffinityWork work = requireActorTurn(task, registry);
             work.affinityEnqueuedNanos(System.nanoTime());
         }
 
@@ -6156,6 +6163,39 @@ public final class ActorRuntime implements AutoCloseable {
         }
     }
 
+    /**
+     * Actor-domain executor admission is enforced before ThreadPoolExecutor can
+     * choose either the queue path or the direct firstTask/compensation-worker
+     * path. Queue-only validation is insufficient because execute() may hand a
+     * task directly to a newly created worker.
+     */
+    static final class ActorDomainExecutor extends ThreadPoolExecutor {
+        private final CarrierRegistry registry;
+
+        ActorDomainExecutor(
+                int corePoolSize,
+                int maximumPoolSize,
+                BlockingQueue<Runnable> workQueue,
+                ThreadFactory threadFactory,
+                CarrierRegistry registry) {
+            super(
+                    corePoolSize,
+                    maximumPoolSize,
+                    50L,
+                    TimeUnit.MILLISECONDS,
+                    workQueue,
+                    threadFactory,
+                    new ThreadPoolExecutor.AbortPolicy());
+            this.registry = Objects.requireNonNull(registry, "registry");
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            AffinityBlockingQueue.requireActorTurn(command, registry);
+            super.execute(command);
+        }
+    }
+
     private static ThreadPoolExecutor newDispatcher(
             int parallelism,
             int readyQueueCapacity,
@@ -6175,7 +6215,15 @@ public final class ActorRuntime implements AutoCloseable {
                 ? namedFactory(threadPrefix)
                 : affinityNamedFactory(threadPrefix, carrierRegistry);
 
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+        if (carrierRegistry != null) {
+            return new ActorDomainExecutor(
+                    parallelism,
+                    maxThreads,
+                    readyQueue,
+                    threadFactory,
+                    carrierRegistry);
+        }
+        return new ThreadPoolExecutor(
                 parallelism,
                 maxThreads,
                 50L,
@@ -6183,7 +6231,6 @@ public final class ActorRuntime implements AutoCloseable {
                 readyQueue,
                 threadFactory,
                 new ThreadPoolExecutor.AbortPolicy());
-        return executor;
     }
 
     private static ThreadFactory namedFactory(String prefix) {

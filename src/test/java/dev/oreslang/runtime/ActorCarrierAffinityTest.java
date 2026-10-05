@@ -8,6 +8,7 @@ import dev.oreslang.runtime.ActorRuntime.CarrierRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -173,6 +174,33 @@ final class ActorCarrierAffinityTest {
             releaseForeign.countDown();
             local.join(2_000);
             foreign.join(2_000);
+        }
+    }
+
+    @Test
+    void actorExecutorRejectsUnclassifiedWorkBeforeDirectFirstTaskPath() throws Exception {
+        CarrierRegistry registry = new CarrierRegistry(1);
+        AffinityBlockingQueue queue = new AffinityBlockingQueue(4, registry);
+        var executor = new ActorRuntime.ActorDomainExecutor(
+                1,
+                1,
+                queue,
+                worker -> Thread.ofPlatform().unstarted(registry.bindWorker(worker)),
+                registry);
+
+        try {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> executor.execute(() -> { }),
+                    "executor admission must run before ThreadPoolExecutor can use firstTask");
+
+            CountDownLatch ran = new CountDownLatch(1);
+            TestWork actorTurn = new TestWork(registry, 0L, ran::countDown);
+            executor.execute(actorTurn);
+            assertTrue(ran.await(2, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
         }
     }
 
