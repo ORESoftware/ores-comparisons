@@ -302,11 +302,13 @@ public final class ActorRuntime implements AutoCloseable {
             budget.addBytes(16L + 2L * text.length());
             return value;
         }
-        if (value instanceof BigInteger integer) {
+        if (value.getClass() == BigInteger.class) {
+            BigInteger integer = (BigInteger) value;
             budget.addBytes(32L + Math.max(1L, (integer.bitLength() + 7L) / 8L));
             return value;
         }
-        if (value instanceof BigDecimal decimal) {
+        if (value.getClass() == BigDecimal.class) {
+            BigDecimal decimal = (BigDecimal) value;
             budget.addBytes(40L + Math.max(1L, (decimal.unscaledValue().bitLength() + 7L) / 8L));
             return value;
         }
