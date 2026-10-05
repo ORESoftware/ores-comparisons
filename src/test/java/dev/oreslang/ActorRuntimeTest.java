@@ -5,6 +5,7 @@ import dev.oreslang.runtime.IsolatePolicy;
 import dev.oreslang.runtime.OresValues;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class ActorRuntimeTest {
+    private static final class MutableBigInteger extends BigInteger {
+        private int mutableState;
+
+        MutableBigInteger() {
+            super("7");
+        }
+
+        void mutate() {
+            mutableState++;
+        }
+    }
+
     private enum MutableHostEnum {
         VALUE;
 
@@ -78,6 +91,18 @@ final class ActorRuntimeTest {
             assertEquals(List.of(1, 2), observed.get());
             assertThrows(UnsupportedOperationException.class, () -> ((List<Object>) observed.get()).add(9));
         }
+    }
+
+    @Test
+    void rejectsSubclassedBigNumbersInsteadOfAssumingTheyAreImmutable() {
+        MutableBigInteger value = new MutableBigInteger();
+        value.mutate();
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> ActorRuntime.freeze(value));
+
+        assertTrue(error.getMessage().contains("not Sendable"), error.getMessage());
     }
 
     @Test
