@@ -15,14 +15,16 @@ not of every Oreslang call.
 | Operation | Scheduler yield? |
 | --- | --- |
 | ordinary `fnc` / `routine` call | no |
-| CPU work | no |
+| ordinary/root CPU work | no implicit yield |
+| actor CPU work | may be preempted at a resumable scheduler checkpoint |
 | start nonblocking I/O and keep its Future | no |
 | `await future` | yes, always |
 | Ores blocking/suspending I/O | yes while waiting |
 | empty inbox receive | yes |
 | timer/sleep wait | yes |
-| scheduler safepoint | normally no |
-| untrusted fuel/deadline exhaustion at a safepoint | forced handoff/abort |
+| non-resumable scheduler checkpoint | records/checks policy; does not detach |
+| resumable actor checkpoint | yields when reduction/time/manual preemption is pending |
+| untrusted fuel/deadline exhaustion at a safepoint | enforced handoff/abort |
 
 A nonblocking call therefore behaves like:
 
@@ -397,16 +399,34 @@ A suspended actor remains logically inside the same mailbox turn:
 - resumption may occur on a different carrier;
 - the actor's generation lease remains valid across suspension.
 
-## Safepoint is not suspension
+## Safepoints and actor preemption
 
-A compiler/runtime safepoint checks control state such as cancellation, deadline,
-fuel, debugger/maintenance requests, and untrusted execution policy.
+A compiler/runtime safepoint checks control state such as cancellation,
+deadline, fuel, debugger/maintenance requests, and scheduler fairness.
 
-A normal safepoint does **not** yield merely because it was reached.
+The runtime distinguishes a non-resumable checkpoint from a compiler-proved
+resumable actor checkpoint. The former may record that preemption is due but
+cannot detach an arbitrary JVM/native stack. The latter carries a heap-safe
+`ActorContinuation`; when the actor's reduction budget, wall-clock quantum, or
+an explicit scheduler request is pending, the runtime stores that continuation,
+unwinds the current carrier turn, releases the actor execution lease, and
+requeues the actor.
 
-For untrusted actors, a safepoint can become an enforced handoff/termination
-point when fuel, deadline, or other sandbox policy requires it. This is separate
-from cooperative `await`.
+This gives Oreslang actors BEAM-style soft realtime behavior without
+`Thread.suspend`/asynchronous stack tearing. A CPU-bound actor therefore does
+not need an `await` to relinquish its carrier as long as compiled execution
+continues to reach mandatory resumable safepoints.
+
+Carrier-pinned regions (for example a JVM-thread-affine `OresRwLock` guard) defer
+migration until the region closes. Opaque host/FFI code that cannot reach a
+safe point is bounded by watchdog/sandbox policy rather than unsafe stack
+preemption.
+
+For untrusted actors, fuel and hard deadlines remain additional enforcement;
+a scheduler preemption does not reset the logical event's fuel.
+
+This is separate from `await`: `await` is always an unconditional scheduler
+boundary, even for an already-completed Future and even for a CPU-hungry actor.
 
 ## Blocking-looking I/O
 
