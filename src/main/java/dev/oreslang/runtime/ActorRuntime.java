@@ -5983,10 +5983,22 @@ public final class ActorRuntime implements AutoCloseable {
      */
     static final class AffinityBlockingQueue extends ArrayBlockingQueue<Runnable> {
         private final CarrierRegistry registry;
+        private final long affinityGraceNanos;
 
         AffinityBlockingQueue(int capacity, CarrierRegistry registry) {
+            this(capacity, registry, AFFINITY_STEAL_GRACE_NANOS);
+        }
+
+        AffinityBlockingQueue(
+                int capacity,
+                CarrierRegistry registry,
+                long affinityGraceNanos) {
             super(capacity, true);
             this.registry = Objects.requireNonNull(registry, "registry");
+            if (affinityGraceNanos < 0L) {
+                throw new IllegalArgumentException("affinity grace cannot be negative");
+            }
+            this.affinityGraceNanos = affinityGraceNanos;
         }
 
         @Override
@@ -6053,7 +6065,7 @@ public final class ActorRuntime implements AutoCloseable {
             long queuedAt = work.affinityEnqueuedNanos();
             if (queuedAt == 0L) return true;
             long age = now - queuedAt;
-            return age < 0L || age >= AFFINITY_STEAL_GRACE_NANOS;
+            return age < 0L || age >= affinityGraceNanos;
         }
 
         private Runnable pollPreferred(long carrierToken) {

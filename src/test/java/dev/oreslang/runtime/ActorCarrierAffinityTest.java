@@ -126,7 +126,10 @@ final class ActorCarrierAffinityTest {
     @Test
     void queuePrefersCurrentCarrierAheadOfYoungForeignAffineWork() throws Exception {
         CarrierRegistry registry = new CarrierRegistry(2);
-        AffinityBlockingQueue queue = new AffinityBlockingQueue(8, registry);
+        AffinityBlockingQueue queue = new AffinityBlockingQueue(
+                8,
+                registry,
+                TimeUnit.SECONDS.toNanos(1));
         CountDownLatch foreignReady = new CountDownLatch(1);
         CountDownLatch localReady = new CountDownLatch(1);
         CountDownLatch releaseForeign = new CountDownLatch(1);
@@ -258,7 +261,10 @@ final class ActorCarrierAffinityTest {
     @Test
     void foreignWorkerCanStealAfterBoundedAffinityAge() throws Exception {
         CarrierRegistry registry = new CarrierRegistry(2);
-        AffinityBlockingQueue queue = new AffinityBlockingQueue(4, registry);
+        AffinityBlockingQueue queue = new AffinityBlockingQueue(
+                4,
+                registry,
+                TimeUnit.MILLISECONDS.toNanos(1));
         CountDownLatch homeReady = new CountDownLatch(1);
         CountDownLatch releaseHome = new CountDownLatch(1);
         AtomicLong homeToken = new AtomicLong();
