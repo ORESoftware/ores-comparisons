@@ -61,6 +61,10 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
     private record Failure(Throwable failure) { }
     private record Cancelled(CancellationException failure) { }
 
+    interface RuntimeWaiterRegistration {
+        boolean cancel();
+    }
+
     private static final class Waiter<T> {
         private final BiConsumer<? super T, ? super Throwable> callback;
         private final AtomicBoolean claimed = new AtomicBoolean();
@@ -70,7 +74,7 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
         }
     }
 
-    private final Runnable cancelHook;
+    private volatile Runnable cancelHook;
     private final AtomicBoolean cancelHookRun = new AtomicBoolean();
     private final NativeFutureState nativeState = new NativeFutureState();
     private volatile Object state = PENDING;
@@ -192,8 +196,16 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
         stage.whenComplete((value, failure) -> {
             if (failure == null) {
                 result.completeFromRuntime(value);
+                return;
+            }
+
+            Throwable terminal = unwrap(failure);
+            if (stage instanceof Future<?> cancellable && cancellable.isCancelled()) {
+                result.cancelFromRuntime(asCancellation(
+                        terminal,
+                        "host CompletionStage was cancelled"));
             } else {
-                result.failFromRuntime(unwrap(failure));
+                result.failFromRuntime(terminal);
             }
         });
         return result;
@@ -272,6 +284,10 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
         return settle(new Failure(Objects.requireNonNull(failure, "failure")));
     }
 
+    boolean cancelFromRuntime(CancellationException failure) {
+        return settle(new Cancelled(Objects.requireNonNull(failure, "failure")));
+    }
+
     /**
      * Runtime-only completion subscription.
      *
@@ -279,33 +295,65 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
      * dependent Future, enqueue a continuation, or release runtime accounting.
      * They must never execute Oreslang guest code directly.</p>
      */
-    void whenCompleteRuntime(BiConsumer<? super T, ? super Throwable> callback) {
+    RuntimeWaiterRegistration whenCompleteRuntime(
+            BiConsumer<? super T, ? super Throwable> callback) {
         Objects.requireNonNull(callback, "callback");
         Waiter<T> waiter = new Waiter<>(callback);
-        waiters.add(waiter);
 
         Object observed = state;
         if (observed != PENDING && nativeState.isDone()) {
             notifyWaiter(waiter, observed);
+            return () -> false;
         }
+
+        waiters.add(waiter);
+
+        observed = state;
+        if (observed != PENDING && nativeState.isDone()) {
+            waiters.remove(waiter);
+            notifyWaiter(waiter, observed);
+        }
+
+        return () -> cancelRuntimeWaiter(waiter);
     }
 
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
         CancellationException cancelled =
                 new CancellationException("OresFuture was cancelled");
-        if (!settle(new Cancelled(cancelled))) return false;
+        Runnable hook = cancelHook;
+        Error fatal = null;
+        boolean won;
 
-        if (cancelHookRun.compareAndSet(false, true)) {
+        try {
+            won = settle(new Cancelled(cancelled));
+        } catch (VirtualMachineError | ThreadDeath | LinkageError waiterFatal) {
+            // The terminal state is published before waiter delivery. Preserve
+            // cancellation cleanup even if runtime plumbing reports a VM-fatal
+            // condition while draining waiters.
+            won = true;
+            fatal = waiterFatal;
+        }
+        if (!won) return false;
+
+        if (hook != null && cancelHookRun.compareAndSet(false, true)) {
             try {
-                cancelHook.run();
+                hook.run();
+            } catch (VirtualMachineError | ThreadDeath | LinkageError hookFatal) {
+                if (fatal == null) fatal = hookFatal;
+                else fatal.addSuppressed(hookFatal);
             } catch (RuntimeException | Error ignored) {
-                // Cancellation state is already authoritative. A host
-                // cancellation hook cannot roll it back or poison waiter
-                // delivery.
+                // Cancellation state is already authoritative. An ordinary
+                // host cancellation-hook failure cannot roll it back.
             }
         }
+
+        if (fatal != null) throw fatal;
         return true;
+    }
+
+    int runtimeWaiterCountForTesting() {
+        return waiters.size();
     }
 
     @Override
@@ -377,11 +425,27 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
      * receive the returned stage.
      */
     CompletionStage<T> asCompletionStage() {
+        java.util.concurrent.atomic.AtomicReference<RuntimeWaiterRegistration> registrationRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
         CompletableFuture<T> bridge = new CompletableFuture<>();
-        whenCompleteRuntime((value, failure) -> {
-            if (failure == null) bridge.complete(value);
-            else bridge.completeExceptionally(failure);
+
+        bridge.whenComplete((ignoredValue, ignoredFailure) -> {
+            RuntimeWaiterRegistration registration =
+                    registrationRef.getAndSet(null);
+            if (registration != null) registration.cancel();
         });
+
+        RuntimeWaiterRegistration registration =
+                whenCompleteRuntime((value, failure) -> {
+                    if (failure == null) bridge.complete(value);
+                    else bridge.completeExceptionally(failure);
+                });
+        registrationRef.set(registration);
+
+        if (bridge.isDone()) {
+            registration.cancel();
+            registrationRef.compareAndSet(registration, null);
+        }
         return bridge;
     }
 
@@ -396,10 +460,26 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
         state = terminal;
         nativeState.publish(terminalState);
 
+        // Terminal Futures must not retain producer/task cancellation authority.
+        cancelHook = null;
+
+        Error fatal = null;
         Waiter<T> waiter;
         while ((waiter = waiters.poll()) != null) {
-            notifyWaiter(waiter, terminal);
+            try {
+                notifyWaiter(waiter, terminal);
+            } catch (VirtualMachineError | ThreadDeath | LinkageError waiterFatal) {
+                if (fatal == null) fatal = waiterFatal;
+                else fatal.addSuppressed(waiterFatal);
+            }
         }
+        if (fatal != null) throw fatal;
+        return true;
+    }
+
+    private boolean cancelRuntimeWaiter(Waiter<T> waiter) {
+        if (!waiter.claimed.compareAndSet(false, true)) return false;
+        waiters.remove(waiter);
         return true;
     }
 
@@ -423,10 +503,12 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
             } else {
                 throw new IllegalStateException("attempted to notify waiter from pending Future");
             }
+        } catch (VirtualMachineError | ThreadDeath | LinkageError fatal) {
+            throw fatal;
         } catch (RuntimeException | Error ignored) {
-            // Runtime waiter failures must not stop delivery to other waiters or
-            // mutate the settled Future. Scheduler plumbing owns its own
-            // failure path.
+            // Ordinary runtime waiter failures must not stop delivery to other
+            // waiters or mutate the settled Future. Scheduler plumbing owns its
+            // own failure path.
         }
     }
 
@@ -436,15 +518,22 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
 
         rejectBlockingOnOresCarrier("get");
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-        whenCompleteRuntime((value, failure) -> done.countDown());
+        RuntimeWaiterRegistration registration =
+                whenCompleteRuntime((value, failure) -> done.countDown());
 
-        if (unit == null) {
-            done.await();
-        } else if (!done.await(timeout, unit)) {
-            Object after = state;
-            return nativeState.isDone() && after != PENDING ? after : PENDING;
+        try {
+            if (unit == null) {
+                done.await();
+            } else if (!done.await(timeout, unit)) {
+                Object after = state;
+                return nativeState.isDone() && after != PENDING ? after : PENDING;
+            }
+            return state;
+        } finally {
+            // Timed-out/interrupted host observers must not stay rooted in a
+            // Future that may never settle.
+            registration.cancel();
         }
-        return state;
     }
 
     private static void rejectBlockingOnOresCarrier(String operation) {
@@ -514,6 +603,17 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
 
     public void obtrudeException(Throwable ex) {
         throw new UnsupportedOperationException("OresFuture completion is runtime-owned");
+    }
+
+    private static CancellationException asCancellation(
+            Throwable failure,
+            String message) {
+        if (failure instanceof CancellationException cancellation) {
+            return cancellation;
+        }
+        CancellationException cancellation = new CancellationException(message);
+        cancellation.initCause(failure);
+        return cancellation;
     }
 
     static Throwable unwrap(Throwable failure) {
