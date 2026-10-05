@@ -1496,6 +1496,29 @@ public final class TypeChecker {
                         Type source = deref(operand);
                         yield new Borrow(source, false);
                     }
+                    case "ptr" -> {
+                        Type source = deref(operand);
+                        if (source instanceof Primitive
+                                || source instanceof StringLiteral
+                                || source instanceof Generic
+                                || source instanceof Function
+                                || source instanceof ClassNamespace
+                                || source instanceof SingletonProxy
+                                || source == Unknown.INSTANCE) {
+                            throw new IllegalArgumentException(
+                                    "rt ptr requires a concrete reference-backed value, got " + source);
+                        }
+                        yield new Named("Ptr", List.of(source));
+                    }
+                    case "deref" -> {
+                        Type source = deref(operand);
+                        if (!(source instanceof Named pointer)
+                                || !pointer.name().equals("Ptr")
+                                || pointer.arguments().size() != 1) {
+                            throw new IllegalArgumentException("rt deref requires Ptr<T>, got " + source);
+                        }
+                        yield new Borrow(pointer.arguments().getFirst(), false);
+                    }
                     case "share" -> {
                         if (operand instanceof Borrow) {
                             throw new IllegalArgumentException(
@@ -1513,7 +1536,7 @@ public final class TypeChecker {
                         // original named owner.
                         yield new Shared(operand);
                     }
-                    default -> throw new IllegalStateException("unknown rt ownership operation " + operation);
+                    default -> throw new IllegalStateException("unknown rt operation " + operation);
                 };
             }
             if (call.callee() instanceof Ast.NameExpr name && name.name().equals("Some")) {
@@ -2369,6 +2392,10 @@ public final class TypeChecker {
 
     private boolean isOwnershipIntrinsicName(String name) {
         String operation = ownershipIntrinsicOperation(name);
+        if (name.startsWith("$rt$")
+                && (operation.equals("ptr") || operation.equals("deref"))) {
+            return true;
+        }
         return operation.equals("borrow")
                 || operation.equals("take")
                 || operation.equals("copy")
@@ -2380,6 +2407,9 @@ public final class TypeChecker {
     }
 
     private void requireCopyable(Type type, Set<String> visiting) {
+        if (type instanceof Named pointer && pointer.name().equals("Ptr")) {
+            throw new IllegalArgumentException("rt copy cannot copy Ptr<T>; pointer capabilities are lifetime-bound");
+        }
         if (type instanceof StringLiteral) return;
         if (type instanceof Primitive primitive) {
             if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
@@ -2559,6 +2589,9 @@ public final class TypeChecker {
     }
 
     private void requireShareable(Type type, Set<String> visiting) {
+        if (type instanceof Named pointer && pointer.name().equals("Ptr")) {
+            throw new IllegalArgumentException("rt share cannot share Ptr<T>; pointer capabilities are lifetime-bound");
+        }
         if (type instanceof StringLiteral) return;
         if (type instanceof Primitive primitive) {
             if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
@@ -2645,8 +2678,8 @@ public final class TypeChecker {
     }
 
     private void requireNotBuiltinTypeName(String name, String kind) {
-        if (name.equals("Option")) {
-            throw new IllegalArgumentException(kind + " cannot redefine built-in type 'Option'");
+        if (name.equals("Option") || name.equals("Ptr")) {
+            throw new IllegalArgumentException(kind + " cannot redefine built-in type '" + name + "'");
         }
     }
 
@@ -2732,6 +2765,23 @@ public final class TypeChecker {
                 Type element = resolve(ref.arguments().getFirst(), generics, self, true);
                 if (element == Primitive.VOID) throw new IllegalArgumentException("Option<void> is invalid; use void for no return value");
                 yield new Named("Option", List.of(element));
+            }
+            case "Ptr" -> {
+                if (ref.inferArguments() || ref.arguments().size() != 1) {
+                    throw new IllegalArgumentException("Ptr requires exactly one explicit type argument");
+                }
+                Type target = resolve(ref.arguments().getFirst(), generics, self);
+                if (target instanceof Primitive
+                        || target instanceof StringLiteral
+                        || target instanceof Generic
+                        || target instanceof Function
+                        || target instanceof ClassNamespace
+                        || target instanceof SingletonProxy
+                        || target == Unknown.INSTANCE) {
+                    throw new IllegalArgumentException(
+                            "Ptr<T> requires a concrete reference-backed target type, got " + target);
+                }
+                yield new Named("Ptr", List.of(target));
             }
             case "Fnc" -> {
                 List<Type> args = ref.arguments().stream().map(arg -> resolve(arg, generics, self)).toList();
