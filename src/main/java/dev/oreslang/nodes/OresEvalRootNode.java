@@ -128,18 +128,24 @@ public final class OresEvalRootNode extends RootNode {
                         + "; provide an explicit immutable/copy adapter instead");
     }
 
-    private static boolean isKnownImmutableCopyScalar(Object value) {
+    static boolean isKnownRuntimeNumber(Object value) {
         if (value == null) return false;
         Class<?> type = value.getClass();
-        return type == String.class
-                || type == Byte.class
+        return type == Byte.class
                 || type == Short.class
                 || type == Integer.class
                 || type == Long.class
                 || type == Float.class
                 || type == Double.class
                 || type == BigInteger.class
-                || type == BigDecimal.class
+                || type == BigDecimal.class;
+    }
+
+    private static boolean isKnownImmutableCopyScalar(Object value) {
+        if (value == null) return false;
+        Class<?> type = value.getClass();
+        return type == String.class
+                || isKnownRuntimeNumber(value)
                 || type == Boolean.class
                 || type == Character.class
                 || type == Complex.class;
@@ -701,7 +707,8 @@ public final class OresEvalRootNode extends RootNode {
                 if (assignment.target() instanceof Ast.IndexExpr target) {
                     Object receiver = eval(target.receiver(), env);
                     Object index = eval(target.index(), env);
-                    if (!(index instanceof Number number)) throw new IllegalArgumentException("index must be an integer");
+                    if (!isKnownRuntimeNumber(index)) throw new IllegalArgumentException("index must be an integer");
+                    Number number = (Number) index;
                     int i = Math.toIntExact(number.longValue());
                     if (receiver instanceof List<?> raw) {
                         @SuppressWarnings("unchecked") List<Object> list = (List<Object>) raw;
@@ -796,7 +803,8 @@ public final class OresEvalRootNode extends RootNode {
             if (expr instanceof Ast.IndexExpr indexed) {
                 Object receiver = eval(indexed.receiver(), env);
                 Object index = eval(indexed.index(), env);
-                if (!(index instanceof Number number)) throw new IllegalArgumentException("index must be an integer");
+                if (!isKnownRuntimeNumber(index)) throw new IllegalArgumentException("index must be an integer");
+                    Number number = (Number) index;
                 int i = Math.toIntExact(number.longValue());
                 if (receiver instanceof List<?> list) return list.get(i);
                 if (receiver instanceof Object[] array) return array[i];
@@ -1469,7 +1477,11 @@ public final class OresEvalRootNode extends RootNode {
                     default -> throw new IllegalArgumentException("operator " + op + " is not supported for complex numbers");
                 };
             }
-            if (!(left instanceof Number a) || !(right instanceof Number b)) throw new IllegalArgumentException("numeric operator requires numbers");
+            if (!isKnownRuntimeNumber(left) || !isKnownRuntimeNumber(right)) {
+                throw new IllegalArgumentException("numeric operator requires Oreslang numeric values");
+            }
+            Number a = (Number) left;
+            Number b = (Number) right;
             boolean integral = isIntegral(a) && isIntegral(b) && op != '/';
             if (integral) {
                 long x = a.longValue(), y = b.longValue();
@@ -1482,19 +1494,21 @@ public final class OresEvalRootNode extends RootNode {
         private Object negate(Object value) {
             if (value instanceof Complex c) return c.negate();
             if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) return -((Number) value).longValue();
-            if (value instanceof Number number) return -number.doubleValue();
+            if (isKnownRuntimeNumber(value)) return -((Number) value).doubleValue();
             throw new IllegalArgumentException("unary - requires a number");
         }
 
         private int compare(Object left, Object right) {
-            if (left instanceof Number a && right instanceof Number b) return Double.compare(a.doubleValue(), b.doubleValue());
+            if (isKnownRuntimeNumber(left) && isKnownRuntimeNumber(right)) {
+                return Double.compare(((Number) left).doubleValue(), ((Number) right).doubleValue());
+            }
             if (left instanceof String a && right instanceof String b) return a.compareTo(b);
             throw new IllegalArgumentException("values are not comparable");
         }
 
         private boolean truth(Object value) { if (value instanceof Boolean b) return b; throw new IllegalArgumentException("condition must be bool"); }
         private boolean isIntegral(Number value) { return value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long; }
-        private Complex asComplex(Object value) { if (value instanceof Complex c) return c; if (value instanceof Number n) return new Complex(n.doubleValue(),0); throw new IllegalArgumentException("value is not numeric"); }
+        private Complex asComplex(Object value) { if (value instanceof Complex c) return c; if (isKnownRuntimeNumber(value)) return new Complex(((Number) value).doubleValue(),0); throw new IllegalArgumentException("value is not numeric"); }
         private List<?> asSequence(Object value) { if (value instanceof List<?> l) return l; if (value instanceof Object[] a) return List.of(a); throw new IllegalArgumentException("value is not destructurable"); }
         private String display(Object value) { return value instanceof Complex c ? c.toString() : String.valueOf(value); }
     }
