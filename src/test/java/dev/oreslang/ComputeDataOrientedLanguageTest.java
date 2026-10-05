@@ -365,12 +365,41 @@ end
 
         assertDoesNotThrow(() -> OresCompiler.parseAndTypeCheck("""
                 compute fnc descending(Region<int> values, int n): void {
-                  for int i = n; i >= 0; i-- {
+                  for int i = n; i > 0; i-- {
                     val x = i;
                   }
                   return;
                 }
                 """));
+
+        assertComputeRejected("""
+                compute fnc skipStepCanWrap(Region<int> values, int n): void {
+                  for int i = 0; i < n; i = i + 2 {
+                    val x = i;
+                  }
+                  return;
+                }
+                """);
+
+        assertComputeRejected("""
+                compute fnc inclusiveDynamicLowerBoundCanExceedTripRange(
+                        Region<int> values,
+                        int n): void {
+                  for int i = n; i >= 0; i-- {
+                    val x = i;
+                  }
+                  return;
+                }
+                """);
+
+        assertComputeRejected("""
+                compute fnc inclusiveMaxLiteralCanWrap(Region<int> values): void {
+                  for int i = 0; i <= 9223372036854775807; i++ {
+                    val x = i;
+                  }
+                  return;
+                }
+                """);
 
         assertComputeRejected("""
                 compute fnc wrongWay(Region<int> values, int n): void {
@@ -680,6 +709,53 @@ end
                         define aspect Audit as
                         end
                         """));
+    }
+
+    @Test
+    void emptyOrDuplicatePlannerMetadataFailsClosed() {
+        assertComputeRejected("""
+                compute fnc a(Region<int> values): void
+                reads values;
+                {
+                  return;
+                }
+
+                define flow empty as
+                end
+                """);
+
+        assertComputeRejected("""
+                compute fnc a(Region<int> values): void
+                reads values;
+                {
+                  return;
+                }
+
+                compute fnc b(Region<int> values): void
+                reads values;
+                {
+                  return;
+                }
+
+                define flow duplicate as
+                  a -> b;
+                  a -> b;
+                end
+                """);
+
+        assertComputeRejected("""
+                define aspect Empty as
+                end
+                """);
+
+        assertComputeRejected("""
+                compute fnc bad(Region<int> values): void
+                reads values;
+                writes values;
+                {
+                  return;
+                }
+                """);
     }
 
     @Test

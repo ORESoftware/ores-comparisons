@@ -188,7 +188,9 @@ error.
 ## Compute-safe subset
 
 The initial compute subset is intentionally conservative and AOT/device
-oriented. It rejects:
+oriented. The compiler also proves that every direct region read/write is
+covered by the declared effect footprint and that effects required by nested
+compute calls are a subset of the caller's effects. It rejects:
 
 - actor entry points;
 - async compute functions and `await`;
@@ -197,7 +199,10 @@ oriented. It rejects:
 - heap-backed object/list literals;
 - closures/lambdas;
 - `try/catch/finally` and `defer`;
-- arbitrary dynamic/member calls.
+- arbitrary dynamic/member calls;
+- ambient/global data reads or writes that are not explicit parameters/regions;
+- unbounded `loop` and conditionless `for`;
+- recursive compute call graphs.
 
 A compute function may call another statically resolved compute function or a
 known pure numeric intrinsic. This restriction is a semantic safety floor; a
@@ -232,7 +237,8 @@ define flow simulation as
 end
 ```
 
-Each stage must resolve to a compute function. The declaration must be acyclic.
+Each stage must resolve to a compute function. The declaration must contain at
+least one edge, must be acyclic, and may not repeat the same canonical edge.
 
 The explicit graph supplies required ordering, but effect analysis may add
 additional edges when region accesses interfere. An explicit flow edge can
@@ -283,16 +289,16 @@ Supported join-point families are:
 - `rpc`;
 - `database`.
 
-Advice kinds are `before`, `after`, and constrained `around`.
+The v0 advice kinds are `before` and `after`.
 
-Aspect handlers must resolve statically to synchronous, non-actor, non-generic
-`fnc` declarations. Runtime method replacement/vtable patching is not part of
-the language.
+Aspect handlers must resolve statically to synchronous, zero-argument,
+`void`, non-actor, non-generic `fnc` declarations. Runtime method
+replacement/vtable patching is not part of the language.
 
-`around` is forbidden for task, await, region-transfer, and GPU-launch join
-points because arbitrary interception there would make scheduling, continuation,
-and heterogeneous execution effects opaque to the compiler. Use `before` or
-`after` instrumentation for those points.
+`around` syntax remains reserved but is rejected by the semantic checker until
+Oreslang defines a statically typed `proceed` / continuation ABI. This keeps
+all scheduler, actor, I/O, and heterogeneous-compute effects visible to the
+compiler.
 
 ## OOP + DOP composition
 
