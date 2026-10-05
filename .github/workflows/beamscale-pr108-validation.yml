@@ -65,3 +65,31 @@ jobs:
           name: beamscale-pr108-${{ matrix.os }}
           path: _ci/beamscale-pr108/ci.log
           if-no-files-found: ignore
+
+  format-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify exact mirrored source tree
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD:_ci/beamscale-pr108)" = "61f7bbf9b60d0ddf336451a4d9c3366b68db8fb9"
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: "1.90.0"
+          components: rustfmt
+      - name: Format exact source snapshot
+        shell: bash
+        run: cargo +1.90.0 fmt --all
+      - name: Preserve formatted source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: beamscale-pr108-rustfmt-1.90
+          path: |
+            _ci/beamscale-pr108/src/bin/beamscale-service.rs
+            _ci/beamscale-pr108/src/main.rs
+            _ci/beamscale-pr108/src/runtime_manifest.rs
+          if-no-files-found: error
