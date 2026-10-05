@@ -212,6 +212,58 @@ public final class OresScheduler implements AutoCloseable {
                 turnExecutor);
     }
 
+    /**
+     * Drive one host/embedder task on the current thread without attempting a
+     * second concurrent entry into an already-entered Polyglot context.
+     *
+     * <p>Turns are still queue-dispatched: every await/tail-await fully returns
+     * to this pump before the next turn receives a fresh dispatch id. External
+     * completion threads may only enqueue a runnable.</p>
+     */
+    static <T> T driveOnCurrentThread(
+            Task<T> task,
+            TurnExecutor turnExecutor) {
+        Objects.requireNonNull(task, "task");
+        Objects.requireNonNull(turnExecutor, "turnExecutor");
+
+        LinkedBlockingQueue<Runnable> ready =
+                new LinkedBlockingQueue<>(DEFAULT_QUEUE_CAPACITY);
+        Executor pump = command -> {
+            if (!ready.offer(Objects.requireNonNull(command, "command"))) {
+                throw new RejectedExecutionException(
+                        "host-pumped OresScheduler ready queue is full");
+            }
+        };
+
+        OresScheduler scheduler = new OresScheduler(
+                "ores-host-pump-" + NEXT_ID.incrementAndGet(),
+                1,
+                pump,
+                null,
+                turnExecutor);
+
+        boolean interrupted = false;
+        try {
+            OresFuture<T> completion = scheduler.start(task);
+            while (!completion.isDone()) {
+                Runnable next;
+                for (;;) {
+                    try {
+                        next = ready.take();
+                        break;
+                    } catch (InterruptedException interruption) {
+                        interrupted = true;
+                    }
+                }
+                next.run();
+            }
+            return completion.join();
+        } finally {
+            scheduler.close();
+            if (interrupted) Thread.currentThread().interrupt();
+        }
+    }
+
     /** True only on private carriers owned by user-created OresSchedulers. */
     public static boolean isSchedulerCarrierThread() {
         return Boolean.TRUE.equals(SCHEDULER_CARRIER.get());

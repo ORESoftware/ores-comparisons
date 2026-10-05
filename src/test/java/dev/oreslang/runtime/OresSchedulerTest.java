@@ -152,6 +152,36 @@ final class OresSchedulerTest {
     }
 
     @Test
+    void hostPumpKeepsSameThreadButUsesFreshDispatchAfterReadyAwait() {
+        AtomicInteger pc = new AtomicInteger();
+        AtomicReference<Thread> firstThread = new AtomicReference<>();
+        AtomicLong firstDispatch = new AtomicLong();
+
+        int result = OresScheduler.driveOnCurrentThread(
+                resume -> {
+                    int turn = pc.getAndIncrement();
+                    if (turn == 0) {
+                        assertTrue(resume.initial());
+                        firstThread.set(Thread.currentThread());
+                        firstDispatch.set(OresScheduler.currentDispatchId());
+                        return OresScheduler.await(OresFuture.completed(41));
+                    }
+
+                    assertFalse(resume.initial());
+                    assertSame(firstThread.get(), Thread.currentThread(),
+                            "host pump must remain on the context-owning thread");
+                    assertNotEquals(firstDispatch.get(), OresScheduler.currentDispatchId(),
+                            "ready await must still resume through a fresh dispatch");
+                    assertEquals(41, resume.value());
+                    return OresScheduler.done(42);
+                },
+                Runnable::run);
+
+        assertEquals(42, result);
+        assertEquals(2, pc.get());
+    }
+
+    @Test
     void tailAwaitAlwaysUsesFreshDispatchWithoutChangingLogicalTaskDomain() throws Exception {
         try (OresScheduler scheduler = new OresScheduler(1)) {
             AtomicInteger pc = new AtomicInteger();
