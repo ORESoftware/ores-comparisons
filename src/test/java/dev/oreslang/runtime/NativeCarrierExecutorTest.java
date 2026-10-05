@@ -33,7 +33,14 @@ final class NativeCarrierExecutorTest {
             assertTrue(done.await(5, TimeUnit.SECONDS));
             assertEquals(1, pthreadIds.size(),
                     "logical Ores turns must multiplex over the configured pthread carrier");
-            assertEquals(32L, executor.getCompletedTaskCount());
+
+            long accountingDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+            while (executor.getCompletedTaskCount() != 32L
+                    && System.nanoTime() < accountingDeadline) {
+                Thread.onSpinWait();
+            }
+            assertEquals(32L, executor.getCompletedTaskCount(),
+                    "completion accounting must publish after each carrier turn returns");
         }
     }
 }
