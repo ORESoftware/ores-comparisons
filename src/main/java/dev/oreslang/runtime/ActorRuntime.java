@@ -6136,8 +6136,12 @@ public final class ActorRuntime implements AutoCloseable {
         public Runnable poll() {
             long carrierToken = registry.currentToken();
             if (carrierToken == 0L) return super.poll();
-            Runnable task = pollAffinityFirst(carrierToken);
-            return task != null ? task : super.poll();
+
+            // Non-blocking callers must not silently turn "nothing local or
+            // old enough to steal" into an immediate foreign-affinity steal.
+            // Returning null preserves the same grace contract as take() and
+            // timed poll() without blocking the caller.
+            return pollAffinityFirst(carrierToken);
         }
 
         @Override

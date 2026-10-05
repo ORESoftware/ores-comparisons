@@ -525,6 +525,15 @@ public final class OresScheduler implements AutoCloseable {
                 if (phase.get() != WAITING || pendingResume.get() != null) {
                     detachActiveAwaitRegistration();
                 }
+            } catch (VirtualMachineError fatal) {
+                failTerminal(fatal);
+                throw fatal;
+            } catch (ThreadDeath fatal) {
+                failTerminal(fatal);
+                throw fatal;
+            } catch (LinkageError fatal) {
+                failTerminal(fatal);
+                throw fatal;
             } catch (RuntimeException | Error registrationFailure) {
                 failTerminal(registrationFailure);
             }

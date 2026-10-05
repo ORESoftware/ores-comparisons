@@ -287,6 +287,58 @@ final class ActorCarrierAffinityTest {
     }
 
     @Test
+    void nonblockingPollDoesNotBypassYoungForeignAffinity() throws Exception {
+        CarrierRegistry registry = new CarrierRegistry(2);
+        AffinityBlockingQueue queue = new AffinityBlockingQueue(
+                4,
+                registry,
+                TimeUnit.SECONDS.toNanos(1));
+
+        CountDownLatch foreignReady = new CountDownLatch(1);
+        CountDownLatch localReady = new CountDownLatch(1);
+        CountDownLatch releaseForeign = new CountDownLatch(1);
+        CountDownLatch releaseLocal = new CountDownLatch(1);
+        AtomicLong foreignToken = new AtomicLong();
+        AtomicReference<Runnable> observed = new AtomicReference<>();
+
+        Thread foreign = Thread.ofPlatform().start(registry.bindWorker(() -> {
+            foreignToken.set(registry.currentToken());
+            foreignReady.countDown();
+            await(releaseForeign);
+        }));
+        Thread local = Thread.ofPlatform().start(registry.bindWorker(() -> {
+            localReady.countDown();
+            await(releaseLocal);
+            observed.set(queue.poll());
+        }));
+
+        try {
+            assertTrue(foreignReady.await(2, TimeUnit.SECONDS));
+            assertTrue(localReady.await(2, TimeUnit.SECONDS));
+
+            TestWork foreignWork = new TestWork(registry, foreignToken.get(), () -> { });
+            assertTrue(queue.offer(foreignWork));
+
+            releaseLocal.countDown();
+            local.join(2_000);
+            assertFalse(local.isAlive());
+            assertNull(
+                    observed.get(),
+                    "nonblocking poll must return null instead of stealing young foreign-affine work");
+            assertEquals(1, queue.size());
+            assertSame(
+                    foreignWork,
+                    queue.poll(),
+                    "an unregistered maintenance/test caller may still inspect/drain the queue");
+        } finally {
+            releaseLocal.countDown();
+            releaseForeign.countDown();
+            local.join(2_000);
+            foreign.join(2_000);
+        }
+    }
+
+    @Test
     void foreignWorkerCanStealAfterBoundedAffinityAge() throws Exception {
         CarrierRegistry registry = new CarrierRegistry(2);
         AffinityBlockingQueue queue = new AffinityBlockingQueue(
