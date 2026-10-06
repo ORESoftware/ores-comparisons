@@ -1018,17 +1018,18 @@ public final class Parser {
         if (check(AMP)) {
             throw error(peek(), "pointer-style '&' borrow expressions are not part of Oreslang; calls pass references automatically, use rt borrow for an explicit stored read view");
         }
-        if (match(RT)) return parseRuntimeOwnershipExpression();
+        if (match(RT)) return parseRuntimeExpression();
         if (match(AWAIT)) return new Ast.AwaitExpr(parseUnary());
         return parsePostfix();
     }
 
-    private Ast.Expr parseRuntimeOwnershipExpression() {
+    private Ast.Expr parseRuntimeExpression() {
         Token operation = consume(IDENT, "expected runtime operation after 'rt'");
         String name = operation.lexeme();
         if (!name.equals("copy") && !name.equals("take")
-                && !name.equals("borrow") && !name.equals("share")) {
-            throw error(operation, "unknown rt ownership operation '" + name + "'");
+                && !name.equals("borrow") && !name.equals("share")
+                && !name.equals("ptr") && !name.equals("deref")) {
+            throw error(operation, "unknown rt operation '" + name + "'");
         }
 
         Ast.Expr argument;

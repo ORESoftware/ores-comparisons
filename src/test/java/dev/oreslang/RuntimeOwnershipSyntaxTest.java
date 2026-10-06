@@ -29,6 +29,79 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtCopyRejectsClassNamespaceEvenWhenInstancesAreCopyable() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub copy() => self {
+                            return new Box();
+                          }
+                        end
+
+                        fnc bad() => void {
+                          val copied = rt copy Box;
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("class namespace")
+                && error.getMessage().contains("not an instance"),
+                error.getMessage());
+    }
+
+    @Test
+    void rtCopyRejectsModuleNamespaceEvenWhenPublicShapeIsCopyable() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define module numbers as
+                          pub val int answer = 42;
+                        end
+
+                        fnc bad() => void {
+                          val copied = rt copy numbers;
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("module namespace")
+                && error.getMessage().contains("not a value"),
+                error.getMessage());
+    }
+
+    @Test
+    void rtCopyOfPrimitiveValuesIsAllocationFreeValueSemantics() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  let int number = 41;
+                  val copiedNumber = rt copy number;
+
+                  let bool flag = true;
+                  val copiedFlag = rt copy flag;
+
+                  let String text = "ores";
+                  val copiedText = rt copy text;
+
+                  stdio.stdout.write(number == 41);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(copiedNumber == 41);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(flag == true);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(copiedFlag == true);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(text == "ores");
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(copiedText == "ores");
+                  return;
+                }
+                """);
+
+        assertTrue(output.equals("true:true:true:true:true:true"), output);
+    }
+
+    @Test
     void ordinaryClassArgumentPassesSameReferenceWithoutMovingCaller() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 define class Person as

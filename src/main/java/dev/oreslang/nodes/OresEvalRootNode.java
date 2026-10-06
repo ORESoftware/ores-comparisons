@@ -37,6 +37,15 @@ public final class OresEvalRootNode extends RootNode {
     private final String codeUnitId;
     private final String codeUnitDigest;
 
+    /**
+     * JVM/JIT carrier for the language-level Ptr<T> capability.
+     *
+     * This deliberately does not expose or fabricate a numeric JVM address:
+     * managed objects may move under GC. Native/AOT backends may lower Ptr<T>
+     * to a pinned/native address while preserving the same source semantics.
+     */
+    private record OresPtr(Object target) { }
+
     public OresEvalRootNode(OresLanguage language, Ast.Program program) {
         this(language, program, "<anonymous>", digestText(program.toString()));
     }
@@ -744,11 +753,14 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (expr instanceof Ast.CallExpr call) {
                 if (call.callee() instanceof Ast.NameExpr intrinsic) {
-                    String operation = intrinsic.name().startsWith("$rt$")
+                    boolean namespacedRuntimeIntrinsic = intrinsic.name().startsWith("$rt$");
+                    String operation = namespacedRuntimeIntrinsic
                             ? intrinsic.name().substring("$rt$".length())
                             : intrinsic.name();
                     if (operation.equals("borrow") || operation.equals("take")
-                            || operation.equals("copy") || operation.equals("share")) {
+                            || operation.equals("copy") || operation.equals("share")
+                            || (namespacedRuntimeIntrinsic
+                                && (operation.equals("ptr") || operation.equals("deref")))) {
                         if (call.arguments().size() != 1) {
                             throw new IllegalArgumentException("rt " + operation + " expects exactly one argument");
                         }
@@ -761,6 +773,13 @@ public final class OresEvalRootNode extends RootNode {
                             // only rt copy constructs independent storage.
                             case "borrow", "take", "share" -> value;
                             case "copy" -> copyValue(value, env.singletonState, new IdentityHashMap<>());
+                            case "ptr" -> new OresPtr(value);
+                            case "deref" -> {
+                                if (!(value instanceof OresPtr pointer)) {
+                                    throw new IllegalArgumentException("rt deref requires Ptr<T>");
+                                }
+                                yield pointer.target();
+                            }
                             default -> throw new IllegalStateException("unknown rt operation " + operation);
                         };
                     }

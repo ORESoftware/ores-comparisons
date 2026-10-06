@@ -1475,10 +1475,17 @@ public final class TypeChecker {
                 if (call.arguments().size() != 1) {
                     throw new IllegalArgumentException("rt " + operation + " expects exactly one argument");
                 }
-                Type operand = typeOf(call.arguments().getFirst(), env, generics, self);
+                Ast.Expr operandExpr = call.arguments().getFirst();
+                requireOwnershipRuntimeValueOperand(operation, operandExpr, env);
+                Type operand = typeOf(operandExpr, env, generics, self);
                 return switch (operation) {
                     case "copy" -> {
                         Type source = deref(operand);
+                        if (source instanceof ClassNamespace namespace) {
+                            throw new IllegalArgumentException(
+                                    "rt copy requires a runtime value; class namespace '"
+                                            + namespace.className() + "' is not an instance");
+                        }
                         requireCopyable(source, new LinkedHashSet<>());
                         yield source;
                     }
@@ -1495,6 +1502,29 @@ public final class TypeChecker {
                     case "borrow" -> {
                         Type source = deref(operand);
                         yield new Borrow(source, false);
+                    }
+                    case "ptr" -> {
+                        Type source = deref(operand);
+                        if (source instanceof Primitive
+                                || source instanceof StringLiteral
+                                || source instanceof Generic
+                                || source instanceof Function
+                                || source instanceof ClassNamespace
+                                || source instanceof SingletonProxy
+                                || source == Unknown.INSTANCE) {
+                            throw new IllegalArgumentException(
+                                    "rt ptr requires a concrete reference-backed value, got " + source);
+                        }
+                        yield new Named("Ptr", List.of(source));
+                    }
+                    case "deref" -> {
+                        Type source = deref(operand);
+                        if (!(source instanceof Named pointer)
+                                || !pointer.name().equals("Ptr")
+                                || pointer.arguments().size() != 1) {
+                            throw new IllegalArgumentException("rt deref requires Ptr<T>, got " + source);
+                        }
+                        yield new Borrow(pointer.arguments().getFirst(), false);
                     }
                     case "share" -> {
                         if (operand instanceof Borrow) {
@@ -1513,7 +1543,7 @@ public final class TypeChecker {
                         // original named owner.
                         yield new Shared(operand);
                     }
-                    default -> throw new IllegalStateException("unknown rt ownership operation " + operation);
+                    default -> throw new IllegalStateException("unknown rt operation " + operation);
                 };
             }
             if (call.callee() instanceof Ast.NameExpr name && name.name().equals("Some")) {
@@ -2367,8 +2397,43 @@ public final class TypeChecker {
         seen.remove(klass);
     }
 
+    /**
+     * rt ownership operators apply to runtime values, never language namespaces.
+     *
+     * Module names currently expose a structural Record shape for member typing,
+     * so relying only on requireCopyable(Type) would accidentally make a module
+     * namespace look copyable when all of its public members are Copy. Reject
+     * namespace operands before structural typing erases that distinction.
+     */
+    private void requireOwnershipRuntimeValueOperand(
+            String operation,
+            Ast.Expr operand,
+            Env env) {
+        if (!(operand instanceof Ast.NameExpr name) || env.lookup(name.name()) != null) {
+            return;
+        }
+
+        Ast.ModuleDecl module = modules.get(name.name());
+        if (module != null) {
+            throw new IllegalArgumentException(
+                    "rt " + operation + " requires a runtime value; module namespace '"
+                            + name.name() + "' is not a value");
+        }
+
+        Ast.ClassDecl klass = findClass(name.name());
+        if (klass != null) {
+            throw new IllegalArgumentException(
+                    "rt " + operation + " requires a runtime value; class namespace '"
+                            + name.name() + "' is not an instance");
+        }
+    }
+
     private boolean isOwnershipIntrinsicName(String name) {
         String operation = ownershipIntrinsicOperation(name);
+        if (name.startsWith("$rt$")
+                && (operation.equals("ptr") || operation.equals("deref"))) {
+            return true;
+        }
         return operation.equals("borrow")
                 || operation.equals("take")
                 || operation.equals("copy")
@@ -2380,6 +2445,9 @@ public final class TypeChecker {
     }
 
     private void requireCopyable(Type type, Set<String> visiting) {
+        if (type instanceof Named pointer && pointer.name().equals("Ptr")) {
+            throw new IllegalArgumentException("rt copy cannot copy Ptr<T>; pointer capabilities are lifetime-bound");
+        }
         if (type instanceof StringLiteral) return;
         if (type instanceof Primitive primitive) {
             if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
@@ -2559,6 +2627,9 @@ public final class TypeChecker {
     }
 
     private void requireShareable(Type type, Set<String> visiting) {
+        if (type instanceof Named pointer && pointer.name().equals("Ptr")) {
+            throw new IllegalArgumentException("rt share cannot share Ptr<T>; pointer capabilities are lifetime-bound");
+        }
         if (type instanceof StringLiteral) return;
         if (type instanceof Primitive primitive) {
             if (primitive == Primitive.VOID || primitive == Primitive.NULL) {
@@ -2645,8 +2716,8 @@ public final class TypeChecker {
     }
 
     private void requireNotBuiltinTypeName(String name, String kind) {
-        if (name.equals("Option")) {
-            throw new IllegalArgumentException(kind + " cannot redefine built-in type 'Option'");
+        if (name.equals("Option") || name.equals("Ptr")) {
+            throw new IllegalArgumentException(kind + " cannot redefine built-in type '" + name + "'");
         }
     }
 
@@ -2732,6 +2803,23 @@ public final class TypeChecker {
                 Type element = resolve(ref.arguments().getFirst(), generics, self, true);
                 if (element == Primitive.VOID) throw new IllegalArgumentException("Option<void> is invalid; use void for no return value");
                 yield new Named("Option", List.of(element));
+            }
+            case "Ptr" -> {
+                if (ref.inferArguments() || ref.arguments().size() != 1) {
+                    throw new IllegalArgumentException("Ptr requires exactly one explicit type argument");
+                }
+                Type target = resolve(ref.arguments().getFirst(), generics, self);
+                if (target instanceof Primitive
+                        || target instanceof StringLiteral
+                        || target instanceof Generic
+                        || target instanceof Function
+                        || target instanceof ClassNamespace
+                        || target instanceof SingletonProxy
+                        || target == Unknown.INSTANCE) {
+                    throw new IllegalArgumentException(
+                            "Ptr<T> requires a concrete reference-backed target type, got " + target);
+                }
+                yield new Named("Ptr", List.of(target));
             }
             case "Fnc" -> {
                 List<Type> args = ref.arguments().stream().map(arg -> resolve(arg, generics, self)).toList();
