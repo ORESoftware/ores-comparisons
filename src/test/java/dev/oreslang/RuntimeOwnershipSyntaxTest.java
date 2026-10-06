@@ -35,7 +35,7 @@ final class RuntimeOwnershipSyntaxTest {
                     IllegalArgumentException.class,
                     () -> TypeChecker.check(Parser.parse("""
                             define class Box as
-                              pub copy() => self {
+                              pub [Symbol.rtCopy]() => self {
                                 return new Box();
                               }
                             end
@@ -96,7 +96,7 @@ final class RuntimeOwnershipSyntaxTest {
                 IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
                         define class Box as
-                          pub copy() => self {
+                          pub [Symbol.rtCopy]() => self {
                             return new Box();
                           }
                         end
@@ -355,7 +355,7 @@ final class RuntimeOwnershipSyntaxTest {
                 define class Person as
                   pub let String name = "Alex";
 
-                  pub copy() => self {
+                  pub [Symbol.rtCopy]() => self {
                     return new Person();
                   }
                 end
@@ -380,12 +380,62 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtCopyUsesWellKnownSymbolAndLeavesOrdinaryCopyNameFree() throws Exception {
+        String output = run("""
+                define class Box as
+                  pub let int value = 1;
+
+                  pub copy() => self {
+                    return new Box(99);
+                  }
+
+                  pub [Symbol.rtCopy]() => self {
+                    return new Box(self.value);
+                  }
+                end
+
+                pub routine main() => void {
+                  let Box original = new Box(7);
+                  let Box copied = rt copy original;
+                  let Box ordinary = original.copy();
+                  stdio.stdout.write(copied.value);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(ordinary.value);
+                  return;
+                }
+                """);
+
+        assertTrue(output.equals("7:99"), output);
+    }
+
+    @Test
+    void ordinaryCopyMethodDoesNotSatisfyRtCopyContract() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        define class Box as
+                          pub copy() => self {
+                            return new Box();
+                          }
+                        end
+
+                        fnc bad() => void {
+                          let Box box = new Box();
+                          val copied = rt copy box;
+                          return;
+                        }
+                        """)));
+
+        assertTrue(error.getMessage().contains("Symbol.rtCopy"), error.getMessage());
+    }
+
+    @Test
     void rtCopyRecursesThroughStructuralRecordFields() throws Exception {
         String output = run("""
                 define class Box as
                   pub let int value = 7;
 
-                  pub copy() => self {
+                  pub [Symbol.rtCopy]() => self {
                     return new Box(self.value);
                   }
                 end
@@ -411,7 +461,7 @@ final class RuntimeOwnershipSyntaxTest {
                         define class Box as
                           pub let int value = 1;
 
-                          pub copy(mut self)() => self {
+                          pub [Symbol.rtCopy](mut self)() => self {
                             self.value = self.value + 1;
                             return new Box();
                           }
@@ -434,7 +484,7 @@ final class RuntimeOwnershipSyntaxTest {
                         define class Box as
                           pub val int value = 1;
 
-                          pub copy() => self {
+                          pub [Symbol.rtCopy]() => self {
                             return self;
                           }
                         end
@@ -462,7 +512,7 @@ final class RuntimeOwnershipSyntaxTest {
                             return 1;
                           };
 
-                          pub copy() => self {
+                          pub [Symbol.rtCopy]() => self {
                             return new Holder();
                           }
                         end
@@ -523,7 +573,7 @@ final class RuntimeOwnershipSyntaxTest {
                 define class Person as
                   pub val String name = "Alex";
 
-                  pub copy() => self {
+                  pub [Symbol.rtCopy]() => self {
                     return new Person();
                   }
                 end
