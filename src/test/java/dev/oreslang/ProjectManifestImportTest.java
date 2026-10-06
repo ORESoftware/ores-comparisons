@@ -279,10 +279,12 @@ final class ProjectManifestImportTest {
                   return value;
                 }
 
-                define class GenericTools as
+                define module exported
+                pub define class GenericTools as
                   pub static fnc identity<T>(T value): T {
                     return value;
                   }
+                end
                 end
                 """);
 

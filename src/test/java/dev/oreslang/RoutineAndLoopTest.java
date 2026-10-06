@@ -1,5 +1,6 @@
 package dev.oreslang;
 
+import dev.oreslang.ast.Ast;
 import dev.oreslang.parser.Parser;
 import dev.oreslang.types.TypeChecker;
 import org.graalvm.polyglot.Context;
@@ -72,7 +73,7 @@ final class RoutineAndLoopTest {
     }
 
     @Test
-    void methodsOverloadOnlyByArity() {
+    void callablesOverloadOnlyByArity() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 define module m
                   define class C as
@@ -91,9 +92,14 @@ final class RoutineAndLoopTest {
                 end
                 """)));
 
-        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
                 fnc find(): int { return 0; }
                 fnc find(int value): int { return value; }
+                """)));
+
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                fnc find(int value): int { return value; }
+                fnc find(String value): int { return 1; }
                 """)));
     }
 
@@ -161,7 +167,7 @@ final class RoutineAndLoopTest {
     void forOfInjectsSchedulerSafepoints() throws Exception {
         String output = run("""
                 pub routine main(): void {
-                  for (val item of arr[1, 2, 3]) {
+                  for (const item of arr[1, 2, 3]) {
                     stdio.stdout.write(item);
                   }
                   stdio.stdout.write(process.descriptor.scheduler_safepoints)
@@ -193,7 +199,7 @@ final class RoutineAndLoopTest {
                 }
 
                 pub routine main(): void {
-                  for item of arr[1, 2] do
+                  for const item of arr[1, 2] do
                     done();
                     stdio.stdout.write(item);
                   done
@@ -219,15 +225,219 @@ final class RoutineAndLoopTest {
     }
 
     @Test
+    void forOfRequiresExplicitConstOrLetBindings() {
+        IllegalArgumentException bare = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for value of arr[1, 2] do
+                            stdio.stdout.write(value);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(bare.getMessage().contains("variable used before declared"));
+        assertTrue(bare.getMessage().contains("value"));
+
+        IllegalArgumentException destructured = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for [key, value] of arr[(1, 2)] do
+                            stdio.stdout.write(key);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(destructured.getMessage().contains("variable used before declared"));
+
+        IllegalArgumentException valBinding = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for val value of arr[1, 2] do
+                            stdio.stdout.write(value);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(valBinding.getMessage().contains("for-of bindings require 'const' or 'let'"));
+    }
+
+    @Test
+    void forOfParenthesesMutabilityAndDiagnosticsAreUnambiguous() throws Exception {
+        String output = run("""
+                pub routine main(): void {
+                  for (const item of arr[1, 2]) do
+                    stdio.stdout.write(item);
+                  done
+
+                  for let item of arr[3, 4] do
+                    item = item + 10;
+                    stdio.stdout.write(item);
+                  done
+                  return;
+                }
+                """);
+        assertEquals("121314", output);
+
+        IllegalArgumentException parenthesizedBare = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for (item of arr[1, 2]) do
+                            stdio.stdout.write(item);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(parenthesizedBare.getMessage().contains("variable used before declared"));
+
+        IllegalArgumentException shadowedBare = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          let item = 99;
+                          for item of arr[1, 2] do
+                            stdio.stdout.write(item);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(shadowedBare.getMessage().contains("variable used before declared"));
+
+        IllegalArgumentException immutable = assertThrows(
+                IllegalArgumentException.class,
+                () -> TypeChecker.check(Parser.parse("""
+                        pub routine main(): void {
+                          for const item of arr[1, 2] do
+                            item = item + 1;
+                          done
+                          return;
+                        }
+                        """)));
+        assertTrue(immutable.getMessage().contains("cannot reassign const binding 'item'"));
+
+        IllegalArgumentException typed = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for (const int item of arr[1, 2]) do
+                            stdio.stdout.write(item);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(typed.getMessage().contains("for-of element types are inferred"));
+
+        IllegalArgumentException bareTyped = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for int item of arr[1, 2] do
+                            stdio.stdout.write(item);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(bareTyped.getMessage().contains("variable used before declared 'item'"));
+        assertTrue(bareTyped.getMessage().contains("require 'const' or 'let'"));
+
+        IllegalArgumentException parenthesizedBareTyped = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for (int item of arr[1, 2]) do
+                            stdio.stdout.write(item);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(parenthesizedBareTyped.getMessage().contains("variable used before declared 'item'"));
+
+        IllegalArgumentException duplicate = assertThrows(
+                IllegalArgumentException.class,
+                () -> Parser.parse("""
+                        pub routine main(): void {
+                          for const [item, item] of arr[(1, 2)] do
+                            stdio.stdout.write(item);
+                          done
+                          return;
+                        }
+                        """));
+        assertTrue(duplicate.getMessage().contains("duplicate binding 'item'"));
+    }
+
+    @Test
+    void forOfDistinguishesReservedCallableNamesFromLoopDelimiters() throws Exception {
+        String output = run("""
+                fnc do(): Array<int> {
+                  return arr[1, 2];
+                }
+
+                fnc done(): Array<int> {
+                  return arr[3, 4];
+                }
+
+                pub routine main(): void {
+                  for const item of do() do
+                    stdio.stdout.write(item);
+                  done
+
+                  for (const item of done()) do
+                    stdio.stdout.write(item);
+                  done
+                  return;
+                }
+                """);
+
+        assertEquals("1234", output);
+    }
+
+    @Test
+    void forOfAstRejectsValEvenWhenParserIsBypassed() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Ast.ForOfStmt(
+                        Ast.BindingKind.VAL,
+                        "item",
+                        new Ast.NameExpr("items"),
+                        java.util.List.of()));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Ast.ForOfDestructureStmt(
+                        java.util.List.of(new Ast.DestructureBinding(Ast.BindingKind.VAL, "item")),
+                        new Ast.NameExpr("items"),
+                        java.util.List.of()));
+
+        IllegalArgumentException duplicate = assertThrows(
+                IllegalArgumentException.class,
+                () -> new Ast.ForOfDestructureStmt(
+                        java.util.List.of(
+                                new Ast.DestructureBinding(Ast.BindingKind.CONST, "item"),
+                                new Ast.DestructureBinding(Ast.BindingKind.LET, "item")),
+                        new Ast.NameExpr("items"),
+                        java.util.List.of()));
+        assertTrue(duplicate.getMessage().contains("duplicate binding 'item'"));
+
+        assertDoesNotThrow(
+                () -> new Ast.ForOfDestructureStmt(
+                        java.util.List.of(Ast.DestructureBinding.discard()),
+                        new Ast.NameExpr("items"),
+                        java.util.List.of()));
+    }
+
+    @Test
     void forOfSequencePatternsDestructureTupleElements() throws Exception {
         String output = run("""
                 pub routine main(): void {
-                  for [key, value] of arr[(1, "a"), (2, "b")] do
+                  for const [key, value] of arr[(1, "a"), (2, "b")] do
                     stdio.stdout.write(key);
                     stdio.stdout.write(value);
                   done
 
-                  for [_, let value] of arr[(9, 3), (8, 4)] {
+                  for const [_, let value] of arr[(9, 3), (8, 4)] {
                     value = value + 1;
                     stdio.stdout.write(value);
                   }
@@ -244,7 +454,7 @@ final class RoutineAndLoopTest {
                 IllegalArgumentException.class,
                 () -> TypeChecker.check(Parser.parse("""
                         pub routine main(): void {
-                          for [a, b, c] of arr[(1, 2)] do
+                          for const [a, b, c] of arr[(1, 2)] do
                             stdio.stdout.write(a);
                           done
                           return;
@@ -293,7 +503,7 @@ final class RoutineAndLoopTest {
 
                 pub routine main(): void {
                   val bag = new collections.Bag();
-                  for (val item of bag) {
+                  for (const item of bag) {
                     stdio.stdout.write(item);
                   }
                 }

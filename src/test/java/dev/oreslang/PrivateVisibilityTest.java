@@ -207,7 +207,7 @@ final class PrivateVisibilityTest {
                         end
 
                         fnc bad(Bag bag): void {
-                          for value of bag do
+                          for const value of bag do
                             stdio.stdout.write(value);
                           done
                           return;
@@ -223,7 +223,7 @@ final class PrivateVisibilityTest {
                   }
 
                   pub write_self(): void {
-                    for value of self do
+                    for const value of self do
                       stdio.stdout.write(value);
                     done
                     return;
@@ -243,7 +243,8 @@ final class PrivateVisibilityTest {
     void wildcardLinkedCodeCannotBypassPrivateRuntimeVisibility() throws Exception {
         Path child = temp.resolve("vault.ores");
         Files.writeString(child, """
-                define class Vault as
+                define module exported
+                pub define class Vault as
                   private val int secret = 11;
 
                   private reveal(): int {
@@ -257,6 +258,7 @@ final class PrivateVisibilityTest {
                   private [Symbol.iterator](): Array<int> {
                     return arr[1, 2, 3];
                   }
+                end
                 end
 
                 pub fnc make_vault(): Vault {
@@ -318,7 +320,7 @@ final class PrivateVisibilityTest {
 
                 pub routine main(): void {
                   val vault = external.make_vault();
-                  for value of vault do
+                  for const value of vault do
                     stdio.stdout.write(value);
                   done
                   return;
