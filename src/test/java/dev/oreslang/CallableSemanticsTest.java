@@ -205,9 +205,8 @@ final class CallableSemanticsTest {
     }
 
     @Test
-    void instanceMethodsAreDirectOnlyButStaticFncsAndExplicitLambdasAreFirstClass() throws Exception {
-        IllegalArgumentException methodValue = assertThrows(
-                IllegalArgumentException.class,
+    void boundInstanceMethodsStaticFncsAndExplicitLambdasAreFirstClass() throws Exception {
+        assertDoesNotThrow(
                 () -> TypeChecker.check(Parser.parse("""
                         define class Box as
                           pub addOne(int value): int {
@@ -220,7 +219,6 @@ final class CallableSemanticsTest {
                           val Fnc<int, int> callback = box.addOne;
                         }
                         """)));
-        assertTrue(methodValue.getMessage().contains("direct-call-only"));
 
         String output = run("""
                 fnc apply(Fnc<int, int> callback, int value): int {
@@ -243,14 +241,18 @@ final class CallableSemanticsTest {
                     return box.addOne(value);
                   };
                   val Fnc<int, int> static_callback = Box.twice;
+                  val box = new Box();
+                  val Fnc<int, int> bound = box.addOne;
 
                   stdio.stdout.write(apply(wrapped, 4));
                   stdio.stdout.write(":");
                   stdio.stdout.write(apply(static_callback, 4));
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(apply(bound, 9));
                   return;
                 }
                 """);
-        assertEquals("5:8", output);
+        assertEquals("5:8:10", output);
     }
 
     @Test

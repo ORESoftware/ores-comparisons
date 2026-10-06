@@ -56,7 +56,7 @@ final class BlockLoopControlFlowTest {
     void forOfBreakAndContinueTargetTheIteratorLoop() throws Exception {
         String output = run("""
                 pub routine main(): void {
-                  for (val item of arr[1, 2, 3, 4]) {
+                  for (const item of arr[1, 2, 3, 4]) {
                     if item == 2 {
                       continue;
                     } fi
