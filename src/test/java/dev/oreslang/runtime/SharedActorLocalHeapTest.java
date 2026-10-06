@@ -79,7 +79,7 @@ final class SharedActorLocalHeapTest {
             assertEquals(0L, runtime.sharedActorLocalMemoryBytes());
             assertEquals(explicitSharedBytes, runtime.sharedMemoryBytes(),
                     "stopping one shared actor must not reclaim runtime-wide shared state");
-            assertEquals("shared-value", shared.get());
+            assertEquals("shared-value", shared.snapshot());
         }
     }
 
