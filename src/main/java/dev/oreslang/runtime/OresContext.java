@@ -28,6 +28,8 @@ public final class OresContext implements AutoCloseable {
     private final UUID contextId = UUID.randomUUID();
     private final AtomicLong schedulerSafepoints = new AtomicLong();
     private final IsolatePolicy isolatePolicy;
+    private final RuntimePermissions runtimePermissions;
+    private final PermissionCheckMode permissionCheckMode;
     private final ExecutionProfile executionProfile;
     private final ReentrantLock adversarialActorTurnLock = new ReentrantLock(true);
     private final Map<String, Object> linkedCodeUnits = new HashMap<>();
@@ -39,6 +41,10 @@ public final class OresContext implements AutoCloseable {
         this.input = new BufferedReader(new InputStreamReader(env.in()));
         this.output = new PrintWriter(env.out(), true);
         this.isolatePolicy = IsolatePolicy.fromApplicationArguments(env.getApplicationArguments());
+        this.runtimePermissions = RuntimePermissions.fromApplicationArguments(
+                env.getApplicationArguments(), isolatePolicy);
+        this.permissionCheckMode = PermissionCheckMode.fromApplicationArguments(
+                env.getApplicationArguments());
         this.executionProfile = IsolatePolicy.executionProfileFromApplicationArguments(env.getApplicationArguments());
         this.actors = new ActorRuntime(
                 isolatePolicy,
@@ -62,6 +68,8 @@ public final class OresContext implements AutoCloseable {
     public RuntimeGarbageCollector garbageCollector() { return garbageCollector; }
     public UUID contextId() { return contextId; }
     public IsolatePolicy isolatePolicy() { return isolatePolicy; }
+    public RuntimePermissions runtimePermissions() { return runtimePermissions; }
+    public PermissionCheckMode permissionCheckMode() { return permissionCheckMode; }
     public ExecutionProfile executionProfile() { return executionProfile; }
 
     public Object lookupHostSymbol(String className) {
@@ -85,6 +93,14 @@ public final class OresContext implements AutoCloseable {
                     "actor capability check crossed ActorRuntime boundary for " + api);
         }
         requireEffectiveCapability(isolatePolicy, capability, api);
+    }
+
+    public void requirePermission(
+            RuntimePermissions.Permission permission,
+            String resource,
+            String api) {
+        requireCapability(permission.capability(), api);
+        runtimePermissions.require(permission, resource, api);
     }
 
     static void requireEffectiveCapability(
