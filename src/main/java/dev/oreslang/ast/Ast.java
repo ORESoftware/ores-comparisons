@@ -65,6 +65,68 @@ public final class Ast {
         public boolean isStringLiteral() { return name.startsWith("$string$"); }
         public String stringLiteralValue() { return name.substring("$string$".length()); }
 
+        // Compiler-only TypeRef forms for named metadata and sequence shapes.
+        // These synthetic names cannot collide with source identifiers.
+        public static TypeRef intLiteral(String value) {
+            return new TypeRef("$int$" + value.replace("_", ""), List.of(), false);
+        }
+        public boolean isIntLiteral() { return name.startsWith("$int$"); }
+        public long intLiteralValue() {
+            if (!isIntLiteral()) throw new IllegalStateException("not an integer meta literal");
+            return Long.parseLong(name.substring("$int$".length()));
+        }
+
+        public static TypeRef boolLiteral(boolean value) {
+            return new TypeRef(value ? "$bool$true" : "$bool$false", List.of(), false);
+        }
+        public boolean isBoolLiteral() { return name.equals("$bool$true") || name.equals("$bool$false"); }
+        public boolean boolLiteralValue() {
+            if (!isBoolLiteral()) throw new IllegalStateException("not a boolean meta literal");
+            return name.equals("$bool$true");
+        }
+
+        public static TypeRef namedParameter(String parameterName, TypeRef value) {
+            if (parameterName == null || parameterName.isBlank()) {
+                throw new IllegalArgumentException("named parameter name cannot be blank");
+            }
+            return new TypeRef("$named$" + parameterName, List.of(value), false);
+        }
+        public boolean isNamedParameter() { return name.startsWith("$named$"); }
+        public String namedParameterName() {
+            if (!isNamedParameter()) throw new IllegalStateException("not a named parameter");
+            return name.substring("$named$".length());
+        }
+        public TypeRef namedParameterValue() {
+            if (!isNamedParameter() || arguments.size() != 1) {
+                throw new IllegalStateException("malformed named parameter");
+            }
+            return arguments.getFirst();
+        }
+
+        public static TypeRef sequenceShape(List<TypeRef> patterns) {
+            if (patterns.isEmpty()) throw new IllegalArgumentException("sequence shape cannot be empty");
+            return new TypeRef("$shape$", List.copyOf(patterns), false);
+        }
+        public boolean isSequenceShape() { return name.equals("$shape$"); }
+
+        public static TypeRef repeatExact(String count, TypeRef pattern) {
+            long parsed = Long.parseLong(count.replace("_", ""));
+            if (parsed < 0) throw new IllegalArgumentException("sequence repeat count cannot be negative");
+            return new TypeRef("$repeat_exact$" + parsed, List.of(pattern), false);
+        }
+        public boolean isRepeatExact() { return name.startsWith("$repeat_exact$"); }
+        public long repeatExactCount() {
+            if (!isRepeatExact()) throw new IllegalStateException("not an exact sequence repeat");
+            return Long.parseLong(name.substring("$repeat_exact$".length()));
+        }
+
+        public static TypeRef repeatMany(List<TypeRef> group) {
+            if (group.isEmpty()) throw new IllegalArgumentException("repeating sequence group cannot be empty");
+            return new TypeRef("$repeat_many$", List.copyOf(group), false);
+        }
+        public boolean isRepeatMany() { return name.equals("$repeat_many$"); }
+
+
         public static TypeRef union(List<TypeRef> options) {
             java.util.ArrayList<TypeRef> flattened = new java.util.ArrayList<>();
             for (TypeRef option : options) {
@@ -123,9 +185,9 @@ public final class Ast {
             CallableKind kind,
             Visibility visibility,
             boolean async,
+            boolean generator,
+            boolean structural,
             boolean nonLexical,
-            boolean pure,
-            boolean trapped,
             ActorKind actorKind,
             List<String> genericParameters,
             List<Param> parameters,
@@ -138,41 +200,55 @@ public final class Ast {
             annotations = List.copyOf(annotations);
             body = List.copyOf(body);
         }
-        /** Compatibility constructor for passes that do not synthesize callable effects. */
+
+        public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
+                            boolean generator, boolean nonLexical, ActorKind actorKind,
+                            List<String> genericParameters, List<Param> parameters,
+                            TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
+            this(name, kind, visibility, async, generator, false, nonLexical, actorKind,
+                    genericParameters, parameters, returnType, annotations, body);
+        }
+
+        /** Compatibility constructor for non-generator callables. */
         public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
                             boolean nonLexical, ActorKind actorKind, List<String> genericParameters,
                             List<Param> parameters, TypeRef returnType, List<Annotation> annotations,
                             List<Stmt> body) {
-            this(name, kind, visibility, async, nonLexical, false, false, actorKind,
+            this(name, kind, visibility, async, false, nonLexical, actorKind,
                     genericParameters, parameters, returnType, annotations, body);
         }
+
         public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
                             ActorKind actorKind, List<String> genericParameters, List<Param> parameters,
                             TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
-            this(name, kind, visibility, async, false, false, false, actorKind,
+            this(name, kind, visibility, async, false, false, actorKind,
                     genericParameters, parameters, returnType, annotations, body);
         }
+
         public FunctionDecl(String name, CallableKind kind, Visibility visibility, boolean async,
                             List<String> genericParameters, List<Param> parameters, TypeRef returnType,
                             List<Annotation> annotations, List<Stmt> body) {
-            this(name, kind, visibility, async, false, false, false, ActorKind.NONE,
+            this(name, kind, visibility, async, false, false, ActorKind.NONE,
                     genericParameters, parameters, returnType, annotations, body);
         }
+
         public FunctionDecl(String name, Visibility visibility, boolean async, List<String> genericParameters,
                             List<Param> parameters, TypeRef returnType, List<Annotation> annotations, List<Stmt> body) {
-            this(name, CallableKind.FNC, visibility, async, false, false, false, ActorKind.NONE,
+            this(name, CallableKind.FNC, visibility, async, false, false, ActorKind.NONE,
                     genericParameters, parameters, returnType, annotations, body);
         }
     }
 
     public record ClassDecl(
             String name,
+            Visibility visibility,
             boolean isAbstract,
             ActorKind actorKind,
             List<String> genericParameters,
             List<TypeRef> parents,
             List<TypeRef> interfaces,
             List<FieldDecl> fields,
+            ConstructorDecl constructor,
             List<MethodDecl> methods) implements Decl {
         public ClassDecl {
             genericParameters = List.copyOf(genericParameters);
@@ -181,27 +257,64 @@ public final class Ast {
             fields = List.copyOf(fields);
             methods = List.copyOf(methods);
         }
+
+        /** Compatibility constructor for pre-constructor AST producers. */
+        public ClassDecl(String name, boolean isAbstract, ActorKind actorKind,
+                         List<String> genericParameters, List<TypeRef> parents,
+                         List<TypeRef> interfaces, List<FieldDecl> fields,
+                         List<MethodDecl> methods) {
+            this(name, Visibility.PRIVATE, isAbstract, actorKind, genericParameters,
+                    parents, interfaces, fields, null, methods);
+        }
+
         public ClassDecl(String name, boolean isAbstract, List<String> genericParameters,
                          List<TypeRef> parents, List<TypeRef> interfaces,
                          List<FieldDecl> fields, List<MethodDecl> methods) {
-            this(name, isAbstract, ActorKind.NONE, genericParameters, parents, interfaces, fields, methods);
+            this(name, Visibility.PRIVATE, isAbstract, ActorKind.NONE, genericParameters,
+                    parents, interfaces, fields, null, methods);
         }
+
         public ClassDecl(String name, boolean isAbstract, List<String> genericParameters,
                          List<FieldDecl> fields, List<MethodDecl> methods) {
-            this(name, isAbstract, ActorKind.NONE, genericParameters, List.of(), List.of(), fields, methods);
+            this(name, Visibility.PRIVATE, isAbstract, ActorKind.NONE, genericParameters,
+                    List.of(), List.of(), fields, null, methods);
         }
+    }
+
+    public record ConstructorDecl(
+            Visibility visibility,
+            List<Param> parameters,
+            List<Annotation> annotations,
+            List<Stmt> body) {
+        public ConstructorDecl {
+            parameters = List.copyOf(parameters);
+            annotations = List.copyOf(annotations);
+            body = List.copyOf(body);
+        }
+
+        public int arity() { return parameters.size(); }
     }
 
     public sealed interface InterfaceMember permits InterfaceFunctionDecl, InterfaceFieldDecl { }
 
     public record InterfaceFunctionDecl(
             String name,
+            boolean structural,
             List<String> genericParameters,
             List<Param> parameters,
             TypeRef returnType) implements InterfaceMember {
         public InterfaceFunctionDecl {
             genericParameters = List.copyOf(genericParameters);
             parameters = List.copyOf(parameters);
+        }
+
+        /** Compatibility constructor for nominal interface callable contracts. */
+        public InterfaceFunctionDecl(
+                String name,
+                List<String> genericParameters,
+                List<Param> parameters,
+                TypeRef returnType) {
+            this(name, false, genericParameters, parameters, returnType);
         }
     }
 
@@ -242,6 +355,7 @@ public final class Ast {
             boolean isStatic,
             boolean isAbstract,
             boolean async,
+            boolean structural,
             TypeRef explicitReceiverType,
             List<String> genericParameters,
             List<Param> parameters,
@@ -254,7 +368,43 @@ public final class Ast {
             annotations = List.copyOf(annotations);
             body = List.copyOf(body);
         }
+
+        /** Compatibility constructor for methods that do not use declaration-level structural matching. */
+        public MethodDecl(
+                String name,
+                Visibility visibility,
+                boolean isStatic,
+                boolean isAbstract,
+                boolean async,
+                TypeRef explicitReceiverType,
+                List<String> genericParameters,
+                List<Param> parameters,
+                TypeRef returnType,
+                List<Annotation> annotations,
+                List<Stmt> body) {
+            this(name, visibility, isStatic, isAbstract, async, false, explicitReceiverType,
+                    genericParameters, parameters, returnType, annotations, body);
+        }
+
         public int arity() { return parameters.size(); }
+
+        /**
+         * Overload identity for class callables is deliberately only name + arity.
+         * Parameter types, parameter names, generic parameters, return types,
+         * and the implicit/explicit self receiver never participate in overload selection.
+         */
+        public MethodArity overloadIdentity() { return new MethodArity(name, arity()); }
+
+        public boolean matchesArity(String candidateName, int candidateArity) {
+            return name.equals(candidateName) && arity() == candidateArity;
+        }
+    }
+
+    public record MethodArity(String name, int arity) {
+        public MethodArity {
+            if (name == null || name.isBlank()) throw new IllegalArgumentException("method name cannot be blank");
+            if (arity < 0) throw new IllegalArgumentException("method arity cannot be negative");
+        }
     }
 
     public record TypeAliasDecl(String name, List<String> genericParameters, TypeRef target) implements Decl {
@@ -263,20 +413,27 @@ public final class Ast {
 
     public enum BindingKind { CONST, VAL, LET }
 
-    public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, ExprStmt, DeferStmt,
+    public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, YieldStmt, ExprStmt, DeferStmt,
             BlockStmt, BreakStmt, ContinueStmt, IfStmt, MatchStmt, SwitchStmt, TryStmt,
-            ForOfStmt, ForOfDestructureStmt, ForStmt, LoopStmt { }
+            ForOfStmt, ForOfDestructureStmt, ForStmt, LoopStmt, SelectStmt { }
 
     public record BindingStmt(BindingKind kind, TypeRef declaredType, String name, Expr initializer) implements Stmt { }
-    public record DestructureBinding(BindingKind kind, String name) {
+    public record DestructureBinding(BindingKind kind, String name, boolean rest) {
+        public DestructureBinding(BindingKind kind, String name) {
+            this(kind, name, false);
+        }
+
         public DestructureBinding {
             if (name == null || name.isBlank()) {
                 throw new IllegalArgumentException("destructure binding name cannot be blank");
             }
+            if (rest && "_".equals(name)) {
+                throw new IllegalArgumentException("rest destructure binding cannot be a discard");
+            }
         }
 
         public static DestructureBinding discard() {
-            return new DestructureBinding(BindingKind.VAL, "_");
+            return new DestructureBinding(BindingKind.VAL, "_", false);
         }
 
         public boolean isDiscard() {
@@ -287,13 +444,21 @@ public final class Ast {
     public enum DestructureKind { SEQUENCE, OBJECT }
 
     public record DestructureStmt(DestructureKind kind, List<DestructureBinding> bindings, Expr initializer) implements Stmt {
-        public DestructureStmt { bindings = List.copyOf(bindings); }
+        public DestructureStmt {
+            bindings = List.copyOf(bindings);
+            validateRestBinding(bindings, "destructure");
+        }
         public DestructureStmt(List<DestructureBinding> bindings, Expr initializer) {
             this(DestructureKind.SEQUENCE, bindings, initializer);
         }
     }
 
     public record ReturnStmt(Expr value) implements Stmt { }
+    public record YieldStmt(Expr value) implements Stmt {
+        public YieldStmt {
+            if (value == null) throw new IllegalArgumentException("yield requires a value");
+        }
+    }
     public record ExprStmt(Expr expression) implements Stmt { }
     public record DeferStmt(Expr expression) implements Stmt { }
 
@@ -363,20 +528,60 @@ public final class Ast {
         }
     }
 
-    public record ForOfStmt(BindingKind bindingKind, String bindingName, Expr iterable, List<Stmt> body) implements Stmt {
-        public ForOfStmt { body = List.copyOf(body); }
+    public record ForOfStmt(
+            BindingKind bindingKind,
+            String bindingName,
+            Expr iterable,
+            boolean asyncIteration,
+            List<Stmt> body) implements Stmt {
+        public ForOfStmt {
+            body = List.copyOf(body);
+            requireForOfBindingKind(bindingKind);
+        }
+        public ForOfStmt(BindingKind bindingKind, String bindingName, Expr iterable, List<Stmt> body) {
+            this(bindingKind, bindingName, iterable, false, body);
+        }
     }
 
     public record ForOfDestructureStmt(
             List<DestructureBinding> bindings,
             Expr iterable,
+            boolean asyncIteration,
             List<Stmt> body) implements Stmt {
         public ForOfDestructureStmt {
             bindings = List.copyOf(bindings);
             body = List.copyOf(body);
-            if (bindings.isEmpty()) {
-                throw new IllegalArgumentException("for-of destructure pattern cannot be empty");
+            if (bindings.isEmpty()) throw new IllegalArgumentException("for-of destructure pattern cannot be empty");
+            java.util.Set<String> names = new java.util.HashSet<>();
+            for (DestructureBinding binding : bindings) {
+                if (binding.isDiscard()) continue;
+                requireForOfBindingKind(binding.kind());
+                if (!names.add(binding.name())) throw new IllegalArgumentException(
+                        "duplicate binding '" + binding.name() + "' in for-of destructure pattern");
             }
+            validateRestBinding(bindings, "for-of destructure");
+        }
+        public ForOfDestructureStmt(List<DestructureBinding> bindings, Expr iterable, List<Stmt> body) {
+            this(bindings, iterable, false, body);
+        }
+
+    }
+
+    private static void validateRestBinding(List<DestructureBinding> bindings, String context) {
+        int restIndex = -1;
+        for (int i = 0; i < bindings.size(); i++) {
+            if (!bindings.get(i).rest()) continue;
+            if (restIndex >= 0) throw new IllegalArgumentException(context + " may contain at most one rest binding");
+            restIndex = i;
+        }
+        if (restIndex >= 0 && restIndex != bindings.size() - 1) {
+            throw new IllegalArgumentException(context + " rest binding must be last");
+        }
+    }
+
+    private static void requireForOfBindingKind(BindingKind kind) {
+        if (kind != BindingKind.CONST && kind != BindingKind.LET) {
+            throw new IllegalArgumentException("for-of bindings require const or let");
         }
     }
 
@@ -388,9 +593,57 @@ public final class Ast {
         public LoopStmt { body = List.copyOf(body); }
     }
 
+    public enum ChannelOperation { READ, WRITE, DEFAULT }
+    public enum WaitMode { BLOCKING, NONBLOCKING, IMMEDIATE }
+    public enum SelectPolicy { FAIR, PRIORITY, RANDOM }
+
+    public record SelectArm(
+            ChannelOperation operation,
+            Expr channel,
+            Expr value,
+            BindingKind bindingKind,
+            String bindingName,
+            List<Stmt> body) {
+        public SelectArm {
+            body = List.copyOf(body);
+            if (operation == ChannelOperation.DEFAULT) {
+                if (channel != null || value != null || bindingKind != null || bindingName != null) {
+                    throw new IllegalArgumentException("default select arm cannot carry channel/value/binding metadata");
+                }
+            } else {
+                if (channel == null) throw new IllegalArgumentException("channel select arm requires a channel");
+                if (operation == ChannelOperation.READ && value != null) {
+                    throw new IllegalArgumentException("read select arm cannot carry a write value");
+                }
+                if (operation == ChannelOperation.WRITE && value == null) {
+                    throw new IllegalArgumentException("write select arm requires a value");
+                }
+                if ((bindingKind == null) != (bindingName == null)) {
+                    throw new IllegalArgumentException("select binding kind/name must appear together");
+                }
+                if (operation == ChannelOperation.WRITE && bindingName != null) {
+                    throw new IllegalArgumentException("write select arm cannot bind a read value");
+                }
+            }
+        }
+    }
+
+    public record SelectStmt(
+            WaitMode mode,
+            SelectPolicy policy,
+            List<SelectArm> arms) implements Stmt {
+        public SelectStmt {
+            arms = List.copyOf(arms);
+            if (arms.isEmpty()) throw new IllegalArgumentException("select requires at least one arm");
+            long defaults = arms.stream().filter(arm -> arm.operation() == ChannelOperation.DEFAULT).count();
+            if (defaults > 1) throw new IllegalArgumentException("select permits at most one default arm");
+        }
+    }
+
     public sealed interface Expr permits LiteralExpr, NameExpr, BinaryExpr, UnaryExpr, AssignExpr, ConditionalExpr,
-            TypeTestExpr, PatternTestExpr, CastExpr,
-            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
+            TypeTestExpr, PatternTestExpr, CastExpr, SpreadExpr,
+            CallExpr, MemberExpr, IndexExpr, NewExpr, AwaitExpr, ChannelOpExpr, DynamicSelectExpr,
+            ListExpr, TupleExpr, ObjectExpr, LambdaExpr { }
 
     public record LiteralExpr(Object value) implements Expr { }
     public record Imaginary(double coefficient) { }
@@ -410,6 +663,9 @@ public final class Ast {
 
     /** "value as Type" or "value as? Type". */
     public record CastExpr(Expr value, TypeRef targetType, CastMode mode) implements Expr { }
+
+    /** Argument-list spread. The parser only constructs this inside call argument lists. */
+    public record SpreadExpr(Expr expression) implements Expr { }
 
     public record CallExpr(
             Expr callee,
@@ -440,6 +696,39 @@ public final class Ast {
 
     public record AwaitExpr(Expr expression) implements Expr { }
 
+    public record ChannelOpExpr(
+            ChannelOperation operation,
+            WaitMode mode,
+            Expr channel,
+            Expr value) implements Expr {
+        public ChannelOpExpr {
+            if (operation == ChannelOperation.DEFAULT) {
+                throw new IllegalArgumentException("default is not a standalone channel operation");
+            }
+            if (channel == null) throw new IllegalArgumentException("channel operation requires a channel");
+            if (operation == ChannelOperation.READ && value != null) {
+                throw new IllegalArgumentException("readch cannot carry a write value");
+            }
+            if (operation == ChannelOperation.WRITE && value == null) {
+                throw new IllegalArgumentException("writech requires a value");
+            }
+        }
+    }
+
+    /**
+     * Dynamic select operates on a runtime SelectSet or iterable/map of
+     * SelectCase values. Static select remains a statement so branch control
+     * flow (return/break/continue) is checked in its enclosing callable.
+     */
+    public record DynamicSelectExpr(
+            WaitMode mode,
+            SelectPolicy policy,
+            Expr cases) implements Expr {
+        public DynamicSelectExpr {
+            if (cases == null) throw new IllegalArgumentException("dynamic select requires a case collection");
+        }
+    }
+
     public record ListExpr(List<Expr> elements) implements Expr {
         public ListExpr { elements = List.copyOf(elements); }
     }
@@ -467,22 +756,13 @@ public final class Ast {
         public ObjectExpr { fields = List.copyOf(fields); }
     }
 
-    public record LambdaExpr(
-            List<Param> parameters,
-            Expr expressionBody,
-            List<Stmt> blockBody,
-            boolean nonLexical,
-            boolean pure,
-            boolean trapped) implements Expr {
+    public record LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody, boolean nonLexical) implements Expr {
         public LambdaExpr {
             parameters = List.copyOf(parameters);
             blockBody = blockBody == null ? null : List.copyOf(blockBody);
         }
-        public LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody, boolean nonLexical) {
-            this(parameters, expressionBody, blockBody, nonLexical, false, false);
-        }
         public LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody) {
-            this(parameters, expressionBody, blockBody, false, false, false);
+            this(parameters, expressionBody, blockBody, false);
         }
     }
 }
