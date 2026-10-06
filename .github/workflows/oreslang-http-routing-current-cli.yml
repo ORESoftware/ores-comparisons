@@ -1,0 +1,31 @@
+name: oreslang-http-routing-current-cli
+
+on:
+  push:
+    branches:
+      - ci/oreslang-http-routing-ref-semantics-20261005
+
+permissions:
+  contents: read
+
+jobs:
+  route-library:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          show-progress: false
+      - name: Install Java 21 and Maven
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes openjdk-21-jdk maven
+      - name: Compile exact compiler
+        run: JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -B -ntp -DskipTests compile
+      - name: Run routing golden
+        run: |
+          set -euo pipefail
+          export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+          export PATH="$JAVA_HOME/bin:$PATH"
+          actual="$RUNNER_TEMP/router.out"
+          mvn -B -ntp -q -DskipTests exec:java -Dexec.args="--platform=server _ci/http-routing/tests/router_semantics.ores" > "$actual"
+          diff -u _ci/http-routing/tests/expected.txt "$actual"
