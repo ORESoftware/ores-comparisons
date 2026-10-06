@@ -86,7 +86,13 @@ The strict production direction is:
 
 ## Receiver implementation
 
-Method code is stored once per class declaration. Direct calls dispatch to that shared definition with the receiver as an implicit immutable argument. Instance and actor methods are non-reifiable: evaluating `receiver.method` as a callable value is illegal, so the runtime never allocates an implicit bound-method pair. Code that needs a callback writes an explicit lambda that captures the receiver. `static fnc` remains reifiable because it has no receiver to bind.
+Method code is stored once per class declaration. Object instances store state/layout data, not private copies of their methods.
+
+A direct instance call dispatches through the statically known `(INSTANCE, name, arity)` selector and supplies the object as an implicit first argument. It does not create a bound callable.
+
+First-class extraction such as `obj.method` is represented semantically as a compact bound-method pair containing receiver identity plus shared method identity/slot information. The current reference evaluator keeps the receiver and method-name family and selects the closed-world slot from callback arity; AOT may resolve that to a receiver pointer plus code/vtable slot. A non-escaping value may be stack/register allocated or optimized away, so the language does not require a heap allocation merely because method-value syntax was used.
+
+The receiver is fixed when the method value is formed. Invocation never dynamically rebinds `self`.
 
 
 ## Proper tail-call runtime
@@ -155,7 +161,7 @@ Compiler-generated/context-aware `BehaviorFactory` values are capture-free for b
 
 ## Async task runtime
 
-Ordinary `async` callables are separate from actor dispatchers. The reference interpreter owns one context-local async scheduler and returns `CompletionStage`/language `Future<T>` values immediately. Its first backend uses Java virtual threads so blocking host/runtime operations do not consume the bounded private/shared actor worker pools. This is a transitional execution strategy: Oreslang source semantics are future/continuation based, not virtual-thread based.
+Ordinary `async` callables are separate from actor dispatchers. The reference interpreter owns one context-local async scheduler and returns runtime-owned `OresFuture<T>` / language `Future<T>` values immediately. Java `CompletionStage` is host interop only and is normalized one-way into `OresFuture`; it does not define guest continuation scheduling. The current compatibility execution bridge still uses Java virtual threads so blocking host/runtime operations do not consume the bounded private/shared actor worker pools. This is transitional: Oreslang source semantics are future/continuation based, not virtual-thread based.
 
 The design intentionally mirrors the strongest C# async/await practices:
 
@@ -243,4 +249,3 @@ The backend selector is `-Dores.runtime.carriers=auto|native|java`:
 `process.descriptor.actor_carrier_backend` reports the physical backend so tests and supervisors can verify that native execution is actually active.
 
 This does **not** mean the whole runtime is native yet. The current actor mailbox containers, shared-memory synchronization, async virtual-thread bridge, GC timer, and several host-integration data structures still use Java runtime primitives. Those are migration targets behind Oreslang-owned abstractions; Native Image compilation by itself is not considered proof that a primitive is natively implemented. New runtime features should avoid exposing Java concurrency types in language semantics and should prefer the JNI/native substrate where a physical scheduler, clock, thread, or memory primitive is required.
-
