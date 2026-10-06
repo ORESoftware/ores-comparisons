@@ -77,7 +77,7 @@ public final class OresEvalRootNode extends RootNode {
      * Copy contracts are only verifiable for guest values whose mutable graph
      * the runtime can traverse, plus explicitly recognized immutable
      * capabilities. Opaque host/FFI references fail closed: otherwise a class
-     * copy() could mutate or retain foreign storage without the verifier being
+     * [Symbol.rtCopy]() could mutate or retain foreign storage without the verifier being
      * able to observe the alias.
      */
     static void requireInspectableCopyGraph(Object value) {
@@ -1239,7 +1239,7 @@ public final class OresEvalRootNode extends RootNode {
                 if (existing == COPY_IN_PROGRESS) {
                     throw new IllegalArgumentException(
                             "class copy graph recursed into an in-progress class instance; "
-                                    + "break the cycle explicitly in copy()");
+                                    + "break the cycle explicitly in [Symbol.rtCopy]()");
                 }
                 return existing;
             }
@@ -1254,7 +1254,7 @@ public final class OresEvalRootNode extends RootNode {
 
             if (value instanceof OresObject object) {
                 Ast.ClassDecl dispatchClass = runtimeDispatchClass(object, singletonState);
-                Ast.MethodDecl copyMethod = findMethod(dispatchClass, "copy", 0, new LinkedHashSet<>());
+                Ast.MethodDecl copyMethod = findMethod(dispatchClass, "Symbol.rtCopy", 0, new LinkedHashSet<>());
                 boolean immutableReceiver = copyMethod != null
                         && (copyMethod.explicitReceiverType() == null
                         || (copyMethod.explicitReceiverType().isBorrow()
@@ -1269,7 +1269,7 @@ public final class OresEvalRootNode extends RootNode {
                         || !copyMethod.genericParameters().isEmpty()
                         || !immutableReceiver) {
                     throw new IllegalArgumentException("class '" + dispatchClass.name()
-                            + "' is not copyable: copy() must be concrete, synchronous, non-generic, "
+                            + "' is not copyable: [Symbol.rtCopy]() must be concrete, synchronous, non-generic, "
                             + "public, instance-bound, declared directly on the class, and read-only");
                 }
 
@@ -1290,14 +1290,14 @@ public final class OresEvalRootNode extends RootNode {
                 if (!sameValueGraph(object, sourceSnapshot, new IdentityHashMap<>())) {
                     copies.remove(value);
                     throw new IllegalArgumentException("class '" + dispatchClass.name()
-                            + "' copy() mutated its source; copy() must observe self read-only");
+                            + "' [Symbol.rtCopy]() mutated its source; the rt-copy hook must observe self read-only");
                 }
                 if (!(copied instanceof OresObject result)
                         || runtimeDispatchClass(result, singletonState) != dispatchClass
                         || result == object) {
                     copies.remove(value);
                     throw new IllegalArgumentException("class '" + dispatchClass.name()
-                            + "' copy() must return a fresh instance of the same concrete class");
+                            + "' [Symbol.rtCopy]() must return a fresh instance of the same concrete class");
                 }
                 // Fresh foreign/host references are also rejected until an
                 // explicit adapter defines their copy/immutability contract.
@@ -1389,7 +1389,7 @@ public final class OresEvalRootNode extends RootNode {
             if (!isMutableComposite(value) || seen.put(value, Boolean.TRUE) != null) return;
             if (sourceGraph.containsKey(value)) {
                 throw new IllegalArgumentException(
-                        "copy() violated the copy contract by retaining mutable storage from the source");
+                        "[Symbol.rtCopy]() violated the rt-copy contract by retaining mutable storage from the source");
             }
             if (value instanceof OresObject object) {
                 for (Object field : object.fields.values()) rejectMutableAliases(field, sourceGraph, seen);
