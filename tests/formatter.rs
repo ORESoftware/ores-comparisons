@@ -33,6 +33,41 @@ pub routine main() -> void {
 }
 
 #[test]
+fn module_owned_class_is_indented_as_a_module_member() {
+    let src = r#"define module Accounts as
+define class Account as
+pub let int balance = 100;
+
+pub read() => int {
+return self.balance;
+}
+end
+
+pub fnc seed() => int {
+return 100;
+}
+end
+"#;
+
+    let expected = r#"define module Accounts as
+  define class Account as
+    pub let int balance = 100;
+
+    pub read() -> int {
+      return self.balance;
+    }
+  end
+
+  pub fnc seed() -> int {
+    return 100;
+  }
+end
+"#;
+
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
 fn class_contract_headers_and_nested_contracts_indent_without_confusion() {
     let src = r#"define class Child extends Parent<int>, Audited implements Named, Serializable as
 pub val String name;
