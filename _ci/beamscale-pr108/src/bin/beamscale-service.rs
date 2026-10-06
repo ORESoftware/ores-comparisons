@@ -51,6 +51,7 @@ const MAX_SERVICE_SNAPSHOT_BYTES: u64 = 1024 * 1024;
 const MAX_SERVICE_STATUS_BYTES: usize = 16 * 1024;
 const SERVICE_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const SERVICE_STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(7);
+#[cfg(target_os = "windows")]
 const SERVICE_TREE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_PINNED_TOOL_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_SUPERVISOR_EBIN_FILES: usize = 4096;
@@ -854,12 +855,11 @@ fn rollback_install_state(snapshot: &InstallSnapshot) -> Result<(), String> {
                 if let Err(error) = checked(launchctl_command()?.args(["enable", &target])) {
                     errors.push(format!("restore launchd enable state: {error}"));
                 }
-                if snapshot.macos_running {
-                    if let Err(error) =
+                if snapshot.macos_running
+                    && let Err(error) =
                         checked(launchctl_command()?.args(["kickstart", "-k", &target]))
-                    {
-                        errors.push(format!("restore launchd running state: {error}"));
-                    }
+                {
+                    errors.push(format!("restore launchd running state: {error}"));
                 }
             }
         }
@@ -1889,12 +1889,12 @@ fn terminate_subprocess_tree(child: &mut Child) -> Result<(), String> {
         .map_err(|_| "service command process id exceeds i32".to_owned())?;
     let pid = Pid::from_raw(process_group);
 
-    if let Err(error) = killpg(pid, Signal::SIGTERM) {
-        if error != Errno::ESRCH {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("send SIGTERM to service command group: {error}"));
-        }
+    if let Err(error) = killpg(pid, Signal::SIGTERM)
+        && error != Errno::ESRCH
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("send SIGTERM to service command group: {error}"));
     }
 
     // Give the whole group a short grace period, then send SIGKILL even if
@@ -1912,12 +1912,12 @@ fn terminate_subprocess_tree(child: &mut Child) -> Result<(), String> {
         }
     }
 
-    if let Err(error) = killpg(pid, Signal::SIGKILL) {
-        if error != Errno::ESRCH {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("send SIGKILL to service command group: {error}"));
-        }
+    if let Err(error) = killpg(pid, Signal::SIGKILL)
+        && error != Errno::ESRCH
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("send SIGKILL to service command group: {error}"));
     }
     let _ = child.wait();
     Ok(())
@@ -2314,6 +2314,7 @@ mod tests {
 
     #[test]
     fn status_command_timeout_stays_inside_client_budget() {
+        #[cfg(target_os = "windows")]
         assert!(
             SERVICE_STATUS_COMMAND_TIMEOUT + SERVICE_TREE_CLEANUP_TIMEOUT < Duration::from_secs(10)
         );

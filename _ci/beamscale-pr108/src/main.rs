@@ -12,11 +12,13 @@ use rand::RngCore;
 use ring::digest::{Context as DigestContext, SHA256};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
+use std::io::Write;
+#[cfg(unix)]
 use std::thread;
 use std::{
     collections::{HashSet, VecDeque},
     env, fs,
-    io::{Read, Write},
+    io::Read,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
@@ -454,10 +456,10 @@ async fn main() -> Result<()> {
 
     {
         let mut daemon = lock_state(&state)?;
-        if let Some(request) = daemon.last_runtime.clone() {
-            if let Err(error) = start_runtime(&mut daemon, request) {
-                warn!(%error, "failed to restore desired BeamScale runtime");
-            }
+        if let Some(request) = daemon.last_runtime.clone()
+            && let Err(error) = start_runtime(&mut daemon, request)
+        {
+            warn!(%error, "failed to restore desired BeamScale runtime");
         }
         let runtime_running = slot_running(&mut daemon.runtime);
         if let Some(request) = daemon.last_tunnel.clone() {
@@ -851,19 +853,15 @@ fn path_to_service_arg(path: &Path) -> Result<String> {
 
 #[cfg(target_os = "windows")]
 fn default_data_root() -> Result<PathBuf> {
-    if let Ok(home) = env::var("HOME") {
-        if !home.trim().is_empty() {
-            return Ok(PathBuf::from(home)
-                .join(".beamscale")
-                .join("desktop-daemon"));
-        }
+    if let Ok(home) = env::var("HOME")
+        && !home.trim().is_empty()
+    {
+        return Ok(PathBuf::from(home).join(".beamscale").join("desktop-daemon"));
     }
-    if let Ok(home) = env::var("USERPROFILE") {
-        if !home.trim().is_empty() {
-            return Ok(PathBuf::from(home)
-                .join(".beamscale")
-                .join("desktop-daemon"));
-        }
+    if let Ok(home) = env::var("USERPROFILE")
+        && !home.trim().is_empty()
+    {
+        return Ok(PathBuf::from(home).join(".beamscale").join("desktop-daemon"));
     }
     bail!("cannot locate default home directory")
 }
@@ -1162,11 +1160,11 @@ async fn runtime_restart(
         .map_err(internal_error)?;
     stop_slot(&mut daemon.tunnel, "Cloudflare tunnel").map_err(internal_error)?;
     start_runtime(&mut daemon, request).map_err(internal_error)?;
-    if let Some(tunnel_request) = tunnel_request {
-        if !pending_dns_route_for_request(&daemon, &tunnel_request) {
-            start_tunnel_process(&mut daemon, state.ingress_url.as_str(), tunnel_request)
-                .map_err(internal_error)?;
-        }
+    if let Some(tunnel_request) = tunnel_request
+        && !pending_dns_route_for_request(&daemon, &tunnel_request)
+    {
+        start_tunnel_process(&mut daemon, state.ingress_url.as_str(), tunnel_request)
+            .map_err(internal_error)?;
     }
     record_lifecycle_event(
         &mut daemon,
@@ -1716,17 +1714,17 @@ async fn update_apply(
 
         // Public exposure must never outlive its supervised origin. Drain the
         // tunnel first, then the runtime.
-        if tunnel_was_running {
-            if let Err(error) = stop_slot(&mut daemon.tunnel, "Cloudflare tunnel") {
-                daemon.maintenance_in_progress = false;
-                return Err(internal_error(error));
-            }
+        if tunnel_was_running
+            && let Err(error) = stop_slot(&mut daemon.tunnel, "Cloudflare tunnel")
+        {
+            daemon.maintenance_in_progress = false;
+            return Err(internal_error(error));
         }
-        if runtime_was_running {
-            if let Err(error) = stop_slot(&mut daemon.runtime, "BeamScale runtime") {
-                daemon.maintenance_in_progress = false;
-                return Err(internal_error(error));
-            }
+        if runtime_was_running
+            && let Err(error) = stop_slot(&mut daemon.runtime, "BeamScale runtime")
+        {
+            daemon.maintenance_in_progress = false;
+            return Err(internal_error(error));
         }
         if let Err(error) = apply_keep_awake(&mut daemon) {
             warn!(%error, "failed to suspend keep-awake inhibitor for update");
@@ -1831,12 +1829,12 @@ fn validate_tunnel_request(request: &TunnelRequest) -> Result<()> {
         );
     }
 
-    if let Some(hostname) = &request.hostname {
-        if !valid_dns_hostname(hostname) {
-            bail!(
-                "hostname must be a valid ASCII DNS hostname or wildcard hostname with no edge whitespace"
-            );
-        }
+    if let Some(hostname) = &request.hostname
+        && !valid_dns_hostname(hostname)
+    {
+        bail!(
+            "hostname must be a valid ASCII DNS hostname or wildcard hostname with no edge whitespace"
+        );
     }
 
     if request.config.is_some() {
@@ -2591,14 +2589,14 @@ fn process_view(slot: &mut Option<ManagedChild>) -> ProcessView {
         }
         Ok(Some(status)) => {
             info!(pid = process.child.id(), %status, "managed process leader exited");
-            if let Some(mut exited) = slot.take() {
-                if let Err(error) = cleanup_residual_process_tree(&mut exited.child) {
-                    warn!(
-                        pid = exited.child.id(),
-                        %error,
-                        "failed to clean residual managed process group"
-                    );
-                }
+            if let Some(mut exited) = slot.take()
+                && let Err(error) = cleanup_residual_process_tree(&mut exited.child)
+            {
+                warn!(
+                    pid = exited.child.id(),
+                    %error,
+                    "failed to clean residual managed process group"
+                );
             }
             return stopped_process_view();
         }
@@ -2632,14 +2630,14 @@ fn slot_running(slot: &mut Option<ManagedChild>) -> bool {
         Ok(None) => true,
         Ok(Some(status)) => {
             info!(pid = process.child.id(), %status, "managed process leader exited");
-            if let Some(mut exited) = slot.take() {
-                if let Err(error) = cleanup_residual_process_tree(&mut exited.child) {
-                    warn!(
-                        pid = exited.child.id(),
-                        %error,
-                        "failed to clean residual managed process group"
-                    );
-                }
+            if let Some(mut exited) = slot.take()
+                && let Err(error) = cleanup_residual_process_tree(&mut exited.child)
+            {
+                warn!(
+                    pid = exited.child.id(),
+                    %error,
+                    "failed to clean residual managed process group"
+                );
             }
             false
         }
@@ -2769,7 +2767,7 @@ fn terminate_process_tree(child: &mut Child) -> Result<()> {
             let _ = child.wait();
             Ok(())
         }
-        Some(status) if child.try_wait()?.is_some() => Ok(()),
+        Some(_status) if child.try_wait()?.is_some() => Ok(()),
         Some(status) => {
             let _ = child.kill();
             let _ = child.wait();
@@ -3111,14 +3109,6 @@ async fn read_response_body_bounded(
         body.extend_from_slice(&chunk);
     }
     return Ok(body);
-}
-
-fn bad_gateway(error: impl std::fmt::Display) -> ApiError {
-    warn!(error = %error, "BeamScale loopback ingress request failed");
-    return (
-        StatusCode::BAD_GATEWAY,
-        "BeamScale loopback ingress request failed".into(),
-    );
 }
 
 fn data_root() -> Result<PathBuf> {
@@ -4019,10 +4009,10 @@ fn harden_windows_state_root(root: &Path) -> Result<()> {
 }
 
 fn load_or_create_token(root: &Path) -> Result<String> {
-    if let Ok(token) = env::var("BMSCL_DAEMON_TOKEN") {
-        if !token.is_empty() {
-            return validate_secret_token(&token, "BMSCL_DAEMON_TOKEN");
-        }
+    if let Ok(token) = env::var("BMSCL_DAEMON_TOKEN")
+        && !token.is_empty()
+    {
+        return validate_secret_token(&token, "BMSCL_DAEMON_TOKEN");
     }
 
     let path = token_path(root);
@@ -4044,10 +4034,10 @@ fn load_or_create_token(root: &Path) -> Result<String> {
 }
 
 fn load_or_create_operator_token(root: &Path) -> Result<String> {
-    if let Ok(token) = env::var("BMSCL_DAEMON_OPERATOR_TOKEN") {
-        if !token.is_empty() {
-            return validate_secret_token(&token, "BMSCL_DAEMON_OPERATOR_TOKEN");
-        }
+    if let Ok(token) = env::var("BMSCL_DAEMON_OPERATOR_TOKEN")
+        && !token.is_empty()
+    {
+        return validate_secret_token(&token, "BMSCL_DAEMON_OPERATOR_TOKEN");
     }
 
     let path = operator_token_path(root);
@@ -4586,13 +4576,11 @@ mod tests {
             100
         );
         assert_eq!(
-            Some(0_usize).unwrap_or(100).clamp(1, MAX_LIFECYCLE_EVENTS),
+            0_usize.clamp(1, MAX_LIFECYCLE_EVENTS),
             1
         );
         assert_eq!(
-            Some(MAX_LIFECYCLE_EVENTS + 100)
-                .unwrap_or(100)
-                .clamp(1, MAX_LIFECYCLE_EVENTS),
+            (MAX_LIFECYCLE_EVENTS + 100).clamp(1, MAX_LIFECYCLE_EVENTS),
             MAX_LIFECYCLE_EVENTS
         );
     }
