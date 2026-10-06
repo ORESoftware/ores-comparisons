@@ -2496,7 +2496,7 @@ public final class TypeChecker {
                 throw new IllegalArgumentException("class copy contract cycle involving '" + identity + "'");
             }
             try {
-                Ast.MethodDecl copyMethod = findMethod(klass, "copy", 0, new LinkedHashSet<>());
+                Ast.MethodDecl copyMethod = findMethod(klass, "Symbol.rtCopy", 0, new LinkedHashSet<>());
                 boolean immutableReceiver = copyMethod != null
                         && (copyMethod.explicitReceiverType() == null
                         || (copyMethod.explicitReceiverType().isBorrow()
@@ -2512,14 +2512,14 @@ public final class TypeChecker {
                         || !immutableReceiver) {
                     throw new IllegalArgumentException("class '" + klass.name()
                             + "' is not copyable: define a concrete synchronous non-generic public "
-                            + "copy() => self method directly on the class with an immutable receiver");
+                            + "[Symbol.rtCopy]() => self method directly on the class with an immutable receiver");
                 }
 
                 Type selfType = nominalClassType(klass);
                 Type result = resolve(copyMethod.returnType(), Set.of(), selfType);
                 if (!assignable(result, selfType) || !assignable(selfType, result)) {
                     throw new IllegalArgumentException("class '" + klass.name()
-                            + "' copy() must return self/the same concrete class type");
+                            + "' [Symbol.rtCopy]() must return self/the same concrete class type");
                 }
                 requireInspectableCopyStorage(
                         klass,
