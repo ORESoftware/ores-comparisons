@@ -40,15 +40,6 @@ jobs:
       - name: Build runtime classpath
         run: mvn -q dependency:build-classpath -Dmdep.outputFile=.rx-callbacks-cp.txt
 
-      - name: Check pointerless callback library
-        shell: bash
-        run: |
-          CP="target/classes:$(cat .rx-callbacks-cp.txt)"
-          JAVA=(java --enable-native-access=ALL-UNNAMED -Dpolyglot.engine.WarnInterpreterOnly=false -cp "$CP" dev.oreslang.launcher.OresMain)
-          "${JAVA[@]}" --check validation/rx-callbacks/src/rx.ores
-          "${JAVA[@]}" --check validation/rx-callbacks/tests/operators.ores
-          "${JAVA[@]}" --check validation/rx-callbacks/bench/pipeline.ores
-
       - name: Execute callback operator regression
         shell: bash
         run: |
@@ -60,3 +51,14 @@ jobs:
             printf 'expected:\n%s\nactual:\n%s\n' "$expected" "$actual"
             exit 1
           fi
+
+      - name: Execute common callback benchmark checksum
+        shell: bash
+        run: |
+          CP="target/classes:$(cat .rx-callbacks-cp.txt)"
+          JAVA=(java --enable-native-access=ALL-UNNAMED -Dpolyglot.engine.WarnInterpreterOnly=false -cp "$CP" dev.oreslang.launcher.OresMain)
+          actual="$("${JAVA[@]}" validation/rx-callbacks/bench/pipeline.ores)"
+          test "$actual" = "480000" || {
+            echo "::error::expected benchmark checksum 480000, got '$actual'"
+            exit 1
+          }
