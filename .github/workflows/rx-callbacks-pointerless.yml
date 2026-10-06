@@ -1,0 +1,53 @@
+name: rx-callbacks pointerless validation
+
+on:
+  push:
+    branches:
+      - test/rx-callbacks-pointerless-20261006
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Verify compiler tree provenance
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^1^{tree})" = "aee041ea71075d9d6a6349e4d7e9b989c2bbeb91" || {
+            echo "::error::carrier parent is not exact oreslang-source PR #186 tree"
+            exit 1
+          }
+
+      - name: Build exact pointerless ownership compiler
+        run: mvn -B -ntp -DskipTests package
+
+      - name: Build runtime classpath
+        run: mvn -q dependency:build-classpath -Dmdep.outputFile=.rx-callbacks-cp.txt
+
+      - name: Check pointerless callback library
+        shell: bash
+        run: |
+          CP="target/classes:$(cat .rx-callbacks-cp.txt)"
+          JAVA=(java --enable-native-access=ALL-UNNAMED -Dpolyglot.engine.WarnInterpreterOnly=false -cp "$CP" dev.oreslang.launcher.OresMain)
+          "${JAVA[@]}" --check validation/rx-callbacks/src/rx.ores
+          "${JAVA[@]}" --check validation/rx-callbacks/tests/operators.ores
+          "${JAVA[@]}" --check validation/rx-callbacks/bench/pipeline.ores
+
+      - name: Execute callback operator regression
+        shell: bash
+        run: |
+          CP="target/classes:$(cat .rx-callbacks-cp.txt)"
+          JAVA=(java --enable-native-access=ALL-UNNAMED -Dpolyglot.engine.WarnInterpreterOnly=false -cp "$CP" dev.oreslang.launcher.OresMain)
+          actual="$("${JAVA[@]}" validation/rx-callbacks/tests/operators.ores)"
+          expected="$(cat validation/rx-callbacks/tests/operators.out)"
+          if [ "$actual" != "$expected" ]; then
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected" "$actual"
+            exit 1
+          fi
