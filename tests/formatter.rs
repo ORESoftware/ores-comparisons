@@ -87,6 +87,33 @@ return;
 }
 
 #[test]
+fn channel_select_and_nb_callback_spellings_remain_stable() {
+    let src = r#"fnc poll() => void {
+val choice = nb select first from cases;
+val read = try readch input;
+val wrote = try writech output, 42;
+nb cb writech output, 42 || -> {
+stdio.stdout.write("sent");
+};
+return;
+}
+"#;
+
+    let expected = r#"fnc poll() -> void {
+  val choice = nb select first from cases;
+  val read = try readch input;
+  val wrote = try writech output, 42;
+  nb cb writech output, 42 || -> {
+    stdio.stdout.write("sent");
+  };
+  return;
+}
+"#;
+
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
 fn class_contract_headers_and_nested_contracts_indent_without_confusion() {
     let src = r#"define class Child extends Parent<int>, Audited implements Named, Serializable as
 pub val String name;
