@@ -2176,7 +2176,7 @@ public final class OwnershipChecker {
 
         Ast.ClassDecl klass = findClass(type.name());
         if (klass == null || !klass.genericParameters().isEmpty()) return false;
-        Ast.MethodDecl copyMethod = findMethod(klass, "copy", 0, new LinkedHashSet<>());
+        Ast.MethodDecl copyMethod = findMethod(klass, "Symbol.rtCopy", 0, new LinkedHashSet<>());
         if (copyMethod == null
                 || copyMethod.isStatic()
                 || copyMethod.visibility() != Ast.Visibility.PUBLIC
