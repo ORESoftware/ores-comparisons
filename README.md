@@ -1,356 +1,123 @@
-# ores-comparisons
+# oreslang-format
 
-Side-by-side comparison authority for a governed FaaS/runtime fleet, with a strict
-separation between **registered platform coverage** and **executable/materialized
-benchmark coverage**.
+The canonical formatter for Oreslang source code.
 
-The governed FaaS cohort must contain at least seven distinct platforms. It
-currently contains eight:
+There is deliberately **one format and no style configuration**. The same Rust
+library powers the CLI, so editor integrations, CI, and local development use
+identical behavior.
 
-- `scintilla-run`
-- `iso-lattes`
-- `lunatic-lorry`
-- `wasm-xprs`
-- `litegraph`
-- `beamscale`
-- `graal-vm` (platform alias backed by the canonical `graal-show` stack/GitHub fleet)
-- `pony-expres`
+## Canonical style
 
-`ORESoftware/ores-stack` remains a materialized comparison/reference stack, but
-it does **not** count toward the FaaS minimum. Registration is also deliberately
-not treated as runtime proof: only BeamScale, Scintilla, and ORES Stack are
-currently materialized into the executable matrix. See `stacks/README.md` and
-`shared/stack-catalog.json` for the machine-governed distinction and promotion
-gate.
+- two spaces per indentation level;
+- LF line endings, no trailing whitespace, one final newline;
+- at most one ordinary blank line;
+- **two blank lines between sibling executable function/routine/method declarations**;
+- executable declarations and method implementations use the slim arrow `->`;
+- interface/trait callable signatures use the type-level fat arrow `=>`;
+- conditionals canonically use `if ...; then` / `elif ...; then` / `else` / `fi`;
+- class headers keep `as` after the complete inheritance/conformance clause:
 
-Each materialized stack implements three benchmark workloads plus three larger
-multi-repo organization examples:
+```ores
+define class User extends Entity implements Named, Serializable as
+  pub val String name;
 
-- `http-observability`
-- `forms-chat-workflow`
-- `cached-rpc`
-- `big-org-example-commerce`
-- `big-org-example-collaboration`
-- `big-org-example-operations`
-
-| Materialized stack | Execution model |
-| --- | --- |
-| BeamScale | admitted Gleam -> Erlang/BEAM actor/lambda execution |
-| Scintilla | polyglot lambda/container/sub-process runtime |
-| ORES Stack | Rust native servers, WASM/page assets, RPC/API generation |
-
-The 18 currently materialized matrix-governed projects expose the same integration graph: ores-otel, ores-forms,
-opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
-ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
-
-## Contract structure
-
-Every project is a local GitHub-organization mirror. Shared authority is owned by
-the simulated `.github` repository:
-
-```text
-repos/
-  readme.md
-  .github/
-    README.md
-    profile/README.md
-    comparison.toml
-    .ores-compose.yaml
-    contracts/
-      typespec/main.tsp
-      json-schema/domain.schema.json
-      projection.json
-      generated/
-        validation/domain.schema.json
-        sql/{001_init,002_seed,010_domain_constraints}.sql
-        protobuf/{comparison,domain}.proto
-        interfaces/{typescript.ts,rust.rs,gleam.gleam}
-    conformance/
-      instances/
-      check.sh
-    governance/
-      authority-contract.json
-      README.md
-    env/
-    scripts/
-  app/
-  sdk-typescript/
-  contract-tests/
-  <future-sibling-repo>/
+  pub render() -> String {
+    return self.name;
+  }
+end
 ```
 
-TypeSpec and JSON Schema Draft 2020-12 are **peer authorities**. Neither is
-generated from or silently replaces the other.
-`ORESoftware/typespec-json-schema-validator` compares them fail-closed and
-executes the recorded valid/invalid corpus. Only after that gate do reviewed
-projection declarations produce SQL, seed data, Protobuf and language
-interfaces. Generated outputs are committed so drift is visible in review.
+The nesting engine understands `module`, `class`, `interface`, `trait`,
+`struct`, actor/braced bodies, `end`, `if`/`fi`, and `do`/`done`. In particular,
+`implements Foo, Bar` never creates formatter nesting; the class body begins
+only after the class header and is closed by its matching `end`.
 
-## Reproducible local clusters
+Conditional compatibility spellings are migrated automatically: deprecated
+`if ... do` becomes `if ...; then`, `elseif` becomes `elif`, and a
+single-`fi` `else if` branch becomes `elif`. Loop `do ... done` syntax is
+unchanged; the deprecation applies only to using `do` as an if/branch
+introducer.
 
-`tools/toolchain.lock.json` pins `ores-compose`, contract tooling, stack CLIs
-and local runtimes to exact Git revisions. The Nix shell supplies the PostgreSQL
-client and language toolchains; the admitted local OCI runtime supplies the
-project PostgreSQL service.
+The formatter is intentionally conservative about grammar that is still
+changing: it does not reorder declarations, imports, traits, interfaces, or
+class conformance lists.
 
-```sh
-nix develop
-just tools-bootstrap
-just verify
+For semantic safety, multiline string/template literals currently fail closed
+instead of being rewritten. This prevents indentation, trailing-whitespace, or
+line-ending normalization from changing literal runtime bytes while parser-backed
+literal preservation is still being completed.
 
-just compose-plan stacks/beamscale/projects/http-observability
-just compose-up stacks/beamscale/projects/http-observability
+## CLI
+
+```bash
+cargo install --path .
+
+# default: preview only, never modify files
+oresfmt src examples
+# would format src/foo.ores
+
+# explicit in-place rewrite
+oresfmt --write src examples
+
+# CI / pre-commit mode; exits 1 if anything would change
+oresfmt --check .
+
+# stdin -> stdout
+oresfmt - < input.ores
+
+# one file -> stdout
+oresfmt --stdout example.ores
 ```
 
-The pinned `ores-compose` source is the exact certified `ORESoftware/ores-compose#212`
-head. That runtime can supervise host processes and digest-pinned OCI services in
-one dependency graph, wait for readiness, enforce `lifecycle: one-shot` barriers,
-emit `compose_ready`, and tear owned OCI resources down on clean shutdown.
+The installed binary is `oresfmt`; `oreslang-format` is also provided as an
+alias. Directories are walked recursively and only `.ores` files are selected.
 
-`ORESoftware/ores-comparisons#70` governs the authority migration for the 18
-scenario/stack manifests: required project infrastructure must be represented in
-the canonical `.ores-compose.yaml`, not launched by workflow-side shell glue.
-The migration replaces host PostgreSQL shims and fake bootstrap daemons with a
-digest-pinned PostgreSQL OCI service plus explicit contract, migration, and seed
-one-shot barriers. Until a migrated dummy-org authority is merged and its exact
-gitlink is repinned here, the superproject must continue to treat the older
-manifest as the governed source. Plan-only or stale-gitlink evidence is never a
-runtime pass.
+### Safe writes
 
-Scintilla additionally launches its exact-pinned Gleam runner and Rust backend.
-BeamScale points its CLI at the exact-pinned supervisor/compiler. ORES Stack
-runs the exact-pinned `ores-stack` CLI.
+Filesystem inputs are **dry-run by default**. `--write` is the only normal mode
+that modifies files, and it performs a full preflight before touching any file.
+This prevents a later unsafe path from leaving a project half-formatted.
 
-## Secrets
+For every file that would change, `--write` fails closed when the file is:
 
-Each simulated `.github` repository preserves the SOPS + age boundary:
+- tracked by Git but has staged or unstaged changes;
+- untracked or ignored;
+- outside a Git worktree.
 
-- `repos/.github/env/enc/` — committed ciphertext only;
-- `repos/.github/env/dec/` — runtime-only plaintext, ignored by Git;
-- `repos/.github/.sops.yaml` — exact dev/stage/prod recipient rules;
-- `repos/.github/.env.example` — non-secret local defaults.
+The overrides are intentionally explicit:
 
-Use `just env-init <project-path>` after supplying public age recipients. No
-age private key and no decrypted environment file belongs in Git.
-
-See `docs/ARCHITECTURE.md` for the authority and startup model.
-
-
-## CI authority levels
-
-Default CI has no implicit permission to clone sibling private repositories.
-Therefore the always-on gate validates structure, generated drift, a restricted
-TypeSpec/JSON Schema parity model, and valid/invalid fixture behavior entirely
-from this checkout.
-
-The full authority remains
-`ORESoftware/typespec-json-schema-validator@e29a91d...`, and the full compose
-parser/executor is pinned to
-`ORESoftware/ores-compose@ac081862e9019f219628c970941c95782cee3635`.
-That exact compose head has funded executable evidence for mixed host + OCI
-startup, PostgreSQL readiness, a one-shot bootstrap barrier, `compose_ready`,
-clean SIGINT shutdown, and no leaked matching OCI containers. When an
-established read-only cross-repository credential is configured for the private
-comparison authorities, CI also checks every project through those exact pinned
-implementations. Local `just tools-bootstrap` does the same using the
-developer's existing Git credentials; it does not depend on an unpublished npm
-package.
-
-The FaaS cohort itself is guarded by a separate fail-closed Rust gate:
-`tools/verify_stack_catalog.rs`. It enforces the minimum platform count, the
-required eight platform identities, distinct backing stacks, the `graal-vm` ->
-`graal-show` alias, materialized/project/dummy-org equality, and benchmark
-TypeSpec/JSON Schema stack-kind parity.
-
-
-## Smoke tests and performance matrix
-
-`benchmarks/matrix.json` covers all nine executable stack/scenario combinations with
-argv-only build/deploy smoke commands. BeamScale and Scintilla use their real
-dry-run deployment flags; ORES Stack app repos explicitly stop at artifact
-handoff until an infra target is supplied. Registered-only stacks are excluded
-from this matrix until they satisfy the materialization gate.
-
-Benchmark observations and smoke receipts have their own TypeSpec + JSON Schema
-peer authorities under `benchmarks/contracts/`. The runner records warm
-p50/p95/p99 latency plus optional cold-start time, RSS, artifact size, and
-estimated cost per million requests.
-
-Use `just smoke-check`, `just smoke-execute`, `just benchmark ...`, and
-`just benchmark-matrix`.
-
-
-An authorized carrier workflow can also invoke the exact runtime controller as a
-reusable workflow. The carrier should pin an immutable ores-comparisons commit
-and map its own read credential into the called workflow:
-
-```yaml
-jobs:
-  runtime-18:
-    uses: ORESoftware/ores-comparisons/.github/workflows/runtime-all-18.yml@<exact-commit-sha>
-    secrets:
-      COMPARISON_REPO_READ_TOKEN: ${{ secrets.RUNTIME_COMPARISON_READ_TOKEN }}
+```bash
+oresfmt --write --ok-to-mod-dirty-files src
+oresfmt --write --ok-to-mod-untracked-files generated
+oresfmt --write --ok-to-mod-outside-git /tmp/example.ores
 ```
 
-The called jobs explicitly check out `job.workflow_repository` at
-`job.workflow_sha`, so cross-repository reuse executes the comparison source
-that defined the called workflow rather than accidentally checking out the
-carrier repository.
+These flags only relax write-safety checks. They do not change formatting style.
 
-The private-authority CI lanes resolve one read-only cross-repository credential
-through a single governed compatibility order: `COMPARISON_REPO_READ_TOKEN`,
-`cross-repo-token`, `ORES_CROSS_REPO_READ_TOKEN`, then
-`TEST_FLEET_READ_TOKEN`. The resolved credential must cover the pinned private
-repositories used by the three materialized stacks and the six dummy organizations. With
-that authority present, CI bootstraps exact revisions, runs full tjsv parity,
-validates every ores-compose plan, and the dedicated runtime proof can execute
-the full 18-project matrix. Credential absence is reported explicitly and must
-not be interpreted as private-source execution evidence.
+Additional write hardening:
 
-A project runtime receipt binds the exact superproject revision, governed
-project/gitlink identities, toolchain lock, compose binary, compose manifest,
-`compose_ready` and clean-exit evidence. The final `runtime-proof-set-18`
-aggregate is the only completion artifact for the 18-project execution task;
-skipped, credential-blocked, controller-only, or plan-only jobs remain
-incomplete.
+- explicit symlink inputs are refused, and symlinks found during recursive walks
+  are skipped rather than followed;
+- after the full Git preflight, every file is re-read before the first write, so
+  a concurrent editor/generator change aborts the operation instead of being
+  overwritten from a stale formatter snapshot;
+- write-safety override flags are rejected unless `--write` is active.
 
+## Rust SDK
 
-## Generated artifact integration tests
+```rust
+use oreslang_format::{format_source, is_formatted};
 
-CI now runs every generated migration and seed against PostgreSQL 16 **twice**
-to prove idempotent dev startup, then checks the live table columns, SQL types,
-nullability, primary keys, and seeded row counts against each project's
-projection contract.
-
-Generated Protobuf descriptors are compiled with `protoc`, Rust interfaces
-with `rustc`, TypeScript interfaces with `tsc --strict --noEmit`, and the
-runtime validation schema is checked against the admitted JSON Schema.
-
-
-### Database domain enforcement
-
-JSON Schema enum domains are now projected into an additive generated PostgreSQL
-migration (`010_domain_constraints.sql`). Local startup applies it after table
-creation, and CI proves each constraint by attempting an invalid write. This
-keeps the database from becoming a weaker contract boundary than the generated
-validation/interface layers.
-
-
-### Typed domain projections
-
-Schema references are preserved as types across generated targets. A JSON Schema
-enum such as `SubmissionState`, `Outcome`, or `CacheState` now becomes:
-
-- a TypeScript literal union;
-- a Rust enum with stable `as_str()` wire values;
-- a Gleam custom type with a generated `*_to_string` function;
-- a Protobuf enum in `contracts/generated/protobuf/domain.proto`;
-- the existing PostgreSQL enum-domain `CHECK` constraint.
-
-Generated model fields reference those domain types rather than degrading to
-plain strings. `comparison.proto` remains the service/RPC projection, while
-`domain.proto` is the data-model projection.
-
-
-### Governed generator metadata
-
-The generator input `contracts/projection.json` is itself governed by peer
-TypeSpec and JSON Schema authorities under `shared/projection-contract/`.
-Every one of the 18 live projection documents must be admitted before the
-generator can emit SQL, Protobuf, validation artifacts, or language interfaces.
-
-This separates two checks deliberately: the projection meta-contract validates
-the instruction shape, while the project-domain checks validate that referenced
-models/fields, primary keys, enum storage types, seeds, and RPC references
-actually exist and agree with the project's domain authorities.
-
-
-## GitHub organization mirror
-
-Every `stacks/<stack>/projects/<scenario>/repos/` directory emulates the root
-of a GitHub organization. Its top level contains only:
-
-- `readme.md` — explains the local organization mirror;
-- `.github/` — the simulated organization `.github` repository;
-- one or more sibling application/service repositories such as `app/`.
-
-The sibling repository graph is declared by `repos/.github/org.manifest.json`
-under a shared TypeSpec + JSON Schema authority in
-`shared/github-org-contract/`. All cross-repository material belongs to
-`repos/.github/`: compose
-orchestration, TypeSpec/JSON Schema authorities, generated SQL/Protobuf/types,
-conformance, governance, SOPS/age environment policy, database lifecycle
-scripts, and the organization profile at `profile/README.md`.
-
-Stack-native source and build configuration remain in sibling repositories such
-as `repos/app/`. CI rejects shared files in the project envelope and rejects
-arbitrary files directly in `repos/`.
-
-
-## Dummy organizations and Git submodules
-
-The six comparison scenarios map one-to-one onto `ores-dummy-org-1` through
-`ores-dummy-org-6`. The governed mapping, repository sets, and per-stack
-branch names live in `shared/dummy-org-map.json`.
-
-Each component keeps one stable GitHub repository identity while its currently
-materialized implementations live on `stack/beamscale`, `stack/ores-stack`, and
-`stack/scintilla-run`. Registered-only FaaS stacks do not gain dummy-org branch
-or gitlink status until their full promotion evidence lands. After cutover,
-every repository child under `stacks/<stack>/projects/<scenario>/repos/`
-(including `.github`) is a git submodule; only `repos/readme.md` remains owned
-directly by this superproject.
-
-Zed is the supported synchronization path. The root manifest declares
-`[interop.git].consume_gitmodules = true`, and the exact `zed-cli` revision
-is pinned in `tools/toolchain.lock.json`.
-
-```sh
-just dummy-org-plan
-just dummy-org-materialize
-just submodules-sync
-just submodules-status
-just submodules-verify
+let formatted = format_source(source)?;
+let clean = is_formatted(&formatted)?;
+assert!(clean);
 ```
 
-See `docs/DUMMY-ORG-SUBMODULES.md` for the branch model, migration safety
-rules, fresh-clone flow, and private-repository CI requirements.
+`format_source` is idempotent: formatting canonical output again produces the
+same bytes.
 
+## Why no configuration?
 
-## Governed multi-repo topology
-
-Every materialized project now materializes at least four sibling repositories:
-
-- `.github` — organization governance, contracts, conformance, compose and env policy;
-- `app` — the stack-native runnable application;
-- `sdk-typescript` — a generated client/type repository whose domain snapshot must be byte-identical to the shared contract projection;
-- `contract-tests` — a standalone Python repository that independently checks the sibling `.github` JSON Schema authority against the valid/invalid corpus.
-
-`scripts/verify_org_manifests.py` validates the manifest against the shared
-organization schema, requires every declared repo to exist, rejects undeclared
-repo directories, validates dependency edges and cycles, checks generated-source
-references, proves SDK drift has not occurred, and runs every sibling
-`contract-tests` repository.
-
-
-## Real big-org sibling repositories
-
-The three `big-org-example-*` scenarios now materialize domain repositories
-instead of using only a generic app repo.
-
-| Scenario | Service | Worker | Frontend |
-| --- | --- | --- | --- |
-| commerce | `catalog-service` | `orders-worker` | `storefront-web` |
-| collaboration | `presence-service` | `message-worker` | `workspace-web` |
-| operations | `ingest-service` | `automation-worker` | `ops-console` |
-
-Each exists in BeamScale, Scintilla, and ORES Stack form, for **27 additional
-stack-native sibling repositories**. Every repo carries a typed
-`repo.contract.json` governed by `shared/github-org-contract/`, points back
-to the sibling `.github` contract authority and generated SDK, and is declared
-in the org dependency graph.
-
-Always-on CI validates all repository contracts and stack-native metadata.
-It also runs `cargo check` on the nine ORES Stack domain repositories. When
-the private cross-repo token is configured, CI additionally builds all 27
-domain repositories through their real pinned stack CLIs.
+Oreslang should have one mechanically enforceable source style. This avoids
+project-specific formatter drift and gives compiler diagnostics, generated
+code, examples, editor integrations, and code review the same layout contract.
