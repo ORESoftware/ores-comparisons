@@ -28,7 +28,7 @@ jobs:
       - name: Verify exact mirrored source tree
         shell: bash
         run: |
-          test "$(git rev-parse HEAD:_ci/beamscale-pr108)" = "7bbad9a4183e21757c191e9271d3f9054ff287fc"
+          test "$(git rev-parse HEAD:_ci/beamscale-pr108)" = "7b75b16d0dedee745b9ba8a5af03042c1f6e196d"
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: "1.90.0"
@@ -76,7 +76,7 @@ jobs:
       - name: Verify exact mirrored source tree
         shell: bash
         run: |
-          test "$(git rev-parse HEAD:_ci/beamscale-pr108)" = "7bbad9a4183e21757c191e9271d3f9054ff287fc"
+          test "$(git rev-parse HEAD:_ci/beamscale-pr108)" = "7b75b16d0dedee745b9ba8a5af03042c1f6e196d"
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: "1.90.0"
