@@ -114,6 +114,39 @@ return;
 }
 
 #[test]
+fn import_selector_spellings_remain_stable() {
+    let src = r#"import * as util from "../util";
+import module Math from "../math";
+import actor Worker from "../worker";
+import class Box from "../box";
+import types X, Y, Z from "../types";
+import types (A, B, C) from "../more-types";
+
+define module App as
+pub fnc main() => void {
+return;
+}
+end
+"#;
+
+    let expected = r#"import * as util from "../util";
+import module Math from "../math";
+import actor Worker from "../worker";
+import class Box from "../box";
+import types X, Y, Z from "../types";
+import types (A, B, C) from "../more-types";
+
+define module App as
+  pub fnc main() -> void {
+    return;
+  }
+end
+"#;
+
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
 fn class_contract_headers_and_nested_contracts_indent_without_confusion() {
     let src = r#"define class Child extends Parent<int>, Audited implements Named, Serializable as
 pub val String name;
