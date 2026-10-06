@@ -29,6 +29,68 @@ final class RuntimeOwnershipSyntaxTest {
     }
 
     @Test
+    void rtOwnershipOperatorsRejectClassAndModuleNamespacesUniformly() {
+        for (String operation : java.util.List.of("copy", "take", "borrow", "share")) {
+            IllegalArgumentException classError = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> TypeChecker.check(Parser.parse("""
+                            define class Box as
+                              pub copy() => self {
+                                return new Box();
+                              }
+                            end
+
+                            fnc bad() => void {
+                              val value = rt %s Box;
+                              return;
+                            }
+                            """.formatted(operation))));
+            assertTrue(classError.getMessage().contains("class namespace")
+                    && classError.getMessage().contains("not an instance"),
+                    operation + ": " + classError.getMessage());
+
+            IllegalArgumentException moduleError = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> TypeChecker.check(Parser.parse("""
+                            define module values as
+                              pub val int answer = 42;
+                            end
+
+                            fnc bad() => void {
+                              val value = rt %s values;
+                              return;
+                            }
+                            """.formatted(operation))));
+            assertTrue(moduleError.getMessage().contains("module namespace")
+                    && moduleError.getMessage().contains("not a value"),
+                    operation + ": " + moduleError.getMessage());
+        }
+    }
+
+    @Test
+    void copyTakeAndShareOfCopyScalarsLeaveSourceUsable() throws Exception {
+        String output = run("""
+                pub routine main() => void {
+                  let int source = 7;
+                  val copied = rt copy source;
+                  val taken = rt take source;
+                  val shared = rt share source;
+
+                  stdio.stdout.write(source == 7);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(copied == 7);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(taken == 7);
+                  stdio.stdout.write(":");
+                  stdio.stdout.write(shared == 7);
+                  return;
+                }
+                """);
+
+        assertTrue(output.equals("true:true:true:true"), output);
+    }
+
+    @Test
     void rtCopyRejectsClassNamespaceEvenWhenInstancesAreCopyable() {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,

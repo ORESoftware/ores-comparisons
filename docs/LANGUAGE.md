@@ -405,6 +405,62 @@ Option matching participates in pointerless ownership:
 
 `Option<null>` is accepted only as an explicit type-level escape hatch when an interoperability boundary truly needs to preserve a null marker. The `null` marker cannot escape that direct `Option<null>` position. `Option<void>` is invalid; use `void` when a function returns no value.
 
+## Runtime ownership operations and value categories
+
+The reserved `rt copy`, `rt take`, `rt borrow`, and `rt share` operations
+apply only to runtime values. A class name or module name by itself is a
+namespace/meta-value, not an instance:
+
+```ores
+define class Box as
+end
+
+define module math as
+  pub val int answer = 42;
+end
+
+// compile-time errors:
+val a = rt copy Box;
+val b = rt copy math;
+```
+
+The same namespace rule applies to `rt take`, `rt borrow`, and `rt share`.
+Use an instance, field value, function result, or other runtime value instead.
+
+Copy-semantic scalars are special. They have no mutable heap identity that must
+be duplicated. Therefore `rt copy` is legal and is semantically copy-elided:
+
+```ores
+let int n = 42;
+val m = rt copy n;
+
+// n remains usable; m == n; no actor/local/shared heap allocation is required.
+```
+
+The compiler/runtime classifies ownership operations independently from physical
+allocation:
+
+| Operand category | `rt copy` | Allocation effect |
+| --- | --- | --- |
+| primitive/value scalar | valid, value-semantic | none / copy-elided |
+| class instance | requires the class copy contract | fresh storage in the current semantic allocation domain |
+| struct/record/list/map/array | built-in structural copy when the element graph is copyable | fresh backing storage in the current semantic allocation domain |
+| class/module namespace | compile-time error | none |
+| pointer/capability/opaque host value without an explicit copy contract | compile-time or fail-closed runtime error | none |
+
+For Copy scalars, `rt take` does not make the source unusable: consuming a
+Copy value is itself copy semantics. `rt share` of a Copy scalar is likewise a
+value-semantic no-op and does not manufacture a `Shared<T>` owner or move the
+value into runtime-shared memory. Explicit `rt borrow` may still create a
+lexical checker borrow of a named scalar binding; it does not allocate storage
+or grant pointer/address semantics.
+
+For identity-bearing values, ownership and allocation are separate:
+`rt borrow`, `rt take`, and same-domain `rt share` do not relocate storage.
+`rt copy` creates independent storage in the current semantic allocation
+domain. Cross-actor/isolate movement remains an explicit mailbox/channel/freeze
+or transfer boundary.
+
 ## Explicit pointer capabilities
 
 Ordinary Oreslang calls do not require pointers. Class/object arguments use the
