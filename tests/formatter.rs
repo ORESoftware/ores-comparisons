@@ -68,6 +68,25 @@ end
 }
 
 #[test]
+fn tuple_and_fixed_sequence_metadata_remain_stable() {
+    let src = r#"fnc build() => void {
+val pair: Tuple<align=64, size=2>[int, string] = (1, "one");
+val fixed: FixedArray<size=4, align=32>[4 of int] = [1, 2, 3, 4];
+return;
+}
+"#;
+
+    let expected = r#"fnc build() -> void {
+  val pair: Tuple<align=64, size=2>[int, string] = (1, "one");
+  val fixed: FixedArray<size=4, align=32>[4 of int] = [1, 2, 3, 4];
+  return;
+}
+"#;
+
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
 fn class_contract_headers_and_nested_contracts_indent_without_confusion() {
     let src = r#"define class Child extends Parent<int>, Audited implements Named, Serializable as
 pub val String name;
