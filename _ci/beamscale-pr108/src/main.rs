@@ -856,12 +856,16 @@ fn default_data_root() -> Result<PathBuf> {
     if let Ok(home) = env::var("HOME")
         && !home.trim().is_empty()
     {
-        return Ok(PathBuf::from(home).join(".beamscale").join("desktop-daemon"));
+        return Ok(PathBuf::from(home)
+            .join(".beamscale")
+            .join("desktop-daemon"));
     }
     if let Ok(home) = env::var("USERPROFILE")
         && !home.trim().is_empty()
     {
-        return Ok(PathBuf::from(home).join(".beamscale").join("desktop-daemon"));
+        return Ok(PathBuf::from(home)
+            .join(".beamscale")
+            .join("desktop-daemon"));
     }
     bail!("cannot locate default home directory")
 }
@@ -1714,8 +1718,7 @@ async fn update_apply(
 
         // Public exposure must never outlive its supervised origin. Drain the
         // tunnel first, then the runtime.
-        if tunnel_was_running
-            && let Err(error) = stop_slot(&mut daemon.tunnel, "Cloudflare tunnel")
+        if tunnel_was_running && let Err(error) = stop_slot(&mut daemon.tunnel, "Cloudflare tunnel")
         {
             daemon.maintenance_in_progress = false;
             return Err(internal_error(error));
@@ -4575,10 +4578,7 @@ mod tests {
             defaults.limit.unwrap_or(100).clamp(1, MAX_LIFECYCLE_EVENTS),
             100
         );
-        assert_eq!(
-            0_usize.clamp(1, MAX_LIFECYCLE_EVENTS),
-            1
-        );
+        assert_eq!(0_usize.clamp(1, MAX_LIFECYCLE_EVENTS), 1);
         assert_eq!(
             (MAX_LIFECYCLE_EVENTS + 100).clamp(1, MAX_LIFECYCLE_EVENTS),
             MAX_LIFECYCLE_EVENTS
