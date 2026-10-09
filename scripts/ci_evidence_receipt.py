@@ -86,6 +86,8 @@ def main() -> int:
     parser.add_argument("--private-result", choices=sorted(JOB_RESULTS), required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--repository", required=True)
+    parser.add_argument("--private-auth", choices=("yes", "no", "unknown"), default="unknown")
+    parser.add_argument("--source-auth", choices=("yes", "no", "unknown"), default="unknown")
     parser.add_argument("--output", type=Path, default=Path("artifacts/ci-evidence-scope.json"))
     parser.add_argument("--require-complete", action="store_true", help="fail unless every evidence domain was exercised")
     args = parser.parse_args()
@@ -96,8 +98,8 @@ def main() -> int:
         static_result=args.static_result,
         private_result=args.private_result,
         submodules_present=Path(".gitmodules").is_file(),
-        private_credential=bool(os.environ.get("CROSS_REPO_READ_TOKEN")),
-        source_credential=bool(os.environ.get("SOURCE_PROJECT_AUDIT_TOKEN")),
+        private_credential=args.private_auth == "yes",
+        source_credential=args.source_auth == "yes",
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
