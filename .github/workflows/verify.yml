@@ -130,6 +130,9 @@ jobs:
 
   private-authorities:
     runs-on: ubuntu-latest
+    outputs:
+      has_private_read: ${{ steps.credential_coverage.outputs.cross_repo }}
+      has_source_audit: ${{ steps.credential_coverage.outputs.source_audit }}
     env:
       CROSS_REPO_READ_TOKEN: ${{ secrets.COMPARISON_REPO_READ_TOKEN || secrets['cross-repo-token'] || secrets.ORES_CROSS_REPO_READ_TOKEN || secrets.TEST_FLEET_READ_TOKEN }}
     steps:
@@ -141,6 +144,23 @@ jobs:
         with:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Report credential availability without exposing tokens
+        id: credential_coverage
+        shell: bash
+        env:
+          SOURCE_PROJECT_AUDIT_TOKEN: ${{ secrets.SOURCE_PROJECT_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${CROSS_REPO_READ_TOKEN:-}" ]]; then
+            echo 'cross_repo=yes' >> "$GITHUB_OUTPUT"
+          else
+            echo 'cross_repo=no' >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -n "${SOURCE_PROJECT_AUDIT_TOKEN:-}" ]]; then
+            echo 'source_audit=yes' >> "$GITHUB_OUTPUT"
+          else
+            echo 'source_audit=no' >> "$GITHUB_OUTPUT"
+          fi
       - name: Enumerate private upstream source projects when authorized
         shell: bash
         env:
@@ -218,3 +238,49 @@ jobs:
 
           python3 scripts/smoke_projects.py --execute
           bash scripts/build_big_org_repos.sh
+
+  evidence-scope:
+    name: audit actual verification scope
+    if: ${{ always() }}
+    needs: [static-contracts, private-authorities]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Mutation-test verification scope model
+        run: python3 -m unittest tests.test_ci_evidence_receipt
+      - name: Write incomplete or complete evidence report
+        shell: bash
+        env:
+          STATIC_RESULT: ${{ needs.static-contracts.result }}
+          PRIVATE_RESULT: ${{ needs.private-authorities.result }}
+          PRIVATE_AUTH: ${{ needs.private-authorities.outputs.has_private_read }}
+          SOURCE_AUTH: ${{ needs.private-authorities.outputs.has_source_audit }}
+          CHECKED_OUT_SHA: ${{ github.sha }}
+          CHECKED_OUT_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Failed/skipped private jobs leave output unset: never upgrade unknown to yes.
+          case "$PRIVATE_AUTH" in yes|no) ;; *) PRIVATE_AUTH=unknown ;; esac
+          case "$SOURCE_AUTH" in yes|no) ;; *) SOURCE_AUTH=unknown ;; esac
+          python3 scripts/ci_evidence_receipt.py \
+            --static-result "$STATIC_RESULT" \
+            --private-result "$PRIVATE_RESULT" \
+            --private-auth "$PRIVATE_AUTH" \
+            --source-auth "$SOURCE_AUTH" \
+            --revision "$CHECKED_OUT_SHA" \
+            --repository "$CHECKED_OUT_REPO"
+      - name: Upload explicit CI scope receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-evidence-scope
+          path: artifacts/ci-evidence-scope.json
+          if-no-files-found: error
+          retention-days: 30

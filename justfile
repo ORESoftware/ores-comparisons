@@ -16,6 +16,7 @@ runtime-topology-check: runtime-topology-unit-check
     ./.local/bin/verify-runtime-topology
 
 verify: stack-catalog-check runtime-topology-unit-check
+    python3 -m unittest tests.test_ci_evidence_receipt
     python3 scripts/verify_source_project_inventory.py
     python3 -m unittest tests.test_source_project_inventory
     python3 scripts/verify_examples.py
@@ -43,6 +44,7 @@ verify: stack-catalog-check runtime-topology-unit-check
     bash conformance/check-all.sh
 
 verify-static: stack-catalog-check runtime-topology-unit-check
+    python3 -m unittest tests.test_ci_evidence_receipt
     python3 scripts/verify_source_project_inventory.py
     python3 -m unittest tests.test_source_project_inventory
     python3 scripts/verify_project_matrix.py
