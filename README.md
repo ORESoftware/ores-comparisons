@@ -43,6 +43,18 @@ The 18 currently materialized matrix-governed projects expose the same integrati
 opto-sync, ores-chat, ores-convo, ores-rate-limit, ores-middleware,
 ores-redis-lru-cache, api-docs, and both ORES SOPS organization paths.
 
+## Native source projects and stack ownership
+
+The dummy-org fixture topology is separate from the *actual native source repositories*
+owned by each runtime stack. `shared/source-project-inventory.json` now registers the
+29 LiteGraph and 20 ORES Stack native source repositories as **inventory-only**:
+registration is neither an initialized gitlink nor runtime/build/benchmark proof.
+Run `python3 scripts/verify_source_project_inventory.py` for offline ownership checks;
+the explicit `--remote` mode enumerates all private upstream repos with a dedicated
+`SOURCE_PROJECT_AUDIT_TOKEN` and fails on new, missing, or unassigned source projects.
+See [the source-project ownership audit](docs/SOURCE-PROJECT-AUDIT.md) for scope,
+standalone cross-stack integrations, and limitations.
+
 ## Contract structure
 
 Every project is a local GitHub-organization mirror. Shared authority is owned by
