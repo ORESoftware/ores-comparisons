@@ -67,3 +67,7 @@ A dedicated non-BEAM fixture stack must have, at minimum:
 Promoting a stack from `registered` to executable `materialized` remains stricter and requires actual runtime evidence. For the shared six-scenario model that includes the existing project matrix, scenario branches/gitlinks, build/deploy smoke verification, benchmark/runtime-proof integration, and all contract/parity gates. A topology-only fixture is never sufficient by itself.
 
 The Rust stack-catalog gate continues to fail closed if the FaaS cohort drops below seven distinct platforms, if any required platform disappears, if two platform identities reuse one backing stack, or if the GraalVM platform stops mapping to the `graal-show` fleet identity.
+
+## Oreslang Stack (registered; pending proof)
+
+`oreslang-stack` is a separately registered **Oreslang-language** framework and prospective runtime lane, not the existing Rust `ores-stack`. Its CLI authority is `ores-truffle-oreslang/oreslang-stack-cli`; `oreslang-faas` denotes a separate proposed hosting service. The cross-stack fixture ledger `shared/oreslang-portability.json` targets all **10** registered stacks with two private `.ores` source repositories, currently pending authenticated names/SHAs. This portability corpus is deliberately separate from the 20-repository dedicated source/runtime fixture family. See `docs/ORESLANG-STACK.md`.

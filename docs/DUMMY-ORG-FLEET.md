@@ -101,3 +101,7 @@ Ruby is intentionally represented in two ways:
 - `ores-ror-to-lambdas-demo/ores-ror.rb` plus `ores-ror-to-lambdas-demo/ores-ror.infra` are exact Rails reference gitlinks governed by `shared/graal-ruby-references.json`. They demonstrate the same app-native lowering contract with Rails as the authoring framework.
 
 In both cases the Graal worker artifact is expected to be framework-free Ruby; framework parsing/boot happens before admission, not inside the guest worker.
+
+## Separate Oreslang cross-stack portability corpus
+
+`ores-dummy-org-oreslang-stack` is the shared two-repository Oreslang **source** test corpus, not another 20-repo source→artifact runtime fixture organization. Its future 20 individually pinned submodules (two per each of 10 currently registered stacks) are governed by `shared/oreslang-portability.json`, initially pending verified private repository names and immutable revisions. The historical 21-org scenario/runtime inventory is not inflated. See `docs/ORESLANG-STACK.md`.
