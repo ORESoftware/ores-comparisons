@@ -1,0 +1,47 @@
+{
+  "schema": "ores.comparisons.litegraph-generation-proof/v1",
+  "platform": "litegraph",
+  "mode": "fixture",
+  "proxy": {
+    "listener_id_before": "listener-1",
+    "listener_id_after": "listener-1",
+    "pid_before": 101,
+    "pid_after": 101,
+    "request_drain_completed": true
+  },
+  "middleware": {
+    "generation_before": 1,
+    "generation_after": 2,
+    "prepared_before_promote": true,
+    "old_inflight_completed": true,
+    "failure_rollback_preserves_active": true,
+    "authorization_preserved": true,
+    "isolation_mode": "separate_process"
+  },
+  "workers": {
+    "generation_before": 7,
+    "generation_after": 8,
+    "old_inflight_completed": true,
+    "new_invocations_use_new_generation": true,
+    "stale_revision_rejected": true,
+    "wrong_tenant_rejected": true,
+    "invalid_abi_rejected": true,
+    "artifact_before": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifact_after": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "abi": "litegraph.core-wasm/v1"
+  },
+  "security": {
+    "wasm_store_per_invocation": true,
+    "no_ambient_host_imports": true,
+    "bounded_memory": true,
+    "bounded_fuel": true,
+    "native_untrusted_inprocess_allowed": false,
+    "gpu_hardware_isolation_claimed": false
+  },
+  "evidence": {
+    "source_commit": "0000000000000000000000000000000000000000",
+    "workflow_url": "",
+    "executed_test_steps": false,
+    "receipt_kind": "fixture"
+  }
+}
