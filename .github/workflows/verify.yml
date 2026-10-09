@@ -23,6 +23,10 @@ jobs:
       - run: python3 scripts/verify_workflow_pins.py
       - run: python3 scripts/verify_private_authority_credentials.py
       - run: python3 scripts/verify_project_matrix.py
+      - name: Verify native source projects (offline ownership gate)
+        run: |
+          python3 scripts/verify_source_project_inventory.py
+          python3 -m unittest tests.test_source_project_inventory
       - name: Compile, test, and execute Rust stack catalog gate
         shell: bash
         run: |
@@ -137,6 +141,17 @@ jobs:
         with:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Enumerate private upstream source projects when authorized
+        shell: bash
+        env:
+          SOURCE_PROJECT_AUDIT_TOKEN: ${{ secrets.SOURCE_PROJECT_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SOURCE_PROJECT_AUDIT_TOKEN:-}" ]]; then
+            echo "::notice::private native source enumeration NOT checked: SOURCE_PROJECT_AUDIT_TOKEN not configured"
+          else
+            python3 scripts/verify_source_project_inventory.py --remote
+          fi
       - name: Run exact private authorities and stack smoke tests when authorized
         shell: bash
         run: |
