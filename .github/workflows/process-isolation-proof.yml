@@ -28,3 +28,10 @@ jobs:
             if (schema.properties[key]?.const !== true) throw new Error(`mandatory isolation control weakened: ${key}`);
           }
           NODE
+      - name: Compile and mutation-test LiteGraph generation proof contract (fixture only)
+        run: |
+          set -euo pipefail
+          rustc --edition 2024 --test tools/verify_litegraph_generations.rs -o /tmp/litegraph-generations-tests
+          /tmp/litegraph-generations-tests
+          rustc --edition 2024 tools/verify_litegraph_generations.rs -o /tmp/litegraph-generations-check
+          /tmp/litegraph-generations-check conformance/litegraph-generations/valid-fixture.json
