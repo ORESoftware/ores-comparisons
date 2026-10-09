@@ -1,5 +1,5 @@
 {
-  "schema": "ores.comparisons.litegraph-generation-proof/v1",
+  "schema": "ores.comparisons.litegraph-generation-proof/v2",
   "platform": "litegraph",
   "mode": "fixture",
   "proxy": {
@@ -31,10 +31,18 @@
     "abi": "litegraph.core-wasm/v1"
   },
   "security": {
-    "wasm_store_per_invocation": true,
+    "stateless_wasm_store_per_invocation": true,
     "no_ambient_host_imports": true,
     "bounded_memory": true,
     "bounded_fuel": true,
+    "persistent_actor_owns_its_store": true,
+    "persistent_actor_state_retained_between_calls": true,
+    "persistent_actor_tenant_fenced": true,
+    "persistent_actor_mailbox_bounded": true,
+    "persistent_actor_restart_budget_bounded": true,
+    "persistent_actor_migration_serialized": true,
+    "persistent_actor_store_per_invocation": false,
+    "actor_state_durability_certified": false,
     "native_untrusted_inprocess_allowed": false,
     "gpu_hardware_isolation_claimed": false
   },
