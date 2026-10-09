@@ -167,9 +167,16 @@ def main() -> int:
         entry.get("id"): entry for entry in catalog.get("stacks", []) if isinstance(entry, dict)
     }
     for stack, entry in catalog_entries.items():
-        if entry.get("topology_status") != "materialized":
-            fail(errors, f"{stack}: topology_status must be materialized")
+        topology = entry.get("topology_status")
         declared = entry.get("runtime_fixture_orgs", [])
+        if topology == "pending":
+            # An incomplete stack cannot claim the governed 20-repo runtime fixture topology.
+            if entry.get("status") != "registered":
+                fail(errors, f"{stack}: pending topology requires registered runtime")
+            if declared or by_stack.get(stack) or stack in dedicated:
+                fail(errors, f"{stack}: pending topology must not claim runtime fixture orgs")
+        elif topology != "materialized":
+            fail(errors, f"{stack}: invalid topology_status {topology!r}")
         if sorted(declared) != sorted(by_stack.get(stack, [])):
             fail(errors, f"{stack}: stack-catalog runtime_fixture_orgs drift from fleet map")
 
