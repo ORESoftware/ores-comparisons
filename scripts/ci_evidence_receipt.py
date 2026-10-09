@@ -39,8 +39,10 @@ def make_receipt(
 ) -> dict:
     if not SHA40.fullmatch(revision):
         raise ValueError("revision must be an exact lower-case 40-hex Git SHA")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-        raise ValueError("repository must have owner/name shape")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or any(
+        part in {".", ".."} for part in repository.split("/")
+    ):
+        raise ValueError("repository must have safe owner/name shape")
     if static_result not in JOB_RESULTS or private_result not in JOB_RESULTS:
         raise ValueError("unknown GitHub job result")
     if type(submodules_present) is not bool:
