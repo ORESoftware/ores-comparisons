@@ -6,7 +6,7 @@ mod json_value;
 use json_value::JsonValue;
 use std::{env, fs, path::Path, process};
 
-const SCHEMA: &str = "ores.comparisons.litegraph-generation-proof/v1";
+const SCHEMA: &str = "ores.comparisons.litegraph-generation-proof/v2";
 
 fn string<'a>(v: &'a JsonValue, name: &str) -> Result<&'a str, String> {
     v.get(name)
@@ -138,23 +138,43 @@ fn check(value: &JsonValue) -> Result<(), String> {
     fixed_fields(
         security,
         &[
-            "wasm_store_per_invocation",
+            "stateless_wasm_store_per_invocation",
             "no_ambient_host_imports",
             "bounded_memory",
             "bounded_fuel",
             "native_untrusted_inprocess_allowed",
             "gpu_hardware_isolation_claimed",
+            "persistent_actor_owns_its_store",
+            "persistent_actor_state_retained_between_calls",
+            "persistent_actor_tenant_fenced",
+            "persistent_actor_mailbox_bounded",
+            "persistent_actor_restart_budget_bounded",
+            "persistent_actor_migration_serialized",
+            "persistent_actor_store_per_invocation",
+            "actor_state_durability_certified",
         ],
     )?;
     for name in [
-        "wasm_store_per_invocation",
+        "stateless_wasm_store_per_invocation",
         "no_ambient_host_imports",
         "bounded_memory",
         "bounded_fuel",
+        "persistent_actor_owns_its_store",
+        "persistent_actor_state_retained_between_calls",
+        "persistent_actor_tenant_fenced",
+        "persistent_actor_mailbox_bounded",
+        "persistent_actor_restart_budget_bounded",
+        "persistent_actor_migration_serialized",
     ] {
         if !boolean(security, name)? {
-            return Err(format!("missing Wasm sandbox condition: {name}"));
+            return Err(format!("missing Wasm sandbox/actor condition: {name}"));
         }
+    }
+    if boolean(security, "persistent_actor_store_per_invocation")? {
+        return Err("persistent Wasm actors must not allocate a fresh Store per message".into());
+    }
+    if boolean(security, "actor_state_durability_certified")? {
+        return Err("actor crash-consistent journal durability has not been certified".into());
     }
     if boolean(security, "native_untrusted_inprocess_allowed")?
         || boolean(security, "gpu_hardware_isolation_claimed")?
@@ -216,7 +236,7 @@ mod tests {
     #[test]
     fn rejects_any_missing_security_guarantee() {
         for name in [
-            "wasm_store_per_invocation",
+            "stateless_wasm_store_per_invocation",
             "no_ambient_host_imports",
             "bounded_memory",
             "bounded_fuel",
@@ -225,6 +245,34 @@ mod tests {
             assert!(check(&JsonValue::parse(&mutated).unwrap()).is_err(), "{name}");
         }
     }
+    #[test]
+    fn persistent_actor_evidence_cannot_be_confused_with_stateless_isolation() {
+        for name in [
+            "persistent_actor_owns_its_store",
+            "persistent_actor_state_retained_between_calls",
+            "persistent_actor_tenant_fenced",
+            "persistent_actor_mailbox_bounded",
+            "persistent_actor_restart_budget_bounded",
+            "persistent_actor_migration_serialized",
+        ] {
+            let invalid = VALID.replace(
+                &format!("\"{name}\": true"),
+                &format!("\"{name}\": false"),
+            );
+            assert!(check(&JsonValue::parse(&invalid).unwrap()).is_err(), "{name}");
+        }
+        let invalid = VALID.replace(
+            "\"persistent_actor_store_per_invocation\": false",
+            "\"persistent_actor_store_per_invocation\": true",
+        );
+        assert!(check(&JsonValue::parse(&invalid).unwrap()).is_err());
+        let invalid = VALID.replace(
+            "\"actor_state_durability_certified\": false",
+            "\"actor_state_durability_certified\": true",
+        );
+        assert!(check(&JsonValue::parse(&invalid).unwrap()).is_err());
+    }
+
     #[test]
     fn rejects_proxy_restart_and_unsafe_tenant_migration() {
         let altered = VALID.replace("\"pid_after\": 101", "\"pid_after\": 102");
