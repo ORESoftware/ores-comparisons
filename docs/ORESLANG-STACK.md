@@ -49,7 +49,7 @@ The proposed `ores-truffle-oreslang/oreslang-stack-cli` command contract include
 
 ## Explicit permitted deployment matrix (not an executable claim)
 
-The two `.ores` repositories may remain **source submodules in all ten comparison stack directories** for visibility and negative portability tests. That does **not** mean Oreslang is deployable to all ten stacks. The governed `deployment_matrix` in `shared/oreslang-portability.json` permits only these five prospective targets:
+The two `.ores` repositories may remain **source submodules in all ten comparison stack directories** for visibility and negative portability tests. That does **not** mean Oreslang is deployable to all ten stacks. The governed `deployment_matrix` in `shared/oreslang-portability.json` permits only these six prospective targets:
 
 | Stack | Eligibility | Required runtime/compiler path |
 | --- | --- | --- |
@@ -58,5 +58,6 @@ The two `.ores` repositories may remain **source submodules in all ten compariso
 | `wasm-xprs` | future-backend | Oreslang → WASM (not yet implemented/proven) |
 | `iso-lattes` | future-backend | Oreslang → JavaScript or WASM (not yet implemented/proven) |
 | `lunatic-lorry` | future-backend | Oreslang → WASM (not yet implemented/proven) |
+| `litegraph` | planned | LLVM-compatible LiteGraph runtime/GPU adapter, target ABI and execution proof required |
 
-`beamscale` is **unsupported** because Oreslang will not target Erlang/BEAM; `pony-expres` is **unsupported** because Oreslang does not target Pony. `ores-stack` (Rust), `graal-show`, and `litegraph` are also unsupported *as deployment targets* absent a separately admitted runtime adapter; any source snapshot under them is for comparisons only. Neither `planned` nor `future-backend` means deployable today. The CLI must reject deployment to unsupported targets and must fail closed for all unimplemented adapters, including these five.
+`beamscale` is **unsupported** because Oreslang will not target Erlang/BEAM; `pony-expres` is **unsupported** because Oreslang does not target Pony. `ores-stack` (Rust) and `graal-show` are also unsupported *as deployment targets* absent a separately admitted runtime adapter; any source snapshot under them is for comparisons only. Neither `planned` nor `future-backend` means deployable today. The CLI must reject deployment to unsupported targets and must fail closed for all unimplemented adapters, including these six.
