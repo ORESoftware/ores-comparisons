@@ -46,3 +46,15 @@ The comparison must **not** mark LiteGraph executable or isolation-certified fro
 - `litegraph-node`: single-tenant Wasm execution exists; hot activation controller is under review and must be independently tested.
 - `litegraph-router.rs`: current ORES middleware stack is fixed at startup; no independently deployable middleware rollout is verified.
 - `ores-comparisons`: LiteGraph remains **registered**, not materialized/certified, until a full three-generation live proof is executed.
+
+
+## Stateless guest Stores versus persistent actor Stores
+
+The comparison schema has been bumped to `ores.comparisons.litegraph-generation-proof/v2` because these are **different isolation mechanisms**:
+
+- Stateless Wasm FaaS: a fresh Wasmtime Store/instance is created on every invocation; there must be no guest state carried between calls.
+- Persistent Wasm actors: a dedicated Wasmtime Store/instance belongs to one authenticated `(tenant, actor)`; it intentionally retains private mutable state across messages and supports bounded mailbox/restart and snapshot/restore generations. Its Store must **never** be shared across tenants and must not be recreated on every successful message.
+- A trapped actor destroys its Store before restart. Its volatile state may be lost. Full durability requires an externally committed journal/checkpoint and owner-fencing epochs; this remains **not certified**.
+- A synthetic fixture can validate both policies but is **not** evidence that a production node ran two hostile tenants, that an OS sandbox exists, or that the grandaddy/daddy/child stack completed concurrent cutovers.
+
+The runtime actor tests and credential-free node actor smoke provide preliminary real execution evidence (litegraph-runtime#14/#15, litegraph-node#14, litegraph-test#16). They do **not** replace the required combined live three-tier load/cancellation proof or process isolation certification.
