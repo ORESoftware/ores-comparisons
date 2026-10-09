@@ -188,6 +188,18 @@
         "ores-dummy-org-rust-gpu-1",
         "ores-dummy-org-cuda-gpu-1"
       ]
+    },
+    {
+      "id": "oreslang-stack",
+      "display_name": "Oreslang Stack",
+      "github_owner": "ores-truffle-oreslang",
+      "comparison_branch": "stack/oreslang-stack",
+      "status": "registered",
+      "topology_status": "pending",
+      "execution_model": "Oreslang-authored application framework with independently compiled JVM/Graal and LLVM artifacts; runtime and FaaS proof separate",
+      "benchmark_executable": null,
+      "scenario_orgs": [],
+      "runtime_fixture_orgs": []
     }
   ]
 }

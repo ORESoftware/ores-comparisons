@@ -354,3 +354,7 @@ Always-on CI validates all repository contracts and stack-native metadata.
 It also runs `cargo check` on the nine ORES Stack domain repositories. When
 the private cross-repo token is configured, CI additionally builds all 27
 domain repositories through their real pinned stack CLIs.
+
+## Independent Oreslang Stack
+
+The Oreslang-authored `stacks/oreslang-stack` is now a **registered** framework/runtime candidate alongside, not inside, the Rust `stacks/ores-stack`. The `ores-truffle-oreslang/oreslang-stack-cli` repository owns the proposed language-specific CLI. `oreslang-faas` is a distinct proposed deployment host, not a proven runtime. All 10 stack targets for the two existing private `.ores` fixture repositories are recorded as pending in `shared/oreslang-portability.json` until exact SHA-pinned Git submodules can be admitted. See `docs/ORESLANG-STACK.md`.

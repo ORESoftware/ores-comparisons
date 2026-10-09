@@ -15,7 +15,8 @@
         "iso-lattes",
         "graal-show",
         "lunatic-lorry",
-        "litegraph"
+        "litegraph",
+        "oreslang-stack"
       ]
     },
     "ScenarioKind": {

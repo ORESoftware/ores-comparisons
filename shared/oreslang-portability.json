@@ -1,0 +1,144 @@
+{
+  "schema": "ores.comparisons.oreslang-portability/v1",
+  "framework_stack": "oreslang-stack",
+  "source_language": "oreslang",
+  "framework_cli_repository": "ores-truffle-oreslang/oreslang-stack-cli",
+  "fixture_organization": "ores-dummy-org-oreslang-stack",
+  "expected_fixture_repository_count": 2,
+  "fixture_repositories": [],
+  "transport": "git-submodule",
+  "deployment_targets": [
+    {
+      "name": "oreslang-stack",
+      "status": "proposed"
+    },
+    {
+      "name": "oreslang-faas",
+      "status": "proposed"
+    }
+  ],
+  "targets": [
+    {
+      "stack": "beamscale",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "scintilla-run",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "ores-stack",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "pony-expres",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "wasm-xprs",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "iso-lattes",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "graal-show",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "lunatic-lorry",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "litegraph",
+      "status": "pending",
+      "pins": []
+    },
+    {
+      "stack": "oreslang-stack",
+      "status": "pending",
+      "pins": []
+    }
+  ],
+  "required_evidence": [
+    "source-revision",
+    "domain-contract-parity",
+    "graphql-rpc-lambda-generation",
+    "graal-backend-execution",
+    "llvm-backend-execution",
+    "actor-supervisor-lifecycle",
+    "deployment-adapter",
+    "runtime-smoke-receipt"
+  ],
+  "deployment_matrix": [
+    {
+      "stack": "beamscale",
+      "status": "unsupported",
+      "artifact": null,
+      "reason": "No admitted Oreslang compilation or deployment target"
+    },
+    {
+      "stack": "scintilla-run",
+      "status": "planned",
+      "artifact": "oreslang-runtime-adapter",
+      "reason": "Polyglot runtime adapter needs real compile-and-launch evidence"
+    },
+    {
+      "stack": "ores-stack",
+      "status": "unsupported",
+      "artifact": null,
+      "reason": "No admitted Oreslang compilation or deployment target"
+    },
+    {
+      "stack": "pony-expres",
+      "status": "unsupported",
+      "artifact": null,
+      "reason": "No admitted Oreslang compilation or deployment target"
+    },
+    {
+      "stack": "wasm-xprs",
+      "status": "future-backend",
+      "artifact": "wasm",
+      "reason": "Requires future Oreslang-to-WebAssembly backend and WASM host adapter"
+    },
+    {
+      "stack": "iso-lattes",
+      "status": "future-backend",
+      "artifact": "js-or-wasm",
+      "reason": "Requires future Oreslang-to-JS or WebAssembly backend and isolate adapter"
+    },
+    {
+      "stack": "graal-show",
+      "status": "unsupported",
+      "artifact": null,
+      "reason": "No admitted Oreslang compilation or deployment target"
+    },
+    {
+      "stack": "lunatic-lorry",
+      "status": "future-backend",
+      "artifact": "wasm",
+      "reason": "Requires future Oreslang-to-WebAssembly backend and actor host adapter"
+    },
+    {
+      "stack": "litegraph",
+      "status": "planned",
+      "artifact": "llvm-litegraph",
+      "reason": "LLVM-backed integration requires LiteGraph-specific ABI, GPU capability, host adapter and executable proof"
+    },
+    {
+      "stack": "oreslang-stack",
+      "status": "planned",
+      "artifact": "oreslang-native",
+      "reason": "Native Oreslang framework/host adapter requires executable proof"
+    }
+  ]
+}

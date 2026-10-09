@@ -21,6 +21,7 @@ verify: stack-catalog-check runtime-topology-unit-check
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_runtime_fixture_org_map.py
+    python3 scripts/verify_oreslang_portability.py
     python3 scripts/render_runtime_fixture_gitmodules.py --check
     python3 scripts/verify_runtime_fixture_gitlinks.py
     python3 scripts/verify_dummy_org_gitlinks.py
@@ -44,6 +45,7 @@ verify-static: stack-catalog-check runtime-topology-unit-check
     python3 scripts/verify_private_authority_credentials.py
     python3 scripts/verify_dummy_org_map.py
     python3 scripts/verify_runtime_fixture_org_map.py
+    python3 scripts/verify_oreslang_portability.py
     python3 scripts/render_runtime_fixture_gitmodules.py --check
     python3 scripts/verify_runtime_fixture_gitlinks.py
     python3 scripts/verify_dummy_org_gitlinks.py

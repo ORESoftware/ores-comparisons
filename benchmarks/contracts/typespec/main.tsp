@@ -8,6 +8,7 @@ enum StackKind {
   beamscale: "beamscale",
   scintillaRun: "scintilla-run",
   oresStack: "ores-stack",
+  oreslangStack: "oreslang-stack",
   ponyExpres: "pony-expres",
   wasmXprs: "wasm-xprs",
   isoLattes: "iso-lattes",
