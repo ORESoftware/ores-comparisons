@@ -130,9 +130,9 @@
     },
     {
       "stack": "litegraph",
-      "status": "unsupported",
-      "artifact": null,
-      "reason": "No admitted Oreslang compilation or deployment target"
+      "status": "planned",
+      "artifact": "llvm-litegraph",
+      "reason": "LLVM-backed integration requires LiteGraph-specific ABI, GPU capability, host adapter and executable proof"
     },
     {
       "stack": "oreslang-stack",
