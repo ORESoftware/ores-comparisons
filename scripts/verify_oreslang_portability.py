@@ -49,6 +49,7 @@ def verify() -> list[str]:
         "wasm-xprs": ("future-backend", "wasm"),
         "iso-lattes": ("future-backend", "js-or-wasm"),
         "lunatic-lorry": ("future-backend", "wasm"),
+        "litegraph": ("planned", "llvm-litegraph"),
     }
     deployments = m.get("deployment_matrix", [])
     if not isinstance(deployments, list) or len(deployments) != len(stacks):
