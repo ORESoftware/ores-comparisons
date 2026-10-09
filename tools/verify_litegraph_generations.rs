@@ -256,19 +256,19 @@ mod tests {
             "persistent_actor_migration_serialized",
         ] {
             let invalid = VALID.replace(
-                &format!("\\\"{name}\\\": true"),
-                &format!("\\\"{name}\\\": false"),
+                &format!("\"{name}\": true"),
+                &format!("\"{name}\": false"),
             );
             assert!(check(&JsonValue::parse(&invalid).unwrap()).is_err(), "{name}");
         }
         let invalid = VALID.replace(
-            "\\\"persistent_actor_store_per_invocation\\\": false",
-            "\\\"persistent_actor_store_per_invocation\\\": true",
+            "\"persistent_actor_store_per_invocation\": false",
+            "\"persistent_actor_store_per_invocation\": true",
         );
         assert!(check(&JsonValue::parse(&invalid).unwrap()).is_err());
         let invalid = VALID.replace(
-            "\\\"actor_state_durability_certified\\\": false",
-            "\\\"actor_state_durability_certified\\\": true",
+            "\"actor_state_durability_certified\": false",
+            "\"actor_state_durability_certified\": true",
         );
         assert!(check(&JsonValue::parse(&invalid).unwrap()).is_err());
     }
