@@ -1,0 +1,315 @@
+{
+  "schema": "ores.comparisons.source-project-inventory/v1",
+  "snapshot_date": "2026-10-08",
+  "scope": "Native source repositories only; not dummy-org fixtures or executable/runtime proof.",
+  "stacks": [
+    {
+      "stack_id": "litegraph",
+      "github_owner": "litegraph",
+      "minimum_repositories": 29,
+      "repositories": [
+        {
+          "repository": "litegraph/litegraph-api-server.rs",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-benchmarks",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-cli",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-compiler",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-contracts",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-desktop-app.rs",
+          "category": "applications",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-desktop-cli",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-desktop-daemon",
+          "category": "applications",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-desktop-infra",
+          "category": "infrastructure",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-examples",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-flutter",
+          "category": "applications",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-function-registry",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-gpu-host",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-helm",
+          "category": "infrastructure",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-infra",
+          "category": "infrastructure",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-interfaces",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-model-registry",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-modeld",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-node",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-orm-core",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-pub-lib-core",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-router.rs",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-runtime",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-scheduler",
+          "category": "runtime",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-sdk-cpp",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-sdk-rs",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-terraform",
+          "category": "infrastructure",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-test",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "litegraph/litegraph-wit",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        }
+      ]
+    },
+    {
+      "stack_id": "ores-stack",
+      "github_owner": "ores-stack",
+      "minimum_repositories": 20,
+      "repositories": [
+        {
+          "repository": "ores-stack/.github",
+          "category": "governance",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-admin-api-server.rs",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-admin-mcp-server.rs",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-admin-web-server.rs",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-api-server.rs",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-cli",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-clients",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-desktop-app.rs",
+          "category": "applications",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-docs",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-flutter",
+          "category": "applications",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-infra",
+          "category": "infrastructure",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-interfaces",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-lambdas",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-lib-core",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-mcp-server.rs",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-monorepo",
+          "category": "developer-tooling",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-orm-core",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-pub-lib-core",
+          "category": "interfaces",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-sync",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        },
+        {
+          "repository": "ores-stack/ores-stack-web-server.rs",
+          "category": "service",
+          "default_branch": "main",
+          "visibility": "private"
+        }
+      ]
+    }
+  ]
+}

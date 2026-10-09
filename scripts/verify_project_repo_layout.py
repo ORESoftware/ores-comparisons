@@ -59,6 +59,18 @@ actual = {
     if p.is_dir() and (p / "repos/readme.md").is_file()
 }
 
+# A directory is still a project even if it omits repos/readme.md. The older
+# discovery below intentionally limits scenario content checks to initialized
+# mirrors; a rogue project without that file must not evade ownership checks.
+assigned_projects = expected | {repos.parent for repos in fixture_repos_paths}
+observed_projects = {
+    project for project in ROOT.glob("stacks/*/projects/*") if project.is_dir()
+}
+for project in sorted(observed_projects - assigned_projects):
+    errors.append(
+        f"unassigned project outside matrix and runtime fixture fleet: {project.relative_to(ROOT)}"
+    )
+
 for project in sorted(expected - actual):
     errors.append(f"matrix project is missing: {project.relative_to(ROOT)}")
 for project in sorted(actual - expected):
