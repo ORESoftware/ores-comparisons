@@ -1,0 +1,89 @@
+name: oreslang-net-stack-e4844bae-validation
+
+on:
+  push:
+    branches: ["ci/oreslang-net-stack-e4844bae-20261003"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: _ci/oreslang-net-stack-e4844bae
+
+jobs:
+  exact-tree-functional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove exact source tree identity
+        working-directory: .
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD:_ci/oreslang-net-stack-e4844bae)"
+          expected="779131ac46e407e339e157128ff0dbbd65f8c26f"
+          printf 'source_sha=%s\n' "0b4e606dc42c594726d97dab6343dcfcbdf1c54a"
+          printf 'source_tree=%s\n' "$actual"
+          test "$actual" = "$expected"
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
+
+      - name: Toolchain diagnostics
+        run: |
+          java --version
+          mvn --version
+          cc --version
+
+      - name: Compile exact mirrored source including JNI
+        run: mvn -B -ntp -DskipTests test-compile
+
+      - name: Run native socket primitive regression suite
+        run: mvn -B -ntp -Dtest=NativeSocketBridgeTest test
+
+      - name: Run full suite and require only the intentional architecture gate
+        shell: bash
+        run: |
+          set -uo pipefail
+          rm -rf target/surefire-reports
+          set +e
+          mvn -B -ntp test
+          status=$?
+          set -e
+
+          if [ "$status" -eq 0 ]; then
+            echo "Full suite unexpectedly passed; the Java HTTP migration gate should still be active on this source head." >&2
+            exit 1
+          fi
+
+          shopt -s nullglob
+          reports=(target/surefire-reports/TEST-*.xml)
+          if [ "${#reports[@]}" -eq 0 ]; then
+            echo "No Surefire XML reports were produced; this is not test evidence." >&2
+            exit 1
+          fi
+
+          failures="$(grep -hE '<(failure|error)([ >])' "${reports[@]}" | wc -l | tr -d ' ')"
+          echo "surefire_failure_or_error_nodes=$failures"
+          test "$failures" = "1"
+
+          gate_report=""
+          for report in "${reports[@]}"; do
+            if grep -q 'name="networkingImplementationKeepsProtocolEngineOutOfJava"' "$report"; then
+              gate_report="$report"
+              break
+            fi
+          done
+          test -n "$gate_report"
+          grep -A3 'name="networkingImplementationKeepsProtocolEngineOutOfJava"' "$gate_report" | grep -q '<failure'
+
+          echo "PASS: all executed tests passed except the single intentional Java-to-.ores migration gate."
