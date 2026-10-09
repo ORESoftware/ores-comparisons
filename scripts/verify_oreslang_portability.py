@@ -43,6 +43,33 @@ def verify() -> list[str]:
         bad("Oreslang must remain registered, pending and not executable until proven")
     if rust.get("github_owner") != "ores-stack" or "Rust" not in rust.get("execution_model", ""):
         bad("Rust ORES Stack identity changed")
+    allowed = {
+        "oreslang-stack": ("planned", "oreslang-native"),
+        "scintilla-run": ("planned", "oreslang-runtime-adapter"),
+        "wasm-xprs": ("future-backend", "wasm"),
+        "iso-lattes": ("future-backend", "js-or-wasm"),
+        "lunatic-lorry": ("future-backend", "wasm"),
+    }
+    deployments = m.get("deployment_matrix", [])
+    if not isinstance(deployments, list) or len(deployments) != len(stacks):
+        bad("deployment matrix must include every registered comparison stack")
+        deployments = []
+    seen_deployment_stacks = set()
+    for entry in deployments:
+        if not isinstance(entry, dict) or not isinstance(entry.get("stack"), str):
+            bad("invalid deployment matrix record")
+            continue
+        name = entry["stack"]
+        if name in seen_deployment_stacks or name not in stacks:
+            bad(f"unknown or duplicate deployment target {name!r}")
+        seen_deployment_stacks.add(name)
+        expected_status, expected_artifact = allowed.get(name, ("unsupported", None))
+        if entry.get("status") != expected_status or entry.get("artifact") != expected_artifact:
+            bad(f"{name}: illegal deployment capability or backend {entry!r}")
+        if not isinstance(entry.get("reason"), str) or not entry["reason"].strip():
+            bad(f"{name}: missing deployment rationale")
+    if seen_deployment_stacks != set(stacks):
+        bad("deployment matrix must exactly enumerate catalog stacks")
     repositories = m.get("fixture_repositories")
     if not isinstance(repositories, list) or len(repositories) > 2:
         bad("invalid repository inventory")
