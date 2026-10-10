@@ -11,6 +11,35 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 NAME_RE = re.compile(r"[A-Za-z0-9_.-]+\Z")
 PORT_RE = re.compile(r"stacks/[^/]+/projects/oreslang-portability/repos/[^/]+\Z")
+EXPECTED_FIXTURE_REPOS = frozenset({
+    "ores-dummy-org-oreslang-stack-api-server.ores",
+    "ores-dummy-org-oreslang-stack-web-server.ores",
+})
+
+
+def validate_fixture_repositories(repositories: object) -> list[str]:
+    """Reject missing/renamed source fixtures or a silently changed default branch."""
+    if not isinstance(repositories, list) or len(repositories) != len(EXPECTED_FIXTURE_REPOS):
+        return ["portability requires exactly two inventoried .ores source repositories"]
+    errors = []
+    names = []
+    for r in repositories:
+        if not isinstance(r, dict) or set(r) != {"name", "branch"}:
+            errors.append("fixture identity must have exactly name and branch")
+            continue
+        name, branch = r["name"], r["branch"]
+        if not isinstance(name, str) or not NAME_RE.fullmatch(name):
+            errors.append("malformed fixture repository name")
+            continue
+        names.append(name)
+        if branch != "main":
+            errors.append(f"{name}: expected audited default branch main")
+    if len(names) != len(set(names)):
+        errors.append("duplicate source repository names")
+    if set(names) != EXPECTED_FIXTURE_REPOS:
+        errors.append("fixture repository roster changed; review source identities explicitly")
+    return errors
+
 
 
 def git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -72,18 +101,11 @@ def verify() -> list[str]:
     if seen_deployment_stacks != set(stacks):
         bad("deployment matrix must exactly enumerate catalog stacks")
     repositories = m.get("fixture_repositories")
-    if not isinstance(repositories, list) or len(repositories) > 2:
-        bad("invalid repository inventory")
+    errors.extend(validate_fixture_repositories(repositories))
+    if not isinstance(repositories, list):
         repositories = []
-    names = []
-    for r in repositories:
-        if not isinstance(r, dict) or not isinstance(r.get("name"), str) or not NAME_RE.fullmatch(r["name"]) or not isinstance(r.get("branch"), str) or not NAME_RE.fullmatch(r["branch"]):
-            bad(f"invalid repository identity: {r!r}")
-        else:
-            names.append(r["name"])
-    if len(names) != len(set(names)):
-        bad("duplicate source repository names")
-    by_name = {r["name"]: r for r in repositories if isinstance(r, dict) and r.get("name") in names}
+    names = [r["name"] for r in repositories if isinstance(r, dict) and isinstance(r.get("name"), str) and NAME_RE.fullmatch(r["name"])]
+    by_name = {r["name"]: r for r in repositories if isinstance(r, dict) and r.get("name") in EXPECTED_FIXTURE_REPOS}
     targets = m.get("targets")
     if not isinstance(targets, list):
         bad("targets must be an array")
@@ -157,6 +179,9 @@ def verify() -> list[str]:
                 bad(f"{path}: .gitmodules URL/branch mismatch")
         if status == "complete" and seen != set(names):
             bad(f"{stack}: missing repo despite complete status")
+    actual_module_paths = {p for p in modules if PORT_RE.fullmatch(p)}
+    if actual_module_paths != declared:
+        bad(f"unadmitted or missing .gitmodules entries: extra={sorted(actual_module_paths-declared)}, missing={sorted(declared-actual_module_paths)}")
     actual = {p for p in known_gitlinks if PORT_RE.fullmatch(p)}
     if actual != declared:
         bad(f"unadmitted or missing Gitlinks: extra={sorted(actual-declared)}, missing={sorted(declared-actual)}")

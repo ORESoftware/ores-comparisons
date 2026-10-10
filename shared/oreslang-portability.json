@@ -5,7 +5,16 @@
   "framework_cli_repository": "ores-truffle-oreslang/oreslang-stack-cli",
   "fixture_organization": "ores-dummy-org-oreslang-stack",
   "expected_fixture_repository_count": 2,
-  "fixture_repositories": [],
+  "fixture_repositories": [
+    {
+      "name": "ores-dummy-org-oreslang-stack-api-server.ores",
+      "branch": "main"
+    },
+    {
+      "name": "ores-dummy-org-oreslang-stack-web-server.ores",
+      "branch": "main"
+    }
+  ],
   "transport": "git-submodule",
   "deployment_targets": [
     {

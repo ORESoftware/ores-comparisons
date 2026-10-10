@@ -13,11 +13,16 @@ The intended analogy is Next.js (framework) versus Vercel (host). An Oreslang ap
 
 ## Existing source fixtures reused under every stack
 
-The GitHub organization `ores-dummy-org-oreslang-stack` reportedly has **two `.ores` repositories**. Our current GitHub installation cannot list their private names and SHA heads. Do not invent either and do not duplicate source outside Git submodules.
+The GitHub organization `ores-dummy-org-oreslang-stack` has **four verified repositories** on October 9, 2026. Exactly **two are Oreslang portability application sources**:
+
+- `ores-dummy-org-oreslang-stack-api-server.ores` (`main`)
+- `ores-dummy-org-oreslang-stack-web-server.ores` (`main`)
+
+The remaining repositories, `ores-dummy-org-oreslang-stack-infra` and `ores-dummy-org-oreslang-stack-lambdas`, are separate **non-deployable candidate** roles, not interchangeable copies of the two app source fixtures. Their presence must not inflate the two-source portability count or grant executable/runtime status. The manifest records verified identities and branches; immutable Git submodule SHAs and full execution evidence are still pending. Never synthesize submodules or credentials.
 
 These two repositories form a *cross-stack portability corpus*, not another governed 20-repo source/runtime fixture organization. This leaves the historical six scenario organizations and 15 dedicated runtime-fixture organizations unaffected.
 
-`shared/oreslang-portability.json` lists **every registered comparison stack**. There are currently **10**, including both `ores-stack` and `oreslang-stack`; their `status` is `pending` with no pins until metadata can be verified.
+`shared/oreslang-portability.json` lists **every registered comparison stack**. There are currently **10**, including both `ores-stack` and `oreslang-stack`; their `status` is `pending` with no pins until the exact source SHAs, authenticated reachability, and materialized Gitlinks are independently verified.
 
 The intended location of each pinned source repo is:
 
@@ -43,7 +48,7 @@ The proposed `ores-truffle-oreslang/oreslang-stack-cli` command contract include
 ## Staged admission
 
 - **Registration (this PR):** Oreslang Stack catalog identity, peer benchmark schema/type, scaffold, cross-stack manifest and offline integrity gate.
-- **Private fixture admission:** Inventory the two real private repo names/commits; add **20** pinned Gitlinks across the 10 current stack targets; verify authenticated reachability.
+- **Private fixture admission:** Resolve the already-inventoried two source repositories to immutable reviewed commits; add **20** pinned Gitlinks across the 10 current stack targets; verify authenticated reachability.
 - **Executable implementation:** Real Oreslang CLI, domain generators, backend builds, actors/supervisors and deployment adapters with CI receipts.
 - **Benchmark/FaaS promotion:** Oreslang-authored six-scenario parity, verified runtime smoke runs, benchmark matrix and domain contracts. Only then promote the stack to `materialized` and consider registering Oreslang FaaS as an admitted platform.
 
