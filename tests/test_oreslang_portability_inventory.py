@@ -8,6 +8,7 @@ from scripts.verify_oreslang_portability import (
     EXPECTED_FIXTURE_REPOS,
     validate_fixture_repositories,
 )
+from scripts.render_runtime_fixture_gitmodules import render_oreslang_modules
 
 
 class OreslangPortabilityInventoryTests(unittest.TestCase):
@@ -72,6 +73,47 @@ class OreslangPortabilityInventoryTests(unittest.TestCase):
                         target["stack"], pin["repository"]
                     ),
                 )
+
+    def test_renderer_never_trusts_tampered_manifest_metadata(self):
+        with open("shared/oreslang-portability.json", encoding="utf-8") as f:
+            original = json.load(f)
+        with open("shared/stack-catalog.json", encoding="utf-8") as f:
+            catalog = json.load(f)
+
+        output = render_oreslang_modules(original, catalog)
+        self.assertEqual(output.count('[submodule "oreslang-portability--'), 20)
+        self.assertIn("ores-dummy-org-oreslang-stack-api-server.ores.git", output)
+        self.assertNotIn("ores-dummy-org-oreslang-stack-infra.git", output)
+
+        bad = copy.deepcopy(original)
+        bad["targets"][0]["pins"][0]["repository"] = "../../other-repo"
+        with self.assertRaises(ValueError):
+            render_oreslang_modules(bad, catalog)
+
+        bad = copy.deepcopy(original)
+        bad["targets"][0]["pins"][0]["sha"] = "0" * 40
+        with self.assertRaises(ValueError):
+            render_oreslang_modules(bad, catalog)
+
+        bad = copy.deepcopy(original)
+        bad["targets"][0]["pins"][0]["path"] = "/tmp/escaped"
+        with self.assertRaises(ValueError):
+            render_oreslang_modules(bad, catalog)
+
+        bad = copy.deepcopy(original)
+        bad["targets"][0]["runtime_certified"] = True
+        with self.assertRaises(ValueError):
+            render_oreslang_modules(bad, catalog)
+
+        bad = copy.deepcopy(original)
+        bad["targets"][0]["pins"].pop()
+        with self.assertRaises(ValueError):
+            render_oreslang_modules(bad, catalog)
+
+        bad = copy.deepcopy(original)
+        bad["fixture_repositories"][0]["name"] = "ores-dummy-org-oreslang-stack-lambdas"
+        with self.assertRaises(ValueError):
+            render_oreslang_modules(bad, catalog)
 
     def test_invalid_identity_type_fails(self):
         self.assertTrue(validate_fixture_repositories([None, self.inventory[1]]))
