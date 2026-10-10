@@ -75,10 +75,10 @@ def render() -> str:
                 raise ValueError(f"noncanonical Oreslang portability path: {pin['path']!r}")
             source = f"ores-dummy-org-oreslang-stack/{repo}"
             sections.append(
-                f'\\n[submodule "oreslang-portability--{stack}--{repo}"]\\n'
-                f"\\tpath = {path}\\n"
-                f"\\turl = https://github.com/{source}.git\\n"
-                f"\\tbranch = main\\n"
+                f'\n[submodule "oreslang-portability--{stack}--{repo}"]\n'
+                f"\tpath = {path}\n"
+                f"\turl = https://github.com/{source}.git\n"
+                f"\tbranch = main\n"
             )
 
     base = strip_runtime_sections(GITMODULES.read_text())
