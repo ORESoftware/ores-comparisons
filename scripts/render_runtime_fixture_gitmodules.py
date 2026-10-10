@@ -25,7 +25,9 @@ def strip_runtime_sections(source: str) -> str:
     skip = False
     for line in lines:
         if line.startswith("[submodule "):
-            skip = line.startswith('[submodule "runtime--')
+            # Both generated fixture families are derived from reviewed ledgers.
+            # Strip both before regenerating, so repeated renders never duplicate.
+            skip = line.startswith(('[submodule "runtime--', '[submodule "oreslang-portability--'))
         if not skip:
             output.append(line)
     return "".join(output).rstrip() + "\n"
@@ -58,6 +60,25 @@ def render() -> str:
                 f"\tpath = {path}\n"
                 f"\turl = https://github.com/{org}/{repo}.git\n"
                 f"\tbranch = {branch}\n"
+            )
+
+    # Cross-stack Oreslang portability uses private, immutable source Gitlinks
+    # rather than synthetic runtime-fixture projects. It must be deterministic
+    # and never reinterpret its pinned snapshots as executable runtime proof.
+    portability = json.loads((ROOT / "shared/oreslang-portability.json").read_text())
+    for target in portability["targets"]:
+        stack = target["stack"]
+        for pin in target["pins"]:
+            repo = pin["repository"]
+            path = f"stacks/{stack}/projects/oreslang-portability/repos/{repo}"
+            if pin["path"] != path:
+                raise ValueError(f"noncanonical Oreslang portability path: {pin['path']!r}")
+            source = f"ores-dummy-org-oreslang-stack/{repo}"
+            sections.append(
+                f'\\n[submodule "oreslang-portability--{stack}--{repo}"]\\n'
+                f"\\tpath = {path}\\n"
+                f"\\turl = https://github.com/{source}.git\\n"
+                f"\\tbranch = main\\n"
             )
 
     base = strip_runtime_sections(GITMODULES.read_text())
