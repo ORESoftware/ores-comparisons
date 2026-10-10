@@ -94,3 +94,39 @@ For an unavailable private source runner, mirror the *exact source Git tree*
 into a funded test organization, verify the tree and blob SHAs, execute the
 real test suite, and record the exact mirrored commit/run. No result may be
 applied to a subsequently modified head.
+
+## Candidate implementation follow-up (2026-10-10)
+
+The original 36-repository `main` baseline above remains a **dated
+observation**. The following **unmerged draft branches** now have genuine
+derived Oreslang source, but NOT a published SDK, contract admission, or
+GraalVM/LLVM runtime certification.
+
+| PR | Concrete implementation | Executed source-only evidence |
+| --- | --- | --- |
+| [3FA clients #100](https://github.com/3FA-app/3fa-clients/pull/100) | `candidates/oreslang/src/operations.ores` generated from all 10 canonical `operations.json` entries; strict auth, route placeholder, duplicate and drift checks | [private funded CI](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38092816191) |
+| [3FA interfaces #51](https://github.com/3FA-app/3fa-interfaces/pull/51) | `candidates/oreslang/src/account_boundaries.ores` generated from **both** independently authored account-v1 peers for the narrow `seat_limit` range, with disagreement and malformed-boundary rejection | [private funded CI](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38092816105) |
+| [Messaging Intel clients #67](https://github.com/messaging-intel/msgint-clients/pull/67) | `candidates/oreslang/src/operations.ores` derived from 25 manifest operations, with camelCase names, auth booleans, strict route syntax, duplicate and injection negatives | [private funded CI](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38092816108) |
+| [Shared RouteContract #70](https://github.com/ORESoftware/ores-interfaces/pull/70) | Versioned contract, valid/invalid `.ores` consumers, an exact-revision/SHA-pinned real-compiler runner; default CI runs static and missing-compiler fail-closed tests | Public contract/admission CI passed; actual compiler not executed |
+| [Graal source compiler #576](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/576) | Native Java/Truffle integration test for importing, type-checking, and executing the shared RouteContract, plus negative cases | Maven execution still required |
+
+**Exact evidence boundary:** The private funded mirror deliberately copied
+the **minimum source slice** necessary to run each Python candidate generator
+and its negative tests, not all files in the product Git trees. Each mirrored
+source blob had to match its origin Git blob SHA, and workflows checked those
+immutable SHA identities before executing tests. These results are attributable
+to those exact input files only. They do **not** certify the full pull request
+head, arbitrary unmirrored dependencies, an actual Oreslang compiler, or a
+native artifact.
+
+All candidates live under `candidates/oreslang/` rather than `clients/`
+or `langs/`, because existing package and coverage checks treat those
+directories as admitted language targets. Do not whitelist candidates into
+release packaging to make the tests green.
+
+**Next hard gates:** compile the candidate source with the exact reviewed
+Oreslang Java/Graal runtime (and LLVM independently), execute the positive and
+negative `.ores` fixtures, validate native import/consumer behavior, admit
+the full TypeSpec and JSON Schema current-input parity corpus, and record
+compiler/runtime/artifact hashes with provenance. Only after those gates
+should the source move from `candidates/` into published language targets.
