@@ -23,7 +23,7 @@ ROW_FIELDS = frozenset({
     "client_oreslang_sources_observed", "interface_oreslang_sources_observed",
     "execution_certified",
 })
-ORG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*\\Z")
+ORG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*")
 
 
 def validate(audit: object) -> list[str]:
@@ -65,7 +65,7 @@ def validate(audit: object) -> list[str]:
             ("interface", "interface_repository", "-interfaces"),
         ):
             repo = row[field]
-            if not isinstance(repo, str) or not repo.startswith(org + "/") or not repo.endswith(suffix):
+            if not isinstance(repo, str) or not repo.startswith(org + "/") or repo.count("/") != 1 or not repo.endswith(suffix):
                 errors.append(f"{org}: invalid {role} repository identity")
                 continue
             if repo in seen_repos:
