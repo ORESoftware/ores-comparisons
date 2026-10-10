@@ -44,6 +44,55 @@ def validate_fixture_repositories(repositories: object) -> list[str]:
 
 
 
+
+# Source Gitlinks are not executable runtime attestations.  Keep the evidence
+# obligations immutable until a separately reviewed schema revision is adopted.
+REQUIRED_RUNTIME_EVIDENCE = (
+    "source-revision",
+    "domain-contract-parity",
+    "graphql-rpc-lambda-generation",
+    "graal-backend-execution",
+    "llvm-backend-execution",
+    "actor-supervisor-lifecycle",
+    "deployment-adapter",
+    "runtime-smoke-receipt",
+)
+PORTABILITY_FIELDS = frozenset({
+    "schema", "framework_stack", "source_language", "framework_cli_repository",
+    "fixture_organization", "expected_fixture_repository_count",
+    "fixture_repositories", "transport", "deployment_targets", "targets",
+    "required_evidence", "deployment_matrix",
+})
+
+
+def validate_portability_guardrails(manifest: object) -> list[str]:
+    """Reject manifest drift that could turn source-only admission into a claim of execution."""
+    if not isinstance(manifest, dict):
+        return ["Oreslang portability manifest must be an object"]
+    failures: list[str] = []
+    if set(manifest) != PORTABILITY_FIELDS:
+        failures.append("unreviewed top-level portability fields (including runtime certification claims)")
+    if manifest.get("required_evidence") != list(REQUIRED_RUNTIME_EVIDENCE):
+        failures.append("required executable evidence list is missing, weakened, duplicated, or reordered")
+    for item in manifest.get("deployment_targets", []) if isinstance(manifest.get("deployment_targets"), list) else []:
+        if not isinstance(item, dict) or set(item) != {"name", "status"}:
+            failures.append("deployment target contains unreviewed metadata")
+    for item in manifest.get("deployment_matrix", []) if isinstance(manifest.get("deployment_matrix"), list) else []:
+        if not isinstance(item, dict) or set(item) != {"stack", "status", "artifact", "reason"}:
+            failures.append("deployment matrix contains unreviewed runtime certification fields")
+    for target in manifest.get("targets", []) if isinstance(manifest.get("targets"), list) else []:
+        if not isinstance(target, dict) or set(target) != {"stack", "status", "pins"}:
+            failures.append("portability target contains unreviewed runtime certification fields")
+            continue
+        if isinstance(target.get("pins"), list):
+            for pin in target["pins"]:
+                if not isinstance(pin, dict) or set(pin) != {"repository", "path", "sha"}:
+                    failures.append("source pin contains unreviewed metadata")
+        else:
+            failures.append("source pins must be an array")
+    return failures
+
+
 def git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=ROOT, text=True, capture_output=True)
 
@@ -52,6 +101,7 @@ def verify() -> list[str]:
     m = json.loads((ROOT / "shared/oreslang-portability.json").read_text())
     c = json.loads((ROOT / "shared/stack-catalog.json").read_text())
     errors: list[str] = []
+    errors.extend(validate_portability_guardrails(m))
     def bad(s: str) -> None:
         errors.append(s)
 
