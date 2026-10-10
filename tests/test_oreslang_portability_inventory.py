@@ -40,8 +40,38 @@ class OreslangPortabilityInventoryTests(unittest.TestCase):
         bad[0]["branch"] = "latest"
         self.assertTrue(validate_fixture_repositories(bad))
         bad = copy.deepcopy(self.inventory)
-        bad[0]["sha"] = "0" * 40
+        bad[0]["unverified_runtime_success"] = True
         self.assertTrue(validate_fixture_repositories(bad))
+
+    def test_missing_or_malformed_immutable_sha_is_rejected(self):
+        for malformed in (None, "", "main", "0" * 39, "0" * 41, "G" * 40):
+            bad = copy.deepcopy(self.inventory)
+            bad[0]["sha"] = malformed
+            self.assertTrue(validate_fixture_repositories(bad), str(malformed))
+        bad = copy.deepcopy(self.inventory)
+        del bad[0]["sha"]
+        self.assertTrue(validate_fixture_repositories(bad))
+
+    def test_all_ten_stacks_use_same_reviewed_source_commits(self):
+        with open("shared/oreslang-portability.json", encoding="utf-8") as f:
+            manifest = json.load(f)
+        sources = {r["name"]: r["sha"] for r in manifest["fixture_repositories"]}
+        self.assertEqual(len(manifest["targets"]), 10)
+        for target in manifest["targets"]:
+            self.assertEqual(target["status"], "complete")
+            self.assertEqual(len(target["pins"]), 2)
+            self.assertEqual(
+                {p["repository"]: p["sha"] for p in target["pins"]},
+                sources,
+                target["stack"],
+            )
+            for pin in target["pins"]:
+                self.assertEqual(
+                    pin["path"],
+                    "stacks/{}/projects/oreslang-portability/repos/{}".format(
+                        target["stack"], pin["repository"]
+                    ),
+                )
 
     def test_invalid_identity_type_fails(self):
         self.assertTrue(validate_fixture_repositories([None, self.inventory[1]]))
