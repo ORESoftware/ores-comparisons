@@ -49,6 +49,40 @@ class OreslangPolyglotSourceAuditTests(unittest.TestCase):
         bad["organizations"][1] = copy.deepcopy(bad["organizations"][0])
         self.assertTrue(validate(bad))
 
+    def test_plausible_fake_organization_cannot_replace_reviewed_member(self):
+        bad = copy.deepcopy(self.baseline)
+        bad["organizations"][0] = {
+            **bad["organizations"][0],
+            "organization": "plausible-unreviewed-org",
+            "client_repository": "plausible-unreviewed-org/plausible-clients",
+            "interface_repository": "plausible-unreviewed-org/plausible-interfaces",
+        }
+        self.assertTrue(any("membership" in issue for issue in validate(bad)))
+        bad = copy.deepcopy(self.baseline)
+        bad["organizations"].append({
+            **bad["organizations"][0],
+            "organization": "unreviewed",
+            "client_repository": "unreviewed/extra-clients",
+            "interface_repository": "unreviewed/extra-interfaces",
+        })
+        self.assertTrue(validate(bad))
+
+    def test_plausible_repository_rename_within_reviewed_org_rejected(self):
+        bad = copy.deepcopy(self.baseline)
+        bad["organizations"][0]["client_repository"] = "3FA-app/plausible-clients"
+        self.assertTrue(any("membership" in issue for issue in validate(bad)))
+
+    def test_static_limitations_cannot_be_replaced_with_certification_text(self):
+        for value in (
+            "All tested and runtime certified",
+            "main branches are fully Oreslang compatible",
+            "Everything passed",
+            "",
+        ):
+            bad = copy.deepcopy(self.baseline)
+            bad["limitations"] = value
+            self.assertTrue(validate(bad), value)
+
     def test_unknown_metadata_and_invalid_payload_rejected(self):
         for payload in (None, [], 0, {"organizations": []}):
             self.assertTrue(validate(payload))
