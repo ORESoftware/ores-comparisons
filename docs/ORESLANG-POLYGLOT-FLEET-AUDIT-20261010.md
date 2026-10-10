@@ -130,3 +130,39 @@ negative `.ores` fixtures, validate native import/consumer behavior, admit
 the full TypeSpec and JSON Schema current-input parity corpus, and record
 compiler/runtime/artifact hashes with provenance. Only after those gates
 should the source move from `candidates/` into published language targets.
+
+
+## Hardening follow-up: route identity, peer spoofing, diagnostic provenance
+
+Additional executable **candidate source** regressions were added on 2026-10-10:
+
+- [3FA client #100](https://github.com/3FA-app/3fa-clients/pull/100):
+  canonical route metadata now rejects malformed braces, equivalent parameterized
+  method/path collisions, traversal and duplicate separators, invalid path
+  parameter types, and invalid auth-mode metadata. Verified in
+  [exact-blob private CI](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38094573965).
+- [3FA interfaces #51](https://github.com/3FA-app/3fa-interfaces/pull/51):
+  the `seat_limit` witness now binds to exactly one `OrganizationCreate` and one
+  `Organization` TypeSpec model, ignoring comments and rejecting duplicate,
+  missing, optional or out-of-model declarations. The independent authored
+  JSON Schema bounds remain cross-checked. Verified in
+  [exact-blob private CI](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38094573975).
+- [Messaging Intel client #67](https://github.com/messaging-intel/msgint-clients/pull/67):
+  normalized route shapes reject `{left}`/`{right}` ambiguity for the same
+  method, and dot segments and duplicate separators are not admitted.
+  Verified in [exact-blob private CI](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38094573952).
+- [ORESoftware/ores-interfaces #70](https://github.com/ORESoftware/ores-interfaces/pull/70):
+  the negative native checker now distinguishes actual contract/type diagnostics
+  from crashes, missing source files, launcher errors, timeouts, and signals.
+  The policy regression runs with the ordinary public Node tests; full source-
+  pinned compiler execution remains **unproven**.
+- [Java/Graal compiler #576](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/576):
+  the embedded RouteContract test fixture now asserts the reviewed public
+  contract Git blob `5bfd8552d4c6cc5bd369f43d81a7004ba01c2d45`. Native
+  Maven and Truffle run remain pending runner allocation.
+
+The exact CI links above demonstrate generator/metadata and admission-policy
+behavior only. No native Oreslang JVM/LLVM SDK, deployment, or contract release
+may be inferred. Source-revision environment strings and binary SHA-256 alone
+do not independently prove the compiler was built from that source revision;
+release claims still require trusted build provenance and exact-tree receipts.
