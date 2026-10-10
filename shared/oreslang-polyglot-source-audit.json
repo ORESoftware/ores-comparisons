@@ -1,0 +1,172 @@
+{
+  "schema": "ores.comparisons.oreslang-polyglot-source-audit/v1",
+  "as_of": "2026-10-10",
+  "scope": "main-branch-recursive-tree-path-inspection",
+  "minimum_organizations": 15,
+  "certification": "none",
+  "limitations": "Source paths only; branch work, language semantics, CI, and executable runtime conformance are not certified.",
+  "organizations": [
+    {
+      "organization": "3FA-app",
+      "client_repository": "3FA-app/3fa-clients",
+      "interface_repository": "3FA-app/3fa-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "akrion-sim",
+      "client_repository": "akrion-sim/akrion-clients",
+      "interface_repository": "akrion-sim/akrion-sim-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "anticaptrad",
+      "client_repository": "anticaptrad/act-clients",
+      "interface_repository": "anticaptrad/act-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "athlet-o",
+      "client_repository": "athlet-o/athleto-clients",
+      "interface_repository": "athlet-o/athleto-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "benefactor-cc",
+      "client_repository": "benefactor-cc/benefactor-clients",
+      "interface_repository": "benefactor-cc/benefactor-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "canonical-cloud",
+      "client_repository": "canonical-cloud/canonical-clients",
+      "interface_repository": "canonical-cloud/canonical-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "claritas-viz",
+      "client_repository": "claritas-viz/claritas-clients",
+      "interface_repository": "claritas-viz/claritas-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "cliptown",
+      "client_repository": "cliptown/cliptown-clients",
+      "interface_repository": "cliptown/cliptown-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "daedalus-fab",
+      "client_repository": "daedalus-fab/daedalus-clients",
+      "interface_repository": "daedalus-fab/daedalus-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "declarative-migrations",
+      "client_repository": "declarative-migrations/declmig-clients",
+      "interface_repository": "declarative-migrations/declmig-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "fiducia-cloud",
+      "client_repository": "fiducia-cloud/fiducia-clients",
+      "interface_repository": "fiducia-cloud/fiducia-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "messaging-intel",
+      "client_repository": "messaging-intel/msgint-clients",
+      "interface_repository": "messaging-intel/msgint-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "opto-sync",
+      "client_repository": "opto-sync/opto-sync-clients",
+      "interface_repository": "opto-sync/opto-sync-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "quaestor-ledger",
+      "client_repository": "quaestor-ledger/quaestor-clients",
+      "interface_repository": "quaestor-ledger/quaestor-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "sagitta-stack",
+      "client_repository": "sagitta-stack/sagitta-clients",
+      "interface_repository": "sagitta-stack/sagitta-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "scintilla-run",
+      "client_repository": "scintilla-run/scintilla-clients",
+      "interface_repository": "scintilla-run/scintilla-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "shared-auth",
+      "client_repository": "shared-auth/shared-auth-clients",
+      "interface_repository": "shared-auth/shared-auth-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    },
+    {
+      "organization": "sonus-auris",
+      "client_repository": "sonus-auris/sonus-auris-clients",
+      "interface_repository": "sonus-auris/sonus-auris-interfaces",
+      "branch": "main",
+      "client_oreslang_sources_observed": false,
+      "interface_oreslang_sources_observed": false,
+      "execution_certified": false
+    }
+  ]
+}
