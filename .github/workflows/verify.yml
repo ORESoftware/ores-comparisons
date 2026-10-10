@@ -48,7 +48,8 @@ jobs:
       - run: python3 scripts/verify_dummy_org_gitlinks.py
       - run: python3 scripts/verify_runtime_fixture_org_map.py
       - run: python3 scripts/verify_oreslang_portability.py
-      - run: python3 -m unittest tests.test_oreslang_portability_inventory
+      - run: python3 scripts/verify_oreslang_polyglot_source_audit.py
+      - run: python3 -m unittest tests.test_oreslang_portability_inventory tests.test_oreslang_polyglot_source_audit
       - run: python3 scripts/render_runtime_fixture_gitmodules.py --check
       - run: python3 scripts/verify_runtime_fixture_gitlinks.py
       - run: python3 scripts/verify_graal_ruby_references.py
@@ -217,6 +218,7 @@ jobs:
           python3 scripts/verify_dummy_org_gitlinks.py
           python3 scripts/verify_runtime_fixture_org_map.py
           python3 scripts/verify_oreslang_portability.py
+          python3 scripts/verify_oreslang_polyglot_source_audit.py
           python3 scripts/render_runtime_fixture_gitmodules.py --check
           python3 scripts/verify_runtime_fixture_gitlinks.py
           python3 scripts/verify_graal_ruby_references.py
