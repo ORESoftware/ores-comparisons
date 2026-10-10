@@ -9,7 +9,7 @@
     {
       "name": "ores-dummy-org-oreslang-stack-api-server.ores",
       "branch": "main",
-      "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+      "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
     },
     {
       "name": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -36,7 +36,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/beamscale/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -52,7 +52,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/scintilla-run/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -68,7 +68,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/ores-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -84,7 +84,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/pony-expres/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -100,7 +100,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/wasm-xprs/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -116,7 +116,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/iso-lattes/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -132,7 +132,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/graal-show/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -148,7 +148,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/lunatic-lorry/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -164,7 +164,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/litegraph/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -180,7 +180,7 @@
         {
           "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
           "path": "stacks/oreslang-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
-          "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
         },
         {
           "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
