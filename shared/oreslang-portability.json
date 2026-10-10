@@ -8,11 +8,13 @@
   "fixture_repositories": [
     {
       "name": "ores-dummy-org-oreslang-stack-api-server.ores",
-      "branch": "main"
+      "branch": "main",
+      "sha": "9d644d827c6da3bbef4469b5e3fc7dde1bfeb303"
     },
     {
       "name": "ores-dummy-org-oreslang-stack-web-server.ores",
-      "branch": "main"
+      "branch": "main",
+      "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
     }
   ],
   "transport": "git-submodule",
