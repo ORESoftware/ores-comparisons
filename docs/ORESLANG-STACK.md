@@ -22,7 +22,7 @@ The remaining repositories, `ores-dummy-org-oreslang-stack-infra` and `ores-dumm
 
 These two repositories form a *cross-stack portability corpus*, not another governed 20-repo source/runtime fixture organization. This leaves the historical six scenario organizations and 15 dedicated runtime-fixture organizations unaffected.
 
-`shared/oreslang-portability.json` lists **every registered comparison stack**. There are currently **10**, including both `ores-stack` and `oreslang-stack`; their `status` is `pending` with no pins until the exact source SHAs, authenticated reachability, and materialized Gitlinks are independently verified.
+`shared/oreslang-portability.json` lists **every registered comparison stack**. There are currently **10**, including both `ores-stack` and `oreslang-stack`; their source-pin `status` is now `complete` in this proposed branch because 20 real mode-`160000` Gitlinks point to two reviewed immutable source commits. This is **source snapshot topology only**: authenticated checkout and actual Oreslang compilation/execution still require separate proof. The registered `oreslang-stack` **runtime topology remains pending**.
 
 The intended location of each pinned source repo is:
 
@@ -30,7 +30,7 @@ The intended location of each pinned source repo is:
 stacks/<target-stack>/projects/oreslang-portability/repos/<existing-repository-name>
 ```
 
-Pin the actual Git remote `https://github.com/ores-dummy-org-oreslang-stack/<existing-repository-name>.git`, its verified default branch, and an **immutable** commit SHA via a true Git mode-`160000` submodule, not a copied directory. Record the exact repository name, branch, pin, and path in the ledger. The complete topology for **10 stacks × 2 repos = 20 Gitlinks** must still pass remote read authentication and does not itself count as executable success.
+Pin the actual Git remote `https://github.com/ores-dummy-org-oreslang-stack/<existing-repository-name>.git`, its verified default branch, and an **immutable** commit SHA via a true Git mode-`160000` submodule, not a copied directory. Record the exact repository name, branch, pin, and path in the ledger. The complete source topology is **10 stacks × 2 repos = 20 Gitlinks**, pointing to API commit `4275e5bbc76699817843fe3da62c4d5c01838127` and web commit `a706206f6442ba8de32b3642c5c67527f962ddfa`. These are immutable fixture snapshots; private-repository checkout requires authorized remote-read credentials and remains an independently blocked gate if absent. No Gitlink counts as executable success.
 
 `python3 scripts/verify_oreslang_portability.py` checks that the targets exactly match the catalog and rejects undeclared, stale or mismatched Gitlinks, SHA, URL, branch, and false completion. `just verify` and `just verify-static` both execute the gate. Reachability needs separate authenticated private-repo CI.
 
@@ -48,7 +48,7 @@ The proposed `ores-truffle-oreslang/oreslang-stack-cli` command contract include
 ## Staged admission
 
 - **Registration (this PR):** Oreslang Stack catalog identity, peer benchmark schema/type, scaffold, cross-stack manifest and offline integrity gate.
-- **Private fixture admission:** Resolve the already-inventoried two source repositories to immutable reviewed commits; add **20** pinned Gitlinks across the 10 current stack targets; verify authenticated reachability.
+- **Source fixture pinning (this PR):** Inventory the two exact source repository commits, materialize **20** mode-`160000` Gitlinks across the ten registered comparison stacks, and run offline integrity checks; remote checkout with permitted read credentials remains a separate pending gate.
 - **Executable implementation:** Real Oreslang CLI, domain generators, backend builds, actors/supervisors and deployment adapters with CI receipts.
 - **Benchmark/FaaS promotion:** Oreslang-authored six-scenario parity, verified runtime smoke runs, benchmark matrix and domain contracts. Only then promote the stack to `materialized` and consider registering Oreslang FaaS as an admitted platform.
 

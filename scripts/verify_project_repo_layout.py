@@ -30,6 +30,15 @@ for org in materialized_fixture_orgs:
     slug = org.removeprefix("ores-dummy-org-")
     fixture_repos_paths.add(ROOT / "stacks" / item["stack"] / "projects" / slug / "repos")
 
+# Oreslang source-portability Gitlinks are a distinct project family. Their
+# Gitlinks are source snapshots only, not certified executable runtime fixtures.
+portability = json.loads((ROOT / "shared/oreslang-portability.json").read_text())
+portability_repos_paths = {
+    ROOT / "stacks" / entry["stack"] / "projects" / "oreslang-portability" / "repos"
+    for entry in portability["targets"]
+    if entry["pins"]
+}
+
 graal_ruby_references = json.loads(
     (ROOT / "shared/graal-ruby-references.json").read_text()
 )
@@ -62,7 +71,7 @@ actual = {
 # A directory is still a project even if it omits repos/readme.md. The older
 # discovery below intentionally limits scenario content checks to initialized
 # mirrors; a rogue project without that file must not evade ownership checks.
-assigned_projects = expected | {repos.parent for repos in fixture_repos_paths}
+assigned_projects = expected | {repos.parent for repos in fixture_repos_paths | portability_repos_paths}
 observed_projects = {
     project for project in ROOT.glob("stacks/*/projects/*") if project.is_dir()
 }
@@ -178,6 +187,9 @@ for submodule in sorted(gitlinks):
     if submodule.parent in fixture_repos_paths:
         continue
 
+    if submodule.parent in portability_repos_paths:
+        continue
+
     if submodule in reference_gitlinks:
         continue
 
@@ -193,6 +205,7 @@ if errors:
 
 print(
     f"project repo-layout verification OK: {len(expected)} runtime projects plus "
-    f"{len(fixture_repos_paths)} runtime-fixture project envelopes; repository "
+    f"{len(fixture_repos_paths)} runtime-fixture and {len(portability_repos_paths)} "
+    "Oreslang source-portability project envelopes; repository "
     "children may be materialized or governed gitlinks"
 )

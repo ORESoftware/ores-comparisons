@@ -24,14 +24,16 @@ def validate_fixture_repositories(repositories: object) -> list[str]:
     errors = []
     names = []
     for r in repositories:
-        if not isinstance(r, dict) or set(r) != {"name", "branch"}:
-            errors.append("fixture identity must have exactly name and branch")
+        if not isinstance(r, dict) or set(r) != {"name", "branch", "sha"}:
+            errors.append("fixture identity must have exactly name, branch and immutable sha")
             continue
         name, branch = r["name"], r["branch"]
         if not isinstance(name, str) or not NAME_RE.fullmatch(name):
             errors.append("malformed fixture repository name")
             continue
         names.append(name)
+        if not isinstance(r["sha"], str) or not SHA_RE.fullmatch(r["sha"]):
+            errors.append(f"{name}: missing immutable 40-hex source SHA")
         if branch != "main":
             errors.append(f"{name}: expected audited default branch main")
     if len(names) != len(set(names)):
@@ -167,6 +169,8 @@ def verify() -> list[str]:
                 bad(f"{stack}: unknown/duplicate source repository {name!r}")
                 continue
             seen.add(name)
+            if sha != by_name[name].get("sha"):
+                bad(f"{stack}: source pin for {name} diverged from canonical reviewed snapshot")
             expected = f"stacks/{stack}/projects/oreslang-portability/repos/{name}"
             if path != expected or not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
                 bad(f"{stack}: malformed pin for {name}")
