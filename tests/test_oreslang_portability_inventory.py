@@ -7,6 +7,8 @@ import unittest
 from scripts.verify_oreslang_portability import (
     EXPECTED_FIXTURE_REPOS,
     validate_fixture_repositories,
+    validate_portability_guardrails,
+    REQUIRED_RUNTIME_EVIDENCE,
 )
 from scripts.render_runtime_fixture_gitmodules import render_oreslang_modules
 
@@ -114,6 +116,37 @@ class OreslangPortabilityInventoryTests(unittest.TestCase):
         bad["fixture_repositories"][0]["name"] = "ores-dummy-org-oreslang-stack-lambdas"
         with self.assertRaises(ValueError):
             render_oreslang_modules(bad, catalog)
+
+    def test_runtime_evidence_is_required_and_exact(self):
+        with open("shared/oreslang-portability.json", encoding="utf-8") as f:
+            manifest = json.load(f)
+        self.assertEqual(validate_portability_guardrails(manifest), [])
+        self.assertEqual(manifest["required_evidence"], list(REQUIRED_RUNTIME_EVIDENCE))
+        for bad_evidence in ([], list(REQUIRED_RUNTIME_EVIDENCE)[:-1],
+                             list(REQUIRED_RUNTIME_EVIDENCE) + ["unsupported"],
+                             list(reversed(REQUIRED_RUNTIME_EVIDENCE))):
+            altered = copy.deepcopy(manifest)
+            altered["required_evidence"] = bad_evidence
+            self.assertTrue(validate_portability_guardrails(altered))
+
+    def test_source_identity_cannot_be_promoted_to_runtime_certification(self):
+        with open("shared/oreslang-portability.json", encoding="utf-8") as f:
+            manifest = json.load(f)
+        for scope in ("top", "target", "deployment", "pin"):
+            altered = copy.deepcopy(manifest)
+            if scope == "top":
+                altered["runtime_certified"] = True
+            elif scope == "target":
+                altered["targets"][0]["runtime_certified"] = True
+            elif scope == "deployment":
+                altered["deployment_matrix"][0]["runtime_certified"] = True
+            else:
+                altered["targets"][0]["pins"][0]["runtime_certified"] = True
+            self.assertTrue(validate_portability_guardrails(altered), scope)
+
+    def test_guardrails_fail_closed_on_invalid_payloads(self):
+        for payload in (None, [], "", 7, {"required_evidence": []}):
+            self.assertTrue(validate_portability_guardrails(payload))
 
     def test_invalid_identity_type_fails(self):
         self.assertTrue(validate_fixture_repositories([None, self.inventory[1]]))
