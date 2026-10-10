@@ -166,3 +166,27 @@ behavior only. No native Oreslang JVM/LLVM SDK, deployment, or contract release
 may be inferred. Source-revision environment strings and binary SHA-256 alone
 do not independently prove the compiler was built from that source revision;
 release claims still require trusted build provenance and exact-tree receipts.
+
+
+## Release admission and snapshot integrity follow-up
+
+Two additional release-boundary vulnerabilities were closed:
+
+1. **Candidate SDK identity aliases.** [3FA client #100](https://github.com/3FA-app/3fa-clients/pull/100)
+   and [Messaging Intel client #67](https://github.com/messaging-intel/msgint-clients/pull/67)
+   now reject unadmitted Oreslang names embedded in camelCase and nested target
+   metadata, Oreslang-named `.jar`/`.js`/`.wasm` build outputs under
+   `clients/`, and a symlinked clients root. The staging guards and negative
+   tests were copied as exact Git blobs and passed on the
+   [private funded runner](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38095208079).
+2. **Plausible snapshot substitution.** The offline
+   `verify_oreslang_polyglot_source_audit.py` validator now requires the exact
+   18 originally observed organization and paired-repository identities; any
+   swap, extra row, or rewritten scope-limitation statement fails validation.
+   Expanding the inventory requires a fresh live audit and a versioned next
+   snapshot rather than merely increasing a count.
+
+These are **auditable source and CI policy controls**, not native compiler proof.
+The origin repositories' `clients/` trees have not been recreated wholesale
+on the test runner; each funded receipt is explicitly restricted to the
+blobs it verifies. This distinction must remain visible in release decisions.
