@@ -24,14 +24,16 @@ def validate_fixture_repositories(repositories: object) -> list[str]:
     errors = []
     names = []
     for r in repositories:
-        if not isinstance(r, dict) or set(r) != {"name", "branch"}:
-            errors.append("fixture identity must have exactly name and branch")
+        if not isinstance(r, dict) or set(r) != {"name", "branch", "sha"}:
+            errors.append("fixture identity must have exactly name, branch and immutable sha")
             continue
         name, branch = r["name"], r["branch"]
         if not isinstance(name, str) or not NAME_RE.fullmatch(name):
             errors.append("malformed fixture repository name")
             continue
         names.append(name)
+        if not isinstance(r["sha"], str) or not SHA_RE.fullmatch(r["sha"]):
+            errors.append(f"{name}: missing immutable 40-hex source SHA")
         if branch != "main":
             errors.append(f"{name}: expected audited default branch main")
     if len(names) != len(set(names)):
@@ -42,6 +44,55 @@ def validate_fixture_repositories(repositories: object) -> list[str]:
 
 
 
+
+# Source Gitlinks are not executable runtime attestations.  Keep the evidence
+# obligations immutable until a separately reviewed schema revision is adopted.
+REQUIRED_RUNTIME_EVIDENCE = (
+    "source-revision",
+    "domain-contract-parity",
+    "graphql-rpc-lambda-generation",
+    "graal-backend-execution",
+    "llvm-backend-execution",
+    "actor-supervisor-lifecycle",
+    "deployment-adapter",
+    "runtime-smoke-receipt",
+)
+PORTABILITY_FIELDS = frozenset({
+    "schema", "framework_stack", "source_language", "framework_cli_repository",
+    "fixture_organization", "expected_fixture_repository_count",
+    "fixture_repositories", "transport", "deployment_targets", "targets",
+    "required_evidence", "deployment_matrix",
+})
+
+
+def validate_portability_guardrails(manifest: object) -> list[str]:
+    """Reject manifest drift that could turn source-only admission into a claim of execution."""
+    if not isinstance(manifest, dict):
+        return ["Oreslang portability manifest must be an object"]
+    failures: list[str] = []
+    if set(manifest) != PORTABILITY_FIELDS:
+        failures.append("unreviewed top-level portability fields (including runtime certification claims)")
+    if manifest.get("required_evidence") != list(REQUIRED_RUNTIME_EVIDENCE):
+        failures.append("required executable evidence list is missing, weakened, duplicated, or reordered")
+    for item in manifest.get("deployment_targets", []) if isinstance(manifest.get("deployment_targets"), list) else []:
+        if not isinstance(item, dict) or set(item) != {"name", "status"}:
+            failures.append("deployment target contains unreviewed metadata")
+    for item in manifest.get("deployment_matrix", []) if isinstance(manifest.get("deployment_matrix"), list) else []:
+        if not isinstance(item, dict) or set(item) != {"stack", "status", "artifact", "reason"}:
+            failures.append("deployment matrix contains unreviewed runtime certification fields")
+    for target in manifest.get("targets", []) if isinstance(manifest.get("targets"), list) else []:
+        if not isinstance(target, dict) or set(target) != {"stack", "status", "pins"}:
+            failures.append("portability target contains unreviewed runtime certification fields")
+            continue
+        if isinstance(target.get("pins"), list):
+            for pin in target["pins"]:
+                if not isinstance(pin, dict) or set(pin) != {"repository", "path", "sha"}:
+                    failures.append("source pin contains unreviewed metadata")
+        else:
+            failures.append("source pins must be an array")
+    return failures
+
+
 def git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=ROOT, text=True, capture_output=True)
 
@@ -50,6 +101,7 @@ def verify() -> list[str]:
     m = json.loads((ROOT / "shared/oreslang-portability.json").read_text())
     c = json.loads((ROOT / "shared/stack-catalog.json").read_text())
     errors: list[str] = []
+    errors.extend(validate_portability_guardrails(m))
     def bad(s: str) -> None:
         errors.append(s)
 
@@ -167,6 +219,8 @@ def verify() -> list[str]:
                 bad(f"{stack}: unknown/duplicate source repository {name!r}")
                 continue
             seen.add(name)
+            if sha != by_name[name].get("sha"):
+                bad(f"{stack}: source pin for {name} diverged from canonical reviewed snapshot")
             expected = f"stacks/{stack}/projects/oreslang-portability/repos/{name}"
             if path != expected or not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
                 bad(f"{stack}: malformed pin for {name}")

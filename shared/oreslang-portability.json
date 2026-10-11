@@ -8,11 +8,13 @@
   "fixture_repositories": [
     {
       "name": "ores-dummy-org-oreslang-stack-api-server.ores",
-      "branch": "main"
+      "branch": "main",
+      "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
     },
     {
       "name": "ores-dummy-org-oreslang-stack-web-server.ores",
-      "branch": "main"
+      "branch": "main",
+      "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
     }
   ],
   "transport": "git-submodule",
@@ -29,53 +31,163 @@
   "targets": [
     {
       "stack": "beamscale",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/beamscale/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/beamscale/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "scintilla-run",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/scintilla-run/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/scintilla-run/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "ores-stack",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/ores-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/ores-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "pony-expres",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/pony-expres/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/pony-expres/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "wasm-xprs",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/wasm-xprs/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/wasm-xprs/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "iso-lattes",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/iso-lattes/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/iso-lattes/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "graal-show",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/graal-show/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/graal-show/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "lunatic-lorry",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/lunatic-lorry/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/lunatic-lorry/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "litegraph",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/litegraph/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/litegraph/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     },
     {
       "stack": "oreslang-stack",
-      "status": "pending",
-      "pins": []
+      "status": "complete",
+      "pins": [
+        {
+          "repository": "ores-dummy-org-oreslang-stack-api-server.ores",
+          "path": "stacks/oreslang-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores",
+          "sha": "4275e5bbc76699817843fe3da62c4d5c01838127"
+        },
+        {
+          "repository": "ores-dummy-org-oreslang-stack-web-server.ores",
+          "path": "stacks/oreslang-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores",
+          "sha": "a706206f6442ba8de32b3642c5c67527f962ddfa"
+        }
+      ]
     }
   ],
   "required_evidence": [

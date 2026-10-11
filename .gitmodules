@@ -1602,3 +1602,103 @@
 	path = stacks/wasm-xprs/projects/zig-wasm-2/repos/ores-dummy-org-zig-wasm-2-web-server.zig
 	url = https://github.com/ores-dummy-org-zig-wasm-2/ores-dummy-org-zig-wasm-2-web-server.zig.git
 	branch = main
+
+[submodule "oreslang-portability--beamscale--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/beamscale/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--beamscale--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/beamscale/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--scintilla-run--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/scintilla-run/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--scintilla-run--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/scintilla-run/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--ores-stack--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/ores-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--ores-stack--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/ores-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--pony-expres--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/pony-expres/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--pony-expres--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/pony-expres/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--wasm-xprs--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/wasm-xprs/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--wasm-xprs--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/wasm-xprs/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--iso-lattes--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/iso-lattes/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--iso-lattes--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/iso-lattes/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--graal-show--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/graal-show/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--graal-show--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/graal-show/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--lunatic-lorry--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/lunatic-lorry/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--lunatic-lorry--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/lunatic-lorry/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--litegraph--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/litegraph/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--litegraph--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/litegraph/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--oreslang-stack--ores-dummy-org-oreslang-stack-api-server.ores"]
+	path = stacks/oreslang-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-api-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-api-server.ores.git
+	branch = main
+
+[submodule "oreslang-portability--oreslang-stack--ores-dummy-org-oreslang-stack-web-server.ores"]
+	path = stacks/oreslang-stack/projects/oreslang-portability/repos/ores-dummy-org-oreslang-stack-web-server.ores
+	url = https://github.com/ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-web-server.ores.git
+	branch = main
