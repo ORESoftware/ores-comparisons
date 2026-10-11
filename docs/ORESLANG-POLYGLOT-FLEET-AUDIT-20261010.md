@@ -190,3 +190,43 @@ These are **auditable source and CI policy controls**, not native compiler proof
 The origin repositories' `clients/` trees have not been recreated wholesale
 on the test runner; each funded receipt is explicitly restricted to the
 blobs it verifies. This distinction must remain visible in release decisions.
+
+## First executed GraalVM cross-repository RouteContract gate
+
+A real, source-pinned GraalVM compiler integration was executed after the
+source-only audits above. Source: [oreslang-source.java draft PR #576](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/576)
+at `3d59b6ed00ae15c9035e54d00112fe6069779534`.
+
+- A PRIVATE funded runner in `gha-indie-worker/gha-indie-worker-docs` built
+  the actual Java 25/GraalVM 25 compiler, Truffle runtime, the native carrier
+  build dependencies, stdlib resources, and `SharedRouteContractInteropTest`.
+  The checkout was made from **74 exact Git blobs** of the originating private
+  PR, retaining immutable per-file Git blob SHA assertions. It did **not**
+  mirror every source, example or JUnit test from the origin repository.
+- [Successful exact-source JVM/Graal CI](https://github.com/gha-indie-worker/gha-indie-worker-docs/actions/runs/38100851885):
+  **7 tests executed, 7 passed, zero failures/errors/skips**, on the exact 74
+  asserted input blobs. It covers actual cross-file contract import,
+  Truffle guest execution, missing/wrong method rejection, independent public
+  contract Git blob identity, bounded host-to-guest AST handoff (path/source
+  mismatch rejection and lease retirement), and incremental contract ABI
+  invalidation.
+- Earlier funded native executions **failed** and identified real bugs:
+  cross-file imports were visible to `ImportGraph` but not the per-unit
+  `TypeChecker`; after fixing that, Truffle guest parsing still performed an
+  independent, contract-unaware validation. Both were repaired in the source
+  compiler draft before the last passing exact-source run.
+- Compiler/runtime source changes affect `TypeChecker`,
+  `IncrementalCompiler`, `OresCompiler`, `OresLanguage`, and
+  `LinkedProgramRunner`. A verified AST may be leased to guest parsing only
+  for a matching source/path within the synchronous host parse call; normal
+  standalone parsing still uses the full compiler checks. The ABI digest now
+  includes contract-vs-interface kind, module conformance declarations and
+  contract field mutability capabilities.
+
+**Proof boundary:** This is a focused Java/Graal JVM integration (not a Graal
+native-image AOT/hybrid artifact); it is not the whole origin Maven regression
+suite, independent LLVM parity, HTTP network ingress, TypeSpec/JSON Schema wire
+parity, complete provenance attestation, or an admitted/released SDK. The
+existing candidates stay quarantined, and PRs remain drafts pending these
+release gates. The funded mirror is private to avoid exposing the private
+source to public test organizations.
