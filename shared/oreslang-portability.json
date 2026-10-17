@@ -127,9 +127,9 @@
     },
     {
       "stack": "graal-show",
-      "status": "unsupported",
-      "artifact": null,
-      "reason": "No admitted Oreslang compilation or deployment target"
+      "status": "planned",
+      "artifact": "graal-runtime-or-native-image",
+      "reason": "Oreslang Graal backend maps to graal-show; requires an explicit host adapter and exact execution receipt"
     },
     {
       "stack": "lunatic-lorry",

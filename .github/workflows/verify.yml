@@ -49,6 +49,12 @@ jobs:
       - run: python3 scripts/verify_runtime_fixture_org_map.py
       - run: python3 scripts/verify_oreslang_portability.py
       - run: python3 -m unittest tests.test_oreslang_portability_inventory
+      - run: python3 scripts/verify_oreslang_lambda_runtime.py
+      - run: python3 -m unittest tests.test_oreslang_lambda_runtime
+      - run: python3 scripts/verify_oreslang_backend_host_matrix.py
+      - run: python3 -m unittest tests.test_oreslang_backend_host_matrix
+      - run: python3 scripts/verify_oreslang_dotnet_orw1.py
+      - run: python3 -m unittest tests.test_oreslang_dotnet_orw1
       - run: python3 scripts/render_runtime_fixture_gitmodules.py --check
       - run: python3 scripts/verify_runtime_fixture_gitlinks.py
       - run: python3 scripts/verify_graal_ruby_references.py
@@ -217,6 +223,12 @@ jobs:
           python3 scripts/verify_dummy_org_gitlinks.py
           python3 scripts/verify_runtime_fixture_org_map.py
           python3 scripts/verify_oreslang_portability.py
+          python3 scripts/verify_oreslang_lambda_runtime.py
+          python3 -m unittest tests.test_oreslang_lambda_runtime
+          python3 scripts/verify_oreslang_backend_host_matrix.py
+          python3 -m unittest tests.test_oreslang_backend_host_matrix
+          python3 scripts/verify_oreslang_dotnet_orw1.py
+          python3 -m unittest tests.test_oreslang_dotnet_orw1
           python3 scripts/render_runtime_fixture_gitmodules.py --check
           python3 scripts/verify_runtime_fixture_gitlinks.py
           python3 scripts/verify_graal_ruby_references.py

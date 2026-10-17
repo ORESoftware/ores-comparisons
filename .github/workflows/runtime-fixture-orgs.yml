@@ -8,9 +8,18 @@ on:
       - 'shared/runtime-fixture-submodules.json'
       - 'shared/stack-catalog.json'
       - 'shared/oreslang-portability.json'
+      - 'shared/oreslang-lambda-runtime.json'
+      - 'shared/oreslang-backend-host-matrix.json'
+      - 'shared/oreslang-dotnet-orw1.json'
       - 'scripts/render_runtime_fixture_gitmodules.py'
       - 'scripts/verify_runtime_fixture_org_map.py'
       - 'scripts/verify_oreslang_portability.py'
+      - 'scripts/verify_oreslang_lambda_runtime.py'
+      - 'tests/test_oreslang_lambda_runtime.py'
+      - 'scripts/verify_oreslang_backend_host_matrix.py'
+      - 'tests/test_oreslang_backend_host_matrix.py'
+      - 'scripts/verify_oreslang_dotnet_orw1.py'
+      - 'tests/test_oreslang_dotnet_orw1.py'
       - 'scripts/verify_runtime_fixture_gitlinks.py'
       - 'scripts/verify_runtime_fixture_remote_reachability.py'
       - 'scripts/verify_dummy_org_map.py'
@@ -27,9 +36,18 @@ on:
       - 'shared/runtime-fixture-submodules.json'
       - 'shared/stack-catalog.json'
       - 'shared/oreslang-portability.json'
+      - 'shared/oreslang-lambda-runtime.json'
+      - 'shared/oreslang-backend-host-matrix.json'
+      - 'shared/oreslang-dotnet-orw1.json'
       - 'scripts/render_runtime_fixture_gitmodules.py'
       - 'scripts/verify_runtime_fixture_org_map.py'
       - 'scripts/verify_oreslang_portability.py'
+      - 'scripts/verify_oreslang_lambda_runtime.py'
+      - 'tests/test_oreslang_lambda_runtime.py'
+      - 'scripts/verify_oreslang_backend_host_matrix.py'
+      - 'tests/test_oreslang_backend_host_matrix.py'
+      - 'scripts/verify_oreslang_dotnet_orw1.py'
+      - 'tests/test_oreslang_dotnet_orw1.py'
       - 'scripts/verify_runtime_fixture_gitlinks.py'
       - 'scripts/verify_runtime_fixture_remote_reachability.py'
       - 'scripts/verify_dummy_org_map.py'
@@ -56,6 +74,12 @@ jobs:
           set -euo pipefail
           python3 scripts/verify_runtime_fixture_org_map.py
           python3 scripts/verify_oreslang_portability.py
+          python3 scripts/verify_oreslang_lambda_runtime.py
+          python3 -m unittest tests.test_oreslang_lambda_runtime
+          python3 scripts/verify_oreslang_backend_host_matrix.py
+          python3 -m unittest tests.test_oreslang_backend_host_matrix
+          python3 scripts/verify_oreslang_dotnet_orw1.py
+          python3 -m unittest tests.test_oreslang_dotnet_orw1
           python3 scripts/render_runtime_fixture_gitmodules.py --check
           python3 scripts/verify_runtime_fixture_gitlinks.py
           python3 scripts/verify_dummy_org_map.py

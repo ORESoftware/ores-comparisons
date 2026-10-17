@@ -1,0 +1,126 @@
+{
+  "schema": "ores.comparisons.oreslang-orw1/v1",
+  "protocol": "ORW1",
+  "version": 1,
+  "byte_order": "big-endian",
+  "header_bytes": 28,
+  "fields": [
+    {
+      "name": "magic",
+      "type": "u32",
+      "bytes": 4,
+      "value_hex": "4f525731"
+    },
+    {
+      "name": "version",
+      "type": "u8",
+      "bytes": 1,
+      "value": 1
+    },
+    {
+      "name": "kind",
+      "type": "u8",
+      "bytes": 1
+    },
+    {
+      "name": "flags",
+      "type": "u16",
+      "bytes": 2,
+      "required": 0
+    },
+    {
+      "name": "request_id",
+      "type": "u64",
+      "bytes": 8
+    },
+    {
+      "name": "deadline_unix_ms",
+      "type": "i64",
+      "bytes": 8
+    },
+    {
+      "name": "payload_length",
+      "type": "i32",
+      "bytes": 4
+    }
+  ],
+  "frame_kinds": {
+    "ready": 1,
+    "invoke": 2,
+    "cancel": 3,
+    "response": 4,
+    "error": 5,
+    "shutdown": 6
+  },
+  "constraints": {
+    "payload_encoding": "strict-utf8",
+    "max_payload_bytes": 1048576,
+    "max_invocation_ms": 30000,
+    "request_ids": "strictly-increasing-per-worker-generation",
+    "error_code": "1..96 lowercase ASCII letters/digits/hyphen",
+    "ready_payload": "oreslang-dotnet-worker/1",
+    "nonzero_flags": "rejected",
+    "unknown_kind": "rejected"
+  },
+  "vectors": [
+    {
+      "name": "ready",
+      "kind": "ready",
+      "request_id": 0,
+      "deadline_unix_ms": 0,
+      "payload": "oreslang-dotnet-worker/1",
+      "hex": "4f5257310101000000000000000000000000000000000000000000186f7265736c616e672d646f746e65742d776f726b65722f31"
+    },
+    {
+      "name": "invoke-empty",
+      "kind": "invoke",
+      "request_id": 7,
+      "deadline_unix_ms": 12345,
+      "payload": "",
+      "hex": "4f525731010200000000000000000007000000000000303900000000"
+    },
+    {
+      "name": "response-42",
+      "kind": "response",
+      "request_id": 7,
+      "deadline_unix_ms": 0,
+      "payload": "42",
+      "hex": "4f5257310104000000000000000000070000000000000000000000023432"
+    },
+    {
+      "name": "error-guest-failure",
+      "kind": "error",
+      "request_id": 7,
+      "deadline_unix_ms": 0,
+      "payload": "guest-failure",
+      "hex": "4f52573101050000000000000000000700000000000000000000000d67756573742d6661696c757265"
+    },
+    {
+      "name": "shutdown",
+      "kind": "shutdown",
+      "request_id": 0,
+      "deadline_unix_ms": 0,
+      "payload": "",
+      "hex": "4f525731010600000000000000000000000000000000000000000000"
+    }
+  ],
+  "implementations": {
+    "dotnet": {
+      "repository": "ores-truffle-oreslang/oreslang-source.net",
+      "pr": 81,
+      "head": "f3aed954f00ae5e75edfef42b70c253e96ddd99b",
+      "role": "producer-consumer-worker",
+      "execution_status": "candidate"
+    },
+    "scintilla": {
+      "repository": "scintilla-run/gleam-lambda-runner",
+      "pr": 55,
+      "head": "c0a178ffcc3a7462bdd0939ce3772a6ea1874c29",
+      "role": "beam-codec-and-disconnected-port-worker",
+      "execution_status": "not-executed"
+    }
+  },
+  "live_runtime_registered": false,
+  "status": "candidate",
+  "runtime_receipt": null
+}
