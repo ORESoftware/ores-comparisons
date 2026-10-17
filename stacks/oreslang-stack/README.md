@@ -20,9 +20,19 @@ There is still no certified provider deployment adapter, `oreslang-faas` host, b
 - Graal -> `graal-show`
 - LLVM/native -> `scintilla-run` and specialized `litegraph`
 - LLVM/WASM or direct WASM -> `wasm-xprs` / `lunatic-lorry`
-- .NET NativeAOT -> `scintilla-run` worker process; untrusted workers additionally require OS sandboxing
+- .NET NativeAOT -> `scintilla-run` worker process; candidate ORW1 protocol is pinned, but Scintilla's ORW1 adapter is still pending and untrusted workers additionally require OS sandboxing
 - JavaScript -> `iso-lattes`
 
 These are governed prospective routes only. AssemblyLoadContext is not a .NET
 security boundary, and no row is promoted to executable/deployable merely by
 appearing here.
+
+### .NET worker candidate
+
+The governed .NET head now includes a statically linked `oreslang-app --worker`
+mode using the ORW1 v1 framed stdio protocol. This is **not** Lambda ABI parity:
+the current guest entry remains `main() -> i64`, invocation payloads must be
+empty, and non-empty payloads fail closed. Unknown guest failures retire the
+worker; request IDs are strictly increasing per worker generation. Scintilla
+integration remains planned until its line-oriented child runtime has an
+explicit ORW1 adapter and executed receipt.
