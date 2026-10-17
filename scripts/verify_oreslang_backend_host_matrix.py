@@ -20,7 +20,7 @@ DOTNET_WORKER_PROTOCOL = {
     "payload_lambda_abi": False,
     "request_id_admission": "strictly-increasing",
     "unexpected_guest_failure": "opaque-error-and-retire",
-    "scintilla_adapter": "pending-orw1-adapter",
+    "scintilla_adapter": "candidate-disconnected",
 }
 
 EXPECTED = {
@@ -151,8 +151,20 @@ def validate(m: object) -> list[str]:
                 if host.get("stack") == "scintilla-run":
                     if host.get("untrusted_requires_os_sandbox") is not True:
                         bad("dotnet-nativeaot: untrusted worker must require OS sandbox")
-                    if host.get("protocol_adapter") != "pending-orw1-adapter":
-                        bad("dotnet-nativeaot: Scintilla ORW1 adapter must remain pending until executed")
+                    if host.get("protocol_adapter") != "candidate-disconnected":
+                        bad("dotnet-nativeaot: Scintilla ORW1 adapter status drifted")
+                    candidate = host.get("adapter_candidate")
+                    expected_candidate = {
+                        "repository": "scintilla-run/gleam-lambda-runner",
+                        "pr": 55,
+                        "head": "704c9322334e4da6cfb82a08571c042843d5c43e",
+                        "codec": "ORW1-v1",
+                        "port_worker": "candidate-disconnected",
+                        "live_runtime_registered": False,
+                        "execution_receipt": None,
+                    }
+                    if candidate != expected_candidate:
+                        bad("dotnet-nativeaot: Scintilla disconnected adapter candidate drifted")
 
     if seen != set(EXPECTED):
         bad(f"backend roster mismatch: {sorted(seen)}")
