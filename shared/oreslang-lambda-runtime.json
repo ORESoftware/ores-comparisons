@@ -18,7 +18,7 @@
   "provider": null,
   "implementation": {
     "runtime_pr": 1151,
-    "runtime_head": "9135ae5c128793eeb0faf09de0a440a7e9d2e970",
+    "runtime_head": "e5b50fe6a790be8191bb02080d4f0dc141f3738c",
     "stack_cli_pr": 17,
     "stack_cli_head": "e081cb5ce033d138ddc95bf77aeabd997495fbab",
     "fixture_pr": 7,
