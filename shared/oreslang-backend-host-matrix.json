@@ -81,7 +81,7 @@
           "adapter_candidate": {
             "repository": "scintilla-run/gleam-lambda-runner",
             "pr": 55,
-            "head": "704c9322334e4da6cfb82a08571c042843d5c43e",
+            "head": "c0a178ffcc3a7462bdd0939ce3772a6ea1874c29",
             "codec": "ORW1-v1",
             "port_worker": "candidate-disconnected",
             "live_runtime_registered": false,
