@@ -77,7 +77,16 @@
           "status": "planned",
           "isolation": "worker-process",
           "untrusted_requires_os_sandbox": true,
-          "protocol_adapter": "pending-orw1-adapter"
+          "protocol_adapter": "candidate-disconnected",
+          "adapter_candidate": {
+            "repository": "scintilla-run/gleam-lambda-runner",
+            "pr": 55,
+            "head": "704c9322334e4da6cfb82a08571c042843d5c43e",
+            "codec": "ORW1-v1",
+            "port_worker": "candidate-disconnected",
+            "live_runtime_registered": false,
+            "execution_receipt": null
+          }
         }
       ],
       "development_only": {
@@ -97,7 +106,7 @@
         "payload_lambda_abi": false,
         "request_id_admission": "strictly-increasing",
         "unexpected_guest_failure": "opaque-error-and-retire",
-        "scintilla_adapter": "pending-orw1-adapter"
+        "scintilla_adapter": "candidate-disconnected"
       }
     },
     {
