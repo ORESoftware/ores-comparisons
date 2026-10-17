@@ -105,6 +105,16 @@ class OreslangBackendHostMatrixTests(unittest.TestCase):
         backend["hosts"][0]["adapter_candidate"]["pr"] = 55
         self.assertTrue(validate(bad))
 
+    def test_dotnet_isolation_policy_source_connection_cannot_be_dropped(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["isolation_policy_candidate"]["source_connected"] = False
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_isolation_policy_cannot_claim_runtime_verification(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["isolation_policy_candidate"]["runtime_policy_verified"] = True
+        self.assertTrue(validate(bad))
+
     def test_dotnet_isolation_policy_receipt_cannot_be_invented(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
         backend["hosts"][0]["isolation_policy_candidate"]["runtime_policy_receipt"] = {
@@ -115,6 +125,16 @@ class OreslangBackendHostMatrixTests(unittest.TestCase):
     def test_dotnet_isolation_policy_head_is_exact(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
         backend["hosts"][0]["isolation_policy_candidate"]["head"] = "0" * 40
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_isolation_policy_digest_is_exact(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["isolation_policy_candidate"]["sha256"] = "0" * 64
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_isolation_policy_path_is_exact(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["isolation_policy_candidate"]["path"] = "/tmp/policy.yaml"
         self.assertTrue(validate(bad))
 
     def test_dotnet_candidate_head_is_exact(self):
