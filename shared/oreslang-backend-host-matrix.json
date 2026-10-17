@@ -94,7 +94,12 @@
           },
           "isolation_policy_candidate": {
             "repository": "ORESoftware/ores-proc-isolation-cli",
-            "head": "8f5a70c61abd65c93f5d214f5aad9c888a89af46",
+            "pr": 44,
+            "head": "6613d044d827f4f4621b595b46871e83c9c81ff0",
+            "path": "policies/scintilla-oreslang-dotnet.yaml",
+            "sha256": "bd9ab7f26f79d5e27b0bc96905c34a9f6daee2604e363010e64d048148200e74",
+            "source_connected": true,
+            "runtime_policy_verified": false,
             "runtime_policy_receipt": null
           }
         }
