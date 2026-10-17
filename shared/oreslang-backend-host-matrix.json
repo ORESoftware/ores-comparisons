@@ -70,13 +70,14 @@
       "source_repository": "ores-truffle-oreslang/oreslang-source.net",
       "artifact": "native-aot",
       "implementation_pr": 81,
-      "implementation_head": "2ef8c151dd142c20759726485ac8b8a0b70e1268",
+      "implementation_head": "f3aed954f00ae5e75edfef42b70c253e96ddd99b",
       "hosts": [
         {
           "stack": "scintilla-run",
           "status": "planned",
           "isolation": "worker-process",
-          "untrusted_requires_os_sandbox": true
+          "untrusted_requires_os_sandbox": true,
+          "protocol_adapter": "pending-orw1-adapter"
         }
       ],
       "development_only": {
@@ -84,6 +85,19 @@
           "security_boundary": false,
           "strict_nativeaot": false
         }
+      },
+      "worker_protocol": {
+        "schema": "oreslang.dotnet-worker/v1",
+        "status": "candidate",
+        "magic": "ORW1",
+        "version": 1,
+        "max_payload_bytes": 1048576,
+        "max_invocation_ms": 30000,
+        "current_guest_abi": "main() -> i64",
+        "payload_lambda_abi": false,
+        "request_id_admission": "strictly-increasing",
+        "unexpected_guest_failure": "opaque-error-and-retire",
+        "scintilla_adapter": "pending-orw1-adapter"
       }
     },
     {
