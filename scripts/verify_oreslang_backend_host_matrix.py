@@ -8,6 +8,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
+DOTNET_HEAD = "f3aed954f00ae5e75edfef42b70c253e96ddd99b"
+DOTNET_WORKER_PROTOCOL = {
+    "schema": "oreslang.dotnet-worker/v1",
+    "status": "candidate",
+    "magic": "ORW1",
+    "version": 1,
+    "max_payload_bytes": 1048576,
+    "max_invocation_ms": 30000,
+    "current_guest_abi": "main() -> i64",
+    "payload_lambda_abi": False,
+    "request_id_admission": "strictly-increasing",
+    "unexpected_guest_failure": "opaque-error-and-retire",
+    "scintilla_adapter": "pending-orw1-adapter",
+}
 
 EXPECTED = {
     "graal": {
@@ -121,6 +135,10 @@ def validate(m: object) -> list[str]:
             head = backend.get("implementation_head")
             if not isinstance(head, str) or not SHA_RE.fullmatch(head):
                 bad("dotnet-nativeaot: implementation head must be immutable Git SHA")
+            elif head != DOTNET_HEAD:
+                bad("dotnet-nativeaot: isolation/worker candidate head drifted")
+            if backend.get("worker_protocol") != DOTNET_WORKER_PROTOCOL:
+                bad("dotnet-nativeaot: ORW1 worker protocol candidate drifted")
             dev = backend.get("development_only")
             if dev != {
                 "assembly_load_context": {
@@ -130,8 +148,11 @@ def validate(m: object) -> list[str]:
             }:
                 bad("dotnet-nativeaot: AssemblyLoadContext must remain development-only/non-security")
             for host in hosts:
-                if host.get("stack") == "scintilla-run" and host.get("untrusted_requires_os_sandbox") is not True:
-                    bad("dotnet-nativeaot: untrusted worker must require OS sandbox")
+                if host.get("stack") == "scintilla-run":
+                    if host.get("untrusted_requires_os_sandbox") is not True:
+                        bad("dotnet-nativeaot: untrusted worker must require OS sandbox")
+                    if host.get("protocol_adapter") != "pending-orw1-adapter":
+                        bad("dotnet-nativeaot: Scintilla ORW1 adapter must remain pending until executed")
 
     if seen != set(EXPECTED):
         bad(f"backend roster mismatch: {sorted(seen)}")
