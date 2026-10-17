@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
-DOTNET_HEAD = "f3aed954f00ae5e75edfef42b70c253e96ddd99b"
+DOTNET_HEAD = "b8b7a71f74ca09f1e669fe38b7e551e26402d659"
 DOTNET_WORKER_PROTOCOL = {
     "schema": "oreslang.dotnet-worker/v1",
     "status": "candidate",
@@ -20,7 +20,7 @@ DOTNET_WORKER_PROTOCOL = {
     "payload_lambda_abi": False,
     "request_id_admission": "strictly-increasing",
     "unexpected_guest_failure": "opaque-error-and-retire",
-    "scintilla_adapter": "candidate-disconnected",
+    "scintilla_adapter": "candidate-ready-gated",
 }
 
 EXPECTED = {
@@ -151,20 +151,28 @@ def validate(m: object) -> list[str]:
                 if host.get("stack") == "scintilla-run":
                     if host.get("untrusted_requires_os_sandbox") is not True:
                         bad("dotnet-nativeaot: untrusted worker must require OS sandbox")
-                    if host.get("protocol_adapter") != "candidate-disconnected":
+                    if host.get("protocol_adapter") != "candidate-ready-gated":
                         bad("dotnet-nativeaot: Scintilla ORW1 adapter status drifted")
                     candidate = host.get("adapter_candidate")
                     expected_candidate = {
                         "repository": "scintilla-run/gleam-lambda-runner",
-                        "pr": 55,
-                        "head": "c0a178ffcc3a7462bdd0939ce3772a6ea1874c29",
+                        "pr": 56,
+                        "head": "b578f159d9f03bdfe70cd4a81ce02e9f114e8122",
                         "codec": "ORW1-v1",
-                        "port_worker": "candidate-disconnected",
-                        "live_runtime_registered": False,
+                        "port_worker": "ready-gated",
+                        "live_runtime_registered": True,
+                        "payload_abi_connected": False,
                         "execution_receipt": None,
                     }
                     if candidate != expected_candidate:
-                        bad("dotnet-nativeaot: Scintilla disconnected adapter candidate drifted")
+                        bad("dotnet-nativeaot: Scintilla ready-gated adapter candidate drifted")
+                    expected_isolation = {
+                        "repository": "ORESoftware/ores-proc-isolation-cli",
+                        "head": "8f5a70c61abd65c93f5d214f5aad9c888a89af46",
+                        "runtime_policy_receipt": None,
+                    }
+                    if host.get("isolation_policy_candidate") != expected_isolation:
+                        bad("dotnet-nativeaot: isolation policy candidate drifted")
 
     if seen != set(EXPECTED):
         bad(f"backend roster mismatch: {sorted(seen)}")
