@@ -18,7 +18,7 @@ The GitHub organization `ores-dummy-org-oreslang-stack` has **four verified repo
 - `ores-dummy-org-oreslang-stack-api-server.ores` (`main`)
 - `ores-dummy-org-oreslang-stack-web-server.ores` (`main`)
 
-The remaining repositories, `ores-dummy-org-oreslang-stack-infra` and `ores-dummy-org-oreslang-stack-lambdas`, are separate **non-deployable candidate** roles, not interchangeable copies of the two app source fixtures. Their presence must not inflate the two-source portability count or grant executable/runtime status. The manifest records verified identities and branches; immutable Git submodule SHAs and full execution evidence are still pending. Never synthesize submodules or credentials.
+The remaining repositories, `ores-dummy-org-oreslang-stack-infra` and `ores-dummy-org-oreslang-stack-lambdas`, are separate **non-deployable candidate** roles, not interchangeable copies of the two app source fixtures. The Lambda repository now also serves as the independently governed provider-neutral runtime candidate, but it still must not inflate the two-source portability count. Its execution state is governed by `shared/oreslang-lambda-runtime.json`, separately from this portability corpus. Immutable Git submodule SHAs and full execution evidence remain pending. Never synthesize submodules or credentials.
 
 These two repositories form a *cross-stack portability corpus*, not another governed 20-repo source/runtime fixture organization. This leaves the historical six scenario organizations and 15 dedicated runtime-fixture organizations unaffected.
 
@@ -36,20 +36,45 @@ Pin the actual Git remote `https://github.com/ores-dummy-org-oreslang-stack/<exi
 
 ## Framework CLI and proof acceptance
 
-The proposed `ores-truffle-oreslang/oreslang-stack-cli` command contract includes `init`, `check`, `routes`, `generate`, `build --backend graal|llvm`, `dev`, `plan --target`, and `deploy --target`. The CLI was initialized with **documentation only**, not a runnable executable.
+The `ores-truffle-oreslang/oreslang-stack-cli` is now a real Oreslang-authored CLI: its command dispatcher, route discovery, RPC/Lambda/GraphQL source generation and admission logic live in `src/main.ores`. Current main supports `init`, `check`, `routes`, `generate`, `dev`, and source-bundle `build` on the Java/Graal runtime. `deploy` deliberately fails closed, and LLVM cannot execute this CLI yet.
+
+The next runtime layer is represented by three draft, immutable-head-bound implementation candidates: Java/Graal runtime PR **#1151**, Oreslang Stack CLI PR **#17**, and Lambda fixture PR **#7**. They introduce a provider-neutral local `String -> String` invocation path without claiming provider deployment. Their exact candidate heads are governed in `shared/oreslang-lambda-runtime.json`. Source-repository Actions on #1151 and #17 failed before executing any job steps, so this repository records the implementation as **candidate**, not verified execution.
 
 1. **Genuine language compilation:** Parse and type-check real `.ores` sources; explicitly report unsupported grammar or backend semantics.
 2. **Contract/codegen consistency:** Derive GraphQL, RPC and Lambda interfaces from actual Oreslang application domain contracts and TypeSpec/JSON Schema/Protobuf authorities, with deterministic outputs, negative tests and serialization conformance. Never rename Rust artifacts and call them Oreslang.
-3. **Independent compiler paths:** Collect distinct Java/Graal and LLVM compiler inputs, artifact provenance, smoke results, and clear incompatibility diagnostics.
-4. **Actor/OTP behavior:** Test isolated actors, supervisor restart/lifecycle rules, message handling and compatible hot-loading. Do not claim OTP parity while supervisor hot-loading is unproven.
-5. **Runtime and host separation:** A stack/framework build does not imply FaaS support. Self-hosted runtime and prospective `oreslang-faas` must each prove explicit startup, readiness, teardown and an admitted deployment adapter.
-6. **Portability evidence:** For every comparison target stack, record one of *built and executed*, *explicitly unsupported*, or *pending* against the pinned fixture and exact runtime/toolchain versions. A Gitlink alone does not mean the target natively understands `.ores`.
+3. **Provider-neutral Lambda execution:** Invoke an explicit public `String -> String` export under the Java/Graal strict-FaaS isolate with deny-all scoped host I/O, bounded UTF-8 event/response payloads and logs separated from the response channel. Local execution is distinct from provider deployment.
+4. **Independent compiler paths:** Collect distinct Java/Graal and LLVM compiler inputs, artifact provenance, smoke results, and clear incompatibility diagnostics.
+5. **Actor/OTP behavior:** Test isolated actors, supervisor restart/lifecycle rules, message handling and compatible hot-loading. Do not claim OTP parity while supervisor hot-loading is unproven.
+6. **Runtime and host separation:** A stack/framework build or local Lambda invoke does not imply FaaS support. Self-hosted runtime and prospective `oreslang-faas` must each prove explicit startup, readiness, teardown and an admitted deployment adapter.
+7. **Portability evidence:** For every comparison target stack, record one of *built and executed*, *explicitly unsupported*, or *pending* against the pinned fixture and exact runtime/toolchain versions. A Gitlink alone does not mean the target natively understands `.ores`.
+
+### Provider-neutral Lambda candidate
+
+The v1 candidate is intentionally small:
+
+```text
+stdin UTF-8 event
+      |
+      v
+oreslang-stack invoke
+      |
+      v
+Java/Graal strict-FaaS isolate
+      |
+      v
+public handler.invoke(String) -> String
+      |
+      v
+stdout response
+```
+
+The host caps event and response payloads at **1 MiB**, gives the guest no scoped host-I/O permissions, and keeps guest logs out of the response channel. The concrete fixture remains `deployable = false` with no provider assigned. Promotion from `candidate` requires an exact-head execution receipt; AWS Lambda bootstrap/OCI packaging, `oreslang-faas`, warm-pool reuse, async handler ABI, LLVM parity and deployment receipts remain separate work.
 
 ## Staged admission
 
 - **Registration (this PR):** Oreslang Stack catalog identity, peer benchmark schema/type, scaffold, cross-stack manifest and offline integrity gate.
 - **Private fixture admission:** Resolve the already-inventoried two source repositories to immutable reviewed commits; add **20** pinned Gitlinks across the 10 current stack targets; verify authenticated reachability.
-- **Executable implementation:** Real Oreslang CLI, domain generators, backend builds, actors/supervisors and deployment adapters with CI receipts.
+- **Executable implementation:** The Oreslang-authored CLI and source generators now exist; provider-neutral Java/Graal Lambda invocation is a separately gated candidate. Exact-head execution receipts, backend builds, actors/supervisors and deployment adapters remain required.
 - **Benchmark/FaaS promotion:** Oreslang-authored six-scenario parity, verified runtime smoke runs, benchmark matrix and domain contracts. Only then promote the stack to `materialized` and consider registering Oreslang FaaS as an admitted platform.
 
 ## Explicit permitted deployment matrix (not an executable claim)
