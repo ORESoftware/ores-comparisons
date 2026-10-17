@@ -45,14 +45,14 @@ class OreslangBackendHostMatrixTests(unittest.TestCase):
         backend["worker_protocol"]["unexpected_guest_failure"] = "continue"
         self.assertTrue(validate(bad))
 
-    def test_scintilla_orw1_adapter_cannot_be_claimed_ready(self):
+    def test_scintilla_orw1_adapter_cannot_be_claimed_executable(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
-        backend["hosts"][0]["protocol_adapter"] = "ready"
+        backend["hosts"][0]["protocol_adapter"] = "executable"
         self.assertTrue(validate(bad))
 
-    def test_scintilla_orw1_candidate_cannot_register_live_runtime(self):
+    def test_scintilla_orw1_candidate_cannot_claim_payload_connection(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
-        backend["hosts"][0]["adapter_candidate"]["live_runtime_registered"] = True
+        backend["hosts"][0]["adapter_candidate"]["payload_abi_connected"] = True
         self.assertTrue(validate(bad))
 
     def test_scintilla_orw1_candidate_cannot_invent_execution_receipt(self):
@@ -65,6 +65,24 @@ class OreslangBackendHostMatrixTests(unittest.TestCase):
     def test_scintilla_orw1_candidate_head_is_exact(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
         backend["hosts"][0]["adapter_candidate"]["head"] = "0" * 40
+        self.assertTrue(validate(bad))
+
+
+    def test_scintilla_orw1_candidate_pr_is_exact(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["adapter_candidate"]["pr"] = 55
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_isolation_policy_receipt_cannot_be_invented(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["isolation_policy_candidate"]["runtime_policy_receipt"] = {
+            "status": "passed"
+        }
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_isolation_policy_head_is_exact(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["isolation_policy_candidate"]["head"] = "0" * 40
         self.assertTrue(validate(bad))
 
     def test_dotnet_candidate_head_is_exact(self):
