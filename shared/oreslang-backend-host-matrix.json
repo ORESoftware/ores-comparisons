@@ -1,0 +1,109 @@
+{
+  "schema": "ores.comparisons.oreslang-backend-host-matrix/v1",
+  "language": "oreslang",
+  "backends": [
+    {
+      "id": "graal",
+      "source_repository": "ores-truffle-oreslang/oreslang-source.java",
+      "artifact": "graal-runtime-or-native-image",
+      "hosts": [
+        {
+          "stack": "graal-show",
+          "status": "planned",
+          "isolation": "graal-polyglot-or-native-isolate"
+        }
+      ]
+    },
+    {
+      "id": "llvm-native",
+      "source_repository": "ores-truffle-oreslang/oreslang-source.llvm",
+      "artifact": "native",
+      "hosts": [
+        {
+          "stack": "scintilla-run",
+          "status": "planned",
+          "isolation": "worker-process"
+        },
+        {
+          "stack": "litegraph",
+          "status": "planned",
+          "isolation": "host-process-specialized"
+        }
+      ]
+    },
+    {
+      "id": "llvm-wasm",
+      "source_repository": "ores-truffle-oreslang/oreslang-source.llvm",
+      "artifact": "wasm32-wasi",
+      "hosts": [
+        {
+          "stack": "wasm-xprs",
+          "status": "future-backend",
+          "isolation": "wasm-instance"
+        },
+        {
+          "stack": "lunatic-lorry",
+          "status": "future-backend",
+          "isolation": "wasm-actor-process"
+        }
+      ]
+    },
+    {
+      "id": "wasm",
+      "source_repository": "ores-truffle-oreslang/oreslang-source.wasm",
+      "artifact": "wasm32-wasi",
+      "hosts": [
+        {
+          "stack": "wasm-xprs",
+          "status": "future-backend",
+          "isolation": "wasm-instance"
+        },
+        {
+          "stack": "lunatic-lorry",
+          "status": "future-backend",
+          "isolation": "wasm-actor-process"
+        }
+      ]
+    },
+    {
+      "id": "dotnet-nativeaot",
+      "source_repository": "ores-truffle-oreslang/oreslang-source.net",
+      "artifact": "native-aot",
+      "implementation_pr": 81,
+      "implementation_head": "2ef8c151dd142c20759726485ac8b8a0b70e1268",
+      "hosts": [
+        {
+          "stack": "scintilla-run",
+          "status": "planned",
+          "isolation": "worker-process",
+          "untrusted_requires_os_sandbox": true
+        }
+      ],
+      "development_only": {
+        "assembly_load_context": {
+          "security_boundary": false,
+          "strict_nativeaot": false
+        }
+      }
+    },
+    {
+      "id": "javascript",
+      "source_repository": "ores-truffle-oreslang/oreslang-source.js",
+      "artifact": "esm",
+      "hosts": [
+        {
+          "stack": "iso-lattes",
+          "status": "future-backend",
+          "isolation": "javascript-isolate"
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "backend_selects_artifact": true,
+    "host_selects_execution_environment": true,
+    "assembly_load_context_is_security_boundary": false,
+    "wasm_requires_wasm_artifact": true,
+    "deployment_status": "not-proven"
+  }
+}
