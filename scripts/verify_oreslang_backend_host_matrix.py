@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
-DOTNET_HEAD = "b8b7a71f74ca09f1e669fe38b7e551e26402d659"
+DOTNET_HEAD = "fcc9a859b548bfec93584ce71ba0f036e9030527"
 DOTNET_WORKER_PROTOCOL = {
     "schema": "oreslang.dotnet-worker/v1",
     "status": "candidate",
@@ -16,11 +16,15 @@ DOTNET_WORKER_PROTOCOL = {
     "version": 1,
     "max_payload_bytes": 1048576,
     "max_invocation_ms": 30000,
-    "current_guest_abi": "main() -> i64",
-    "payload_lambda_abi": False,
+    "scalar_guest_abi": "main() -> i64",
+    "lambda_guest_abi": "String -> String",
+    "lambda_abi_source_connected": True,
+    "lambda_abi_runtime_verified": False,
+    "raw_request_payload": True,
     "request_id_admission": "strictly-increasing",
     "unexpected_guest_failure": "opaque-error-and-retire",
     "scintilla_adapter": "candidate-ready-gated",
+    "nativeaot_execution_receipt": None,
 }
 
 EXPECTED = {
@@ -157,11 +161,15 @@ def validate(m: object) -> list[str]:
                     expected_candidate = {
                         "repository": "scintilla-run/gleam-lambda-runner",
                         "pr": 56,
-                        "head": "b578f159d9f03bdfe70cd4a81ce02e9f114e8122",
+                        "head": "a4ff7e10ec702772b03a4c98660bc0f368a2bb25",
                         "codec": "ORW1-v1",
                         "port_worker": "ready-gated",
-                        "live_runtime_registered": True,
-                        "payload_abi_connected": False,
+                        "runtime_registration_source_connected": True,
+                        "raw_request_payload": True,
+                        "definition_metadata_in_guest_payload": False,
+                        "provider_container_pool_fallback": False,
+                        "payload_abi_source_connected": True,
+                        "payload_abi_runtime_verified": False,
                         "execution_receipt": None,
                     }
                     if candidate != expected_candidate:
