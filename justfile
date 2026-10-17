@@ -28,6 +28,8 @@ verify: stack-catalog-check runtime-topology-unit-check
     python3 -m unittest tests.test_oreslang_portability_inventory
     python3 scripts/verify_oreslang_lambda_runtime.py
     python3 -m unittest tests.test_oreslang_lambda_runtime
+    python3 scripts/verify_oreslang_backend_host_matrix.py
+    python3 -m unittest tests.test_oreslang_backend_host_matrix
     python3 scripts/render_runtime_fixture_gitmodules.py --check
     python3 scripts/verify_runtime_fixture_gitlinks.py
     python3 scripts/verify_dummy_org_gitlinks.py
@@ -58,6 +60,8 @@ verify-static: stack-catalog-check runtime-topology-unit-check
     python3 -m unittest tests.test_oreslang_portability_inventory
     python3 scripts/verify_oreslang_lambda_runtime.py
     python3 -m unittest tests.test_oreslang_lambda_runtime
+    python3 scripts/verify_oreslang_backend_host_matrix.py
+    python3 -m unittest tests.test_oreslang_backend_host_matrix
     python3 scripts/render_runtime_fixture_gitmodules.py --check
     python3 scripts/verify_runtime_fixture_gitlinks.py
     python3 scripts/verify_dummy_org_gitlinks.py
