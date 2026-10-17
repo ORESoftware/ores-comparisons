@@ -77,6 +77,7 @@ def verify() -> list[str]:
         "scintilla-run": ("planned", "oreslang-runtime-adapter"),
         "wasm-xprs": ("future-backend", "wasm"),
         "iso-lattes": ("future-backend", "js-or-wasm"),
+        "graal-show": ("planned", "graal-runtime-or-native-image"),
         "lunatic-lorry": ("future-backend", "wasm"),
         "litegraph": ("planned", "llvm-litegraph"),
     }
