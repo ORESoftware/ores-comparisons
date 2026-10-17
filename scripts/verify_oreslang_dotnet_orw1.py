@@ -21,7 +21,7 @@ KINDS = {
     "shutdown": 6,
 }
 EXPECTED_DOTNET_HEAD = "f3aed954f00ae5e75edfef42b70c253e96ddd99b"
-EXPECTED_SCINTILLA_HEAD = "704c9322334e4da6cfb82a08571c042843d5c43e"
+EXPECTED_SCINTILLA_HEAD = "c0a178ffcc3a7462bdd0939ce3772a6ea1874c29"
 
 
 def encode(kind: str, request_id: int, deadline: int, payload: str) -> bytes:
