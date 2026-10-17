@@ -20,7 +20,7 @@ There is still no certified provider deployment adapter, `oreslang-faas` host, b
 - Graal -> `graal-show`
 - LLVM/native -> `scintilla-run` and specialized `litegraph`
 - LLVM/WASM or direct WASM -> `wasm-xprs` / `lunatic-lorry`
-- .NET NativeAOT -> `scintilla-run` worker process; candidate ORW1 protocol is pinned, but Scintilla's ORW1 adapter is still pending and untrusted workers additionally require OS sandboxing
+- .NET NativeAOT -> `scintilla-run` worker process; ORW1 codec/port-worker candidate is pinned from Scintilla PR #55 but remains disconnected from live runtime admission, and untrusted workers additionally require OS sandboxing
 - JavaScript -> `iso-lattes`
 
 These are governed prospective routes only. AssemblyLoadContext is not a .NET
