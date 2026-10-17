@@ -77,6 +77,34 @@ The host caps event and response payloads at **1 MiB**, gives the guest no scope
 - **Executable implementation:** The Oreslang-authored CLI and source generators now exist; provider-neutral Java/Graal Lambda invocation is a separately gated candidate. Exact-head execution receipts, backend builds, actors/supervisors and deployment adapters remain required.
 - **Benchmark/FaaS promotion:** Oreslang-authored six-scenario parity, verified runtime smoke runs, benchmark matrix and domain contracts. Only then promote the stack to `materialized` and consider registering Oreslang FaaS as an admitted platform.
 
+## Backend artifact × execution host matrix
+
+Oreslang Stack now governs backend choice separately from execution host choice.
+The backend selects the executable artifact; the host selects where and how that
+artifact runs. The machine authority is
+`shared/oreslang-backend-host-matrix.json`.
+
+| Backend | Artifact | Host(s) | Isolation |
+| --- | --- | --- | --- |
+| Graal | Graal runtime / Native Image | `graal-show` | Graal polyglot/native isolate |
+| LLVM native | native executable/library | `scintilla-run`, `litegraph` | worker process / specialized host process |
+| LLVM → WASM | `wasm32-wasi` | `wasm-xprs`, `lunatic-lorry` | WASM instance / actor-process |
+| direct WASM | `wasm32-wasi` | `wasm-xprs`, `lunatic-lorry` | WASM instance / actor-process |
+| .NET NativeAOT | standalone native executable | `scintilla-run` | worker process; untrusted additionally requires OS sandboxing |
+| JavaScript | ESM | `iso-lattes` | JavaScript isolate |
+
+The .NET mapping is intentionally **NativeAOT → worker process**. A collectible
+`AssemblyLoadContext` is useful for development-time assembly versioning and
+unloadability, but it is not admitted as a security boundary and is incompatible
+with the strict NativeAOT release path. Oreslang .NET isolation policy is under
+review in `oreslang-source.net#81` and is pinned by the matrix.
+
+WASM likewise requires a genuine WASM artifact. A .NET or native host embedding a
+WASM engine does not make arbitrary CIL/native code a WASM-sandboxed workload.
+
+All rows remain planned/future-backend. This table is an admission map, not a
+deployment or benchmark-success claim.
+
 ## Explicit permitted deployment matrix (not an executable claim)
 
 The two `.ores` repositories may remain **source submodules in all ten comparison stack directories** for visibility and negative portability tests. That does **not** mean Oreslang is deployable to all ten stacks. The governed `deployment_matrix` in `shared/oreslang-portability.json` permits only these six prospective targets:
