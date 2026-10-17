@@ -1,0 +1,28 @@
+{
+  "schema": "ores.comparisons.oreslang-lambda-runtime/v1",
+  "language": "oreslang",
+  "abi": "oreslang.lambda-runtime/v1",
+  "backend": "java-graal",
+  "runtime_repository": "ores-truffle-oreslang/oreslang-source.java",
+  "stack_cli_repository": "ores-truffle-oreslang/oreslang-stack-cli",
+  "fixture_repository": "ores-dummy-org-oreslang-stack-lambdas",
+  "fixture_entry": "src/functions/hello/handler.ores",
+  "fixture_function": "handler.invoke",
+  "event_encoding": "utf8-string",
+  "response_encoding": "utf8-string",
+  "max_payload_bytes": 1048576,
+  "runtime_policy": "strict-faas",
+  "scoped_permissions": "deny-all",
+  "local_execution_status": "candidate",
+  "deployable": false,
+  "provider": null,
+  "implementation": {
+    "runtime_pr": 1151,
+    "runtime_head": "9135ae5c128793eeb0faf09de0a440a7e9d2e970",
+    "stack_cli_pr": 17,
+    "stack_cli_head": "e081cb5ce033d138ddc95bf77aeabd997495fbab",
+    "fixture_pr": 7,
+    "fixture_head": "20cc72d615a18635034555a83920b61f16869893"
+  },
+  "runtime_receipt": null
+}
