@@ -103,10 +103,13 @@ IDs, opaque-error-and-retire on unknown guest failure, and a statically linked
 `oreslang-app --worker` entrypoint. The current .NET guest ABI remains
 `main() -> i64`; payload Lambda ABI is explicitly false.
 
-Scintilla is still a **planned** host for this artifact. Its current reusable
-child protocol is line-oriented JSON, so the matrix requires
-`pending-orw1-adapter` and must reject any claim that the .NET route is
-executable before an explicit ORW1 adapter/port driver runs successfully.
+Scintilla is still a **planned** host for this artifact. Draft
+`scintilla-run/gleam-lambda-runner#55` now carries a disconnected ORW1 BEAM
+codec and port-worker candidate plus a closed typed isolation spawn shape. It
+remains absent from Scintilla's live runtime roster, and source-org Actions have
+not allocated a runner for it. The matrix therefore records
+`candidate-disconnected` with a null execution receipt and rejects any claim
+that the .NET route is executable.
 
 WASM likewise requires a genuine WASM artifact. A .NET or native host embedding a
 WASM engine does not make arbitrary CIL/native code a WASM-sandboxed workload.
