@@ -29,10 +29,26 @@ class OreslangBackendHostMatrixTests(unittest.TestCase):
         backend["hosts"][0]["untrusted_requires_os_sandbox"] = False
         self.assertTrue(validate(bad))
 
-    def test_dotnet_worker_cannot_claim_lambda_payload_abi(self):
+    def test_dotnet_lambda_source_connection_cannot_be_dropped(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
-        backend["worker_protocol"]["payload_lambda_abi"] = True
-        backend["worker_protocol"]["current_guest_abi"] = "String -> String"
+        backend["worker_protocol"]["lambda_abi_source_connected"] = False
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_lambda_runtime_cannot_be_claimed_verified(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["worker_protocol"]["lambda_abi_runtime_verified"] = True
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_nativeaot_receipt_cannot_be_invented(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["worker_protocol"]["nativeaot_execution_receipt"] = {
+            "status": "passed"
+        }
+        self.assertTrue(validate(bad))
+
+    def test_dotnet_lambda_payload_must_remain_raw_request(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["worker_protocol"]["raw_request_payload"] = False
         self.assertTrue(validate(bad))
 
     def test_dotnet_worker_replay_admission_cannot_weaken(self):
@@ -50,9 +66,25 @@ class OreslangBackendHostMatrixTests(unittest.TestCase):
         backend["hosts"][0]["protocol_adapter"] = "executable"
         self.assertTrue(validate(bad))
 
-    def test_scintilla_orw1_candidate_cannot_claim_payload_connection(self):
+    def test_scintilla_orw1_candidate_cannot_drop_payload_source_connection(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
-        backend["hosts"][0]["adapter_candidate"]["payload_abi_connected"] = True
+        backend["hosts"][0]["adapter_candidate"]["payload_abi_source_connected"] = False
+        self.assertTrue(validate(bad))
+
+    def test_scintilla_orw1_candidate_cannot_claim_runtime_verification(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["adapter_candidate"]["payload_abi_runtime_verified"] = True
+        self.assertTrue(validate(bad))
+
+    def test_scintilla_must_pass_raw_request_without_definition_metadata(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        candidate = backend["hosts"][0]["adapter_candidate"]
+        candidate["definition_metadata_in_guest_payload"] = True
+        self.assertTrue(validate(bad))
+
+    def test_scintilla_cannot_restore_provider_container_pool_fallback(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["adapter_candidate"]["provider_container_pool_fallback"] = True
         self.assertTrue(validate(bad))
 
     def test_scintilla_orw1_candidate_cannot_invent_execution_receipt(self):
