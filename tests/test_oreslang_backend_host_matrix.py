@@ -50,6 +50,23 @@ class OreslangBackendHostMatrixTests(unittest.TestCase):
         backend["hosts"][0]["protocol_adapter"] = "ready"
         self.assertTrue(validate(bad))
 
+    def test_scintilla_orw1_candidate_cannot_register_live_runtime(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["adapter_candidate"]["live_runtime_registered"] = True
+        self.assertTrue(validate(bad))
+
+    def test_scintilla_orw1_candidate_cannot_invent_execution_receipt(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["adapter_candidate"]["execution_receipt"] = {
+            "status": "passed"
+        }
+        self.assertTrue(validate(bad))
+
+    def test_scintilla_orw1_candidate_head_is_exact(self):
+        bad, backend = self.mutate_backend("dotnet-nativeaot")
+        backend["hosts"][0]["adapter_candidate"]["head"] = "0" * 40
+        self.assertTrue(validate(bad))
+
     def test_dotnet_candidate_head_is_exact(self):
         bad, backend = self.mutate_backend("dotnet-nativeaot")
         backend["implementation_head"] = "0" * 40
