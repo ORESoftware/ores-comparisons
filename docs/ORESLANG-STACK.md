@@ -96,8 +96,17 @@ artifact runs. The machine authority is
 The .NET mapping is intentionally **NativeAOT → worker process**. A collectible
 `AssemblyLoadContext` is useful for development-time assembly versioning and
 unloadability, but it is not admitted as a security boundary and is incompatible
-with the strict NativeAOT release path. Oreslang .NET isolation policy is under
-review in `oreslang-source.net#81` and is pinned by the matrix.
+with the strict NativeAOT release path. Oreslang .NET PR `#81` now also carries
+the candidate **ORW1** worker protocol: bounded binary stdio frames, strict
+UTF-8, 1 MiB payload ceiling, 30 s maximum deadline, strictly increasing request
+IDs, opaque-error-and-retire on unknown guest failure, and a statically linked
+`oreslang-app --worker` entrypoint. The current .NET guest ABI remains
+`main() -> i64`; payload Lambda ABI is explicitly false.
+
+Scintilla is still a **planned** host for this artifact. Its current reusable
+child protocol is line-oriented JSON, so the matrix requires
+`pending-orw1-adapter` and must reject any claim that the .NET route is
+executable before an explicit ORW1 adapter/port driver runs successfully.
 
 WASM likewise requires a genuine WASM artifact. A .NET or native host embedding a
 WASM engine does not make arbitrary CIL/native code a WASM-sandboxed workload.
@@ -107,7 +116,7 @@ deployment or benchmark-success claim.
 
 ## Explicit permitted deployment matrix (not an executable claim)
 
-The two `.ores` repositories may remain **source submodules in all ten comparison stack directories** for visibility and negative portability tests. That does **not** mean Oreslang is deployable to all ten stacks. The governed `deployment_matrix` in `shared/oreslang-portability.json` permits only these six prospective targets:
+The two `.ores` repositories may remain **source submodules in all ten comparison stack directories** for visibility and negative portability tests. That does **not** mean Oreslang is deployable to all ten stacks. The governed `deployment_matrix` in `shared/oreslang-portability.json` permits only these seven prospective targets:
 
 | Stack | Eligibility | Required runtime/compiler path |
 | --- | --- | --- |
@@ -115,7 +124,8 @@ The two `.ores` repositories may remain **source submodules in all ten compariso
 | `scintilla-run` | planned | Explicit Oreslang polyglot runtime adapter |
 | `wasm-xprs` | future-backend | Oreslang → WASM (not yet implemented/proven) |
 | `iso-lattes` | future-backend | Oreslang → JavaScript or WASM (not yet implemented/proven) |
+| `graal-show` | planned | Graal runtime / Native Image host adapter with exact execution receipt required |
 | `lunatic-lorry` | future-backend | Oreslang → WASM (not yet implemented/proven) |
 | `litegraph` | planned | LLVM-compatible LiteGraph runtime/GPU adapter, target ABI and execution proof required |
 
-`beamscale` is **unsupported** because Oreslang will not target Erlang/BEAM; `pony-expres` is **unsupported** because Oreslang does not target Pony. `ores-stack` (Rust) and `graal-show` are also unsupported *as deployment targets* absent a separately admitted runtime adapter; any source snapshot under them is for comparisons only. Neither `planned` nor `future-backend` means deployable today. The CLI must reject deployment to unsupported targets and must fail closed for all unimplemented adapters, including these six.
+`beamscale` is **unsupported** because Oreslang will not target Erlang/BEAM; `pony-expres` is **unsupported** because Oreslang does not target Pony; `ores-stack` (Rust) remains unsupported as an Oreslang deployment target. `graal-show` is now a **planned** Graal host, not an executable claim. Neither `planned` nor `future-backend` means deployable today. The CLI must reject unsupported targets and must fail closed for every unimplemented adapter, including all seven prospective routes above.
