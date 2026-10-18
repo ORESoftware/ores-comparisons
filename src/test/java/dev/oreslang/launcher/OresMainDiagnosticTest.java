@@ -54,7 +54,7 @@ final class OresMainDiagnosticTest {
         Run run = invoke("async-runtime-error.ores", false);
 
         assertEquals(1, run.status());
-        assertEquals("", run.stdout());
+        assertEquals("before-error\n", run.stdout());
         assertTrue(run.stderr().contains("Oreslang causal async stack:"), run.stderr());
         assertTrue(run.stderr().contains("explode"), run.stderr());
         assertTrue(run.stderr().contains("--- await"), run.stderr());
@@ -66,7 +66,7 @@ final class OresMainDiagnosticTest {
         Run run = invoke("async-runtime-error.ores", true);
 
         assertEquals(1, run.status());
-        assertEquals("", run.stdout());
+        assertEquals("before-error\n", run.stdout());
         String json = run.stderr().trim();
         assertTrue(json.startsWith("{\"schema\":\"oreslang.error.v1\""), json);
         assertTrue(json.contains("\"async_traces\":["), json);
