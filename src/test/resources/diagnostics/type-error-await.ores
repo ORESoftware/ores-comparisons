@@ -1,0 +1,5 @@
+pub async routine main() => void {
+  val answer = await 123;
+  stdio.println(answer);
+  return;
+}
