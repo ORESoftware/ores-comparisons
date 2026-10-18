@@ -72,7 +72,7 @@ public final class OresDiagnosticRenderer {
             if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace logical) {
                 logicalCount++;
                 out.append("\nOreslang causal async stack:");
-                appendTextTrace(out, logical.trace());
+                appendTextTrace(out, logical.snapshot());
             } else if (suppressed instanceof OresAsyncTrace.LogicalAsyncTraceElision elision) {
                 elidedTraces = saturatingAdd(elidedTraces, elision.elidedTraces());
             }
@@ -91,7 +91,7 @@ public final class OresDiagnosticRenderer {
         }
     }
 
-    private static void appendTextTrace(StringBuilder out, OresAsyncTrace.Trace trace) {
+    private static void appendTextTrace(StringBuilder out, OresAsyncTrace.TraceSnapshot trace) {
         appendTextFrame(out, "at", trace.currentFrame());
         var events = trace.events();
         for (int i = events.size() - 1; i >= 0; i--) {
@@ -187,7 +187,7 @@ public final class OresDiagnosticRenderer {
             if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace logical) {
                 if (!firstTrace) out.append(',');
                 firstTrace = false;
-                appendJsonTrace(out, logical.trace());
+                appendJsonTrace(out, logical.snapshot());
             } else if (suppressed instanceof OresAsyncTrace.LogicalAsyncTraceElision elision) {
                 elidedTraces = saturatingAdd(elidedTraces, elision.elidedTraces());
             }
@@ -205,7 +205,7 @@ public final class OresDiagnosticRenderer {
         out.append('}');
     }
 
-    private static void appendJsonTrace(StringBuilder out, OresAsyncTrace.Trace trace) {
+    private static void appendJsonTrace(StringBuilder out, OresAsyncTrace.TraceSnapshot trace) {
         out.append('{');
         out.append("\"current\":");
         appendJsonFrame(out, trace.currentFrame());
