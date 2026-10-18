@@ -78,6 +78,26 @@ final class OresDiagnosticRendererTest {
     }
 
     @Test
+    void diagnosticSnapshotDoesNotChangeWhenTaskTraceMutatesLater() {
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("worker", site("snapshot.ores", 10, 1)));
+        trace.awaitAt(site("snapshot.ores", 11, 2));
+
+        IllegalStateException failure = new IllegalStateException("frozen");
+        OresAsyncTrace.attach(failure, trace);
+
+        String before = OresDiagnosticRenderer.renderJson(failure);
+        trace.boundary(OresAsyncTrace.BoundaryKind.RPC,
+                site("later.ores", 99, 9));
+        String after = OresDiagnosticRenderer.renderJson(failure);
+
+        assertEquals(before, after,
+                "attached diagnostics must be immutable failure-time evidence");
+        assertFalse(after.contains("later.ores"), after);
+        assertFalse(after.contains("\"kind\":\"rpc\""), after);
+    }
+
+    @Test
     void attachedTraceFanoutRemainsBoundedInJsonAndText() {
         IllegalStateException failure = new IllegalStateException("fanout");
         for (int i = 0; i < 100; i++) {
