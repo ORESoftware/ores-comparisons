@@ -6,6 +6,7 @@ import dev.oreslang.compiler.IncrementalCompiler;
 import dev.oreslang.nodes.OresEvalRootNode;
 import dev.oreslang.parser.Parser;
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 
@@ -91,7 +92,21 @@ public final class LinkedProgramRunner {
                 if (entryPoint == null) {
                     throw new IllegalStateException("entry unit was not linked: " + entryId);
                 }
-                entryPoint.execute(OresEvalRootNode.MAIN_ONLY_COMMAND);
+                OresHostFailureTransfer.clear();
+                try {
+                    entryPoint.execute(OresEvalRootNode.MAIN_ONLY_COMMAND);
+                } catch (PolyglotException wrapped) {
+                    Throwable original = OresHostFailureTransfer.consume();
+                    if (original == null) throw wrapped;
+                    if (original instanceof RuntimeException runtime) throw runtime;
+                    if (original instanceof Error error) throw error;
+                    throw new RuntimeException(original);
+                } finally {
+                    // Also clear after success and after non-Polyglot host
+                    // failures so a later invocation on this host thread can
+                    // never observe stale provenance.
+                    OresHostFailureTransfer.clear();
+                }
             }
 
         return build;
