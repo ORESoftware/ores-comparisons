@@ -347,6 +347,81 @@ public final class OresAsyncTrace {
         }
     }
 
+    private static String renderSnapshot(TraceSnapshot trace) {
+        StringBuilder out = new StringBuilder();
+        appendFrame(out, "at", trace.currentFrame());
+        List<Event> events = trace.events();
+        for (int i = events.size() - 1; i >= 0; i--) {
+            Event event = events.get(i);
+            if (event instanceof AwaitEvent awaited) {
+                appendBoundary(out, "await", awaited.site(), null);
+            } else if (event instanceof CallEvent call) {
+                appendFrame(out, "at", call.caller());
+            } else if (event instanceof TailEvent tail) {
+                appendBoundary(
+                        out,
+                        "tail-await",
+                        tail.site(),
+                        tail.from().symbol() + " -> " + tail.to().symbol()
+                                + (tail.repetitions() == 1
+                                        ? ""
+                                        : " repeated " + tail.repetitions() + " times"));
+            } else if (event instanceof BoundaryEvent boundary) {
+                appendBoundary(
+                        out,
+                        boundary.kind().name().toLowerCase().replace('_', '-'),
+                        boundary.site(),
+                        boundary.frame().symbol());
+            }
+        }
+        if (trace.elidedEvents() > 0) {
+            out.append("\n    ... ")
+                    .append(trace.elidedEvents())
+                    .append(" older async trace events elided");
+        }
+        return out.toString();
+    }
+
+    private static StackTraceElement[] javaStackSnapshot(TraceSnapshot trace) {
+        List<StackTraceElement> result = new ArrayList<>();
+        result.add(toStackTraceElement(
+                trace.currentFrame().symbol(),
+                trace.currentFrame().site()));
+        List<Event> events = trace.events();
+        for (int i = events.size() - 1; i >= 0; i--) {
+            Event event = events.get(i);
+            if (event instanceof AwaitEvent awaited) {
+                result.add(toStackTraceElement("<await>", awaited.site()));
+            } else if (event instanceof CallEvent call) {
+                result.add(toStackTraceElement(
+                        call.caller().symbol(),
+                        call.caller().site()));
+            } else if (event instanceof TailEvent tail) {
+                String label = "<tail-await "
+                        + tail.from().symbol()
+                        + " -> "
+                        + tail.to().symbol()
+                        + (tail.repetitions() == 1
+                                ? ""
+                                : " x" + tail.repetitions())
+                        + ">";
+                result.add(toStackTraceElement(label, tail.site()));
+            } else if (event instanceof BoundaryEvent boundary) {
+                result.add(toStackTraceElement(
+                        "<" + boundary.kind().name().toLowerCase().replace('_', '-') + ">",
+                        boundary.site()));
+            }
+        }
+        if (trace.elidedEvents() > 0) {
+            result.add(new StackTraceElement(
+                    "oreslang.async",
+                    "<" + trace.elidedEvents() + " older async events elided>",
+                    null,
+                    -1));
+        }
+        return result.toArray(StackTraceElement[]::new);
+    }
+
     public interface Scope extends AutoCloseable {
         @Override
         void close();
@@ -364,12 +439,19 @@ public final class OresAsyncTrace {
         private final long elidedEvents;
 
         private LogicalAsyncStackTrace(Trace trace) {
-            super("Oreslang logical async stack\n" + trace.render(), null, false, true);
-            this.trace = trace;
-            this.snapshot = trace.snapshot();
-            this.logicalTrace = trace.render();
+            this(trace, trace.snapshot());
+        }
+
+        private LogicalAsyncStackTrace(Trace trace, TraceSnapshot snapshot) {
+            super("Oreslang logical async stack\n" + renderSnapshot(snapshot),
+                    null,
+                    false,
+                    true);
+            this.trace = Objects.requireNonNull(trace, "trace");
+            this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
+            this.logicalTrace = renderSnapshot(snapshot);
             this.elidedEvents = snapshot.elidedEvents();
-            setStackTrace(trace.toJavaStackTrace());
+            setStackTrace(javaStackSnapshot(snapshot));
         }
 
         public String logicalTrace() {
