@@ -28,6 +28,16 @@ public final class OresAsyncTrace {
         AWAIT,
         TAIL_AWAIT,
         ACTOR_MESSAGE,
+        TASK_SPAWN,
+        SELECT,
+        CHANNEL_SEND,
+        CHANNEL_RECEIVE,
+        STREAM_RESUME,
+        GENERATOR_RESUME,
+        RPC,
+        SUPERVISOR_CONTROL,
+        CANCELLATION,
+        TIMEOUT,
         CALLBACK_ADAPTER,
         IO_COMPLETION
     }
@@ -349,6 +359,11 @@ public final class OresAsyncTrace {
 
         public long elidedEvents() {
             return elidedEvents;
+        }
+
+        /** Package-private immutable-view hook for the canonical diagnostic renderer. */
+        Trace trace() {
+            return trace;
         }
     }
 
