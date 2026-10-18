@@ -164,6 +164,10 @@ public final class OresAsyncTrace {
             return List.copyOf(history);
         }
 
+        TraceSnapshot snapshot() {
+            return new TraceSnapshot(current, List.copyOf(history), elidedEvents);
+        }
+
         public Trace child(Frame child, SourceSite callSite) {
             return new Trace(this, child, Objects.requireNonNull(callSite, "callSite"));
         }
@@ -330,6 +334,19 @@ public final class OresAsyncTrace {
         return failure;
     }
 
+    static record TraceSnapshot(
+            Frame currentFrame,
+            List<Event> events,
+            long elidedEvents) {
+        TraceSnapshot {
+            currentFrame = Objects.requireNonNull(currentFrame, "currentFrame");
+            events = List.copyOf(events);
+            if (elidedEvents < 0) {
+                throw new IllegalArgumentException("elidedEvents must be non-negative");
+            }
+        }
+    }
+
     public interface Scope extends AutoCloseable {
         @Override
         void close();
@@ -342,14 +359,16 @@ public final class OresAsyncTrace {
      */
     public static final class LogicalAsyncStackTrace extends RuntimeException {
         private final Trace trace;
+        private final TraceSnapshot snapshot;
         private final String logicalTrace;
         private final long elidedEvents;
 
         private LogicalAsyncStackTrace(Trace trace) {
             super("Oreslang logical async stack\n" + trace.render(), null, false, true);
             this.trace = trace;
+            this.snapshot = trace.snapshot();
             this.logicalTrace = trace.render();
-            this.elidedEvents = trace.elidedEvents();
+            this.elidedEvents = snapshot.elidedEvents();
             setStackTrace(trace.toJavaStackTrace());
         }
 
@@ -361,9 +380,9 @@ public final class OresAsyncTrace {
             return elidedEvents;
         }
 
-        /** Package-private immutable-view hook for the canonical diagnostic renderer. */
-        Trace trace() {
-            return trace;
+        /** Immutable failure-time view used by the canonical diagnostic renderer. */
+        TraceSnapshot snapshot() {
+            return snapshot;
         }
     }
 
