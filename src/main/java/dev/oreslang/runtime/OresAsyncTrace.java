@@ -3,6 +3,7 @@ package dev.oreslang.runtime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -200,7 +201,7 @@ public final class OresAsyncTrace {
         private void addBounded(Event event) {
             while (history.size() >= maxEvents) {
                 history.removeFirst();
-                elidedEvents++;
+                if (elidedEvents != Long.MAX_VALUE) elidedEvents++;
             }
             history.addLast(event);
         }
@@ -227,7 +228,7 @@ public final class OresAsyncTrace {
                 } else if (event instanceof BoundaryEvent boundary) {
                     appendBoundary(
                             out,
-                            boundary.kind().name().toLowerCase().replace('_', '-'),
+                            boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-'),
                             boundary.site(),
                             boundary.frame().symbol());
                 }
@@ -261,7 +262,7 @@ public final class OresAsyncTrace {
                     result.add(toStackTraceElement(label, tail.site()));
                 } else if (event instanceof BoundaryEvent boundary) {
                     result.add(toStackTraceElement(
-                            "<" + boundary.kind().name().toLowerCase().replace('_', '-') + ">",
+                            "<" + boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-') + ">",
                             boundary.site()));
                 }
             }
@@ -369,7 +370,7 @@ public final class OresAsyncTrace {
             } else if (event instanceof BoundaryEvent boundary) {
                 appendBoundary(
                         out,
-                        boundary.kind().name().toLowerCase().replace('_', '-'),
+                        boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-'),
                         boundary.site(),
                         boundary.frame().symbol());
             }
@@ -408,7 +409,7 @@ public final class OresAsyncTrace {
                 result.add(toStackTraceElement(label, tail.site()));
             } else if (event instanceof BoundaryEvent boundary) {
                 result.add(toStackTraceElement(
-                        "<" + boundary.kind().name().toLowerCase().replace('_', '-') + ">",
+                        "<" + boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-') + ">",
                         boundary.site()));
             }
         }
