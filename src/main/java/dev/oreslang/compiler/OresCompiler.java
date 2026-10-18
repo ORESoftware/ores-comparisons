@@ -15,6 +15,25 @@ public final class OresCompiler {
     }
 
     /**
+     * Parse/type-check source and build the compiler-owned async state-machine
+     * plan used by production lowering. This is intentionally separate from
+     * the legacy AsyncPlan source evaluator.
+     */
+    public static AsyncStateMachinePlan.ProgramPlan planAsyncStateMachines(
+            String source) {
+        return AsyncStateMachinePlan.build(parseAndTypeCheck(source));
+    }
+
+    /**
+     * Build async state-machine plans for an already checked program.
+     */
+    public static AsyncStateMachinePlan.ProgramPlan planAsyncStateMachines(
+            Ast.Program program) {
+        return AsyncStateMachinePlan.build(
+                java.util.Objects.requireNonNull(program, "program"));
+    }
+
+    /**
      * Performs syntax, type, and language-capability admission without
      * executing guest code.
      */

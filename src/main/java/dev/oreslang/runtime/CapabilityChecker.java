@@ -271,6 +271,12 @@ public final class CapabilityChecker {
                 if (s.condition() != null) checkExpr(s.condition(), policy);
                 if (s.update() != null) checkExpr(s.update(), policy);
                 checkStatements(s.body(), policy);
+            } else if (stmt instanceof Ast.WhileStmt s) {
+                if (s.condition() != null) checkExpr(s.condition(), policy);
+                checkStatements(s.body(), policy);
+            } else if (stmt instanceof Ast.DoWhileStmt s) {
+                checkStatements(s.body(), policy);
+                checkExpr(s.condition(), policy);
             }
         }
     }
