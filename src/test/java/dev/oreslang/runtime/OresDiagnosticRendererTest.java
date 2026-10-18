@@ -65,6 +65,38 @@ final class OresDiagnosticRendererTest {
     }
 
     @Test
+    void realSuppressedFailuresAreRenderedSeparatelyFromAsyncTraceMetadata() {
+        IllegalStateException primary = new IllegalStateException("primary");
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("cleanup", site("cleanup.ores", 4, 1)));
+        OresAsyncTrace.attach(primary, trace);
+        primary.addSuppressed(new IllegalArgumentException("cleanup failed"));
+
+        String json = OresDiagnosticRenderer.renderJson(primary);
+        String text = OresDiagnosticRenderer.renderText(primary);
+
+        assertTrue(json.contains("\"suppressed\":[{\"type\":\"java.lang.IllegalArgumentException\""), json);
+        assertTrue(json.contains("\"message\":\"cleanup failed\""), json);
+        assertTrue(json.contains("\"elided_suppressed\":0"), json);
+        assertTrue(text.contains("Suppressed: java.lang.IllegalArgumentException: cleanup failed"), text);
+    }
+
+    @Test
+    void suppressedFailureFanoutIsBounded() {
+        IllegalStateException primary = new IllegalStateException("primary");
+        for (int i = 0; i < 40; i++) {
+            primary.addSuppressed(new IllegalArgumentException("s" + i));
+        }
+
+        String json = OresDiagnosticRenderer.renderJson(primary);
+        String text = OresDiagnosticRenderer.renderText(primary);
+
+        assertTrue(json.contains("\"elided_suppressed\":24"), json);
+        assertTrue(text.contains("24 additional suppressed error(s) elided"), text);
+        assertFalse(json.contains("\"message\":\"s39\""), json);
+    }
+
+    @Test
     void causeCyclesAreExplicitlyElidedInsteadOfRecursingForever() {
         RuntimeException first = new RuntimeException("first");
         RuntimeException second = new RuntimeException("second");
