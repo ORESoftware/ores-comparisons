@@ -19,6 +19,7 @@ public final class OresDiagnosticRenderer {
     private static final int MAX_CAUSE_DEPTH = 16;
     private static final int MAX_MESSAGE_CHARS = 4096;
     private static final int MAX_TYPE_CHARS = 256;
+    private static final int MAX_SUPPRESSED = 16;
 
     private OresDiagnosticRenderer() { }
 
@@ -83,6 +84,26 @@ public final class OresDiagnosticRenderer {
         }
         if (logicalCount == 0 && causedBy) {
             // Deliberately do not print the host/carrier Java stack.
+        }
+
+        int renderedSuppressed = 0;
+        int elidedSuppressed = 0;
+        for (Throwable suppressed : failure.getSuppressed()) {
+            if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace
+                    || suppressed instanceof OresAsyncTrace.LogicalAsyncTraceElision) {
+                continue;
+            }
+            if (renderedSuppressed >= MAX_SUPPRESSED) {
+                elidedSuppressed++;
+                continue;
+            }
+            out.append("\nSuppressed: ");
+            appendTextFailure(out, suppressed, seen, depth + 1, false);
+            renderedSuppressed++;
+        }
+        if (elidedSuppressed > 0) {
+            out.append("\n    ... ").append(elidedSuppressed)
+                    .append(" additional suppressed error(s) elided");
         }
 
         Throwable cause = failure.getCause();
@@ -194,6 +215,27 @@ public final class OresDiagnosticRenderer {
         }
         out.append(']');
         out.append(",\"elided_async_traces\":").append(elidedTraces);
+
+        out.append(",\"suppressed\":[");
+        int renderedSuppressed = 0;
+        int elidedSuppressed = 0;
+        boolean firstSuppressed = true;
+        for (Throwable suppressed : failure.getSuppressed()) {
+            if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace
+                    || suppressed instanceof OresAsyncTrace.LogicalAsyncTraceElision) {
+                continue;
+            }
+            if (renderedSuppressed >= MAX_SUPPRESSED) {
+                elidedSuppressed++;
+                continue;
+            }
+            if (!firstSuppressed) out.append(',');
+            firstSuppressed = false;
+            appendJsonFailure(out, suppressed, seen, depth + 1);
+            renderedSuppressed++;
+        }
+        out.append(']');
+        out.append(",\"elided_suppressed\":").append(elidedSuppressed);
 
         Throwable cause = failure.getCause();
         if (cause != null && cause != failure) {
