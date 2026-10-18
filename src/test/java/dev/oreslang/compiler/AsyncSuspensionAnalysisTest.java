@@ -12,11 +12,11 @@ final class AsyncSuspensionAnalysisTest {
     @Test
     void spillsOnlyLocalsLiveAcrossAwait() {
         Ast.FunctionDecl target = function("""
-                async fnc pause(): int {
+                async fnc pause() => int {
                   return 0;
                 }
 
-                async fnc target(): int {
+                async fnc target() => int {
     val dead0 = 0;
     val dead1 = 1;
     val dead2 = 2;
@@ -66,11 +66,11 @@ final class AsyncSuspensionAnalysisTest {
     @Test
     void spillSlotsCanBeClearedAsSoonAsTheyAreDeadForNextSuspension() {
         Ast.FunctionDecl target = function("""
-                async fnc pause(): int {
+                async fnc pause() => int {
                   return 0;
                 }
 
-                async fnc target(): int {
+                async fnc target() => int {
                   val first = 1;
                   await pause();
                   val consumed = first;
@@ -107,15 +107,15 @@ final class AsyncSuspensionAnalysisTest {
     @Test
     void countsOnlyAlreadyEvaluatedExpressionTemporariesAcrossAwait() {
         Ast.FunctionDecl target = function("""
-                fnc combine(int a, int b, int c): int {
+                fnc combine(int a, int b, int c) => int {
                   return a + b + c;
                 }
 
-                async fnc pause(): int {
+                async fnc pause() => int {
                   return 2;
                 }
 
-                async fnc target(): int {
+                async fnc target() => int {
                   return combine(1, await pause(), 3);
                 }
                 """, "target");
@@ -133,11 +133,11 @@ final class AsyncSuspensionAnalysisTest {
     @Test
     void assignmentBeforeUseKillsTheOldValueAtEarlierAwait() {
         Ast.FunctionDecl target = function("""
-                async fnc pause(): int {
+                async fnc pause() => int {
                   return 0;
                 }
 
-                async fnc target(): int {
+                async fnc target() => int {
                   let value = 1;
                   await pause();
                   value = 2;
@@ -154,11 +154,11 @@ final class AsyncSuspensionAnalysisTest {
     @Test
     void branchLivenessUnionsValuesNeededByEitherContinuation() {
         Ast.FunctionDecl target = function("""
-                async fnc pause(): int {
+                async fnc pause() => int {
                   return 0;
                 }
 
-                async fnc target(bool choose): int {
+                async fnc target(bool choose) => int {
                   val left = 10;
                   val right = 20;
                   if choose {
@@ -185,7 +185,7 @@ final class AsyncSuspensionAnalysisTest {
     @Test
     void noAwaitMeansNoPersistentAsyncFrameSlots() {
         Ast.FunctionDecl target = function("""
-                async fnc target(int input): int {
+                async fnc target(int input) => int {
                   val local = input + 1;
                   return local;
                 }
@@ -204,11 +204,11 @@ final class AsyncSuspensionAnalysisTest {
     @Test
     void shadowedBindingsReceiveDistinctSpillIdentities() {
         Ast.FunctionDecl target = function("""
-                async fnc pause(): int {
+                async fnc pause() => int {
                   return 0;
                 }
 
-                async fnc target(): int {
+                async fnc target() => int {
                   val x = 10;
 
                   if true {
@@ -249,11 +249,11 @@ final class AsyncSuspensionAnalysisTest {
     void compilerBuildsDenseStateMachinePcsFromAwaitSites() {
         AsyncStateMachinePlan.ProgramPlan program =
                 OresCompiler.planAsyncStateMachines("""
-                        async fnc pause(): int {
+                        async fnc pause() => int {
                           return 0;
                         }
 
-                        async fnc target(): int {
+                        async fnc target() => int {
                           val retained = 7;
                           await pause();
                           val first = retained;

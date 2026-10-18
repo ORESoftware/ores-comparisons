@@ -1,5 +1,5 @@
 async fnc explode() => int {
-  stdio.stdout.write("before-error\\n");
+  stdio.println("before-error");
   val gate = Mutex.new(1);
   val guard = await gate.lock_async();
   guard.release();
