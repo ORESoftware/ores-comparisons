@@ -89,6 +89,10 @@ public final class OresFuture<T> implements Future<T>, Awaitable<T> {
             this.remove = remove;
         }
 
+        boolean claimed() {
+            return claimed.get();
+        }
+
         boolean detach() {
             if (!claimed.compareAndSet(false, true)) return false;
             remove.run();

@@ -213,7 +213,27 @@ public final class OwnershipChecker {
             checkExpr(loop.iterable(), scope, false);
             Map<VarState,Boolean> before = movedSnapshot(scope);
             Scope loopScope = new Scope(scope);
-            loopScope.define(loop.bindingName(), new VarState(Ast.TypeRef.inferred(), loop.bindingKind() == Ast.BindingKind.LET, ValueKind.MOVE_ONLY, Origin.LOCAL));
+            if (loop.destructuresSequence()) {
+                for (Ast.DestructureBinding binding : loop.sequenceBindings()) {
+                    if (!binding.isDiscard()) {
+                        loopScope.define(
+                                binding.name(),
+                                new VarState(
+                                        Ast.TypeRef.inferred(),
+                                        binding.kind() == Ast.BindingKind.LET,
+                                        ValueKind.MOVE_ONLY,
+                                        Origin.LOCAL));
+                    }
+                }
+            } else {
+                loopScope.define(
+                        loop.bindingName(),
+                        new VarState(
+                                Ast.TypeRef.inferred(),
+                                loop.bindingKind() == Ast.BindingKind.LET,
+                                ValueKind.MOVE_ONLY,
+                                Origin.LOCAL));
+            }
             checkBlock(loop.body(), loopScope, returnType);
             loopScope.close();
             rejectLoopMoves(before, scope);
@@ -228,6 +248,21 @@ public final class OwnershipChecker {
             if (loop.update() != null) checkExpr(loop.update(), loopScope, false);
             rejectLoopMoves(before, scope);
             loopScope.close();
+            return;
+        }
+        if (stmt instanceof Ast.WhileStmt loop) {
+            if (loop.condition() != null) checkExpr(loop.condition(), scope, false);
+            Map<VarState,Boolean> before = movedSnapshot(scope);
+            checkBlock(loop.body(), scope, returnType);
+            rejectLoopMoves(before, scope);
+            return;
+        }
+        if (stmt instanceof Ast.DoWhileStmt loop) {
+            Map<VarState,Boolean> before = movedSnapshot(scope);
+            checkBlock(loop.body(), scope, returnType);
+            checkExpr(loop.condition(), scope, false);
+            rejectLoopMoves(before, scope);
+            return;
         }
     }
 
@@ -1002,13 +1037,31 @@ public final class OwnershipChecker {
             } else if (stmt instanceof Ast.ForOfStmt s) {
                 scanExpr(s.iterable(), blockLocals, outer, recursiveBinding, captures, false);
                 Set<String> loop = new HashSet<>(blockLocals);
-                loop.add(s.bindingName());
+                if (s.destructuresSequence()) {
+                    for (Ast.DestructureBinding binding : s.sequenceBindings()) {
+                        if (!binding.isDiscard()) loop.add(binding.name());
+                    }
+                } else {
+                    loop.add(s.bindingName());
+                }
                 scanStatements(s.body(), loop, outer, recursiveBinding, captures);
             } else if (stmt instanceof Ast.ForStmt s) {
-                if (s.initializer() instanceof Ast.ExprStmt e) scanExpr(e.expression(), blockLocals, outer, recursiveBinding, captures, false);
+                Set<String> loop = new HashSet<>(blockLocals);
+                if (s.initializer() instanceof Ast.BindingStmt binding) {
+                    scanExpr(binding.initializer(), loop, outer, recursiveBinding, captures, false);
+                    loop.add(binding.name());
+                } else if (s.initializer() instanceof Ast.ExprStmt e) {
+                    scanExpr(e.expression(), loop, outer, recursiveBinding, captures, false);
+                }
+                if (s.condition() != null) scanExpr(s.condition(), loop, outer, recursiveBinding, captures, false);
+                if (s.update() != null) scanExpr(s.update(), loop, outer, recursiveBinding, captures, false);
+                scanStatements(s.body(), loop, outer, recursiveBinding, captures);
+            } else if (stmt instanceof Ast.WhileStmt s) {
                 if (s.condition() != null) scanExpr(s.condition(), blockLocals, outer, recursiveBinding, captures, false);
-                if (s.update() != null) scanExpr(s.update(), blockLocals, outer, recursiveBinding, captures, false);
                 scanStatements(s.body(), blockLocals, outer, recursiveBinding, captures);
+            } else if (stmt instanceof Ast.DoWhileStmt s) {
+                scanStatements(s.body(), blockLocals, outer, recursiveBinding, captures);
+                scanExpr(s.condition(), blockLocals, outer, recursiveBinding, captures, false);
             }
         }
     }

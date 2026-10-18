@@ -207,6 +207,46 @@ final class AsyncSchedulerLanguageTest {
     }
 
     @Test
+    void asyncPlannerExecutesNewLoopFormsAndDestructuring() throws Exception {
+        String program = """
+                pub async routine main() => void {
+                  let i = 0;
+                  while i < 2 do
+                    stdio.stdout.write(i);
+                    i = i + 1
+                  done
+
+                  for [k, v] of arr[arr[2, 20], arr[3, 30]] {
+                    stdio.stdout.write(k);
+                    stdio.stdout.write(v);
+                  }
+
+                  do {
+                    stdio.stdout.write(i);
+                    i = i + 1;
+                  } while (i < 3);
+                  return;
+                }
+                """;
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(program)));
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(OresLanguage.ID, program, "async-loops.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        assertEquals("012203302", output.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test
     void deepReturnAwaitRecursionUsesProperAsyncTailTransfer() throws Exception {
         String program = """
                 async fnc bounce(int n) => int {
@@ -293,7 +333,7 @@ final class AsyncSchedulerLanguageTest {
                   return 42;
                 }
 
-                async fnc guarded(Mutex<int> mutex) => int {
+                async fnc guarded(SharedMutex<int> mutex) => int {
                   val guard = mutex.lock();
                   return await leaf();
                 }
@@ -311,14 +351,14 @@ final class AsyncSchedulerLanguageTest {
                   return 42;
                 }
 
-                async fnc guarded(Mutex<int> mutex) => int {
+                async fnc guarded(SharedMutex<int> mutex) => int {
                   val guard = mutex.lock();
                   guard.release();
                   return await leaf();
                 }
 
                 pub async routine main() => void {
-                  val mutex = Mutex.new(1);
+                  val mutex = SharedMutex.new(1);
                   val value = await guarded(mutex);
                   stdio.println(value);
                   stdio.println(mutex.try_lock().is_some());
@@ -485,6 +525,79 @@ final class AsyncSchedulerLanguageTest {
         }
 
         assertTrue(output.toString(StandardCharsets.UTF_8).contains("7"));
+    }
+
+
+    @Test
+    void schedulerStartDetachedIsExplicitAndTyped() throws Exception {
+        String program = """
+                pub async routine main() => void {
+                  val scheduler = new OresScheduler(1);
+                  val work = scheduler.start_detached(async || -> {
+                    return 9;
+                  });
+                  val value = await work;
+                  stdio.println(value);
+                  scheduler.close();
+                  return;
+                }
+                """;
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(program)));
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(
+                        OresLanguage.ID,
+                        program,
+                        "scheduler-detached.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        assertTrue(output.toString(StandardCharsets.UTF_8).contains("9"));
+    }
+
+    @Test
+    void unawaitedSchedulerChildStillBelongsToCallingAsyncScope() throws Exception {
+        String program = """
+                pub async routine main() => void {
+                  val scheduler = new OresScheduler(1);
+                  scheduler.start(async || -> {
+                    stdio.println("structured-child");
+                    return;
+                  });
+                  stdio.println("parent-body");
+                  return;
+                }
+                """;
+
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse(program)));
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        Source source = Source.newBuilder(
+                        OresLanguage.ID,
+                        program,
+                        "scheduler-structured-child.ores")
+                .mimeType(OresLanguage.MIME_TYPE)
+                .build();
+
+        try (Context context = Context.newBuilder(OresLanguage.ID)
+                .allowAllAccess(false)
+                .out(output)
+                .build()) {
+            context.eval(source);
+        }
+
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        assertTrue(rendered.contains("parent-body"));
+        assertTrue(rendered.contains("structured-child"),
+                "root async completion must wait for scheduler children even when their Future is ignored");
     }
 
 }
