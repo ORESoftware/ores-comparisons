@@ -92,20 +92,17 @@ public final class LinkedProgramRunner {
                 if (entryPoint == null) {
                     throw new IllegalStateException("entry unit was not linked: " + entryId);
                 }
-                OresHostFailureTransfer.clear();
-                try {
-                    entryPoint.execute(OresEvalRootNode.MAIN_ONLY_COMMAND);
-                } catch (PolyglotException wrapped) {
-                    Throwable original = OresHostFailureTransfer.consume();
-                    if (original == null) throw wrapped;
-                    if (original instanceof RuntimeException runtime) throw runtime;
-                    if (original instanceof Error error) throw error;
-                    throw new RuntimeException(original);
-                } finally {
-                    // Also clear after success and after non-Polyglot host
-                    // failures so a later invocation on this host thread can
-                    // never observe stale provenance.
-                    OresHostFailureTransfer.clear();
+                try (OresHostFailureTransfer.Capture ignored =
+                        OresHostFailureTransfer.capture()) {
+                    try {
+                        entryPoint.execute(OresEvalRootNode.MAIN_ONLY_COMMAND);
+                    } catch (PolyglotException wrapped) {
+                        Throwable original = OresHostFailureTransfer.consume();
+                        if (original == null) throw wrapped;
+                        if (original instanceof RuntimeException runtime) throw runtime;
+                        if (original instanceof Error error) throw error;
+                        throw new RuntimeException(original);
+                    }
                 }
             }
 
