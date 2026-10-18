@@ -43,7 +43,7 @@ public final class OresMain {
             if (json) err.println(OresDiagnosticRenderer.renderJson(failure));
             else err.println("oreslang: " + failure.getMessage());
             return 2;
-        } catch (Throwable failure) {
+        } catch (Exception failure) {
             if (json) err.println(OresDiagnosticRenderer.renderJson(failure));
             else err.println(OresDiagnosticRenderer.renderText(failure));
             return 1;
