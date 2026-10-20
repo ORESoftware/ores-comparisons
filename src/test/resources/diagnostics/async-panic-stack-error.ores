@@ -1,0 +1,15 @@
+async fnc panic_after_await() => int {
+  val ready = Future.from_callback<int>(|completion| -> {
+    completion.resolve(1);
+    return;
+  });
+  val value = await ready;
+  None.unwrap();
+  return value;
+}
+
+pub async routine main() => void {
+  val value = await panic_after_await();
+  stdio.println(value);
+  return;
+}

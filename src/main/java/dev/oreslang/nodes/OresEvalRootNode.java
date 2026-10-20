@@ -3651,7 +3651,12 @@ public final class OresEvalRootNode extends RootNode {
         @Override public String toString(){return "OptionUnwrapError(" + reason + ")";}
     }
     private static final class OresPanic extends RuntimeException {
-        private OresPanic(String message) { super(message, null, false, false); }
+        private OresPanic(String message) {
+            // Panic bypasses ordinary guest catches, but suppression remains
+            // enabled so immutable Oreslang guest/async diagnostic stacks can
+            // be attached without enabling a physical Java stack.
+            super(message, null, true, false);
+        }
     }
     private record StdioFacade(OresContext context) {
         private Object print(List<Object> args){context.requireCapability(IsolatePolicy.Capability.STDOUT,"stdio.print");requireOne(args,"stdio.print");context.output().print(String.valueOf(args.getFirst()));context.output().flush();return null;}

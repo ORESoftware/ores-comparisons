@@ -78,6 +78,35 @@ final class OresMainDiagnosticTest {
     }
 
     @Test
+    void synchronousPanicRetainsGuestStackAndBypassesOrdinaryJavaFrames() throws Exception {
+        Run run = invoke("sync-panic-stack-error.ores", true);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        String json = run.stderr().trim();
+        assertTrue(json.contains("Option::unwrap"), json);
+        assertTrue(json.contains("\"guest_stack\":{"), json);
+        assertTrue(json.contains("\"symbol\":\"panic_leaf\""), json);
+        assertTrue(json.contains("\"symbol\":\"panic_middle\""), json);
+        assertTrue(json.contains("\"symbol\":\"main\""), json);
+        assertFalse(json.contains("java.lang.Thread"), json);
+    }
+
+    @Test
+    void asyncPanicAfterAwaitRetainsCausalTrace() throws Exception {
+        Run run = invoke("async-panic-stack-error.ores", true);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        String json = run.stderr().trim();
+        assertTrue(json.contains("Option::unwrap"), json);
+        assertTrue(json.contains("\"async_traces\":[{"), json);
+        assertTrue(json.contains("\"symbol\":\"panic_after_await\""), json);
+        assertTrue(json.contains("\"kind\":\"await\""), json);
+        assertTrue(json.contains("diagnostics/async-panic-stack-error.ores"), json);
+    }
+
+    @Test
     void synchronousFailurePrintsDeepestGuestCallStack() throws Exception {
         Run run = invoke("sync-stack-chain-error.ores", false);
 
