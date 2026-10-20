@@ -22,6 +22,7 @@ public final class OresDiagnosticRenderer {
     private static final int MAX_ERROR_NODES = 64;
     private static final int MAX_RENDERED_ASYNC_TRACES_PER_FAILURE = 8;
     private static final int MAX_RENDERED_ASYNC_TRACES_TOTAL = 16;
+    private static final int MAX_RENDERED_GUEST_STACKS_TOTAL = 16;
     private static final int MAX_RENDERED_TRACE_EVENTS = 64;
 
     private OresDiagnosticRenderer() { }
@@ -75,6 +76,18 @@ public final class OresDiagnosticRenderer {
         String message = bounded(failure.getMessage(), MAX_MESSAGE_CHARS);
         if (!message.isBlank()) out.append(": ").append(safeHuman(message));
 
+        for (Throwable suppressed : failure.getSuppressed()) {
+            if (suppressed instanceof OresAsyncTrace.LogicalGuestStackTrace guest) {
+                if (state.consumeGuestStack()) {
+                    out.append("\nOreslang logical stack:");
+                    appendTextTrace(out, guest.snapshot());
+                } else {
+                    out.append("\n    ... Oreslang logical stack elided");
+                }
+                break;
+            }
+        }
+
         int renderedLogical = 0;
         long elidedTraces = 0;
         for (Throwable suppressed : failure.getSuppressed()) {
@@ -99,7 +112,8 @@ public final class OresDiagnosticRenderer {
         int renderedSuppressed = 0;
         int elidedSuppressed = 0;
         for (Throwable suppressed : failure.getSuppressed()) {
-            if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace
+            if (suppressed instanceof OresAsyncTrace.LogicalGuestStackTrace
+                    || suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace
                     || suppressed instanceof OresAsyncTrace.LogicalAsyncTraceElision) {
                 continue;
             }
@@ -222,6 +236,25 @@ public final class OresDiagnosticRenderer {
         out.append(",\"message\":");
         appendJsonString(out, bounded(failure.getMessage(), MAX_MESSAGE_CHARS));
 
+        OresAsyncTrace.LogicalGuestStackTrace guestStack = null;
+        for (Throwable suppressed : failure.getSuppressed()) {
+            if (suppressed instanceof OresAsyncTrace.LogicalGuestStackTrace guest) {
+                guestStack = guest;
+                break;
+            }
+        }
+        out.append(",\"guest_stack\":");
+        boolean guestStackElided = false;
+        if (guestStack == null) {
+            out.append("null");
+        } else if (state.consumeGuestStack()) {
+            appendJsonTrace(out, guestStack.snapshot());
+        } else {
+            guestStackElided = true;
+            out.append("null");
+        }
+        out.append(",\"guest_stack_elided\":").append(guestStackElided);
+
         out.append(",\"async_traces\":[");
         boolean firstTrace = true;
         int renderedLogical = 0;
@@ -249,7 +282,8 @@ public final class OresDiagnosticRenderer {
         int elidedSuppressed = 0;
         boolean firstSuppressed = true;
         for (Throwable suppressed : failure.getSuppressed()) {
-            if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace
+            if (suppressed instanceof OresAsyncTrace.LogicalGuestStackTrace
+                    || suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace
                     || suppressed instanceof OresAsyncTrace.LogicalAsyncTraceElision) {
                 continue;
             }
@@ -436,6 +470,7 @@ public final class OresDiagnosticRenderer {
         private final IdentityHashMap<Throwable, Boolean> active = new IdentityHashMap<>();
         private int remaining = MAX_ERROR_NODES;
         private int remainingAsyncTraces = MAX_RENDERED_ASYNC_TRACES_TOTAL;
+        private int remainingGuestStacks = MAX_RENDERED_GUEST_STACKS_TOTAL;
 
         private boolean consumeNode() {
             if (remaining <= 0) return false;
@@ -446,6 +481,12 @@ public final class OresDiagnosticRenderer {
         private boolean consumeAsyncTrace() {
             if (remainingAsyncTraces <= 0) return false;
             remainingAsyncTraces--;
+            return true;
+        }
+
+        private boolean consumeGuestStack() {
+            if (remainingGuestStacks <= 0) return false;
+            remainingGuestStacks--;
             return true;
         }
     }

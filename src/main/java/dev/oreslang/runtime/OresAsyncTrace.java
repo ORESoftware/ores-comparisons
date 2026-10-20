@@ -315,6 +315,19 @@ public final class OresAsyncTrace {
         return new InstalledScope(Thread.currentThread(), prior, installed);
     }
 
+    public static Throwable attachGuest(Throwable failure, Trace trace) {
+        Objects.requireNonNull(failure, "failure");
+        if (trace == null) return failure;
+
+        synchronized (failure) {
+            for (Throwable suppressed : failure.getSuppressed()) {
+                if (suppressed instanceof LogicalGuestStackTrace) return failure;
+            }
+            failure.addSuppressed(new LogicalGuestStackTrace(trace.snapshot()));
+        }
+        return failure;
+    }
+
     public static Throwable attach(Throwable failure, Trace trace) {
         Objects.requireNonNull(failure, "failure");
         if (trace == null) return failure;
@@ -475,6 +488,36 @@ public final class OresAsyncTrace {
             closed = true;
             if (prior == null) CURRENT.remove();
             else CURRENT.set(prior);
+        }
+    }
+
+    /**
+     * One immutable deepest guest-language call stack for a synchronous failure.
+     *
+     * <p>Outer synchronous frames do not attach another copy because the deepest
+     * snapshot already contains their call events. If the same failure later
+     * crosses an await, asynchronous causal snapshots are attached separately.</p>
+     */
+    public static final class LogicalGuestStackTrace extends RuntimeException {
+        private final TraceSnapshot snapshot;
+        private final String logicalTrace;
+
+        private LogicalGuestStackTrace(TraceSnapshot snapshot) {
+            super("Oreslang logical guest stack\n" + renderSnapshot(snapshot),
+                    null,
+                    false,
+                    true);
+            this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
+            this.logicalTrace = renderSnapshot(snapshot);
+            setStackTrace(javaStackSnapshot(snapshot));
+        }
+
+        public String logicalTrace() {
+            return logicalTrace;
+        }
+
+        TraceSnapshot snapshot() {
+            return snapshot;
         }
     }
 

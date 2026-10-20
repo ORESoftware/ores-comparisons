@@ -78,6 +78,35 @@ final class OresMainDiagnosticTest {
     }
 
     @Test
+    void synchronousFailurePrintsDeepestGuestCallStack() throws Exception {
+        Run run = invoke("sync-stack-chain-error.ores", false);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        assertTrue(run.stderr().contains("Oreslang logical stack:"), run.stderr());
+        assertTrue(run.stderr().contains("leaf"), run.stderr());
+        assertTrue(run.stderr().contains("middle"), run.stderr());
+        assertTrue(run.stderr().contains("main"), run.stderr());
+        assertTrue(run.stderr().contains("diagnostics/sync-stack-chain-error.ores"), run.stderr());
+        assertFalse(run.stderr().contains("java.lang.Thread"), run.stderr());
+    }
+
+    @Test
+    void synchronousFailureJsonSeparatesGuestStackFromAsyncCausality() throws Exception {
+        Run run = invoke("sync-stack-chain-error.ores", true);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        String json = run.stderr().trim();
+        assertTrue(json.contains("\"guest_stack\":{"), json);
+        assertTrue(json.contains("\"symbol\":\"leaf\""), json);
+        assertTrue(json.contains("\"symbol\":\"middle\""), json);
+        assertTrue(json.contains("\"symbol\":\"main\""), json);
+        assertTrue(json.contains("\"async_traces\":[]"), json);
+        assertFalse(json.contains("target/test-classes"), json);
+    }
+
+    @Test
     void multiAwaitFailureRetainsLeafMiddleTopCausalFramesInTextMode() throws Exception {
         Run run = invoke("async-stack-chain-error.ores", false);
 

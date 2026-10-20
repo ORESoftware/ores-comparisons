@@ -155,6 +155,28 @@ final class OresAsyncTraceTest {
         assertTrue(trace.render().contains("Worker.receive_message"));
     }
     @Test
+    void deepestSynchronousGuestStackIsAttachedExactlyOnce() {
+        OresAsyncTrace.Trace caller = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("caller", site(75)));
+        OresAsyncTrace.Trace leaf = caller.child(
+                new OresAsyncTrace.Frame("leaf", site(76)),
+                site(76));
+        IllegalStateException failure = new IllegalStateException("sync");
+
+        OresAsyncTrace.attachGuest(failure, leaf);
+        OresAsyncTrace.attachGuest(failure, caller);
+
+        java.util.List<OresAsyncTrace.LogicalGuestStackTrace> guest =
+                java.util.Arrays.stream(failure.getSuppressed())
+                        .filter(OresAsyncTrace.LogicalGuestStackTrace.class::isInstance)
+                        .map(OresAsyncTrace.LogicalGuestStackTrace.class::cast)
+                        .toList();
+        assertEquals(1, guest.size());
+        assertTrue(guest.getFirst().logicalTrace().contains("leaf"));
+        assertTrue(guest.getFirst().logicalTrace().contains("caller"));
+    }
+
+    @Test
     void evolvedTraceGetsANewerSnapshotButExactRevisionDoesNotDuplicate() {
         OresAsyncTrace.Trace trace = OresAsyncTrace.root(
                 new OresAsyncTrace.Frame("worker", site(80)));

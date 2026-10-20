@@ -130,6 +130,30 @@ final class OresDiagnosticRendererTest {
     }
 
     @Test
+    void guestStackAndAsyncCausalityRenderAsSeparateLayers() {
+        IllegalStateException failure = new IllegalStateException("mixed");
+        OresAsyncTrace.Trace sync = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("sync_leaf", site("mixed.ores", 4, 2)));
+        OresAsyncTrace.Trace async = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("async_parent", site("mixed.ores", 10, 2)));
+        async.awaitAt(site("mixed.ores", 11, 4));
+
+        OresAsyncTrace.attachGuest(failure, sync);
+        OresAsyncTrace.attach(failure, async);
+
+        String json = OresDiagnosticRenderer.renderJson(failure);
+        String text = OresDiagnosticRenderer.renderText(failure);
+
+        assertTrue(json.contains("\"guest_stack\":{"), json);
+        assertTrue(json.contains("\"symbol\":\"sync_leaf\""), json);
+        assertTrue(json.contains("\"async_traces\":[{"), json);
+        assertTrue(json.contains("\"symbol\":\"async_parent\""), json);
+        assertTrue(text.contains("Oreslang logical stack:"), text);
+        assertTrue(text.contains("Oreslang causal async stack:"), text);
+        assertFalse(text.contains("Suppressed: dev.oreslang.runtime.OresAsyncTrace"), text);
+    }
+
+    @Test
     void sharedThrowableDagIsNotMisreportedAsACycle() {
         IllegalArgumentException shared = new IllegalArgumentException("shared-leaf");
         RuntimeException left = new RuntimeException("left", shared);

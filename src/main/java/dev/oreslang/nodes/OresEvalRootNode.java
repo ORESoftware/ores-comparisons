@@ -211,7 +211,7 @@ public final class OresEvalRootNode extends RootNode {
                 OresFuture<Object> task = entryMain.async()
                         ? startAsyncFunction(entryMain, normalized)
                         : context.actors().rootScheduler().startSync(
-                                () -> callFunctionBody(entryMain, normalized));
+                                () -> callSyncFunction(entryMain, normalized));
 
                 // The host/embedder thread may block waiting for the root task;
                 // no Ores carrier is consumed. Completion is published only
@@ -243,7 +243,20 @@ public final class OresEvalRootNode extends RootNode {
                                 + "' cannot be invoked directly; use spawn " + fn.name() + "(...)");
             }
             if (fn.async()) return startAsyncFunction(fn, normalized);
-            return callFunctionBody(fn, normalized);
+            return callSyncFunction(fn, normalized);
+        }
+
+        private Object callSyncFunction(Ast.FunctionDecl fn, List<?> args) {
+            OresAsyncTrace.Trace trace =
+                    traceForInvocation(functionTraceFrame(fn));
+            try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                try {
+                    return callFunctionBody(fn, args);
+                } catch (RuntimeException | Error failure) {
+                    attachGuestFailure(failure, trace);
+                    throw failure;
+                }
+            }
         }
 
         private Object spawnFunction(Ast.CallExpr call, Env env) {
@@ -919,6 +932,17 @@ public final class OresEvalRootNode extends RootNode {
                     }
                 }
             }
+        }
+
+        private static void attachGuestFailure(
+                Throwable failure,
+                OresAsyncTrace.Trace trace) {
+            if (failure instanceof VirtualMachineError
+                    || failure instanceof ThreadDeath
+                    || failure instanceof LinkageError) {
+                return;
+            }
+            OresAsyncTrace.attachGuest(failure, trace);
         }
 
         private static void recordFailureBoundary(
@@ -2110,23 +2134,32 @@ public final class OresEvalRootNode extends RootNode {
                 return startAsyncMethod(receiver, method, args);
             }
 
-            Env env = new Env(null);
-            if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
-            for (int i = 0; i < method.parameters().size(); i++) {
-                Ast.Param param = method.parameters().get(i);
-                env.define(
-                        param.name(),
-                        args.get(i),
-                        param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
-            }
-            try {
-                executeBlock(method.body(), env);
-                return null;
-            } catch (ReturnSignal signal) {
-                return shapeReturnedValue(
-                        method.returnType(),
-                        signal.value,
-                        "method " + method.name());
+            OresAsyncTrace.Trace trace =
+                    traceForInvocation(methodTraceFrame(receiver.klass, method));
+            try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                try {
+                    Env env = new Env(null);
+                    if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
+                    for (int i = 0; i < method.parameters().size(); i++) {
+                        Ast.Param param = method.parameters().get(i);
+                        env.define(
+                                param.name(),
+                                args.get(i),
+                                param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                    }
+                    try {
+                        executeBlock(method.body(), env);
+                        return null;
+                    } catch (ReturnSignal signal) {
+                        return shapeReturnedValue(
+                                method.returnType(),
+                                signal.value,
+                                "method " + method.name());
+                    }
+                } catch (RuntimeException | Error failure) {
+                    attachGuestFailure(failure, trace);
+                    throw failure;
+                }
             }
         }
 
@@ -2881,22 +2914,31 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (fn.async()) return startAsyncStaticFunction(klass, fn, args);
 
-            Env env = new Env(null);
-            for (int i = 0; i < fn.parameters().size(); i++) {
-                Ast.Param param = fn.parameters().get(i);
-                env.define(
-                        param.name(),
-                        args.get(i),
-                        param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
-            }
-            try {
-                executeBlock(fn.body(), env);
-                return null;
-            } catch (ReturnSignal signal) {
-                return shapeReturnedValue(
-                        fn.returnType(),
-                        signal.value,
-                        "static function " + fn.name());
+            OresAsyncTrace.Trace trace =
+                    traceForInvocation(methodTraceFrame(klass, fn));
+            try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                try {
+                    Env env = new Env(null);
+                    for (int i = 0; i < fn.parameters().size(); i++) {
+                        Ast.Param param = fn.parameters().get(i);
+                        env.define(
+                                param.name(),
+                                args.get(i),
+                                param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                    }
+                    try {
+                        executeBlock(fn.body(), env);
+                        return null;
+                    } catch (ReturnSignal signal) {
+                        return shapeReturnedValue(
+                                fn.returnType(),
+                                signal.value,
+                                "static function " + fn.name());
+                    }
+                } catch (RuntimeException | Error failure) {
+                    attachGuestFailure(failure, trace);
+                    throw failure;
+                }
             }
         }
 
