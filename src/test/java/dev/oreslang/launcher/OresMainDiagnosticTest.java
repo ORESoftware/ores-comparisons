@@ -226,6 +226,35 @@ final class OresMainDiagnosticTest {
     }
 
     @Test
+    void eightActorFailureRetainsAtLeastLastFiveActorsInCliTextAndJson() throws Exception {
+        Run structured = invoke("actor-stack-chain-error.ores", true);
+        assertEquals(1, structured.status(), structured.stderr());
+        assertEquals("", structured.stdout());
+        String json = structured.stderr().trim();
+        assertTrue(json.contains("\"actor_history_order\":\"oldest_to_newest\""), json);
+        int start = json.indexOf("\"actor_history\":[");
+        int end = json.indexOf(",\"elided_actor_visits\"", start);
+        assertTrue(start >= 0 && end > start, json);
+        String actorHistory = json.substring(start, end);
+        int prior = -1;
+        for (int actor = 4; actor <= 8; actor++) {
+            int next = actorHistory.indexOf("\"symbol\":\"actor_" + actor + "\"");
+            assertTrue(next > prior, "missing/out-of-order actor_" + actor + ": " + actorHistory);
+            prior = next;
+        }
+        assertFalse(json.contains("ActorRuntime$"), json);
+
+        Run human = invoke("actor-stack-chain-error.ores", false);
+        assertEquals(1, human.status(), human.stderr());
+        assertEquals("", human.stdout());
+        assertTrue(human.stderr().contains("Actor causality (newest first):"),
+                human.stderr());
+        for (int actor = 4; actor <= 8; actor++) {
+            assertTrue(human.stderr().contains("actor_" + actor), human.stderr());
+        }
+    }
+
+    @Test
     void usageFailureUsesExitTwoAndJsonWhenRequested() {
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();

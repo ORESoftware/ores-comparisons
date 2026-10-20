@@ -1,0 +1,53 @@
+pub actor fnc actor_8() => int {
+  val zero = 0;
+  return 1 / zero;
+}
+
+pub actor fnc actor_7() => int {
+  val pending = spawn actor_8();
+  val result = await pending.result;
+  return result;
+}
+
+pub actor fnc actor_6() => int {
+  val pending = spawn actor_7();
+  val result = await pending.result;
+  return result;
+}
+
+pub actor fnc actor_5() => int {
+  val pending = spawn actor_6();
+  val result = await pending.result;
+  return result;
+}
+
+pub actor fnc actor_4() => int {
+  val pending = spawn actor_5();
+  val result = await pending.result;
+  return result;
+}
+
+pub actor fnc actor_3() => int {
+  val pending = spawn actor_4();
+  val result = await pending.result;
+  return result;
+}
+
+pub actor fnc actor_2() => int {
+  val pending = spawn actor_3();
+  val result = await pending.result;
+  return result;
+}
+
+pub actor fnc actor_1() => int {
+  val pending = spawn actor_2();
+  val result = await pending.result;
+  return result;
+}
+
+pub async routine main() => void {
+  val pending = spawn actor_1();
+  val result = await pending.result;
+  stdio.println(result);
+  return;
+}

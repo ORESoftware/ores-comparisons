@@ -141,6 +141,20 @@ public final class OresDiagnosticRenderer {
 
     private static void appendTextTrace(StringBuilder out, OresAsyncTrace.TraceSnapshot trace) {
         appendTextFrame(out, "at", trace.currentFrame());
+        var visits = trace.actorVisits();
+        if (!visits.isEmpty() || trace.elidedActorVisits() > 0) {
+            out.append("\n  Actor causality (newest first):");
+            for (int i = visits.size() - 1; i >= 0; i--) {
+                OresAsyncTrace.ActorVisit visit = visits.get(i);
+                out.append("\n    actor ").append(visits.size() - i).append(": ")
+                        .append(safeHuman(bounded(visit.actor().symbol(), MAX_TYPE_CHARS)));
+                appendTextSite(out, visit.messageSite());
+            }
+            if (trace.elidedActorVisits() > 0) {
+                out.append("\n    ... ").append(trace.elidedActorVisits())
+                        .append(" older actor visits elided");
+            }
+        }
         var events = trace.events();
         int firstRendered = Math.max(0, events.size() - MAX_RENDERED_TRACE_EVENTS);
         for (int i = events.size() - 1; i >= firstRendered; i--) {
@@ -320,6 +334,20 @@ public final class OresDiagnosticRenderer {
         out.append("\"current\":");
         appendJsonFrame(out, trace.currentFrame());
         out.append(",\"event_order\":\"oldest_to_newest\"");
+        out.append(",\"actor_history_order\":\"oldest_to_newest\"");
+        out.append(",\"actor_history\":[");
+        boolean firstActor = true;
+        for (OresAsyncTrace.ActorVisit visit : trace.actorVisits()) {
+            if (!firstActor) out.append(',');
+            firstActor = false;
+            out.append("{\"actor\":");
+            appendJsonFrame(out, visit.actor());
+            out.append(",\"message_site\":");
+            appendJsonSite(out, visit.messageSite());
+            out.append('}');
+        }
+        out.append(']');
+        out.append(",\"elided_actor_visits\":").append(trace.elidedActorVisits());
         out.append(",\"events\":[");
         boolean first = true;
         var events = trace.events();

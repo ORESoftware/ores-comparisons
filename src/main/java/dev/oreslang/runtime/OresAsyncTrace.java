@@ -19,6 +19,8 @@ import java.util.Objects;
  */
 public final class OresAsyncTrace {
     private static final int DEFAULT_MAX_EVENTS = 96;
+    /** Independent of the general event budget: never discard the last five actor hops. */
+    private static final int MAX_ACTOR_VISITS = 16;
     private static final int MAX_ATTACHED_TRACES = 32;
     private static final int MAX_SYMBOL_CHARS = 256;
     private static final int MAX_SOURCE_CHARS = 4096;
@@ -69,6 +71,14 @@ public final class OresAsyncTrace {
         public Frame {
             if (symbol == null || symbol.isBlank()) symbol = "<anonymous>";
             site = Objects.requireNonNull(site, "site");
+        }
+    }
+
+    /** An actor-message visit; names and source sites only, never message contents. */
+    public record ActorVisit(Frame actor, SourceSite messageSite) {
+        public ActorVisit {
+            Objects.requireNonNull(actor, "actor");
+            Objects.requireNonNull(messageSite, "messageSite");
         }
     }
 
@@ -135,6 +145,10 @@ public final class OresAsyncTrace {
     public static final class Trace {
         private final int maxEvents;
         private final ArrayDeque<Event> history;
+        private final ArrayDeque<ActorVisit> actorVisits;
+        /** Spawn requests do not count as visits until a carrier enters the actor. */
+        private ActorVisit pendingActorVisit;
+        private long elidedActorVisits;
         private final Object identity = new Object();
         private Frame current;
         private long elidedEvents;
@@ -147,12 +161,16 @@ public final class OresAsyncTrace {
             if (maxEvents <= 0) throw new IllegalArgumentException("maxEvents must be positive");
             this.maxEvents = maxEvents;
             this.history = new ArrayDeque<>(Math.min(maxEvents, 16));
+            this.actorVisits = new ArrayDeque<>(MAX_ACTOR_VISITS);
         }
 
         private Trace(Trace parent, Frame child, SourceSite callSite) {
             this.current = Objects.requireNonNull(child, "child");
             this.maxEvents = parent.maxEvents;
             this.history = new ArrayDeque<>(parent.history);
+            this.actorVisits = new ArrayDeque<>(parent.actorVisits);
+            // A pending child admission is never inherited as a completed visit.
+            this.elidedActorVisits = parent.elidedActorVisits;
             this.elidedEvents = parent.elidedEvents;
             this.revision = parent.revision;
             addBounded(new CallEvent(parent.current, child, callSite));
@@ -174,8 +192,17 @@ public final class OresAsyncTrace {
             return List.copyOf(history);
         }
 
+        public List<ActorVisit> actorVisits() {
+            return List.copyOf(actorVisits);
+        }
+
+        public long elidedActorVisits() {
+            return elidedActorVisits;
+        }
+
         TraceSnapshot snapshot() {
-            return new TraceSnapshot(current, List.copyOf(history), elidedEvents, revision);
+            return new TraceSnapshot(current, List.copyOf(history), elidedEvents,
+                    List.copyOf(actorVisits), elidedActorVisits, revision);
         }
 
         Object identity() {
@@ -216,10 +243,28 @@ public final class OresAsyncTrace {
         }
 
         public void boundary(BoundaryKind kind, SourceSite site) {
-            addBounded(new BoundaryEvent(
-                    Objects.requireNonNull(kind, "kind"),
-                    current,
-                    Objects.requireNonNull(site, "site")));
+            BoundaryKind actualKind = Objects.requireNonNull(kind, "kind");
+            SourceSite actualSite = Objects.requireNonNull(site, "site");
+            if (actualKind == BoundaryKind.ACTOR_MESSAGE) {
+                // The caller creates this trace before the actor's mailbox admission.
+                // Only a successful entry into an actor execution scope establishes
+                // a visit. Pending entries are not part of propagated history.
+                pendingActorVisit = new ActorVisit(current, actualSite);
+            }
+            addBounded(new BoundaryEvent(actualKind, current, actualSite));
+        }
+
+        private void confirmActorVisit() {
+            ActorVisit visit = pendingActorVisit;
+            if (visit == null) return;
+            pendingActorVisit = null;
+            // This ring survives independent async-event elision.
+            if (actorVisits.size() >= MAX_ACTOR_VISITS) {
+                actorVisits.removeFirst();
+                if (elidedActorVisits != Long.MAX_VALUE) elidedActorVisits++;
+            }
+            actorVisits.addLast(visit);
+            bumpRevision();
         }
 
         public void tailAwait(Frame target, SourceSite site) {
@@ -253,6 +298,7 @@ public final class OresAsyncTrace {
         public String render() {
             StringBuilder out = new StringBuilder();
             appendFrame(out, "at", current);
+            appendActorVisits(out, List.copyOf(actorVisits), elidedActorVisits);
             List<Event> events = new ArrayList<>(history);
             for (int i = events.size() - 1; i >= 0; i--) {
                 Event event = events.get(i);
@@ -288,6 +334,11 @@ public final class OresAsyncTrace {
         public StackTraceElement[] toJavaStackTrace() {
             List<StackTraceElement> result = new ArrayList<>();
             result.add(toStackTraceElement(current.symbol(), current.site()));
+            for (var it = actorVisits.descendingIterator(); it.hasNext(); ) {
+                ActorVisit visit = it.next();
+                result.add(toStackTraceElement("<actor " + visit.actor().symbol() + ">",
+                        visit.messageSite()));
+            }
 
             List<Event> events = new ArrayList<>(history);
             for (int i = events.size() - 1; i >= 0; i--) {
@@ -340,6 +391,9 @@ public final class OresAsyncTrace {
         Trace installed = Objects.requireNonNull(trace, "trace");
         Thread owner = Thread.currentThread();
         installed.acquireLease(owner);
+        // A spawn is only a real visit once its trace is installed to execute.
+        // Duplicate resume/install scopes cannot double-count the same actor.
+        installed.confirmActorVisit();
 
         Trace prior = CURRENT.get();
         InstalledScope priorScope = CURRENT_SCOPE.get();
@@ -404,10 +458,16 @@ public final class OresAsyncTrace {
             Frame currentFrame,
             List<Event> events,
             long elidedEvents,
+            List<ActorVisit> actorVisits,
+            long elidedActorVisits,
             long revision) {
         TraceSnapshot {
             currentFrame = Objects.requireNonNull(currentFrame, "currentFrame");
             events = List.copyOf(events);
+            actorVisits = List.copyOf(actorVisits);
+            if (elidedActorVisits < 0) {
+                throw new IllegalArgumentException("elidedActorVisits must be non-negative");
+            }
             if (elidedEvents < 0) {
                 throw new IllegalArgumentException("elidedEvents must be non-negative");
             }
@@ -420,6 +480,7 @@ public final class OresAsyncTrace {
     private static String renderSnapshot(TraceSnapshot trace) {
         StringBuilder out = new StringBuilder();
         appendFrame(out, "at", trace.currentFrame());
+        appendActorVisits(out, trace.actorVisits(), trace.elidedActorVisits());
         List<Event> events = trace.events();
         for (int i = events.size() - 1; i >= 0; i--) {
             Event event = events.get(i);
@@ -457,6 +518,11 @@ public final class OresAsyncTrace {
         result.add(toStackTraceElement(
                 trace.currentFrame().symbol(),
                 trace.currentFrame().site()));
+        for (int i = trace.actorVisits().size() - 1; i >= 0; i--) {
+            ActorVisit visit = trace.actorVisits().get(i);
+            result.add(toStackTraceElement("<actor " + visit.actor().symbol() + ">",
+                    visit.messageSite()));
+        }
         List<Event> events = trace.events();
         for (int i = events.size() - 1; i >= 0; i--) {
             Event event = events.get(i);
@@ -719,6 +785,21 @@ public final class OresAsyncTrace {
         String hex = Integer.toHexString(ch);
         for (int pad = hex.length(); pad < 4; pad++) out.append('0');
         out.append(hex);
+    }
+
+    private static void appendActorVisits(
+            StringBuilder out, List<ActorVisit> visits, long elided) {
+        if (visits.isEmpty() && elided == 0) return;
+        out.append("\n  Actor causality (newest first):");
+        for (int i = visits.size() - 1; i >= 0; i--) {
+            ActorVisit visit = visits.get(i);
+            out.append("\n    actor ").append(visits.size() - i).append(": ")
+                    .append(safeText(visit.actor().symbol(), MAX_SYMBOL_CHARS));
+            appendSite(out, visit.messageSite());
+        }
+        if (elided > 0) {
+            out.append("\n    ... ").append(elided).append(" older actor visits elided");
+        }
     }
 
     private static void appendFrame(StringBuilder out, String prefix, Frame frame) {
