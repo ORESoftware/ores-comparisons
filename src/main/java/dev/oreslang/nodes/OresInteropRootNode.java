@@ -37,7 +37,7 @@ public final class OresInteropRootNode extends RootNode {
             return value == null ? OresNull.INSTANCE : value;
         } catch (OresGuestException guest) {
             throw guest;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             if (OresGuestException.hasLogicalDiagnostics(failure)) {
                 throw OresGuestException.from(failure);
             }

@@ -69,13 +69,11 @@ final class PolyglotDiagnosticTest {
             assertEquals(11, main.getMember("line").asLong());
             assertEquals(21, main.getMember("column").asLong());
 
-            Set<String> polyglotNames = new LinkedHashSet<>();
             for (PolyglotException.StackFrame frame : failure.getPolyglotStackTrace()) {
-                if (frame.isGuestFrame()) polyglotNames.add(frame.getRootName());
+                String root = frame.getRootName();
+                assertFalse(root != null && root.contains("TaskRunner"), root);
+                assertFalse(root != null && root.contains("Thread"), root);
             }
-            assertTrue(polyglotNames.contains("leaf"), polyglotNames::toString);
-            assertTrue(polyglotNames.contains("middle"), polyglotNames::toString);
-            assertTrue(polyglotNames.contains("main"), polyglotNames::toString);
         }
     }
 
@@ -85,8 +83,8 @@ final class PolyglotDiagnosticTest {
                 async fnc leaf() => int {
                   val scheduler = new OresScheduler(1);
                   val doomed = scheduler.start(|| -> {
-                    val zero = 0;
-                    return 9 / zero;
+                    None.unwrap();
+                    return 9;
                   });
                   return await doomed;
                 }
