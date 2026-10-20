@@ -6,6 +6,7 @@ import com.oracle.truffle.api.interop.InteropLibrary;
 import com.oracle.truffle.api.interop.InvalidArrayIndexException;
 import com.oracle.truffle.api.interop.UnknownIdentifierException;
 import com.oracle.truffle.api.interop.UnsupportedMessageException;
+import com.oracle.truffle.api.interop.TruffleObject;
 import com.oracle.truffle.api.library.ExportLibrary;
 import com.oracle.truffle.api.library.ExportMessage;
 
@@ -282,7 +283,7 @@ public final class OresGuestException extends AbstractTruffleException {
             long elidedAsyncTraces) { }
 
     @ExportLibrary(InteropLibrary.class)
-    static final class FrameValue {
+    static final class FrameValue implements TruffleObject {
         private static final MemberNames MEMBERS = new MemberNames(
                 "kind",
                 "symbol",
@@ -391,7 +392,7 @@ public final class OresGuestException extends AbstractTruffleException {
     }
 
     @ExportLibrary(InteropLibrary.class)
-    static final class TraceValue {
+    static final class TraceValue implements TruffleObject {
         private static final MemberNames MEMBERS =
                 new MemberNames("frames", "elided_events");
 
@@ -436,7 +437,7 @@ public final class OresGuestException extends AbstractTruffleException {
     }
 
     @ExportLibrary(InteropLibrary.class)
-    static final class FrameArray {
+    static final class FrameArray implements TruffleObject {
         private static final FrameArray EMPTY = new FrameArray(List.of());
         private final List<FrameValue> values;
 
@@ -474,7 +475,7 @@ public final class OresGuestException extends AbstractTruffleException {
     }
 
     @ExportLibrary(InteropLibrary.class)
-    static final class TraceArray {
+    static final class TraceArray implements TruffleObject {
         private final List<TraceValue> values;
 
         private TraceArray(List<TraceValue> values) {
@@ -515,7 +516,7 @@ public final class OresGuestException extends AbstractTruffleException {
     }
 
     @ExportLibrary(InteropLibrary.class)
-    static final class MemberNames {
+    static final class MemberNames implements TruffleObject {
         private final String[] names;
 
         private MemberNames(String... names) {
