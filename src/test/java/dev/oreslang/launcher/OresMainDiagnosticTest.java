@@ -105,7 +105,9 @@ final class OresMainDiagnosticTest {
         assertTrue(json.contains("\"symbol\":\"top\""), json);
         assertTrue(json.contains("\"kind\":\"await\""), json);
         assertTrue(json.contains("\"event_order\":\"oldest_to_newest\""), json);
-        assertTrue(json.contains("async-stack-chain-error.ores"), json);
+        assertTrue(json.contains("diagnostics/async-stack-chain-error.ores"), json);
+        assertFalse(json.contains("target/test-classes"), json);
+        assertFalse(json.contains("/home/runner/"), json);
         assertFalse(json.contains("OresScheduler$TaskRunner"), json);
     }
 

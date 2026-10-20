@@ -212,8 +212,47 @@ final class OresDiagnosticRendererTest {
 
         String json = OresDiagnosticRenderer.renderJson(failure);
         String text = OresDiagnosticRenderer.renderText(failure);
-        assertTrue(json.contains("\"elided_async_traces\":68"), json);
-        assertTrue(text.contains("68 additional Oreslang causal trace(s) elided"), text);
+        assertTrue(json.contains("\"elided_async_traces\":92"), json);
+        assertTrue(text.contains("92 additional Oreslang causal trace(s) elided"), text);
+    }
+
+    @Test
+    void rendererKeepsNewestTraceEventsAndAccountsForDisplayElision() {
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("worker", site("events.ores", 1, 1)));
+        for (int i = 0; i < 80; i++) {
+            trace.awaitAt(site("events.ores", i + 2, 1));
+        }
+        IllegalStateException failure = new IllegalStateException("many-events");
+        OresAsyncTrace.attach(failure, trace);
+
+        String json = OresDiagnosticRenderer.renderJson(failure);
+        String text = OresDiagnosticRenderer.renderText(failure);
+
+        assertTrue(json.contains("\"elided_events\":16"), json);
+        assertTrue(text.contains("16 older async trace events elided"), text);
+        assertFalse(json.contains("\"line\":2,"), json);
+        assertTrue(json.contains("\"line\":81,"), json);
+    }
+
+    @Test
+    void asyncTraceRenderBudgetIsGlobalAcrossErrorGraph() {
+        IllegalStateException root = new IllegalStateException("root");
+        for (int i = 0; i < 20; i++) {
+            RuntimeException child = new RuntimeException("child-" + i);
+            OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                    new OresAsyncTrace.Frame("worker_" + i, site("budget.ores", i + 1, 1)));
+            trace.awaitAt(site("budget.ores", i + 2, 1));
+            OresAsyncTrace.attach(child, trace);
+            root.addSuppressed(child);
+        }
+
+        String json = OresDiagnosticRenderer.renderJson(root);
+        int rendered = json.split("\"event_order\":\"oldest_to_newest\"", -1).length - 1;
+
+        assertEquals(16, rendered, "global render budget must cap logical trace expansion");
+        assertTrue(json.contains("\"elided_async_traces\":1"), json);
+        assertTrue(json.length() < 200_000, "global async trace budget must bound output");
     }
 
     @Test

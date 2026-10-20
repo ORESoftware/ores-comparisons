@@ -16,9 +16,13 @@ public final class OresDiagnosticRenderer {
     public static final String SCHEMA = "oreslang.error.v1";
     private static final int MAX_CAUSE_DEPTH = 16;
     private static final int MAX_MESSAGE_CHARS = 4096;
+    private static final int MAX_SOURCE_CHARS = 1024;
     private static final int MAX_TYPE_CHARS = 256;
     private static final int MAX_SUPPRESSED = 16;
     private static final int MAX_ERROR_NODES = 64;
+    private static final int MAX_RENDERED_ASYNC_TRACES_PER_FAILURE = 8;
+    private static final int MAX_RENDERED_ASYNC_TRACES_TOTAL = 16;
+    private static final int MAX_RENDERED_TRACE_EVENTS = 64;
 
     private OresDiagnosticRenderer() { }
 
@@ -71,11 +75,16 @@ public final class OresDiagnosticRenderer {
         String message = bounded(failure.getMessage(), MAX_MESSAGE_CHARS);
         if (!message.isBlank()) out.append(": ").append(safeHuman(message));
 
-        int logicalCount = 0;
+        int renderedLogical = 0;
         long elidedTraces = 0;
         for (Throwable suppressed : failure.getSuppressed()) {
             if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace logical) {
-                logicalCount++;
+                if (renderedLogical >= MAX_RENDERED_ASYNC_TRACES_PER_FAILURE
+                        || !state.consumeAsyncTrace()) {
+                    elidedTraces = saturatingAdd(elidedTraces, 1);
+                    continue;
+                }
+                renderedLogical++;
                 out.append("\nOreslang causal async stack:");
                 appendTextTrace(out, logical.snapshot());
             } else if (suppressed instanceof OresAsyncTrace.LogicalAsyncTraceElision elision) {
@@ -85,9 +94,6 @@ public final class OresDiagnosticRenderer {
         if (elidedTraces > 0) {
             out.append("\n    ... ").append(elidedTraces)
                     .append(" additional Oreslang causal trace(s) elided");
-        }
-        if (logicalCount == 0 && causedBy) {
-            // Deliberately do not print the host/carrier Java stack.
         }
 
         int renderedSuppressed = 0;
@@ -122,7 +128,8 @@ public final class OresDiagnosticRenderer {
     private static void appendTextTrace(StringBuilder out, OresAsyncTrace.TraceSnapshot trace) {
         appendTextFrame(out, "at", trace.currentFrame());
         var events = trace.events();
-        for (int i = events.size() - 1; i >= 0; i--) {
+        int firstRendered = Math.max(0, events.size() - MAX_RENDERED_TRACE_EVENTS);
+        for (int i = events.size() - 1; i >= firstRendered; i--) {
             OresAsyncTrace.Event event = events.get(i);
             if (event instanceof OresAsyncTrace.AwaitEvent awaited) {
                 appendTextBoundary(out, "await", awaited.site(), null);
@@ -143,8 +150,9 @@ public final class OresDiagnosticRenderer {
                         boundary.frame().symbol());
             }
         }
-        if (trace.elidedEvents() > 0) {
-            out.append("\n    ... ").append(trace.elidedEvents())
+        long elidedEvents = saturatingAdd(trace.elidedEvents(), firstRendered);
+        if (elidedEvents > 0) {
+            out.append("\n    ... ").append(elidedEvents)
                     .append(" older async trace events elided");
         }
     }
@@ -174,7 +182,7 @@ public final class OresDiagnosticRenderer {
     private static void appendTextSite(
             StringBuilder out,
             OresAsyncTrace.SourceSite site) {
-        out.append(" (").append(safeHuman(bounded(site.sourceId(), MAX_MESSAGE_CHARS)));
+        out.append(" (").append(safeHuman(bounded(site.sourceId(), MAX_SOURCE_CHARS)));
         if (site.line() > 0) {
             out.append(':').append(site.line());
             if (site.column() > 0) out.append(':').append(site.column());
@@ -216,9 +224,16 @@ public final class OresDiagnosticRenderer {
 
         out.append(",\"async_traces\":[");
         boolean firstTrace = true;
+        int renderedLogical = 0;
         long elidedTraces = 0;
         for (Throwable suppressed : failure.getSuppressed()) {
             if (suppressed instanceof OresAsyncTrace.LogicalAsyncStackTrace logical) {
+                if (renderedLogical >= MAX_RENDERED_ASYNC_TRACES_PER_FAILURE
+                        || !state.consumeAsyncTrace()) {
+                    elidedTraces = saturatingAdd(elidedTraces, 1);
+                    continue;
+                }
+                renderedLogical++;
                 if (!firstTrace) out.append(',');
                 firstTrace = false;
                 appendJsonTrace(out, logical.snapshot());
@@ -270,13 +285,17 @@ public final class OresDiagnosticRenderer {
         out.append(",\"event_order\":\"oldest_to_newest\"");
         out.append(",\"events\":[");
         boolean first = true;
-        for (OresAsyncTrace.Event event : trace.events()) {
+        var events = trace.events();
+        int firstRendered = Math.max(0, events.size() - MAX_RENDERED_TRACE_EVENTS);
+        for (int i = firstRendered; i < events.size(); i++) {
+            OresAsyncTrace.Event event = events.get(i);
             if (!first) out.append(',');
             first = false;
             appendJsonEvent(out, event);
         }
         out.append(']');
-        out.append(",\"elided_events\":").append(trace.elidedEvents());
+        out.append(",\"elided_events\":")
+                .append(saturatingAdd(trace.elidedEvents(), firstRendered));
         out.append('}');
     }
 
@@ -326,7 +345,7 @@ public final class OresDiagnosticRenderer {
 
     private static void appendJsonSite(StringBuilder out, OresAsyncTrace.SourceSite site) {
         out.append("{\"source\":");
-        appendJsonString(out, bounded(site.sourceId(), MAX_MESSAGE_CHARS));
+        appendJsonString(out, bounded(site.sourceId(), MAX_SOURCE_CHARS));
         out.append(",\"line\":").append(site.line());
         out.append(",\"column\":").append(site.column());
         out.append(",\"generation\":");
@@ -416,10 +435,17 @@ public final class OresDiagnosticRenderer {
     private static final class RenderState {
         private final IdentityHashMap<Throwable, Boolean> active = new IdentityHashMap<>();
         private int remaining = MAX_ERROR_NODES;
+        private int remainingAsyncTraces = MAX_RENDERED_ASYNC_TRACES_TOTAL;
 
         private boolean consumeNode() {
             if (remaining <= 0) return false;
             remaining--;
+            return true;
+        }
+
+        private boolean consumeAsyncTrace() {
+            if (remainingAsyncTraces <= 0) return false;
+            remainingAsyncTraces--;
             return true;
         }
     }

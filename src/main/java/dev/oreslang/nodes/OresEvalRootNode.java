@@ -104,6 +104,7 @@ public final class OresEvalRootNode extends RootNode {
         private final Ast.Program program;
         private final OresContext context;
         private final String codeUnitId;
+        private final String traceSourceId;
         private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
         private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
         private final Map<String, Ast.InterfaceDecl> interfaces = new HashMap<>();
@@ -121,6 +122,7 @@ public final class OresEvalRootNode extends RootNode {
             this.program = program;
             this.context = context;
             this.codeUnitId = normalizeUnitId(codeUnitId);
+            this.traceSourceId = diagnosticSourceId(this.codeUnitId);
             indexImports();
             indexDeclarations();
         }
@@ -275,7 +277,7 @@ public final class OresEvalRootNode extends RootNode {
         private OresAsyncTrace.SourceSite traceSite(Ast.SourceSite site) {
             Ast.SourceSite actual = site == null ? Ast.SourceSite.UNKNOWN : site;
             return new OresAsyncTrace.SourceSite(
-                    codeUnitId,
+                    traceSourceId,
                     actual.line(),
                     actual.column(),
                     context.codeGenerationId());
@@ -3015,6 +3017,23 @@ public final class OresEvalRootNode extends RootNode {
                 fields.put(field.name(), value);
             }
             return new OresObject(this, klass, fields);
+        }
+
+        private static String diagnosticSourceId(String id) {
+            String normalized = normalizeUnitId(id);
+            try {
+                Path path = Path.of(normalized).normalize();
+                if (!path.isAbsolute()) return normalized;
+                int names = path.getNameCount();
+                if (names <= 0) return "<source>";
+                int start = Math.max(0, names - 2);
+                return path.subpath(start, names).toString().replace('\\', '/');
+            } catch (RuntimeException invalidPath) {
+                int slash = normalized.lastIndexOf('/');
+                return slash >= 0 && slash + 1 < normalized.length()
+                        ? normalized.substring(slash + 1)
+                        : normalized;
+            }
         }
 
         private static String normalizeUnitId(String id) {
