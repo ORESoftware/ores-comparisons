@@ -419,6 +419,40 @@ final class OresSchedulerTest {
     }
 
     @Test
+    void explicitlyAwaitedStructuredChildFailureResumesParentContinuation() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(2)) {
+            AtomicInteger parentPc = new AtomicInteger();
+
+            OresFuture<Integer> parent = scheduler.start(resume -> {
+                int pc = parentPc.getAndIncrement();
+                if (pc == 0) {
+                    OresFuture<Integer> child = scheduler.startSync(() -> {
+                        throw new IllegalStateException("awaited child boom");
+                    });
+
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                    while (!child.isDone() && System.nanoTime() < deadline) {
+                        Thread.onSpinWait();
+                    }
+                    assertTrue(child.isDone(),
+                            "child must fail while the parent turn is still active");
+                    return OresScheduler.await(child);
+                }
+
+                assertNotNull(resume.failure(),
+                        "explicit child await must deliver failure through the continuation");
+                assertInstanceOf(IllegalStateException.class, resume.failure());
+                assertEquals("awaited child boom", resume.failure().getMessage());
+                return OresScheduler.done(42);
+            });
+
+            assertEquals(42, parent.get(5, TimeUnit.SECONDS));
+            assertEquals(2, parentPc.get(),
+                    "parent must receive a fresh resumed turn after child failure");
+        }
+    }
+
+    @Test
     void childFailureFailsParentAndCancelsSibling() throws Exception {
         try (OresScheduler scheduler = new OresScheduler(3)) {
             OresFuture<Integer> failGate = new OresFuture<>();

@@ -61,6 +61,7 @@ public final class OresScheduler implements AutoCloseable {
         boolean attachChild(StructuredTask child);
         void childTerminated(StructuredTask child, Throwable failure, boolean cancelled);
         void cancelFromParent();
+        OresFuture<?> completionFuture();
     }
 
     /** One compiler-generated async state-machine turn. */
@@ -462,6 +463,10 @@ public final class OresScheduler implements AutoCloseable {
                 new AtomicReference<>();
         private final AtomicReference<OresFuture.RuntimeWaiterRegistration>
                 activeAwaitRegistration = new AtomicReference<>();
+        private final AtomicReference<OresFuture<?>> activeAwaitedFuture =
+                new AtomicReference<>();
+        private final AtomicReference<StructuredChildFailure> pendingStructuredFailure =
+                new AtomicReference<>();
         private final AtomicReference<TerminalSuccess<T>> pendingStructuredSuccess =
                 new AtomicReference<>();
         private final AtomicBoolean parentNotified = new AtomicBoolean();
@@ -570,8 +575,20 @@ public final class OresScheduler implements AutoCloseable {
         }
 
         private void armAwait(OresFuture<?> awaited) {
+            activeAwaitedFuture.set(awaited);
             if (!phase.compareAndSet(RUNNING, WAITING)) {
+                activeAwaitedFuture.compareAndSet(awaited, null);
                 return;
+            }
+
+            StructuredChildFailure pending = pendingStructuredFailure.get();
+            if (pending != null) {
+                if (pending.child().completionFuture() == awaited) {
+                    pendingStructuredFailure.compareAndSet(pending, null);
+                } else if (pendingStructuredFailure.compareAndSet(pending, null)) {
+                    failTerminal(pending.failure());
+                    return;
+                }
             }
 
             try {
@@ -599,12 +616,8 @@ public final class OresScheduler implements AutoCloseable {
                         activeAwaitRegistration.getAndSet(registration);
                 if (previous != null) previous.detach();
 
-                // A terminal/already-completed Future may have invoked the
-                // callback synchronously before the registration was published.
-                // In that case the waiter is already claimed; clear our strong
-                // reference immediately.
                 if (phase.get() != WAITING || pendingResume.get() != null) {
-                    detachActiveAwaitRegistration();
+                    detachAwaitRegistrationOnly();
                 }
             } catch (RuntimeException | Error registrationFailure) {
                 failTerminal(registrationFailure);
@@ -642,14 +655,24 @@ public final class OresScheduler implements AutoCloseable {
             }
         }
 
-        private void detachActiveAwaitRegistration() {
+        private void detachAwaitRegistrationOnly() {
             OresFuture.RuntimeWaiterRegistration registration =
                     activeAwaitRegistration.getAndSet(null);
             if (registration != null) registration.detach();
         }
 
+        private void detachActiveAwaitRegistration() {
+            detachAwaitRegistrationOnly();
+            activeAwaitedFuture.set(null);
+        }
+
         private void finish(T value) {
             detachActiveAwaitRegistration();
+            StructuredChildFailure pending = pendingStructuredFailure.getAndSet(null);
+            if (pending != null) {
+                failTerminal(pending.failure());
+                return;
+            }
             TerminalSuccess<T> success = new TerminalSuccess<>(value);
             pendingStructuredSuccess.set(success);
 
@@ -696,6 +719,7 @@ public final class OresScheduler implements AutoCloseable {
             terminalOutcome.compareAndSet(null, new TerminalFailure<>(failure));
             tasks.remove(this);
             pendingResume.set(null);
+            pendingStructuredFailure.set(null);
             cancelOwnedChildren();
             if (!executing.get()) {
                 publishTerminalIfReady();
@@ -748,10 +772,25 @@ public final class OresScheduler implements AutoCloseable {
                 Throwable failure,
                 boolean cancelled) {
             if (failure != null) {
-                // Fail the scope before removing the failing child. This closes
-                // the race where the parent body returns concurrently and
-                // could otherwise observe an empty child set and publish
-                // success before the child failure becomes authoritative.
+                OresFuture<?> childCompletion = child.completionFuture();
+
+                if (activeAwaitedFuture.get() == childCompletion) {
+                    synchronized (childLock) {
+                        children.remove(child);
+                    }
+                    return;
+                }
+
+                if (executing.get() && phase.get() == RUNNING) {
+                    pendingStructuredFailure.compareAndSet(
+                            null,
+                            new StructuredChildFailure(child, failure));
+                    synchronized (childLock) {
+                        children.remove(child);
+                    }
+                    return;
+                }
+
                 failTerminal(failure);
                 synchronized (childLock) {
                     children.remove(child);
@@ -786,6 +825,11 @@ public final class OresScheduler implements AutoCloseable {
             completion.cancel(false);
         }
 
+        @Override
+        public OresFuture<?> completionFuture() {
+            return completion;
+        }
+
         private void failBeforeStart(Throwable failure) {
             failTerminal(failure);
         }
@@ -807,6 +851,15 @@ public final class OresScheduler implements AutoCloseable {
 
         private void cancelFromSchedulerClose() {
             completion.cancel(false);
+        }
+    }
+
+    private record StructuredChildFailure(
+            StructuredTask child,
+            Throwable failure) {
+        private StructuredChildFailure {
+            Objects.requireNonNull(child, "child");
+            Objects.requireNonNull(failure, "failure");
         }
     }
 
