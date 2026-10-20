@@ -1,5 +1,5 @@
 pub async routine main() => void {
-  val pending = Future.from_callback((completion) -> {
+  val pending = Future.from_callback<int>(|completion| -> {
     return;
   });
   pending.cancel();
