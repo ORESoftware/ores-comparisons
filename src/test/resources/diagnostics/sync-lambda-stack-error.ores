@@ -1,0 +1,8 @@
+pub routine main() => void {
+  val fail = (int ignored) -> {
+    None.unwrap();
+    return;
+  };
+  fail(1);
+  return;
+}

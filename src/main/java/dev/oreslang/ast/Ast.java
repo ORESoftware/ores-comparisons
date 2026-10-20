@@ -410,19 +410,42 @@ public final class Ast {
             Expr callee,
             List<TypeRef> typeArguments,
             boolean typeArgumentsPresent,
-            List<Expr> arguments) implements Expr {
+            List<Expr> arguments,
+            SourceSite site) implements Expr {
         public CallExpr {
             typeArguments = List.copyOf(typeArguments);
             arguments = List.copyOf(arguments);
+            site = site == null ? SourceSite.UNKNOWN : site;
             if (!typeArgumentsPresent && !typeArguments.isEmpty()) {
                 throw new IllegalArgumentException("call type arguments require an explicit <...> marker");
             }
         }
+        /** Backwards-compatible constructor for programmatically-built ASTs. */
+        public CallExpr(
+                Expr callee,
+                List<TypeRef> typeArguments,
+                boolean typeArgumentsPresent,
+                List<Expr> arguments) {
+            this(callee, typeArguments, typeArgumentsPresent, arguments, SourceSite.UNKNOWN);
+        }
         public CallExpr(Expr callee, List<Expr> arguments) {
-            this(callee, List.of(), false, arguments);
+            this(callee, List.of(), false, arguments, SourceSite.UNKNOWN);
+        }
+        public CallExpr(
+                Expr callee,
+                List<Expr> arguments,
+                SourceSite site) {
+            this(callee, List.of(), false, arguments, site);
         }
         public CallExpr(Expr callee, List<TypeRef> typeArguments, List<Expr> arguments) {
-            this(callee, typeArguments, true, arguments);
+            this(callee, typeArguments, true, arguments, SourceSite.UNKNOWN);
+        }
+        public CallExpr(
+                Expr callee,
+                List<TypeRef> typeArguments,
+                List<Expr> arguments,
+                SourceSite site) {
+            this(callee, typeArguments, true, arguments, site);
         }
     }
 
@@ -462,15 +485,27 @@ public final class Ast {
             Expr expressionBody,
             List<Stmt> blockBody,
             boolean async,
-            boolean nonLexical) implements Expr {
+            boolean nonLexical,
+            SourceSite site) implements Expr {
         public LambdaExpr {
             parameters = List.copyOf(parameters);
             blockBody = blockBody == null ? null : List.copyOf(blockBody);
+            site = site == null ? SourceSite.UNKNOWN : site;
+        }
+
+        /** Backwards-compatible constructor for callers predating lambda sites. */
+        public LambdaExpr(
+                List<Param> parameters,
+                Expr expressionBody,
+                List<Stmt> blockBody,
+                boolean async,
+                boolean nonLexical) {
+            this(parameters, expressionBody, blockBody, async, nonLexical, SourceSite.UNKNOWN);
         }
 
         /** Backwards-compatible constructor for synchronous lexical lambdas. */
         public LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody) {
-            this(parameters, expressionBody, blockBody, false, false);
+            this(parameters, expressionBody, blockBody, false, false, SourceSite.UNKNOWN);
         }
 
         /** Backwards-compatible constructor for synchronous lambdas with nlex. */
@@ -479,7 +514,7 @@ public final class Ast {
                 Expr expressionBody,
                 List<Stmt> blockBody,
                 boolean nonLexical) {
-            this(parameters, expressionBody, blockBody, false, nonLexical);
+            this(parameters, expressionBody, blockBody, false, nonLexical, SourceSite.UNKNOWN);
         }
     }
 }

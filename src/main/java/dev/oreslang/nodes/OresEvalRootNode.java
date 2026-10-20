@@ -101,6 +101,8 @@ public final class OresEvalRootNode extends RootNode {
     }
 
     private static final class Evaluator {
+        private static final ThreadLocal<OresAsyncTrace.SourceSite> CALL_SITE = new ThreadLocal<>();
+
         private final Ast.Program program;
         private final OresContext context;
         private final String codeUnitId;
@@ -308,19 +310,34 @@ public final class OresEvalRootNode extends RootNode {
                     traceSite(method.site()));
         }
 
-        private OresAsyncTrace.Frame lambdaTraceFrame() {
+        private OresAsyncTrace.Frame lambdaTraceFrame(Ast.LambdaExpr lambda) {
             return new OresAsyncTrace.Frame(
-                    "<async-lambda>",
-                    OresAsyncTrace.SourceSite.unknown(
-                            codeUnitId,
-                            context.codeGenerationId()));
+                    lambda.async() ? "<async-lambda>" : "<lambda>",
+                    traceSite(lambda.site()));
+        }
+
+        private Object invokeAtCallSite(
+                Ast.SourceSite site,
+                java.util.function.Supplier<Object> invocation) {
+            Objects.requireNonNull(invocation, "invocation");
+            Ast.SourceSite actual = site == null ? Ast.SourceSite.UNKNOWN : site;
+            if (!actual.known()) return invocation.get();
+
+            OresAsyncTrace.SourceSite previous = CALL_SITE.get();
+            CALL_SITE.set(traceSite(actual));
+            try {
+                return invocation.get();
+            } finally {
+                if (previous == null) CALL_SITE.remove();
+                else CALL_SITE.set(previous);
+            }
         }
 
         private OresAsyncTrace.Trace traceForInvocation(OresAsyncTrace.Frame frame) {
             OresAsyncTrace.Trace parent = OresAsyncTrace.current();
-            return parent == null
-                    ? OresAsyncTrace.root(frame)
-                    : parent.child(frame, frame.site());
+            if (parent == null) return OresAsyncTrace.root(frame);
+            OresAsyncTrace.SourceSite callSite = CALL_SITE.get();
+            return parent.child(frame, callSite == null ? frame.site() : callSite);
         }
 
         private record AsyncCallableContext(
@@ -526,7 +543,7 @@ public final class OresEvalRootNode extends RootNode {
                     asyncPure(flow instanceof AsyncReturn returned ? returned.value() : null));
             AsyncPlanTask task = new AsyncPlanTask(
                     completed,
-                    traceForInvocation(lambdaTraceFrame()));
+                    traceForInvocation(lambdaTraceFrame(lambda)));
             return detached ? scheduler.startDetached(task) : scheduler.start(task);
         }
 
@@ -1761,10 +1778,12 @@ public final class OresEvalRootNode extends RootNode {
                 if (call.callee() instanceof Ast.MemberExpr memberCall) {
                     return asyncFlatMap(asyncEval(memberCall.receiver(), env), receiver ->
                             asyncFlatMap(asyncEvalArguments(call.arguments(), 0, env, new ArrayList<>()), args ->
-                                    safePlan(() -> asyncPure(invokeEvaluatedMemberCall(
-                                            receiver,
-                                            memberCall.member(),
-                                            castObjectList(args))))));
+                                    safePlan(() -> asyncPure(invokeAtCallSite(
+                                            call.site(),
+                                            () -> invokeEvaluatedMemberCall(
+                                                    receiver,
+                                                    memberCall.member(),
+                                                    castObjectList(args)))))));
                 }
                 return asyncFlatMap(asyncEval(call.callee(), env), callee ->
                         asyncFlatMap(asyncEvalArguments(call.arguments(), 0, env, new ArrayList<>()), args -> {
@@ -1773,7 +1792,9 @@ public final class OresEvalRootNode extends RootNode {
                                         "value is not callable: " + callee));
                             }
                             return safePlan(() ->
-                                    asyncPure(invokable.call(castObjectList(args))));
+                                    asyncPure(invokeAtCallSite(
+                                            call.site(),
+                                            () -> invokable.call(castObjectList(args)))));
                         }));
             }
 
@@ -2412,19 +2433,33 @@ public final class OresEvalRootNode extends RootNode {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
                     if (receiver instanceof OresObject object) {
-                        return object.owner.invokeMethod(object, methodCall.member(), args);
+                        return invokeAtCallSite(
+                                call.site(),
+                                () -> object.owner.invokeMethod(
+                                        object,
+                                        methodCall.member(),
+                                        args));
                     }
                     if (receiver instanceof ClassFacade klass) {
-                        return klass.owner().invokeStaticFunction(klass.klass(), methodCall.member(), args);
+                        return invokeAtCallSite(
+                                call.site(),
+                                () -> klass.owner().invokeStaticFunction(
+                                        klass.klass(),
+                                        methodCall.member(),
+                                        args));
                     }
                     Object callee = member(receiver, methodCall.member());
-                    if (!(callee instanceof Invokable invokable)) throw new IllegalArgumentException("value is not callable: " + callee);
-                    return invokable.call(args);
+                    if (!(callee instanceof Invokable invokable)) {
+                        throw new IllegalArgumentException("value is not callable: " + callee);
+                    }
+                    return invokeAtCallSite(call.site(), () -> invokable.call(args));
                 }
                 Object callee = eval(call.callee(), env);
                 List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
-                if (!(callee instanceof Invokable invokable)) throw new IllegalArgumentException("value is not callable: " + callee);
-                return invokable.call(args);
+                if (!(callee instanceof Invokable invokable)) {
+                    throw new IllegalArgumentException("value is not callable: " + callee);
+                }
+                return invokeAtCallSite(call.site(), () -> invokable.call(args));
             }
             if (expr instanceof Ast.MemberExpr member) return member(eval(member.receiver(), env), member.member());
             if (expr instanceof Ast.IndexExpr indexed) {
@@ -2507,24 +2542,33 @@ public final class OresEvalRootNode extends RootNode {
                     if (args.size() != lambda.parameters().size()) {
                         throw new IllegalArgumentException("lambda arity mismatch");
                     }
-                    Env local = new Env(captured, nonLexical);
-                    for (int i = 0; i < lambda.parameters().size(); i++) {
-                        Ast.Param param = lambda.parameters().get(i);
-                        local.define(
-                                param.name(),
-                                args.get(i),
-                                param.mutable()
-                                        ? Ast.BindingKind.LET
-                                        : Ast.BindingKind.VAL);
-                    }
-                    if (lambda.expressionBody() != null) {
-                        return eval(lambda.expressionBody(), local);
-                    }
-                    try {
-                        executeBlock(lambda.blockBody(), local);
-                        return null;
-                    } catch (ReturnSignal signal) {
-                        return signal.value;
+                    OresAsyncTrace.Trace trace =
+                            traceForInvocation(lambdaTraceFrame(lambda));
+                    try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                        try {
+                            Env local = new Env(captured, nonLexical);
+                            for (int i = 0; i < lambda.parameters().size(); i++) {
+                                Ast.Param param = lambda.parameters().get(i);
+                                local.define(
+                                        param.name(),
+                                        args.get(i),
+                                        param.mutable()
+                                                ? Ast.BindingKind.LET
+                                                : Ast.BindingKind.VAL);
+                            }
+                            if (lambda.expressionBody() != null) {
+                                return eval(lambda.expressionBody(), local);
+                            }
+                            try {
+                                executeBlock(lambda.blockBody(), local);
+                                return null;
+                            } catch (ReturnSignal signal) {
+                                return signal.value;
+                            }
+                        } catch (RuntimeException | Error failure) {
+                            attachGuestFailure(failure, trace);
+                            throw failure;
+                        }
                     }
                 };
             }

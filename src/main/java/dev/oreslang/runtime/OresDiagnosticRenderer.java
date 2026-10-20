@@ -148,7 +148,10 @@ public final class OresDiagnosticRenderer {
             if (event instanceof OresAsyncTrace.AwaitEvent awaited) {
                 appendTextBoundary(out, "await", awaited.site(), null);
             } else if (event instanceof OresAsyncTrace.CallEvent call) {
-                appendTextFrame(out, "at", call.caller());
+                appendTextFrame(
+                        out,
+                        "at",
+                        new OresAsyncTrace.Frame(call.caller().symbol(), call.site()));
             } else if (event instanceof OresAsyncTrace.TailEvent tail) {
                 String detail = tail.from().symbol() + " -> " + tail.to().symbol()
                         + (tail.repetitions() == 1

@@ -100,6 +100,41 @@ final class ParserTest {
     }
 
     @Test
+    void callAndLambdaExpressionsCarryExactParserCoordinates() {
+        Ast.Program program = Parser.parse("""
+                fnc callee() => void { return; }
+                pub fnc main() => void {
+                  val callback = (int value) -> {
+                    callee();
+                    return;
+                  };
+                  callback(1);
+                  return;
+                }
+                """);
+
+        Ast.FunctionDecl main = (Ast.FunctionDecl)
+                program.modules().getFirst().declarations().get(1);
+        Ast.BindingStmt binding = (Ast.BindingStmt) main.body().getFirst();
+        Ast.LambdaExpr lambda = assertInstanceOf(
+                Ast.LambdaExpr.class,
+                binding.initializer());
+        assertEquals(new Ast.SourceSite(3, 18), lambda.site());
+
+        Ast.ExprStmt nestedStatement = (Ast.ExprStmt) lambda.blockBody().getFirst();
+        Ast.CallExpr nestedCall = assertInstanceOf(
+                Ast.CallExpr.class,
+                nestedStatement.expression());
+        assertEquals(new Ast.SourceSite(4, 11), nestedCall.site());
+
+        Ast.ExprStmt outerStatement = (Ast.ExprStmt) main.body().get(1);
+        Ast.CallExpr outerCall = assertInstanceOf(
+                Ast.CallExpr.class,
+                outerStatement.expression());
+        assertEquals(new Ast.SourceSite(7, 11), outerCall.site());
+    }
+
+    @Test
     void lexerRecognizesLambdaAndFatReturnArrows() {
         var tokens = new Lexer("(int x) -> x + 1; fnc f() => int { return 1; }").scan();
         assertTrue(tokens.stream().anyMatch(t -> t.type() == Token.Type.ARROW));

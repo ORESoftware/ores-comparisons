@@ -71,8 +71,14 @@ final class OresAsyncTraceTest {
                         failure.getSuppressed()[0]);
         assertTrue(logical.logicalTrace().contains("callee"));
         assertTrue(logical.logicalTrace().contains("caller"));
+        assertTrue(logical.logicalTrace().contains("trace-test.ores:25:7"),
+                logical.logicalTrace());
+        assertFalse(logical.logicalTrace().contains("caller (trace-test.ores:20:7"),
+                logical.logicalTrace());
         assertTrue(logical.logicalTrace().contains("--- await"));
         assertTrue(logical.getStackTrace().length >= 3);
+        assertEquals("caller", logical.getStackTrace()[2].getMethodName());
+        assertEquals(25, logical.getStackTrace()[2].getLineNumber());
 
         OresAsyncTrace.attach(failure, trace);
         assertEquals(1, failure.getSuppressed().length,

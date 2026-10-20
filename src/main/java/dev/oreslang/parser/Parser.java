@@ -1277,14 +1277,22 @@ public final class Parser {
         while (true) {
             if (check(LT) && adjacent(previous(), peek()) && looksLikeTypeArgumentCall()) {
                 List<Ast.TypeRef> typeArguments = parseCallTypeArguments();
-                consume(LPAREN, "expected '(' after call type arguments");
+                Token open = consume(LPAREN, "expected '(' after call type arguments");
                 List<Ast.Expr> args = parseArgumentsUntil(RPAREN);
                 consume(RPAREN, "expected ')' after arguments");
-                expr = new Ast.CallExpr(expr, typeArguments, args);
+                expr = new Ast.CallExpr(
+                        expr,
+                        typeArguments,
+                        args,
+                        new Ast.SourceSite(open.line(), open.column()));
             } else if (match(LPAREN)) {
+                Token open = previous();
                 List<Ast.Expr> args = parseArgumentsUntil(RPAREN);
                 consume(RPAREN, "expected ')' after arguments");
-                expr = new Ast.CallExpr(expr, args);
+                expr = new Ast.CallExpr(
+                        expr,
+                        args,
+                        new Ast.SourceSite(open.line(), open.column()));
             } else if (match(DOT)) {
                 String member = consumeMemberName();
                 expr = new Ast.MemberExpr(expr, member);
@@ -1435,16 +1443,22 @@ public final class Parser {
     }
 
     private Ast.LambdaExpr parseLambda(boolean async, boolean nonLexical) {
-        consume(LPAREN, "expected '('");
+        Token open = consume(LPAREN, "expected '('");
         List<Ast.Param> params = parseParametersUntil(RPAREN);
         consume(RPAREN, "expected ')' after lambda parameters");
         consume(ARROW, "expected '->' after lambda parameters");
         if (!check(LBRACE)) throw error(peek(), "lambdas always require a block body; use '-> { ... }'");
-        return new Ast.LambdaExpr(params, null, parseBlock(), async, nonLexical);
+        return new Ast.LambdaExpr(
+                params,
+                null,
+                parseBlock(),
+                async,
+                nonLexical,
+                new Ast.SourceSite(open.line(), open.column()));
     }
 
     private Ast.LambdaExpr parsePipeLambda(boolean async, boolean nonLexical) {
-        consume(PIPE, "expected '|'");
+        Token open = consume(PIPE, "expected '|'");
         List<Ast.Param> params = new ArrayList<>();
         if (!check(PIPE)) {
             do {
@@ -1462,7 +1476,13 @@ public final class Parser {
         consume(PIPE, "expected closing '|' after lambda parameters");
         consume(ARROW, "lambdas use the slim arrow '->'");
         if (!check(LBRACE)) throw error(peek(), "lambdas always require a block body; use '|args| -> { ... }'");
-        return new Ast.LambdaExpr(params, null, parseBlock(), async, nonLexical);
+        return new Ast.LambdaExpr(
+                params,
+                null,
+                parseBlock(),
+                async,
+                nonLexical,
+                new Ast.SourceSite(open.line(), open.column()));
     }
 
     private boolean looksLikeLambda() {

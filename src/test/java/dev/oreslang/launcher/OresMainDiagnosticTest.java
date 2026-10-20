@@ -116,6 +116,12 @@ final class OresMainDiagnosticTest {
         assertTrue(run.stderr().contains("leaf"), run.stderr());
         assertTrue(run.stderr().contains("middle"), run.stderr());
         assertTrue(run.stderr().contains("main"), run.stderr());
+        assertTrue(run.stderr().contains(
+                "middle (diagnostics/sync-stack-chain-error.ores:7:14"),
+                run.stderr());
+        assertTrue(run.stderr().contains(
+                "main (diagnostics/sync-stack-chain-error.ores:11:21"),
+                run.stderr());
         assertTrue(run.stderr().contains("diagnostics/sync-stack-chain-error.ores"), run.stderr());
         assertFalse(run.stderr().contains("java.lang.Thread"), run.stderr());
     }
@@ -131,8 +137,32 @@ final class OresMainDiagnosticTest {
         assertTrue(json.contains("\"symbol\":\"leaf\""), json);
         assertTrue(json.contains("\"symbol\":\"middle\""), json);
         assertTrue(json.contains("\"symbol\":\"main\""), json);
+        assertTrue(json.contains(
+                "\"site\":{\"source\":\"diagnostics/sync-stack-chain-error.ores\",\"line\":7,\"column\":14"),
+                json);
+        assertTrue(json.contains(
+                "\"site\":{\"source\":\"diagnostics/sync-stack-chain-error.ores\",\"line\":11,\"column\":21"),
+                json);
         assertTrue(json.contains("\"async_traces\":[]"), json);
         assertFalse(json.contains("target/test-classes"), json);
+    }
+
+    @Test
+    void synchronousLambdaFailureUsesLambdaDeclarationAndInvocationSites() throws Exception {
+        Run run = invoke("sync-lambda-stack-error.ores", true);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        String json = run.stderr().trim();
+        assertTrue(json.contains("Option::unwrap"), json);
+        assertTrue(json.contains("\"symbol\":\"<lambda>\""), json);
+        assertTrue(json.contains(
+                "\"current\":{\"symbol\":\"<lambda>\",\"site\":{\"source\":\"diagnostics/sync-lambda-stack-error.ores\",\"line\":2,\"column\":14"),
+                json);
+        assertTrue(json.contains(
+                "\"site\":{\"source\":\"diagnostics/sync-lambda-stack-error.ores\",\"line\":6,\"column\":7"),
+                json);
+        assertTrue(json.contains("\"symbol\":\"main\""), json);
     }
 
     @Test

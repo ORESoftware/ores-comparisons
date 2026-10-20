@@ -259,7 +259,7 @@ public final class OresAsyncTrace {
                 if (event instanceof AwaitEvent awaited) {
                     appendBoundary(out, "await", awaited.site(), null);
                 } else if (event instanceof CallEvent call) {
-                    appendFrame(out, "at", call.caller());
+                    appendFrame(out, "at", callerAtCallSite(call));
                 } else if (event instanceof TailEvent tail) {
                     appendBoundary(
                             out,
@@ -426,7 +426,7 @@ public final class OresAsyncTrace {
             if (event instanceof AwaitEvent awaited) {
                 appendBoundary(out, "await", awaited.site(), null);
             } else if (event instanceof CallEvent call) {
-                appendFrame(out, "at", call.caller());
+                appendFrame(out, "at", callerAtCallSite(call));
             } else if (event instanceof TailEvent tail) {
                 appendBoundary(
                         out,
@@ -465,7 +465,7 @@ public final class OresAsyncTrace {
             } else if (event instanceof CallEvent call) {
                 result.add(toStackTraceElement(
                         call.caller().symbol(),
-                        call.caller().site()));
+                        call.site()));
             } else if (event instanceof TailEvent tail) {
                 String label = "<tail-await "
                         + tail.from().symbol()
@@ -634,6 +634,10 @@ public final class OresAsyncTrace {
         public synchronized String getMessage() {
             return elidedTraces + " additional Oreslang logical async trace(s) elided";
         }
+    }
+
+    private static Frame callerAtCallSite(CallEvent call) {
+        return new Frame(call.caller().symbol(), call.site());
     }
 
     private static StackTraceElement toStackTraceElement(String symbol, SourceSite site) {
