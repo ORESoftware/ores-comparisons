@@ -118,6 +118,15 @@ final class PolyglotDiagnosticTest {
             Value guest = failure.getGuestObject();
             assertNotNull(guest);
 
+            Value guestStack = guest.getMember("guest_stack");
+            assertTrue(guestStack.hasArrayElements());
+            assertTrue(guestStack.getArraySize() >= 1);
+            Value lambda = guestStack.getArrayElement(0);
+            assertEquals("<lambda>", lambda.getMember("symbol").asString());
+            assertEquals("direct-async-stack.ores", lambda.getMember("source").asString());
+            assertEquals(3, lambda.getMember("line").asLong());
+            assertEquals(32, lambda.getMember("column").asLong());
+
             Value traces = guest.getMember("async_traces");
             assertTrue(traces.hasArrayElements());
             assertTrue(traces.getArraySize() >= 1);

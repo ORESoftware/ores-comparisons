@@ -51,9 +51,11 @@ public final class OresGuestException extends AbstractTruffleException {
     }
 
     private OresGuestException(Snapshot snapshot) {
-        // Do not collect physical Truffle frames here. getExceptionStackTrace()
-        // below exposes the bounded logical Oreslang stack instead.
-        super(snapshot.displayMessage(), null, 0, null);
+        // Keep stack materialization enabled so PolyglotException can consume
+        // the custom InteropLibrary exception stack below. Oreslang evaluator
+        // and interop roots are internal; the exported elements themselves are
+        // the bounded logical frames rather than carrier/JVM implementation frames.
+        super(snapshot.displayMessage(), null, UNLIMITED_STACK_TRACE, null);
         this.errorName = snapshot.errorName();
         this.safeMessage = snapshot.message();
         this.guestStack = snapshot.guestStack();

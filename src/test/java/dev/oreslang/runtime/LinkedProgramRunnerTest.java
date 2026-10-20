@@ -57,6 +57,55 @@ final class LinkedProgramRunnerTest {
                 () -> LinkedProgramRunner.sandboxSafeOutput(null));
     }
     @Test
+    void importedFailureKeepsImporterCallSiteAndOriginalThrowable() throws Exception {
+        Path directory = Files.createTempDirectory("ores-linked-stack-");
+        Path dependency = directory.resolve("dep.ores");
+        Path entry = directory.resolve("main.ores");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        try {
+            Files.writeString(dependency, """
+                    pub fnc leaf() => int {
+                      val zero = 0;
+                      return 7 / zero;
+                    }
+                    """);
+            Files.writeString(entry, """
+                    import fnc leaf from './dep.ores';
+
+                    pub routine main() => void {
+                      val value = leaf();
+                      stdio.println(value);
+                      return;
+                    }
+                    """);
+
+            RuntimeException failure = assertThrows(
+                    RuntimeException.class,
+                    () -> LinkedProgramRunner.run(
+                            entry,
+                            IsolatePolicy.developer(),
+                            ExecutionProfile.serverJit(),
+                            out,
+                            err));
+
+            assertFalse(failure instanceof OresGuestException,
+                    "trusted linked runner must recover the original Oreslang failure");
+            String json = OresDiagnosticRenderer.renderJson(failure);
+            assertTrue(json.contains("\"symbol\":\"leaf\""), json);
+            assertTrue(json.contains("\"symbol\":\"main\""), json);
+            assertTrue(json.contains("\"line\":4,\"column\":19"), json);
+            assertTrue(json.contains("main.ores"), json);
+            assertTrue(json.contains("dep.ores"), json);
+        } finally {
+            Files.deleteIfExists(entry);
+            Files.deleteIfExists(dependency);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     void asyncMainAndCustomSchedulerStayInsideLanguageRuntime() throws Exception {
         Path source = Files.createTempFile("ores-linked-async-main-", ".ores");
         ByteArrayOutputStream out = new ByteArrayOutputStream();
