@@ -230,6 +230,82 @@ final class OresAsyncTraceTest {
     }
 
     @Test
+    void sameTraceNestedScopesStillRequireStrictLifoClose() {
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("same", site(88)));
+
+        OresAsyncTrace.Scope outer = OresAsyncTrace.install(trace);
+        OresAsyncTrace.Scope inner = OresAsyncTrace.install(trace);
+        try {
+            assertThrows(IllegalStateException.class, outer::close);
+            assertSame(trace, OresAsyncTrace.current());
+
+            inner.close();
+            assertSame(trace, OresAsyncTrace.current());
+
+            outer.close();
+            assertNull(OresAsyncTrace.current());
+        } finally {
+            try {
+                inner.close();
+            } finally {
+                outer.close();
+            }
+        }
+    }
+
+    @Test
+    void traceLeaseRejectsConcurrentCarrierButAllowsSequentialMigration() throws Exception {
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("migrating", site(89)));
+        java.util.concurrent.atomic.AtomicReference<Throwable> concurrentFailure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        OresAsyncTrace.Scope first = OresAsyncTrace.install(trace);
+        try {
+            Thread competing = new Thread(() -> {
+                try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                    concurrentFailure.set(
+                            new AssertionError("concurrent trace install unexpectedly succeeded"));
+                } catch (Throwable failure) {
+                    concurrentFailure.set(failure);
+                }
+            });
+            competing.start();
+            competing.join();
+
+            assertInstanceOf(IllegalStateException.class, concurrentFailure.get());
+            assertSame(trace, OresAsyncTrace.current());
+        } finally {
+            first.close();
+        }
+        assertNull(OresAsyncTrace.current());
+
+        java.util.concurrent.atomic.AtomicReference<Throwable> migratedFailure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Thread migrated = new Thread(() -> {
+            try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                assertSame(trace, OresAsyncTrace.current());
+                trace.awaitAt(site(90));
+            } catch (Throwable failure) {
+                migratedFailure.set(failure);
+            }
+        });
+        migrated.start();
+        migrated.join();
+
+        assertNull(migratedFailure.get(),
+                () -> "sequential carrier migration failed: " + migratedFailure.get());
+        IllegalStateException failure = new IllegalStateException("after-migration");
+        OresAsyncTrace.attach(failure, trace);
+        OresAsyncTrace.LogicalAsyncStackTrace logical =
+                assertInstanceOf(
+                        OresAsyncTrace.LogicalAsyncStackTrace.class,
+                        failure.getSuppressed()[0]);
+        assertTrue(logical.logicalTrace().contains("--- await"));
+    }
+
+    @Test
     void traceScopesRejectCrossThreadAndOutOfOrderCloseWithoutLeakingCurrentTrace() throws Exception {
         OresAsyncTrace.Trace outer = OresAsyncTrace.root(
                 new OresAsyncTrace.Frame("outer", site(90)));

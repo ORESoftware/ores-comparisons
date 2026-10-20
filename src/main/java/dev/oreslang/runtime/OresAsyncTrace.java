@@ -24,6 +24,7 @@ public final class OresAsyncTrace {
     private static final int MAX_SOURCE_CHARS = 4096;
     private static final int MAX_GENERATION_CHARS = 256;
     private static final ThreadLocal<Trace> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<InstalledScope> CURRENT_SCOPE = new ThreadLocal<>();
 
     private OresAsyncTrace() { }
 
@@ -138,6 +139,8 @@ public final class OresAsyncTrace {
         private Frame current;
         private long elidedEvents;
         private long revision;
+        private Thread leaseOwner;
+        private int leaseDepth;
 
         private Trace(Frame current, int maxEvents) {
             this.current = Objects.requireNonNull(current, "current");
@@ -177,6 +180,31 @@ public final class OresAsyncTrace {
 
         Object identity() {
             return identity;
+        }
+
+        private synchronized void acquireLease(Thread owner) {
+            Objects.requireNonNull(owner, "owner");
+            if (leaseOwner == null) {
+                leaseOwner = owner;
+                leaseDepth = 1;
+                return;
+            }
+            if (leaseOwner != owner) {
+                throw new IllegalStateException(
+                        "logical async trace is already executing on another carrier");
+            }
+            if (leaseDepth == Integer.MAX_VALUE) {
+                throw new IllegalStateException("logical async trace lease depth overflow");
+            }
+            leaseDepth++;
+        }
+
+        private synchronized void releaseLease(Thread owner) {
+            if (leaseOwner != owner || leaseDepth <= 0) {
+                throw new IllegalStateException("logical async trace lease ownership mismatch");
+            }
+            leaseDepth--;
+            if (leaseDepth == 0) leaseOwner = null;
         }
 
         public Trace child(Frame child, SourceSite callSite) {
@@ -310,9 +338,16 @@ public final class OresAsyncTrace {
 
     public static Scope install(Trace trace) {
         Trace installed = Objects.requireNonNull(trace, "trace");
+        Thread owner = Thread.currentThread();
+        installed.acquireLease(owner);
+
         Trace prior = CURRENT.get();
+        InstalledScope priorScope = CURRENT_SCOPE.get();
+        InstalledScope scope =
+                new InstalledScope(owner, prior, priorScope, installed);
         CURRENT.set(installed);
-        return new InstalledScope(Thread.currentThread(), prior, installed);
+        CURRENT_SCOPE.set(scope);
+        return scope;
     }
 
     public static Throwable attachGuest(Throwable failure, Trace trace) {
@@ -465,12 +500,18 @@ public final class OresAsyncTrace {
     private static final class InstalledScope implements Scope {
         private final Thread owner;
         private final Trace prior;
+        private final InstalledScope priorScope;
         private final Trace installed;
         private boolean closed;
 
-        private InstalledScope(Thread owner, Trace prior, Trace installed) {
+        private InstalledScope(
+                Thread owner,
+                Trace prior,
+                InstalledScope priorScope,
+                Trace installed) {
             this.owner = owner;
             this.prior = prior;
+            this.priorScope = priorScope;
             this.installed = installed;
         }
 
@@ -481,13 +522,17 @@ public final class OresAsyncTrace {
                 throw new IllegalStateException(
                         "async trace scope must close on the carrier thread that installed it");
             }
-            if (CURRENT.get() != installed) {
+            if (CURRENT_SCOPE.get() != this || CURRENT.get() != installed) {
                 throw new IllegalStateException(
                         "async trace scopes must close in strict LIFO order");
             }
-            closed = true;
+
             if (prior == null) CURRENT.remove();
             else CURRENT.set(prior);
+            if (priorScope == null) CURRENT_SCOPE.remove();
+            else CURRENT_SCOPE.set(priorScope);
+            installed.releaseLease(owner);
+            closed = true;
         }
     }
 
