@@ -49,7 +49,7 @@ final class PolyglotDiagnosticTest {
             Value guest = failure.getGuestObject();
             assertNotNull(guest);
             assertEquals("oreslang.error.v1", guest.getMember("schema").asString());
-            assertEquals("ArithmeticException", guest.getMember("name").asString());
+            assertEquals("IllegalArgumentException", guest.getMember("name").asString());
 
             Value stack = guest.getMember("guest_stack");
             assertTrue(stack.hasArrayElements());
