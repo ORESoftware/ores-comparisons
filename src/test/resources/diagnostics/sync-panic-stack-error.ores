@@ -1,0 +1,14 @@
+fnc panic_leaf() => void {
+  None.unwrap();
+  return;
+}
+
+fnc panic_middle() => void {
+  panic_leaf();
+  return;
+}
+
+pub routine main() => void {
+  panic_middle();
+  return;
+}

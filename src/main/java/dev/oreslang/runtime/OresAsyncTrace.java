@@ -3,6 +3,7 @@ package dev.oreslang.runtime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -19,7 +20,11 @@ import java.util.Objects;
 public final class OresAsyncTrace {
     private static final int DEFAULT_MAX_EVENTS = 96;
     private static final int MAX_ATTACHED_TRACES = 32;
+    private static final int MAX_SYMBOL_CHARS = 256;
+    private static final int MAX_SOURCE_CHARS = 4096;
+    private static final int MAX_GENERATION_CHARS = 256;
     private static final ThreadLocal<Trace> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<InstalledScope> CURRENT_SCOPE = new ThreadLocal<>();
 
     private OresAsyncTrace() { }
 
@@ -28,6 +33,16 @@ public final class OresAsyncTrace {
         AWAIT,
         TAIL_AWAIT,
         ACTOR_MESSAGE,
+        TASK_SPAWN,
+        SELECT,
+        CHANNEL_SEND,
+        CHANNEL_RECEIVE,
+        STREAM_RESUME,
+        GENERATOR_RESUME,
+        RPC,
+        SUPERVISOR_CONTROL,
+        CANCELLATION,
+        TIMEOUT,
         CALLBACK_ADAPTER,
         IO_COMPLETION
     }
@@ -38,7 +53,7 @@ public final class OresAsyncTrace {
             int column,
             String codeGenerationId) {
         public SourceSite {
-            sourceId = sourceId == null || sourceId.isBlank() ? "<unknown>" : sourceId;
+            sourceId = sanitizeSourceId(sourceId);
         }
 
         public static SourceSite unknown(String sourceId, String codeGenerationId) {
@@ -120,8 +135,12 @@ public final class OresAsyncTrace {
     public static final class Trace {
         private final int maxEvents;
         private final ArrayDeque<Event> history;
+        private final Object identity = new Object();
         private Frame current;
         private long elidedEvents;
+        private long revision;
+        private Thread leaseOwner;
+        private int leaseDepth;
 
         private Trace(Frame current, int maxEvents) {
             this.current = Objects.requireNonNull(current, "current");
@@ -135,6 +154,7 @@ public final class OresAsyncTrace {
             this.maxEvents = parent.maxEvents;
             this.history = new ArrayDeque<>(parent.history);
             this.elidedEvents = parent.elidedEvents;
+            this.revision = parent.revision;
             addBounded(new CallEvent(parent.current, child, callSite));
         }
 
@@ -152,6 +172,39 @@ public final class OresAsyncTrace {
 
         public List<Event> events() {
             return List.copyOf(history);
+        }
+
+        TraceSnapshot snapshot() {
+            return new TraceSnapshot(current, List.copyOf(history), elidedEvents, revision);
+        }
+
+        Object identity() {
+            return identity;
+        }
+
+        private synchronized void acquireLease(Thread owner) {
+            Objects.requireNonNull(owner, "owner");
+            if (leaseOwner == null) {
+                leaseOwner = owner;
+                leaseDepth = 1;
+                return;
+            }
+            if (leaseOwner != owner) {
+                throw new IllegalStateException(
+                        "logical async trace is already executing on another carrier");
+            }
+            if (leaseDepth == Integer.MAX_VALUE) {
+                throw new IllegalStateException("logical async trace lease depth overflow");
+            }
+            leaseDepth++;
+        }
+
+        private synchronized void releaseLease(Thread owner) {
+            if (leaseOwner != owner || leaseDepth <= 0) {
+                throw new IllegalStateException("logical async trace lease ownership mismatch");
+            }
+            leaseDepth--;
+            if (leaseDepth == 0) leaseOwner = null;
         }
 
         public Trace child(Frame child, SourceSite callSite) {
@@ -177,6 +230,7 @@ public final class OresAsyncTrace {
             if (last instanceof TailEvent tail && tail.sameTransition(current, target, site)) {
                 history.removeLast();
                 history.addLast(tail.incremented());
+                bumpRevision();
             } else {
                 addBounded(new TailEvent(current, target, site, 1));
             }
@@ -186,9 +240,14 @@ public final class OresAsyncTrace {
         private void addBounded(Event event) {
             while (history.size() >= maxEvents) {
                 history.removeFirst();
-                elidedEvents++;
+                if (elidedEvents != Long.MAX_VALUE) elidedEvents++;
             }
             history.addLast(event);
+            bumpRevision();
+        }
+
+        private void bumpRevision() {
+            if (revision != Long.MAX_VALUE) revision++;
         }
 
         public String render() {
@@ -200,7 +259,7 @@ public final class OresAsyncTrace {
                 if (event instanceof AwaitEvent awaited) {
                     appendBoundary(out, "await", awaited.site(), null);
                 } else if (event instanceof CallEvent call) {
-                    appendFrame(out, "at", call.caller());
+                    appendFrame(out, "at", callerAtCallSite(call));
                 } else if (event instanceof TailEvent tail) {
                     appendBoundary(
                             out,
@@ -213,7 +272,7 @@ public final class OresAsyncTrace {
                 } else if (event instanceof BoundaryEvent boundary) {
                     appendBoundary(
                             out,
-                            boundary.kind().name().toLowerCase().replace('_', '-'),
+                            boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-'),
                             boundary.site(),
                             boundary.frame().symbol());
                 }
@@ -247,7 +306,7 @@ public final class OresAsyncTrace {
                     result.add(toStackTraceElement(label, tail.site()));
                 } else if (event instanceof BoundaryEvent boundary) {
                     result.add(toStackTraceElement(
-                            "<" + boundary.kind().name().toLowerCase().replace('_', '-') + ">",
+                            "<" + boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-') + ">",
                             boundary.site()));
                 }
             }
@@ -278,12 +337,30 @@ public final class OresAsyncTrace {
     }
 
     public static Scope install(Trace trace) {
+        Trace installed = Objects.requireNonNull(trace, "trace");
+        Thread owner = Thread.currentThread();
+        installed.acquireLease(owner);
+
         Trace prior = CURRENT.get();
-        CURRENT.set(Objects.requireNonNull(trace, "trace"));
-        return () -> {
-            if (prior == null) CURRENT.remove();
-            else CURRENT.set(prior);
-        };
+        InstalledScope priorScope = CURRENT_SCOPE.get();
+        InstalledScope scope =
+                new InstalledScope(owner, prior, priorScope, installed);
+        CURRENT.set(installed);
+        CURRENT_SCOPE.set(scope);
+        return scope;
+    }
+
+    public static Throwable attachGuest(Throwable failure, Trace trace) {
+        Objects.requireNonNull(failure, "failure");
+        if (trace == null) return failure;
+
+        synchronized (failure) {
+            for (Throwable suppressed : failure.getSuppressed()) {
+                if (suppressed instanceof LogicalGuestStackTrace) return failure;
+            }
+            failure.addSuppressed(new LogicalGuestStackTrace(trace.snapshot()));
+        }
+        return failure;
     }
 
     public static Throwable attach(Throwable failure, Trace trace) {
@@ -302,7 +379,10 @@ public final class OresAsyncTrace {
             LogicalAsyncTraceElision elision = null;
             for (Throwable suppressed : failure.getSuppressed()) {
                 if (suppressed instanceof LogicalAsyncStackTrace logical) {
-                    if (logical.trace == trace) return failure;
+                    if (logical.traceIdentity == trace.identity()
+                            && logical.traceRevision == trace.revision) {
+                        return failure;
+                    }
                     attached++;
                 } else if (suppressed instanceof LogicalAsyncTraceElision marker) {
                     elision = marker;
@@ -320,9 +400,170 @@ public final class OresAsyncTrace {
         return failure;
     }
 
+    static record TraceSnapshot(
+            Frame currentFrame,
+            List<Event> events,
+            long elidedEvents,
+            long revision) {
+        TraceSnapshot {
+            currentFrame = Objects.requireNonNull(currentFrame, "currentFrame");
+            events = List.copyOf(events);
+            if (elidedEvents < 0) {
+                throw new IllegalArgumentException("elidedEvents must be non-negative");
+            }
+            if (revision < 0) {
+                throw new IllegalArgumentException("revision must be non-negative");
+            }
+        }
+    }
+
+    private static String renderSnapshot(TraceSnapshot trace) {
+        StringBuilder out = new StringBuilder();
+        appendFrame(out, "at", trace.currentFrame());
+        List<Event> events = trace.events();
+        for (int i = events.size() - 1; i >= 0; i--) {
+            Event event = events.get(i);
+            if (event instanceof AwaitEvent awaited) {
+                appendBoundary(out, "await", awaited.site(), null);
+            } else if (event instanceof CallEvent call) {
+                appendFrame(out, "at", callerAtCallSite(call));
+            } else if (event instanceof TailEvent tail) {
+                appendBoundary(
+                        out,
+                        "tail-await",
+                        tail.site(),
+                        tail.from().symbol() + " -> " + tail.to().symbol()
+                                + (tail.repetitions() == 1
+                                        ? ""
+                                        : " repeated " + tail.repetitions() + " times"));
+            } else if (event instanceof BoundaryEvent boundary) {
+                appendBoundary(
+                        out,
+                        boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-'),
+                        boundary.site(),
+                        boundary.frame().symbol());
+            }
+        }
+        if (trace.elidedEvents() > 0) {
+            out.append("\n    ... ")
+                    .append(trace.elidedEvents())
+                    .append(" older async trace events elided");
+        }
+        return out.toString();
+    }
+
+    private static StackTraceElement[] javaStackSnapshot(TraceSnapshot trace) {
+        List<StackTraceElement> result = new ArrayList<>();
+        result.add(toStackTraceElement(
+                trace.currentFrame().symbol(),
+                trace.currentFrame().site()));
+        List<Event> events = trace.events();
+        for (int i = events.size() - 1; i >= 0; i--) {
+            Event event = events.get(i);
+            if (event instanceof AwaitEvent awaited) {
+                result.add(toStackTraceElement("<await>", awaited.site()));
+            } else if (event instanceof CallEvent call) {
+                result.add(toStackTraceElement(
+                        call.caller().symbol(),
+                        call.site()));
+            } else if (event instanceof TailEvent tail) {
+                String label = "<tail-await "
+                        + tail.from().symbol()
+                        + " -> "
+                        + tail.to().symbol()
+                        + (tail.repetitions() == 1
+                                ? ""
+                                : " x" + tail.repetitions())
+                        + ">";
+                result.add(toStackTraceElement(label, tail.site()));
+            } else if (event instanceof BoundaryEvent boundary) {
+                result.add(toStackTraceElement(
+                        "<" + boundary.kind().name().toLowerCase(Locale.ROOT).replace('_', '-') + ">",
+                        boundary.site()));
+            }
+        }
+        if (trace.elidedEvents() > 0) {
+            result.add(new StackTraceElement(
+                    "oreslang.async",
+                    "<" + trace.elidedEvents() + " older async events elided>",
+                    null,
+                    -1));
+        }
+        return result.toArray(StackTraceElement[]::new);
+    }
+
     public interface Scope extends AutoCloseable {
         @Override
         void close();
+    }
+
+    private static final class InstalledScope implements Scope {
+        private final Thread owner;
+        private final Trace prior;
+        private final InstalledScope priorScope;
+        private final Trace installed;
+        private boolean closed;
+
+        private InstalledScope(
+                Thread owner,
+                Trace prior,
+                InstalledScope priorScope,
+                Trace installed) {
+            this.owner = owner;
+            this.prior = prior;
+            this.priorScope = priorScope;
+            this.installed = installed;
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            if (Thread.currentThread() != owner) {
+                throw new IllegalStateException(
+                        "async trace scope must close on the carrier thread that installed it");
+            }
+            if (CURRENT_SCOPE.get() != this || CURRENT.get() != installed) {
+                throw new IllegalStateException(
+                        "async trace scopes must close in strict LIFO order");
+            }
+
+            if (prior == null) CURRENT.remove();
+            else CURRENT.set(prior);
+            if (priorScope == null) CURRENT_SCOPE.remove();
+            else CURRENT_SCOPE.set(priorScope);
+            installed.releaseLease(owner);
+            closed = true;
+        }
+    }
+
+    /**
+     * One immutable deepest guest-language call stack for a synchronous failure.
+     *
+     * <p>Outer synchronous frames do not attach another copy because the deepest
+     * snapshot already contains their call events. If the same failure later
+     * crosses an await, asynchronous causal snapshots are attached separately.</p>
+     */
+    public static final class LogicalGuestStackTrace extends RuntimeException {
+        private final TraceSnapshot snapshot;
+        private final String logicalTrace;
+
+        private LogicalGuestStackTrace(TraceSnapshot snapshot) {
+            super("Oreslang logical guest stack\n" + renderSnapshot(snapshot),
+                    null,
+                    false,
+                    true);
+            this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
+            this.logicalTrace = renderSnapshot(snapshot);
+            setStackTrace(javaStackSnapshot(snapshot));
+        }
+
+        public String logicalTrace() {
+            return logicalTrace;
+        }
+
+        TraceSnapshot snapshot() {
+            return snapshot;
+        }
     }
 
     /**
@@ -331,16 +572,28 @@ public final class OresAsyncTrace {
      * Polyglot, Native Image, logs, and test tooling.
      */
     public static final class LogicalAsyncStackTrace extends RuntimeException {
-        private final Trace trace;
+        private final Object traceIdentity;
+        private final long traceRevision;
+        private final TraceSnapshot snapshot;
         private final String logicalTrace;
         private final long elidedEvents;
 
         private LogicalAsyncStackTrace(Trace trace) {
-            super("Oreslang logical async stack\n" + trace.render(), null, false, true);
-            this.trace = trace;
-            this.logicalTrace = trace.render();
-            this.elidedEvents = trace.elidedEvents();
-            setStackTrace(trace.toJavaStackTrace());
+            this(trace, trace.snapshot());
+        }
+
+        private LogicalAsyncStackTrace(Trace trace, TraceSnapshot snapshot) {
+            super("Oreslang logical async stack\n" + renderSnapshot(snapshot),
+                    null,
+                    false,
+                    true);
+            Trace actual = Objects.requireNonNull(trace, "trace");
+            this.traceIdentity = actual.identity();
+            this.traceRevision = snapshot.revision();
+            this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
+            this.logicalTrace = renderSnapshot(snapshot);
+            this.elidedEvents = snapshot.elidedEvents();
+            setStackTrace(javaStackSnapshot(snapshot));
         }
 
         public String logicalTrace() {
@@ -349,6 +602,11 @@ public final class OresAsyncTrace {
 
         public long elidedEvents() {
             return elidedEvents;
+        }
+
+        /** Immutable failure-time view used by the canonical diagnostic renderer. */
+        TraceSnapshot snapshot() {
+            return snapshot;
         }
     }
 
@@ -378,20 +636,94 @@ public final class OresAsyncTrace {
         }
     }
 
+    private static Frame callerAtCallSite(CallEvent call) {
+        return new Frame(call.caller().symbol(), call.site());
+    }
+
     private static StackTraceElement toStackTraceElement(String symbol, SourceSite site) {
         String generation = site.codeGenerationId();
-        String className = generation == null || generation.isBlank()
+        String safeGeneration = safeText(generation, MAX_GENERATION_CHARS);
+        String className = safeGeneration.isBlank()
                 ? "oreslang.async"
-                : "oreslang.async[" + generation + "]";
+                : "oreslang.async[" + safeGeneration + "]";
         return new StackTraceElement(
                 className,
-                symbol,
-                site.sourceId(),
+                safeText(symbol, MAX_SYMBOL_CHARS),
+                safeText(site.sourceId(), MAX_SOURCE_CHARS),
                 site.line() > 0 ? site.line() : -1);
     }
 
+
+    private static String sanitizeSourceId(String sourceId) {
+        String value = sourceId == null || sourceId.isBlank()
+                ? "<unknown>"
+                : sourceId;
+
+        int query = value.indexOf('?');
+        int fragment = value.indexOf('#');
+        int cut = -1;
+        if (query >= 0) cut = query;
+        if (fragment >= 0 && (cut < 0 || fragment < cut)) cut = fragment;
+        if (cut >= 0) value = value.substring(0, cut);
+
+        int scheme = value.indexOf("://");
+        if (scheme >= 0) {
+            int authorityStart = scheme + 3;
+            int slash = value.indexOf('/', authorityStart);
+            int authorityEnd = slash >= 0 ? slash : value.length();
+            int at = value.lastIndexOf('@', authorityEnd - 1);
+            if (at >= authorityStart) {
+                value = value.substring(0, authorityStart)
+                        + value.substring(at + 1);
+            }
+        }
+
+        if (value.length() > MAX_SOURCE_CHARS) {
+            value = value.substring(0, MAX_SOURCE_CHARS) + "…";
+        }
+        return value.isBlank() ? "<unknown>" : value;
+    }
+
+    private static String safeText(String value, int maxChars) {
+        if (value == null || value.isEmpty()) return "";
+        int end = Math.min(value.length(), maxChars);
+        StringBuilder out = new StringBuilder(Math.min(end + 16, maxChars + 32));
+        for (int i = 0; i < end; i++) {
+            char ch = value.charAt(i);
+            if (ch == '\n') out.append("\\n");
+            else if (ch == '\r') out.append("\\r");
+            else if (ch == '\t') out.append("\\t");
+            else if (Character.isISOControl(ch)
+                    || Character.isSurrogate(ch)
+                    || isBidiControl(ch)
+                    || ch == '\u2028'
+                    || ch == '\u2029') {
+                appendUnicodeEscape(out, ch);
+            } else {
+                out.append(ch);
+            }
+        }
+        if (value.length() > maxChars) out.append('…');
+        return out.toString();
+    }
+
+    private static boolean isBidiControl(char ch) {
+        return ch == '\u061c'
+                || (ch >= '\u200e' && ch <= '\u200f')
+                || (ch >= '\u202a' && ch <= '\u202e')
+                || (ch >= '\u2066' && ch <= '\u2069');
+    }
+
+    private static void appendUnicodeEscape(StringBuilder out, char ch) {
+        out.append("\\u");
+        String hex = Integer.toHexString(ch);
+        for (int pad = hex.length(); pad < 4; pad++) out.append('0');
+        out.append(hex);
+    }
+
     private static void appendFrame(StringBuilder out, String prefix, Frame frame) {
-        out.append("\n    ").append(prefix).append(' ').append(frame.symbol());
+        out.append("\n    ").append(prefix).append(' ')
+                .append(safeText(frame.symbol(), MAX_SYMBOL_CHARS));
         appendSite(out, frame.site());
     }
 
@@ -400,20 +732,23 @@ public final class OresAsyncTrace {
             String kind,
             SourceSite site,
             String detail) {
-        out.append("\n    --- ").append(kind);
-        if (detail != null && !detail.isBlank()) out.append(' ').append(detail);
+        out.append("\n    --- ").append(safeText(kind, MAX_SYMBOL_CHARS));
+        if (detail != null && !detail.isBlank()) {
+            out.append(' ').append(safeText(detail, MAX_SOURCE_CHARS));
+        }
         appendSite(out, site);
         out.append(" ---");
     }
 
     private static void appendSite(StringBuilder out, SourceSite site) {
-        out.append(" (").append(site.sourceId());
+        out.append(" (").append(safeText(site.sourceId(), MAX_SOURCE_CHARS));
         if (site.line() > 0) {
             out.append(':').append(site.line());
             if (site.column() > 0) out.append(':').append(site.column());
         }
         if (site.codeGenerationId() != null && !site.codeGenerationId().isBlank()) {
-            out.append(" @gen=").append(site.codeGenerationId());
+            out.append(" @gen=")
+                    .append(safeText(site.codeGenerationId(), MAX_GENERATION_CHARS));
         }
         out.append(')');
     }

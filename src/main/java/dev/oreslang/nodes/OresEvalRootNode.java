@@ -14,6 +14,7 @@ import dev.oreslang.runtime.OresRwLock;
 import dev.oreslang.runtime.OresFutures;
 import dev.oreslang.runtime.OresFuture;
 import dev.oreslang.runtime.OresAsyncTrace;
+import dev.oreslang.runtime.OresHostFailureTransfer;
 import dev.oreslang.runtime.OresScheduler;
 import dev.oreslang.runtime.ActorRuntime;
 import dev.oreslang.runtime.Awaitable;
@@ -100,9 +101,12 @@ public final class OresEvalRootNode extends RootNode {
     }
 
     private static final class Evaluator {
+        private static final ThreadLocal<OresAsyncTrace.SourceSite> CALL_SITE = new ThreadLocal<>();
+
         private final Ast.Program program;
         private final OresContext context;
         private final String codeUnitId;
+        private final String traceSourceId;
         private final Map<String, Ast.FunctionDecl> functions = new HashMap<>();
         private final Map<String, Ast.ClassDecl> classes = new HashMap<>();
         private final Map<String, Ast.InterfaceDecl> interfaces = new HashMap<>();
@@ -120,6 +124,7 @@ public final class OresEvalRootNode extends RootNode {
             this.program = program;
             this.context = context;
             this.codeUnitId = normalizeUnitId(codeUnitId);
+            this.traceSourceId = diagnosticSourceId(this.codeUnitId);
             indexImports();
             indexDeclarations();
         }
@@ -208,12 +213,22 @@ public final class OresEvalRootNode extends RootNode {
                 OresFuture<Object> task = entryMain.async()
                         ? startAsyncFunction(entryMain, normalized)
                         : context.actors().rootScheduler().startSync(
-                                () -> callFunctionBody(entryMain, normalized));
+                                () -> callSyncFunction(entryMain, normalized));
 
                 // The host/embedder thread may block waiting for the root task;
                 // no Ores carrier is consumed. Completion is published only
                 // after the final scheduler turn fully unwinds.
-                return task.join();
+                try {
+                    return task.join();
+                } catch (RuntimeException failure) {
+                    // Truffle's PolyglotException does not preserve arbitrary
+                    // Java cause/suppressed metadata from a guest failure. The
+                    // original task failure still owns Oreslang's logical async
+                    // trace here, so publish a one-shot trusted host handoff
+                    // before crossing that boundary.
+                    OresHostFailureTransfer.publish(unwrapFutureFailure(failure));
+                    throw failure;
+                }
             }
 
             // Internal callers already executing under an Ores scheduler keep
@@ -230,7 +245,20 @@ public final class OresEvalRootNode extends RootNode {
                                 + "' cannot be invoked directly; use spawn " + fn.name() + "(...)");
             }
             if (fn.async()) return startAsyncFunction(fn, normalized);
-            return callFunctionBody(fn, normalized);
+            return callSyncFunction(fn, normalized);
+        }
+
+        private Object callSyncFunction(Ast.FunctionDecl fn, List<?> args) {
+            OresAsyncTrace.Trace trace =
+                    traceForInvocation(functionTraceFrame(fn));
+            try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                try {
+                    return callFunctionBody(fn, args);
+                } catch (RuntimeException | Error failure) {
+                    attachGuestFailure(failure, trace);
+                    throw failure;
+                }
+            }
         }
 
         private Object spawnFunction(Ast.CallExpr call, Env env) {
@@ -264,7 +292,7 @@ public final class OresEvalRootNode extends RootNode {
         private OresAsyncTrace.SourceSite traceSite(Ast.SourceSite site) {
             Ast.SourceSite actual = site == null ? Ast.SourceSite.UNKNOWN : site;
             return new OresAsyncTrace.SourceSite(
-                    codeUnitId,
+                    traceSourceId,
                     actual.line(),
                     actual.column(),
                     context.codeGenerationId());
@@ -282,19 +310,34 @@ public final class OresEvalRootNode extends RootNode {
                     traceSite(method.site()));
         }
 
-        private OresAsyncTrace.Frame lambdaTraceFrame() {
+        private OresAsyncTrace.Frame lambdaTraceFrame(Ast.LambdaExpr lambda) {
             return new OresAsyncTrace.Frame(
-                    "<async-lambda>",
-                    OresAsyncTrace.SourceSite.unknown(
-                            codeUnitId,
-                            context.codeGenerationId()));
+                    lambda.async() ? "<async-lambda>" : "<lambda>",
+                    traceSite(lambda.site()));
+        }
+
+        private Object invokeAtCallSite(
+                Ast.SourceSite site,
+                java.util.function.Supplier<Object> invocation) {
+            Objects.requireNonNull(invocation, "invocation");
+            Ast.SourceSite actual = site == null ? Ast.SourceSite.UNKNOWN : site;
+            if (!actual.known()) return invocation.get();
+
+            OresAsyncTrace.SourceSite previous = CALL_SITE.get();
+            CALL_SITE.set(traceSite(actual));
+            try {
+                return invocation.get();
+            } finally {
+                if (previous == null) CALL_SITE.remove();
+                else CALL_SITE.set(previous);
+            }
         }
 
         private OresAsyncTrace.Trace traceForInvocation(OresAsyncTrace.Frame frame) {
             OresAsyncTrace.Trace parent = OresAsyncTrace.current();
-            return parent == null
-                    ? OresAsyncTrace.root(frame)
-                    : parent.child(frame, frame.site());
+            if (parent == null) return OresAsyncTrace.root(frame);
+            OresAsyncTrace.SourceSite callSite = CALL_SITE.get();
+            return parent.child(frame, callSite == null ? frame.site() : callSite);
         }
 
         private record AsyncCallableContext(
@@ -462,6 +505,23 @@ public final class OresEvalRootNode extends RootNode {
                 Ast.LambdaExpr lambda,
                 Env captured,
                 List<Object> args) {
+            return startAsyncLambdaOn(scheduler, lambda, captured, args, false);
+        }
+
+        private OresFuture<Object> startAsyncLambdaDetachedOn(
+                OresScheduler scheduler,
+                Ast.LambdaExpr lambda,
+                Env captured,
+                List<Object> args) {
+            return startAsyncLambdaOn(scheduler, lambda, captured, args, true);
+        }
+
+        private OresFuture<Object> startAsyncLambdaOn(
+                OresScheduler scheduler,
+                Ast.LambdaExpr lambda,
+                Env captured,
+                List<Object> args,
+                boolean detached) {
             Objects.requireNonNull(scheduler, "scheduler");
             if (args.size() != lambda.parameters().size()) {
                 throw new IllegalArgumentException("lambda arity mismatch");
@@ -481,10 +541,10 @@ public final class OresEvalRootNode extends RootNode {
             AsyncPlan body = asyncBlock(lambda.blockBody(), base, callable);
             AsyncPlan completed = asyncFlatMap(body, flow ->
                     asyncPure(flow instanceof AsyncReturn returned ? returned.value() : null));
-            return scheduler.start(
-                    new AsyncPlanTask(
-                            completed,
-                            traceForInvocation(lambdaTraceFrame())));
+            AsyncPlanTask task = new AsyncPlanTask(
+                    completed,
+                    traceForInvocation(lambdaTraceFrame(lambda)));
+            return detached ? scheduler.startDetached(task) : scheduler.start(task);
         }
 
         private final class AsyncLambdaValue implements Invokable {
@@ -505,6 +565,12 @@ public final class OresEvalRootNode extends RootNode {
                     OresScheduler scheduler,
                     List<Object> args) {
                 return startAsyncLambdaOn(scheduler, lambda, captured, args);
+            }
+
+            private OresFuture<Object> startDetachedOn(
+                    OresScheduler scheduler,
+                    List<Object> args) {
+                return startAsyncLambdaDetachedOn(scheduler, lambda, captured, args);
             }
         }
 
@@ -529,6 +595,19 @@ public final class OresEvalRootNode extends RootNode {
                         }
                         throw new IllegalArgumentException(
                                 "OresScheduler.start requires a zero-argument lambda");
+                    };
+                    case "start_detached" -> (Invokable) args -> {
+                        requireOne(args, "OresScheduler.start_detached");
+                        Object work = args.getFirst();
+                        if (work instanceof AsyncLambdaValue asyncLambda) {
+                            return asyncLambda.startDetachedOn(scheduler, List.of());
+                        }
+                        if (work instanceof Invokable synchronous) {
+                            return scheduler.startSyncDetached(
+                                    () -> synchronous.call(List.of()));
+                        }
+                        throw new IllegalArgumentException(
+                                "OresScheduler.start_detached requires a zero-argument lambda");
                     };
                     case "parallelism" -> (Invokable) args -> {
                         requireZero(args, "OresScheduler.parallelism");
@@ -732,6 +811,7 @@ public final class OresEvalRootNode extends RootNode {
                     if (waiting != null) {
                         AsyncAwait awaited = waiting;
                         waiting = null;
+                        recordFailureBoundary(trace, resume.failure(), awaited.site());
                         current = safePlan(() -> awaited.continuation().resume(
                                 resume.value(),
                                 resume.failure()));
@@ -741,12 +821,21 @@ public final class OresEvalRootNode extends RootNode {
                                     "tail-await replacement resumed as an initial task turn");
                         }
                         if (resume.failure() != null) {
-                            throw propagateAsyncFailure(resume.failure());
+                            Throwable failure = unwrapFutureFailure(resume.failure());
+                            recordFailureBoundary(
+                                    trace,
+                                    failure,
+                                    trace.currentFrame().site());
+                            OresAsyncTrace.attach(failure, trace);
+                            throw propagateAsyncFailure(failure);
                         }
                         tailDispatchPending = false;
                     } else if (!resume.initial()) {
-                        throw new IllegalStateException(
-                                "async source task resumed without a captured await");
+                        IllegalStateException invalid =
+                                new IllegalStateException(
+                                        "async source task resumed without a captured await");
+                        OresAsyncTrace.attach(invalid, trace);
+                        throw invalid;
                     }
 
                     while (true) {
@@ -813,6 +902,7 @@ public final class OresEvalRootNode extends RootNode {
                     if (waiting != null) {
                         AsyncAwait awaited = waiting;
                         waiting = null;
+                        recordFailureBoundary(trace, resumeFailure, awaited.site());
                         current = safePlan(() -> awaited.continuation().resume(
                                 resumeValue,
                                 resumeFailure));
@@ -861,6 +951,30 @@ public final class OresEvalRootNode extends RootNode {
                                 "ActorContext.suspendOn must unwind the actor turn");
                     }
                 }
+            }
+        }
+
+        private static void attachGuestFailure(
+                Throwable failure,
+                OresAsyncTrace.Trace trace) {
+            if (failure instanceof VirtualMachineError
+                    || failure instanceof ThreadDeath
+                    || failure instanceof LinkageError) {
+                return;
+            }
+            OresAsyncTrace.attachGuest(failure, trace);
+        }
+
+        private static void recordFailureBoundary(
+                OresAsyncTrace.Trace trace,
+                Throwable failure,
+                OresAsyncTrace.SourceSite site) {
+            if (failure == null) return;
+            Throwable actual = unwrapFutureFailure(failure);
+            if (actual instanceof java.util.concurrent.CancellationException) {
+                trace.boundary(OresAsyncTrace.BoundaryKind.CANCELLATION, site);
+            } else if (actual instanceof java.util.concurrent.TimeoutException) {
+                trace.boundary(OresAsyncTrace.BoundaryKind.TIMEOUT, site);
             }
         }
 
@@ -1115,6 +1229,18 @@ public final class OresEvalRootNode extends RootNode {
                         initialized,
                         ignored -> asyncFor(loop, loopEnv, noLoopTail));
             }
+            if (stmt instanceof Ast.WhileStmt loop) {
+                return asyncWhile(
+                        loop,
+                        env,
+                        callable.withTailTransfers(false));
+            }
+            if (stmt instanceof Ast.DoWhileStmt loop) {
+                return asyncDoWhile(
+                        loop,
+                        env,
+                        callable.withTailTransfers(false));
+            }
             return asyncFailure(new IllegalArgumentException(
                     "unsupported async statement " + stmt));
         }
@@ -1143,10 +1269,8 @@ public final class OresEvalRootNode extends RootNode {
             return new AsyncThunk(() -> {
                 if (index >= values.size()) return asyncPure(ASYNC_NORMAL);
                 Env iteration = new Env(env);
-                iteration.define(
-                        loop.bindingName(),
-                        values.get(index),
-                        loop.bindingKind());
+                bindForOfIteration(loop, values.get(index), iteration);
+                context.schedulerSafepoint();
                 return asyncFlatMap(
                         asyncBlock(loop.body(), iteration, callable),
                         flow -> flow instanceof AsyncReturn
@@ -1170,6 +1294,7 @@ public final class OresEvalRootNode extends RootNode {
                         : asyncEval(loop.condition(), loopEnv);
                 return asyncFlatMap(condition, value -> {
                     if (!truth(value)) return asyncPure(ASYNC_NORMAL);
+                    context.schedulerSafepoint();
                     return asyncFlatMap(
                             asyncBlock(loop.body(), loopEnv, callable),
                             flow -> {
@@ -1182,6 +1307,45 @@ public final class OresEvalRootNode extends RootNode {
                                         ignored -> asyncFor(loop, loopEnv, callable));
                             });
                 });
+            });
+        }
+
+        private AsyncPlan asyncWhile(
+                Ast.WhileStmt loop,
+                Env env,
+                AsyncCallableContext callable) {
+            return new AsyncThunk(() -> {
+                AsyncPlan condition = loop.condition() == null
+                        ? asyncPure(Boolean.TRUE)
+                        : asyncEval(loop.condition(), env);
+                return asyncFlatMap(condition, value -> {
+                    if (!truth(value)) return asyncPure(ASYNC_NORMAL);
+                    context.schedulerSafepoint();
+                    return asyncFlatMap(
+                            asyncBlock(loop.body(), env, callable),
+                            flow -> flow instanceof AsyncReturn
+                                    ? asyncPure(flow)
+                                    : asyncWhile(loop, env, callable));
+                });
+            });
+        }
+
+        private AsyncPlan asyncDoWhile(
+                Ast.DoWhileStmt loop,
+                Env env,
+                AsyncCallableContext callable) {
+            return new AsyncThunk(() -> {
+                context.schedulerSafepoint();
+                return asyncFlatMap(
+                        asyncBlock(loop.body(), env, callable),
+                        flow -> {
+                            if (flow instanceof AsyncReturn) return asyncPure(flow);
+                            return asyncFlatMap(
+                                    asyncEval(loop.condition(), env),
+                                    condition -> truth(condition)
+                                            ? asyncDoWhile(loop, env, callable)
+                                            : asyncPure(ASYNC_NORMAL));
+                        });
             });
         }
 
@@ -1614,10 +1778,12 @@ public final class OresEvalRootNode extends RootNode {
                 if (call.callee() instanceof Ast.MemberExpr memberCall) {
                     return asyncFlatMap(asyncEval(memberCall.receiver(), env), receiver ->
                             asyncFlatMap(asyncEvalArguments(call.arguments(), 0, env, new ArrayList<>()), args ->
-                                    safePlan(() -> asyncPure(invokeEvaluatedMemberCall(
-                                            receiver,
-                                            memberCall.member(),
-                                            castObjectList(args))))));
+                                    safePlan(() -> asyncPure(invokeAtCallSite(
+                                            call.site(),
+                                            () -> invokeEvaluatedMemberCall(
+                                                    receiver,
+                                                    memberCall.member(),
+                                                    castObjectList(args)))))));
                 }
                 return asyncFlatMap(asyncEval(call.callee(), env), callee ->
                         asyncFlatMap(asyncEvalArguments(call.arguments(), 0, env, new ArrayList<>()), args -> {
@@ -1626,7 +1792,9 @@ public final class OresEvalRootNode extends RootNode {
                                         "value is not callable: " + callee));
                             }
                             return safePlan(() ->
-                                    asyncPure(invokable.call(castObjectList(args))));
+                                    asyncPure(invokeAtCallSite(
+                                            call.site(),
+                                            () -> invokable.call(castObjectList(args)))));
                         }));
             }
 
@@ -1877,11 +2045,15 @@ public final class OresEvalRootNode extends RootNode {
             };
 
             List<?> normalized = normalizeFunctionArguments(fn, evaluated);
+            OresAsyncTrace.Frame actorFrame = functionTraceFrame(fn);
             OresAsyncTrace.Trace actorTrace =
-                    traceForInvocation(functionTraceFrame(fn));
+                    traceForInvocation(actorFrame);
+            actorTrace.boundary(
+                    OresAsyncTrace.BoundaryKind.TASK_SPAWN,
+                    actorFrame.site());
             actorTrace.boundary(
                     OresAsyncTrace.BoundaryKind.ACTOR_MESSAGE,
-                    functionTraceFrame(fn).site());
+                    actorFrame.site());
 
             return context.actors().spawnSuspendingInvocation(
                     runtimeKind,
@@ -1986,23 +2158,32 @@ public final class OresEvalRootNode extends RootNode {
                 return startAsyncMethod(receiver, method, args);
             }
 
-            Env env = new Env(null);
-            if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
-            for (int i = 0; i < method.parameters().size(); i++) {
-                Ast.Param param = method.parameters().get(i);
-                env.define(
-                        param.name(),
-                        args.get(i),
-                        param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
-            }
-            try {
-                executeBlock(method.body(), env);
-                return null;
-            } catch (ReturnSignal signal) {
-                return shapeReturnedValue(
-                        method.returnType(),
-                        signal.value,
-                        "method " + method.name());
+            OresAsyncTrace.Trace trace =
+                    traceForInvocation(methodTraceFrame(receiver.klass, method));
+            try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                try {
+                    Env env = new Env(null);
+                    if (!method.isStatic()) env.define("self", receiver, Ast.BindingKind.VAL);
+                    for (int i = 0; i < method.parameters().size(); i++) {
+                        Ast.Param param = method.parameters().get(i);
+                        env.define(
+                                param.name(),
+                                args.get(i),
+                                param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                    }
+                    try {
+                        executeBlock(method.body(), env);
+                        return null;
+                    } catch (ReturnSignal signal) {
+                        return shapeReturnedValue(
+                                method.returnType(),
+                                signal.value,
+                                "method " + method.name());
+                    }
+                } catch (RuntimeException | Error failure) {
+                    attachGuestFailure(failure, trace);
+                    throw failure;
+                }
             }
         }
 
@@ -2094,7 +2275,7 @@ public final class OresEvalRootNode extends RootNode {
                 for (Object item : iterableValues(iterable)) {
                     context.schedulerSafepoint();
                     Env iteration = new Env(env);
-                    iteration.define(loop.bindingName(), item, loop.bindingKind());
+                    bindForOfIteration(loop, item, iteration);
                     executeBlock(loop.body(), iteration);
                 }
                 return;
@@ -2107,6 +2288,21 @@ public final class OresEvalRootNode extends RootNode {
                     executeBlock(loop.body(), loopEnv);
                     if (loop.update() != null) eval(loop.update(), loopEnv);
                 }
+                return;
+            }
+            if (stmt instanceof Ast.WhileStmt loop) {
+                while (loop.condition() == null || truth(eval(loop.condition(), env))) {
+                    context.schedulerSafepoint();
+                    executeBlock(loop.body(), env);
+                }
+                return;
+            }
+            if (stmt instanceof Ast.DoWhileStmt loop) {
+                do {
+                    context.schedulerSafepoint();
+                    executeBlock(loop.body(), env);
+                } while (truth(eval(loop.condition(), env)));
+                return;
             }
         }
 
@@ -2237,19 +2433,33 @@ public final class OresEvalRootNode extends RootNode {
                     Object receiver = eval(methodCall.receiver(), env);
                     List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
                     if (receiver instanceof OresObject object) {
-                        return object.owner.invokeMethod(object, methodCall.member(), args);
+                        return invokeAtCallSite(
+                                call.site(),
+                                () -> object.owner.invokeMethod(
+                                        object,
+                                        methodCall.member(),
+                                        args));
                     }
                     if (receiver instanceof ClassFacade klass) {
-                        return klass.owner().invokeStaticFunction(klass.klass(), methodCall.member(), args);
+                        return invokeAtCallSite(
+                                call.site(),
+                                () -> klass.owner().invokeStaticFunction(
+                                        klass.klass(),
+                                        methodCall.member(),
+                                        args));
                     }
                     Object callee = member(receiver, methodCall.member());
-                    if (!(callee instanceof Invokable invokable)) throw new IllegalArgumentException("value is not callable: " + callee);
-                    return invokable.call(args);
+                    if (!(callee instanceof Invokable invokable)) {
+                        throw new IllegalArgumentException("value is not callable: " + callee);
+                    }
+                    return invokeAtCallSite(call.site(), () -> invokable.call(args));
                 }
                 Object callee = eval(call.callee(), env);
                 List<Object> args = call.arguments().stream().map(arg -> eval(arg, env)).toList();
-                if (!(callee instanceof Invokable invokable)) throw new IllegalArgumentException("value is not callable: " + callee);
-                return invokable.call(args);
+                if (!(callee instanceof Invokable invokable)) {
+                    throw new IllegalArgumentException("value is not callable: " + callee);
+                }
+                return invokeAtCallSite(call.site(), () -> invokable.call(args));
             }
             if (expr instanceof Ast.MemberExpr member) return member(eval(member.receiver(), env), member.member());
             if (expr instanceof Ast.IndexExpr indexed) {
@@ -2332,24 +2542,33 @@ public final class OresEvalRootNode extends RootNode {
                     if (args.size() != lambda.parameters().size()) {
                         throw new IllegalArgumentException("lambda arity mismatch");
                     }
-                    Env local = new Env(captured, nonLexical);
-                    for (int i = 0; i < lambda.parameters().size(); i++) {
-                        Ast.Param param = lambda.parameters().get(i);
-                        local.define(
-                                param.name(),
-                                args.get(i),
-                                param.mutable()
-                                        ? Ast.BindingKind.LET
-                                        : Ast.BindingKind.VAL);
-                    }
-                    if (lambda.expressionBody() != null) {
-                        return eval(lambda.expressionBody(), local);
-                    }
-                    try {
-                        executeBlock(lambda.blockBody(), local);
-                        return null;
-                    } catch (ReturnSignal signal) {
-                        return signal.value;
+                    OresAsyncTrace.Trace trace =
+                            traceForInvocation(lambdaTraceFrame(lambda));
+                    try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                        try {
+                            Env local = new Env(captured, nonLexical);
+                            for (int i = 0; i < lambda.parameters().size(); i++) {
+                                Ast.Param param = lambda.parameters().get(i);
+                                local.define(
+                                        param.name(),
+                                        args.get(i),
+                                        param.mutable()
+                                                ? Ast.BindingKind.LET
+                                                : Ast.BindingKind.VAL);
+                            }
+                            if (lambda.expressionBody() != null) {
+                                return eval(lambda.expressionBody(), local);
+                            }
+                            try {
+                                executeBlock(lambda.blockBody(), local);
+                                return null;
+                            } catch (ReturnSignal signal) {
+                                return signal.value;
+                            }
+                        } catch (RuntimeException | Error failure) {
+                            attachGuestFailure(failure, trace);
+                            throw failure;
+                        }
                     }
                 };
             }
@@ -2742,22 +2961,31 @@ public final class OresEvalRootNode extends RootNode {
             }
             if (fn.async()) return startAsyncStaticFunction(klass, fn, args);
 
-            Env env = new Env(null);
-            for (int i = 0; i < fn.parameters().size(); i++) {
-                Ast.Param param = fn.parameters().get(i);
-                env.define(
-                        param.name(),
-                        args.get(i),
-                        param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
-            }
-            try {
-                executeBlock(fn.body(), env);
-                return null;
-            } catch (ReturnSignal signal) {
-                return shapeReturnedValue(
-                        fn.returnType(),
-                        signal.value,
-                        "static function " + fn.name());
+            OresAsyncTrace.Trace trace =
+                    traceForInvocation(methodTraceFrame(klass, fn));
+            try (OresAsyncTrace.Scope ignored = OresAsyncTrace.install(trace)) {
+                try {
+                    Env env = new Env(null);
+                    for (int i = 0; i < fn.parameters().size(); i++) {
+                        Ast.Param param = fn.parameters().get(i);
+                        env.define(
+                                param.name(),
+                                args.get(i),
+                                param.mutable() ? Ast.BindingKind.LET : Ast.BindingKind.VAL);
+                    }
+                    try {
+                        executeBlock(fn.body(), env);
+                        return null;
+                    } catch (ReturnSignal signal) {
+                        return shapeReturnedValue(
+                                fn.returnType(),
+                                signal.value,
+                                "static function " + fn.name());
+                    }
+                } catch (RuntimeException | Error failure) {
+                    attachGuestFailure(failure, trace);
+                    throw failure;
+                }
             }
         }
 
@@ -2878,6 +3106,23 @@ public final class OresEvalRootNode extends RootNode {
                 fields.put(field.name(), value);
             }
             return new OresObject(this, klass, fields);
+        }
+
+        private static String diagnosticSourceId(String id) {
+            String normalized = normalizeUnitId(id);
+            try {
+                Path path = Path.of(normalized).normalize();
+                if (!path.isAbsolute()) return normalized;
+                int names = path.getNameCount();
+                if (names <= 0) return "<source>";
+                int start = Math.max(0, names - 2);
+                return path.subpath(start, names).toString().replace('\\', '/');
+            } catch (RuntimeException invalidPath) {
+                int slash = normalized.lastIndexOf('/');
+                return slash >= 0 && slash + 1 < normalized.length()
+                        ? normalized.substring(slash + 1)
+                        : normalized;
+            }
         }
 
         private static String normalizeUnitId(String id) {
@@ -3175,6 +3420,23 @@ public final class OresEvalRootNode extends RootNode {
                     + " but declared " + declared);
         }
 
+        private void bindForOfIteration(Ast.ForOfStmt loop, Object value, Env env) {
+            if (!loop.destructuresSequence()) {
+                env.define(loop.bindingName(), value, loop.bindingKind());
+                return;
+            }
+            List<?> items = asSequence(value);
+            if (items.size() != loop.sequenceBindings().size()) {
+                throw new IllegalArgumentException(
+                        "for-of destructure arity mismatch: value has " + items.size()
+                                + " element(s), pattern has " + loop.sequenceBindings().size());
+            }
+            for (int i = 0; i < items.size(); i++) {
+                Ast.DestructureBinding binding = loop.sequenceBindings().get(i);
+                if (!binding.isDiscard()) env.define(binding.name(), items.get(i), binding.kind());
+            }
+        }
+
         private List<?> asSequence(Object value) { if (value instanceof List<?> l) return l; if (value instanceof Object[] a) return List.of(a); throw new IllegalArgumentException("value is not sequence-destructurable"); }
         private Object destructureMember(Object value, String name) {
             if (value instanceof Map<?, ?> map) {
@@ -3436,7 +3698,12 @@ public final class OresEvalRootNode extends RootNode {
         @Override public String toString(){return "OptionUnwrapError(" + reason + ")";}
     }
     private static final class OresPanic extends RuntimeException {
-        private OresPanic(String message) { super(message, null, false, false); }
+        private OresPanic(String message) {
+            // Panic bypasses ordinary guest catches, but suppression remains
+            // enabled so immutable Oreslang guest/async diagnostic stacks can
+            // be attached without enabling a physical Java stack.
+            super(message, null, true, false);
+        }
     }
     private record StdioFacade(OresContext context) {
         private Object print(List<Object> args){context.requireCapability(IsolatePolicy.Capability.STDOUT,"stdio.print");requireOne(args,"stdio.print");context.output().print(String.valueOf(args.getFirst()));context.output().flush();return null;}

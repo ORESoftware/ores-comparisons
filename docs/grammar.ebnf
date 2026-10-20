@@ -123,6 +123,8 @@ statement       = binding_decl
                 | try_stmt
                 | defer_stmt
                 | for_stmt
+                | while_stmt
+                | do_while_stmt
                 | expression stmt_terminator ;
 
 return_stmt     = "return" [ expression ] stmt_terminator ;
@@ -136,12 +138,28 @@ condition_and   = equality { "," equality } ;
 
 try_stmt        = "try" block "catch" "(" IDENT ")" block [ "finally" block ] ;
 
-for_stmt        = "for" "(" for_of_head ")" block
-                | "for" "(" [ for_init ] ";" [ expression ] ";" [ expression ] ")" block ;
+loop_body       = block
+                | "do" { statement } "done" ;
 
-for_of_head     = [ binding_kind ] IDENT "of" expression ;
+for_stmt        = "for" "(" for_header ")" loop_body
+                | "for" for_header loop_body ;
+
+for_header      = for_of_head
+                | [ for_init ] ";" [ expression ] ";" [ for_update ] ;
+
+for_of_head     = [ binding_kind ] ( IDENT | for_sequence_pattern ) "of" expression ;
+for_sequence_pattern
+                = "[" for_pattern_item { "," for_pattern_item } "]" ;
+for_pattern_item= [ binding_kind ] ( IDENT | "_" ) ;
+
 for_init        = binding_kind [ type_ref ] IDENT "=" expression
+                | type_ref IDENT "=" expression
                 | expression ;
+for_update      = IDENT ( "++" | "--" )
+                | expression ;
+
+while_stmt      = "while" expression loop_body ;
+do_while_stmt   = "do" block "while" expression [ ";" ] ;
 
 expression      = assignment ;
 assignment      = conditional [ "=" assignment ] ;

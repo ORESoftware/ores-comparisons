@@ -1,0 +1,19 @@
+async fnc explode() => int {
+  stdio.println("before-error");
+  val gate = Mutex.new(1);
+  val guard = await gate.lock_async();
+  guard.release();
+
+  val scheduler = new OresScheduler(1);
+  scheduler.close();
+  val doomed = scheduler.start(|| -> {
+    return 7;
+  });
+  return await doomed;
+}
+
+pub async routine main() => void {
+  val value = await explode();
+  stdio.println(value);
+  return;
+}

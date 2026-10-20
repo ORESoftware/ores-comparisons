@@ -1,0 +1,24 @@
+async fnc leaf() => int {
+  val scheduler = new OresScheduler(1);
+  val doomed = scheduler.start(|| -> {
+    val zero = 0;
+    return 9 / zero;
+  });
+  return await doomed;
+}
+
+async fnc middle() => int {
+  val value = await leaf();
+  return value + 1;
+}
+
+async fnc top() => int {
+  val value = await middle();
+  return value + 1;
+}
+
+pub async routine main() => void {
+  val value = await top();
+  stdio.println(value);
+  return;
+}

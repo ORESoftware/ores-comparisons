@@ -681,21 +681,81 @@ fnc find(bool found) => Option<int> {
 
 ## Loops, iterators, and scheduler safepoints
 
-Oreslang supports conventional imperative loops:
+Loop bodies accept either braces or `do ... done`. `done`, not `end`, is
+the keyword terminator for loops.
+
+Iterator loops use `of`:
+
+```ores
+for item of values do
+  work(item);
+done
+
+for item of values {
+  work(item);
+}
+```
+
+Sequence destructuring is allowed directly in the iterator pattern:
+
+```ores
+for [key, value] of entries do
+  consume(key, value);
+done
+```
+
+The pattern has exact arity for every yielded element. A leading binding kind
+may be supplied, and without one the iterator binding is `val`.
+
+Conventional C-style loops may keep parentheses or omit them:
 
 ```ores
 for (let i = 0; i < 10; i = i + 1) {
   work(i);
 }
+
+for int i = 0; i < 10; i++ do
+  work(i);
+done
 ```
 
-and iterator-style loops:
+A bare typed initializer such as `int i = 0` is an implicit mutable
+loop-local (`let`) binding. `++` and `--` are currently accepted only in
+the C-style `for` update slot; Oreslang does not yet give them general postfix
+expression semantics.
+
+Pre-test loops support both body styles:
 
 ```ores
-for (val item of values) {
-  work(item);
+while ready() {
+  work();
 }
+
+while ready() do
+  work();
+done
 ```
+
+`while` always requires a condition. It is deliberately **not** an
+unconditional-loop alias: the canonical explicit infinite-loop statement is
+`loop { ... }` on the control-flow integration line. Keeping these meanings
+separate avoids two independently evolving infinite-loop semantics.
+
+Post-test loops use the brace form:
+
+```ores
+do {
+  work();
+} while (again());
+```
+
+The keyword-delimited `do ... done` spelling is intentionally not used for
+post-test loops. This keeps the bare `do <foreign-language> { ... }` prefix
+available for foreign-code execution constructs such as `do java { ... }`.
+
+`range` is intentionally not a reserved keyword. A `range(...)` facility
+should be an ordinary iterable/intrinsic so it composes with `for ... of`
+without adding another loop grammar.
 
 Classes can expose a JavaScript-like iterator symbol:
 
@@ -707,9 +767,22 @@ define class Bag as
 end
 ```
 
-The compiler/runtime inserts a scheduler safepoint on **every loop iteration**. For untrusted actors, statement/expression evaluation and callable/recursive execution are also metered. Each checkpoint rechecks the actor deadline and consumes execution fuel; exhausting fuel fails the actor. The runtime may yield a carrier as a scheduling optimization, but untrusted-system liveness does **not** depend on source code voluntarily calling `yield`.
+The compiler/runtime inserts a scheduler safepoint on **every loop iteration**,
+including empty loop bodies. For untrusted actors, statement/expression
+evaluation and callable/recursive execution are also metered. Each checkpoint
+rechecks the actor deadline and consumes execution fuel; exhausting fuel fails
+the actor. The runtime may yield a carrier as a scheduling optimization, but
+untrusted-system liveness does **not** depend on source code voluntarily calling
+`yield`.
 
-This means Oreslang does not require recursion as the only way to loop, and recursive code is not a loophole around sandbox scheduling. User code receives no ambient thread-control capability.
+This means Oreslang does not require recursion as the only way to loop, and
+recursive code is not a loophole around sandbox scheduling. User code receives
+no ambient thread-control capability.
+
+For task-level parallelism and CPU/GPU placement, Oreslang follows a separate
+Regent/Legion-inspired logical-task model rather than making ordinary loops
+silently parallel. See
+[Task parallelism and heterogeneous CPU/GPU mapping](task-parallelism-and-heterogeneous-mapping.md).
 
 ## Standard output
 

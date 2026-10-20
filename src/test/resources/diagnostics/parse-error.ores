@@ -1,0 +1,4 @@
+pub routine main() => void {
+  val answer = ;
+  return;
+}

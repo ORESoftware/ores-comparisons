@@ -286,7 +286,7 @@ public final class Ast {
     public enum BindingKind { CONST, VAL, LET }
 
     public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, ExprStmt, DeferStmt,
-            IfStmt, TryStmt, ForOfStmt, ForStmt { }
+            IfStmt, TryStmt, ForOfStmt, ForStmt, WhileStmt, DoWhileStmt { }
 
     public record BindingStmt(BindingKind kind, TypeRef declaredType, String name, Expr initializer) implements Stmt { }
     public record DestructureBinding(BindingKind kind, String name) {
@@ -344,12 +344,55 @@ public final class Ast {
         }
     }
 
-    public record ForOfStmt(BindingKind bindingKind, String bindingName, Expr iterable, List<Stmt> body) implements Stmt {
-        public ForOfStmt { body = List.copyOf(body); }
+    public record ForOfStmt(
+            BindingKind bindingKind,
+            String bindingName,
+            List<DestructureBinding> sequenceBindings,
+            Expr iterable,
+            List<Stmt> body) implements Stmt {
+        public ForOfStmt {
+            sequenceBindings = sequenceBindings == null ? List.of() : List.copyOf(sequenceBindings);
+            body = List.copyOf(body);
+            boolean named = bindingName != null && !bindingName.isBlank();
+            boolean destructured = !sequenceBindings.isEmpty();
+            if (named == destructured) {
+                throw new IllegalArgumentException("for-of requires exactly one named or sequence-destructuring binding");
+            }
+            if (named && bindingKind == null) {
+                throw new IllegalArgumentException("named for-of binding requires a binding kind");
+            }
+        }
+
+        public ForOfStmt(BindingKind bindingKind, String bindingName, Expr iterable, List<Stmt> body) {
+            this(bindingKind, bindingName, List.of(), iterable, body);
+        }
+
+        public static ForOfStmt sequence(
+                List<DestructureBinding> bindings,
+                Expr iterable,
+                List<Stmt> body) {
+            return new ForOfStmt(null, null, bindings, iterable, body);
+        }
+
+        public boolean destructuresSequence() {
+            return !sequenceBindings.isEmpty();
+        }
     }
 
     public record ForStmt(Stmt initializer, Expr condition, Expr update, List<Stmt> body) implements Stmt {
         public ForStmt { body = List.copyOf(body); }
+    }
+
+    /** A null condition is the explicit infinite-loop shorthand: while { ... } / while do ... done. */
+    public record WhileStmt(Expr condition, List<Stmt> body) implements Stmt {
+        public WhileStmt { body = List.copyOf(body); }
+    }
+
+    public record DoWhileStmt(List<Stmt> body, Expr condition) implements Stmt {
+        public DoWhileStmt {
+            body = List.copyOf(body);
+            if (condition == null) throw new IllegalArgumentException("do-while requires a condition");
+        }
     }
 
     public sealed interface Expr permits LiteralExpr, NameExpr, BinaryExpr, UnaryExpr, AssignExpr, ConditionalExpr,
@@ -367,19 +410,42 @@ public final class Ast {
             Expr callee,
             List<TypeRef> typeArguments,
             boolean typeArgumentsPresent,
-            List<Expr> arguments) implements Expr {
+            List<Expr> arguments,
+            SourceSite site) implements Expr {
         public CallExpr {
             typeArguments = List.copyOf(typeArguments);
             arguments = List.copyOf(arguments);
+            site = site == null ? SourceSite.UNKNOWN : site;
             if (!typeArgumentsPresent && !typeArguments.isEmpty()) {
                 throw new IllegalArgumentException("call type arguments require an explicit <...> marker");
             }
         }
+        /** Backwards-compatible constructor for programmatically-built ASTs. */
+        public CallExpr(
+                Expr callee,
+                List<TypeRef> typeArguments,
+                boolean typeArgumentsPresent,
+                List<Expr> arguments) {
+            this(callee, typeArguments, typeArgumentsPresent, arguments, SourceSite.UNKNOWN);
+        }
         public CallExpr(Expr callee, List<Expr> arguments) {
-            this(callee, List.of(), false, arguments);
+            this(callee, List.of(), false, arguments, SourceSite.UNKNOWN);
+        }
+        public CallExpr(
+                Expr callee,
+                List<Expr> arguments,
+                SourceSite site) {
+            this(callee, List.of(), false, arguments, site);
         }
         public CallExpr(Expr callee, List<TypeRef> typeArguments, List<Expr> arguments) {
-            this(callee, typeArguments, true, arguments);
+            this(callee, typeArguments, true, arguments, SourceSite.UNKNOWN);
+        }
+        public CallExpr(
+                Expr callee,
+                List<TypeRef> typeArguments,
+                List<Expr> arguments,
+                SourceSite site) {
+            this(callee, typeArguments, true, arguments, site);
         }
     }
 
@@ -419,15 +485,27 @@ public final class Ast {
             Expr expressionBody,
             List<Stmt> blockBody,
             boolean async,
-            boolean nonLexical) implements Expr {
+            boolean nonLexical,
+            SourceSite site) implements Expr {
         public LambdaExpr {
             parameters = List.copyOf(parameters);
             blockBody = blockBody == null ? null : List.copyOf(blockBody);
+            site = site == null ? SourceSite.UNKNOWN : site;
+        }
+
+        /** Backwards-compatible constructor for callers predating lambda sites. */
+        public LambdaExpr(
+                List<Param> parameters,
+                Expr expressionBody,
+                List<Stmt> blockBody,
+                boolean async,
+                boolean nonLexical) {
+            this(parameters, expressionBody, blockBody, async, nonLexical, SourceSite.UNKNOWN);
         }
 
         /** Backwards-compatible constructor for synchronous lexical lambdas. */
         public LambdaExpr(List<Param> parameters, Expr expressionBody, List<Stmt> blockBody) {
-            this(parameters, expressionBody, blockBody, false, false);
+            this(parameters, expressionBody, blockBody, false, false, SourceSite.UNKNOWN);
         }
 
         /** Backwards-compatible constructor for synchronous lambdas with nlex. */
@@ -436,7 +514,7 @@ public final class Ast {
                 Expr expressionBody,
                 List<Stmt> blockBody,
                 boolean nonLexical) {
-            this(parameters, expressionBody, blockBody, false, nonLexical);
+            this(parameters, expressionBody, blockBody, false, nonLexical, SourceSite.UNKNOWN);
         }
     }
 }

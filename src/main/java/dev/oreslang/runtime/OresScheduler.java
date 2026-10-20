@@ -39,12 +39,29 @@ public final class OresScheduler implements AutoCloseable {
     private static final ThreadLocal<OresScheduler> CURRENT = new ThreadLocal<>();
     private static final ThreadLocal<Long> CURRENT_DISPATCH_ID = new ThreadLocal<>();
     private static final ThreadLocal<Object> CURRENT_TASK_DOMAIN = new ThreadLocal<>();
+    private static final ThreadLocal<StructuredTask> CURRENT_TASK_SCOPE = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> SCHEDULER_CARRIER = new ThreadLocal<>();
     private static final int DEFAULT_QUEUE_CAPACITY = 65_536;
 
     @FunctionalInterface
     interface TurnExecutor {
         void execute(Runnable turn);
+    }
+
+    /**
+     * Runtime-only ownership edge for structured concurrency.
+     *
+     * <p>Every scheduler task is a scope. A task started while another task is
+     * executing is attached to that parent scope unless the detached start API
+     * is used explicitly. The edge is scheduler-independent, so a parent may
+     * own a child dispatched on another OresScheduler without moving either
+     * continuation between schedulers.</p>
+     */
+    private interface StructuredTask {
+        boolean attachChild(StructuredTask child);
+        void childTerminated(StructuredTask child, Throwable failure, boolean cancelled);
+        void cancelFromParent();
+        OresFuture<?> completionFuture();
     }
 
     /** One compiler-generated async state-machine turn. */
@@ -284,10 +301,32 @@ public final class OresScheduler implements AutoCloseable {
      * scheduler does not move the waiter onto this scheduler.</p>
      */
     public <T> OresFuture<T> start(Task<T> task) {
+        return startInternal(task, true);
+    }
+
+    /**
+     * Start a task outside the current task scope.
+     *
+     * <p>This is the deliberate escape hatch for runtime services whose
+     * lifetime is intentionally independent from the caller. Ordinary source
+     * and library code should prefer {@link #start(Task)} so cancellation,
+     * failure, and lifetime remain structured.</p>
+     */
+    public <T> OresFuture<T> startDetached(Task<T> task) {
+        return startInternal(task, false);
+    }
+
+    private <T> OresFuture<T> startInternal(Task<T> task, boolean structured) {
         Objects.requireNonNull(task, "task");
         ensureOpen();
 
-        TaskRunner<T> runner = new TaskRunner<>(task);
+        StructuredTask parent = structured ? CURRENT_TASK_SCOPE.get() : null;
+        TaskRunner<T> runner = new TaskRunner<>(task, parent);
+        if (parent != null && !parent.attachChild(runner)) {
+            throw new RejectedExecutionException(
+                    "parent Ores task scope is no longer active");
+        }
+
         tasks.add(runner);
         try {
             runner.scheduleInitial();
@@ -302,15 +341,27 @@ public final class OresScheduler implements AutoCloseable {
      * lambdas may lower to this path.
      */
     public <T> OresFuture<T> startSync(Callable<? extends T> task) {
+        return startSyncInternal(task, false);
+    }
+
+    /** Detached counterpart to {@link #startSync(Callable)}. */
+    public <T> OresFuture<T> startSyncDetached(Callable<? extends T> task) {
+        return startSyncInternal(task, true);
+    }
+
+    private <T> OresFuture<T> startSyncInternal(
+            Callable<? extends T> task,
+            boolean detached) {
         Objects.requireNonNull(task, "task");
         AtomicBoolean entered = new AtomicBoolean();
-        return start(resume -> {
+        Task<T> lowered = resume -> {
             if (!resume.initial() || !entered.compareAndSet(false, true)) {
                 throw new IllegalStateException(
                         "synchronous scheduler task was resumed more than once");
             }
             return done(task.call());
-        });
+        };
+        return detached ? startDetached(lowered) : start(lowered);
     }
 
     /**
@@ -392,14 +443,18 @@ public final class OresScheduler implements AutoCloseable {
         }
     }
 
-    private final class TaskRunner<T> {
+    private final class TaskRunner<T> implements StructuredTask {
         private static final int NEW = 0;
         private static final int QUEUED = 1;
         private static final int RUNNING = 2;
         private static final int WAITING = 3;
-        private static final int TERMINAL = 4;
+        private static final int JOINING = 4;
+        private static final int TERMINAL = 5;
 
         private final Task<T> task;
+        private final StructuredTask parent;
+        private final Object childLock = new Object();
+        private final Set<StructuredTask> children = ConcurrentHashMap.newKeySet();
         private final AtomicInteger phase = new AtomicInteger(NEW);
         private final AtomicBoolean executing = new AtomicBoolean();
         private final AtomicReference<Resume> pendingResume =
@@ -408,10 +463,18 @@ public final class OresScheduler implements AutoCloseable {
                 new AtomicReference<>();
         private final AtomicReference<OresFuture.RuntimeWaiterRegistration>
                 activeAwaitRegistration = new AtomicReference<>();
+        private final AtomicReference<OresFuture<?>> activeAwaitedFuture =
+                new AtomicReference<>();
+        private final AtomicReference<StructuredChildFailure> pendingStructuredFailure =
+                new AtomicReference<>();
+        private final AtomicReference<TerminalSuccess<T>> pendingStructuredSuccess =
+                new AtomicReference<>();
+        private final AtomicBoolean parentNotified = new AtomicBoolean();
         private final OresFuture<T> completion;
 
-        private TaskRunner(Task<T> task) {
+        private TaskRunner(Task<T> task, StructuredTask parent) {
             this.task = task;
+            this.parent = parent;
             this.completion = new OresFuture<>(this::cancelFromFuture);
         }
 
@@ -440,7 +503,9 @@ public final class OresScheduler implements AutoCloseable {
             }
 
             Object priorTaskDomain = CURRENT_TASK_DOMAIN.get();
+            StructuredTask priorTaskScope = CURRENT_TASK_SCOPE.get();
             CURRENT_TASK_DOMAIN.set(this);
+            CURRENT_TASK_SCOPE.set(this);
             try {
                 detachActiveAwaitRegistration();
                 Resume resume = pendingResume.getAndSet(null);
@@ -483,6 +548,11 @@ public final class OresScheduler implements AutoCloseable {
                 failTerminal(new IllegalStateException(
                         "unknown OresScheduler task step " + step.getClass().getName()));
             } finally {
+                if (priorTaskScope == null) {
+                    CURRENT_TASK_SCOPE.remove();
+                } else {
+                    CURRENT_TASK_SCOPE.set(priorTaskScope);
+                }
                 if (priorTaskDomain == null) {
                     CURRENT_TASK_DOMAIN.remove();
                 } else {
@@ -500,12 +570,25 @@ public final class OresScheduler implements AutoCloseable {
         private void afterCarrierTurn() {
             executing.set(false);
             publishTerminalIfReady();
+            notifyParentIfTerminal();
             scheduleReadyResume();
         }
 
         private void armAwait(OresFuture<?> awaited) {
+            activeAwaitedFuture.set(awaited);
             if (!phase.compareAndSet(RUNNING, WAITING)) {
+                activeAwaitedFuture.compareAndSet(awaited, null);
                 return;
+            }
+
+            StructuredChildFailure pending = pendingStructuredFailure.get();
+            if (pending != null) {
+                if (pending.child().completionFuture() == awaited) {
+                    pendingStructuredFailure.compareAndSet(pending, null);
+                } else if (pendingStructuredFailure.compareAndSet(pending, null)) {
+                    failTerminal(pending.failure());
+                    return;
+                }
             }
 
             try {
@@ -533,12 +616,8 @@ public final class OresScheduler implements AutoCloseable {
                         activeAwaitRegistration.getAndSet(registration);
                 if (previous != null) previous.detach();
 
-                // A terminal/already-completed Future may have invoked the
-                // callback synchronously before the registration was published.
-                // In that case the waiter is already claimed; clear our strong
-                // reference immediately.
                 if (phase.get() != WAITING || pendingResume.get() != null) {
-                    detachActiveAwaitRegistration();
+                    detachAwaitRegistrationOnly();
                 }
             } catch (RuntimeException | Error registrationFailure) {
                 failTerminal(registrationFailure);
@@ -576,21 +655,56 @@ public final class OresScheduler implements AutoCloseable {
             }
         }
 
-        private void detachActiveAwaitRegistration() {
+        private void detachAwaitRegistrationOnly() {
             OresFuture.RuntimeWaiterRegistration registration =
                     activeAwaitRegistration.getAndSet(null);
             if (registration != null) registration.detach();
         }
 
+        private void detachActiveAwaitRegistration() {
+            detachAwaitRegistrationOnly();
+            activeAwaitedFuture.set(null);
+        }
+
         private void finish(T value) {
             detachActiveAwaitRegistration();
-            if (!phase.compareAndSet(RUNNING, TERMINAL)) {
+            StructuredChildFailure pending = pendingStructuredFailure.getAndSet(null);
+            if (pending != null) {
+                failTerminal(pending.failure());
                 return;
             }
-            terminalOutcome.set(new TerminalSuccess<>(value));
+            TerminalSuccess<T> success = new TerminalSuccess<>(value);
+            pendingStructuredSuccess.set(success);
+
+            if (children.isEmpty()) {
+                if (!phase.compareAndSet(RUNNING, TERMINAL)) return;
+                terminalOutcome.compareAndSet(null, success);
+                tasks.remove(this);
+                return;
+            }
+
+            if (!phase.compareAndSet(RUNNING, JOINING)) return;
+            finishStructuredJoinIfReady();
+        }
+
+        private void finishStructuredJoinIfReady() {
+            if (phase.get() != JOINING || !children.isEmpty()) return;
+            if (!phase.compareAndSet(JOINING, TERMINAL)) return;
+
+            TerminalSuccess<T> success = pendingStructuredSuccess.get();
+            if (success == null) {
+                terminalOutcome.compareAndSet(
+                        null,
+                        new TerminalFailure<>(new IllegalStateException(
+                                "structured task joined children without a parent result")));
+            } else {
+                terminalOutcome.compareAndSet(null, success);
+            }
             tasks.remove(this);
-            // afterCarrierTurn() publishes only after the carrier has fully
-            // unwound runBound(...).
+            if (!executing.get()) {
+                publishTerminalIfReady();
+                notifyParentIfTerminal();
+            }
         }
 
         private void failTerminal(Throwable failure) {
@@ -604,8 +718,12 @@ public final class OresScheduler implements AutoCloseable {
 
             terminalOutcome.compareAndSet(null, new TerminalFailure<>(failure));
             tasks.remove(this);
+            pendingResume.set(null);
+            pendingStructuredFailure.set(null);
+            cancelOwnedChildren();
             if (!executing.get()) {
                 publishTerminalIfReady();
+                notifyParentIfTerminal();
             }
         }
 
@@ -621,6 +739,97 @@ public final class OresScheduler implements AutoCloseable {
             }
         }
 
+        private void notifyParentIfTerminal() {
+            if (parent == null
+                    || phase.get() != TERMINAL
+                    || executing.get()
+                    || !parentNotified.compareAndSet(false, true)) {
+                return;
+            }
+
+            TerminalOutcome<T> outcome = terminalOutcome.get();
+            if (outcome instanceof TerminalFailure<?> failure) {
+                parent.childTerminated(this, failure.failure(), false);
+            } else if (completion.isCancelled()) {
+                parent.childTerminated(this, null, true);
+            } else {
+                parent.childTerminated(this, null, false);
+            }
+        }
+
+        @Override
+        public boolean attachChild(StructuredTask child) {
+            Objects.requireNonNull(child, "child");
+            synchronized (childLock) {
+                if (phase.get() != RUNNING) return false;
+                return children.add(child);
+            }
+        }
+
+        @Override
+        public void childTerminated(
+                StructuredTask child,
+                Throwable failure,
+                boolean cancelled) {
+            if (failure != null) {
+                OresFuture<?> childCompletion = child.completionFuture();
+
+                if (activeAwaitedFuture.get() == childCompletion) {
+                    synchronized (childLock) {
+                        children.remove(child);
+                    }
+                    return;
+                }
+
+                if (executing.get() && phase.get() == RUNNING) {
+                    pendingStructuredFailure.compareAndSet(
+                            null,
+                            new StructuredChildFailure(child, failure));
+                    synchronized (childLock) {
+                        children.remove(child);
+                    }
+                    return;
+                }
+
+                failTerminal(failure);
+                synchronized (childLock) {
+                    children.remove(child);
+                }
+                return;
+            }
+
+            boolean removed;
+            synchronized (childLock) {
+                removed = children.remove(child);
+            }
+            if (!removed) return;
+
+            // Explicit child cancellation is a terminal child outcome but is
+            // not itself a failure of the parent scope. Parent-originated
+            // cancellation has already made the parent terminal.
+            finishStructuredJoinIfReady();
+        }
+
+        private void cancelOwnedChildren() {
+            StructuredTask[] snapshot;
+            synchronized (childLock) {
+                snapshot = children.toArray(StructuredTask[]::new);
+            }
+            for (StructuredTask child : snapshot) {
+                child.cancelFromParent();
+            }
+        }
+
+        @Override
+        public void cancelFromParent() {
+            completion.cancel(false);
+        }
+
+        @Override
+        public OresFuture<?> completionFuture() {
+            return completion;
+        }
+
         private void failBeforeStart(Throwable failure) {
             failTerminal(failure);
         }
@@ -634,10 +843,23 @@ public final class OresScheduler implements AutoCloseable {
             } while (!phase.compareAndSet(observed, TERMINAL));
             tasks.remove(this);
             pendingResume.set(null);
+            cancelOwnedChildren();
+            if (!executing.get()) {
+                notifyParentIfTerminal();
+            }
         }
 
         private void cancelFromSchedulerClose() {
             completion.cancel(false);
+        }
+    }
+
+    private record StructuredChildFailure(
+            StructuredTask child,
+            Throwable failure) {
+        private StructuredChildFailure {
+            Objects.requireNonNull(child, "child");
+            Objects.requireNonNull(failure, "failure");
         }
     }
 

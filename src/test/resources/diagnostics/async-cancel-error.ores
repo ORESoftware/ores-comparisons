@@ -1,0 +1,9 @@
+pub async routine main() => void {
+  val pending = Future.from_callback<int>(|completion| -> {
+    return;
+  });
+  pending.cancel();
+  val value = await pending;
+  stdio.println(value);
+  return;
+}

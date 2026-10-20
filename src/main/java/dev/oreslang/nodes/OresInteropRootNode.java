@@ -5,6 +5,7 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.DirectCallNode;
 import com.oracle.truffle.api.nodes.RootNode;
 import dev.oreslang.OresLanguage;
+import dev.oreslang.runtime.OresGuestException;
 import dev.oreslang.runtime.OresNull;
 
 /**
@@ -31,7 +32,16 @@ public final class OresInteropRootNode extends RootNode {
 
     @Override
     public Object execute(VirtualFrame frame) {
-        Object value = delegate.call(frame.getArguments());
-        return value == null ? OresNull.INSTANCE : value;
+        try {
+            Object value = delegate.call(frame.getArguments());
+            return value == null ? OresNull.INSTANCE : value;
+        } catch (OresGuestException guest) {
+            throw guest;
+        } catch (RuntimeException | Error failure) {
+            if (OresGuestException.hasLogicalDiagnostics(failure)) {
+                throw OresGuestException.from(failure);
+            }
+            throw failure;
+        }
     }
 }

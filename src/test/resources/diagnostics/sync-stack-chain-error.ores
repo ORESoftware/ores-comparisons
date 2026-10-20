@@ -1,0 +1,14 @@
+fnc leaf() => int {
+  val zero = 0;
+  return 7 / zero;
+}
+
+fnc middle() => int {
+  return leaf() + 1;
+}
+
+pub routine main() => void {
+  val value = middle();
+  stdio.println(value);
+  return;
+}
