@@ -814,8 +814,11 @@ public final class OresEvalRootNode extends RootNode {
                         }
                         tailDispatchPending = false;
                     } else if (!resume.initial()) {
-                        throw new IllegalStateException(
-                                "async source task resumed without a captured await");
+                        IllegalStateException invalid =
+                                new IllegalStateException(
+                                        "async source task resumed without a captured await");
+                        OresAsyncTrace.attach(invalid, trace);
+                        throw invalid;
                     }
 
                     while (true) {
