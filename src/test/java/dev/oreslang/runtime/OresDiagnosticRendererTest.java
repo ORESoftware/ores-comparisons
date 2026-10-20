@@ -130,6 +130,76 @@ final class OresDiagnosticRendererTest {
     }
 
     @Test
+    void sharedThrowableDagIsNotMisreportedAsACycle() {
+        IllegalArgumentException shared = new IllegalArgumentException("shared-leaf");
+        RuntimeException left = new RuntimeException("left", shared);
+        RuntimeException right = new RuntimeException("right", shared);
+        IllegalStateException root = new IllegalStateException("root");
+        root.addSuppressed(left);
+        root.addSuppressed(right);
+
+        String json = OresDiagnosticRenderer.renderJson(root);
+        String text = OresDiagnosticRenderer.renderText(root);
+
+        assertFalse(json.contains("\"reason\":\"cause_cycle\""), json);
+        assertFalse(text.contains("<cause cycle elided>"), text);
+        assertEquals(2, json.split("shared-leaf", -1).length - 1,
+                "a shared DAG leaf should render on each causal path");
+    }
+
+    @Test
+    void pathologicalErrorGraphIsGloballyBounded() {
+        IllegalStateException root = new IllegalStateException("root");
+        for (int i = 0; i < 16; i++) {
+            RuntimeException branch = new RuntimeException("branch-" + i);
+            for (int j = 0; j < 16; j++) {
+                branch.addSuppressed(new IllegalArgumentException("leaf-" + i + "-" + j));
+            }
+            root.addSuppressed(branch);
+        }
+
+        String json = OresDiagnosticRenderer.renderJson(root);
+        String text = OresDiagnosticRenderer.renderText(root);
+
+        assertTrue(json.contains("\"reason\":\"error_budget\""), json);
+        assertTrue(text.contains("<error graph truncated>"), text);
+        assertTrue(json.length() < 200_000, "JSON error graph must remain globally bounded");
+        assertTrue(text.length() < 100_000, "text error graph must remain globally bounded");
+    }
+
+    @Test
+    void unicodeLineSeparatorsCannotSplitTextOrJsonDiagnostics() {
+        IllegalStateException failure =
+                new IllegalStateException("first\u2028second\u2029third");
+
+        String json = OresDiagnosticRenderer.renderJson(failure);
+        String text = OresDiagnosticRenderer.renderText(failure);
+
+        assertTrue(json.contains("first\\u2028second\\u2029third"), json);
+        assertTrue(text.contains("first\\u2028second\\u2029third"), text);
+        assertFalse(json.contains("first\u2028second"), json);
+        assertFalse(text.contains("first\u2028second"), text);
+    }
+
+    @Test
+    void jsonDeclaresChronologicalEventOrderWhileTextShowsCausalReverseOrder() {
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("worker", site("order.ores", 1, 1)));
+        trace.awaitAt(site("order.ores", 2, 1));
+        trace.boundary(OresAsyncTrace.BoundaryKind.SELECT, site("order.ores", 3, 1));
+        IllegalStateException failure = new IllegalStateException("order");
+        OresAsyncTrace.attach(failure, trace);
+
+        String json = OresDiagnosticRenderer.renderJson(failure);
+        String text = OresDiagnosticRenderer.renderText(failure);
+
+        assertTrue(json.contains("\"event_order\":\"oldest_to_newest\""), json);
+        assertTrue(json.indexOf("\"kind\":\"await\"")
+                < json.indexOf("\"kind\":\"select\""), json);
+        assertTrue(text.indexOf("--- select") < text.indexOf("--- await"), text);
+    }
+
+    @Test
     void attachedTraceFanoutRemainsBoundedInJsonAndText() {
         IllegalStateException failure = new IllegalStateException("fanout");
         for (int i = 0; i < 100; i++) {

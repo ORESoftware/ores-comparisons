@@ -1,8 +1,6 @@
 package dev.oreslang.runtime;
 
-import java.util.Collections;
 import java.util.IdentityHashMap;
-import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import org.graalvm.polyglot.PolyglotException;
@@ -20,6 +18,7 @@ public final class OresDiagnosticRenderer {
     private static final int MAX_MESSAGE_CHARS = 4096;
     private static final int MAX_TYPE_CHARS = 256;
     private static final int MAX_SUPPRESSED = 16;
+    private static final int MAX_ERROR_NODES = 64;
 
     private OresDiagnosticRenderer() { }
 
@@ -27,8 +26,7 @@ public final class OresDiagnosticRenderer {
         if (failure == null) throw new NullPointerException("failure");
         failure = diagnosticRoot(failure);
         StringBuilder out = new StringBuilder();
-        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        appendTextFailure(out, failure, seen, 0, false);
+        appendTextFailure(out, failure, new RenderState(), 0, false);
         return out.toString();
     }
 
@@ -39,8 +37,7 @@ public final class OresDiagnosticRenderer {
         out.append("{\"schema\":");
         appendJsonString(out, SCHEMA);
         out.append(",\"error\":");
-        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        appendJsonFailure(out, failure, seen, 0);
+        appendJsonFailure(out, failure, new RenderState(), 0);
         out.append('}');
         return out.toString();
     }
@@ -48,7 +45,7 @@ public final class OresDiagnosticRenderer {
     private static void appendTextFailure(
             StringBuilder out,
             Throwable failure,
-            Set<Throwable> seen,
+            RenderState state,
             int depth,
             boolean causedBy) {
         if (depth >= MAX_CAUSE_DEPTH) {
@@ -56,12 +53,19 @@ public final class OresDiagnosticRenderer {
             out.append("<cause chain truncated>");
             return;
         }
-        if (!seen.add(failure)) {
+        if (state.active.containsKey(failure)) {
             if (causedBy) out.append("\nCaused by: ");
             out.append("<cause cycle elided>");
             return;
         }
+        if (!state.consumeNode()) {
+            if (causedBy) out.append("\nCaused by: ");
+            out.append("<error graph truncated>");
+            return;
+        }
 
+        state.active.put(failure, Boolean.TRUE);
+        try {
         if (causedBy) out.append("\nCaused by: ");
         out.append(safeHuman(typeName(failure)));
         String message = bounded(failure.getMessage(), MAX_MESSAGE_CHARS);
@@ -98,7 +102,7 @@ public final class OresDiagnosticRenderer {
                 continue;
             }
             out.append("\nSuppressed: ");
-            appendTextFailure(out, suppressed, seen, depth + 1, false);
+            appendTextFailure(out, suppressed, state, depth + 1, false);
             renderedSuppressed++;
         }
         if (elidedSuppressed > 0) {
@@ -108,7 +112,10 @@ public final class OresDiagnosticRenderer {
 
         Throwable cause = failure.getCause();
         if (cause != null && cause != failure) {
-            appendTextFailure(out, cause, seen, depth + 1, true);
+            appendTextFailure(out, cause, state, depth + 1, true);
+        }
+        } finally {
+            state.active.remove(failure);
         }
     }
 
@@ -182,17 +189,23 @@ public final class OresDiagnosticRenderer {
     private static void appendJsonFailure(
             StringBuilder out,
             Throwable failure,
-            Set<Throwable> seen,
+            RenderState state,
             int depth) {
         if (depth >= MAX_CAUSE_DEPTH) {
             out.append("{\"truncated\":true,\"reason\":\"cause_depth\"}");
             return;
         }
-        if (!seen.add(failure)) {
+        if (state.active.containsKey(failure)) {
             out.append("{\"truncated\":true,\"reason\":\"cause_cycle\"}");
             return;
         }
+        if (!state.consumeNode()) {
+            out.append("{\"truncated\":true,\"reason\":\"error_budget\"}");
+            return;
+        }
 
+        state.active.put(failure, Boolean.TRUE);
+        try {
         out.append('{');
         out.append("\"type\":");
         appendJsonString(out, bounded(typeName(failure), MAX_TYPE_CHARS));
@@ -231,7 +244,7 @@ public final class OresDiagnosticRenderer {
             }
             if (!firstSuppressed) out.append(',');
             firstSuppressed = false;
-            appendJsonFailure(out, suppressed, seen, depth + 1);
+            appendJsonFailure(out, suppressed, state, depth + 1);
             renderedSuppressed++;
         }
         out.append(']');
@@ -240,17 +253,21 @@ public final class OresDiagnosticRenderer {
         Throwable cause = failure.getCause();
         if (cause != null && cause != failure) {
             out.append(",\"cause\":");
-            appendJsonFailure(out, cause, seen, depth + 1);
+            appendJsonFailure(out, cause, state, depth + 1);
         } else {
             out.append(",\"cause\":null");
         }
         out.append('}');
+        } finally {
+            state.active.remove(failure);
+        }
     }
 
     private static void appendJsonTrace(StringBuilder out, OresAsyncTrace.TraceSnapshot trace) {
         out.append('{');
         out.append("\"current\":");
         appendJsonFrame(out, trace.currentFrame());
+        out.append(",\"event_order\":\"oldest_to_newest\"");
         out.append(",\"events\":[");
         boolean first = true;
         for (OresAsyncTrace.Event event : trace.events()) {
@@ -358,7 +375,7 @@ public final class OresDiagnosticRenderer {
             else if (ch == '\r') out.append("\\r");
             else if (ch == '\t') out.append("\\t");
             else if (Character.isISOControl(ch) || isBidiControl(ch)
-                    || Character.isSurrogate(ch)) {
+                    || Character.isSurrogate(ch) || isLineSeparator(ch)) {
                 appendUnicodeEscape(out, ch);
             } else {
                 out.append(ch);
@@ -380,7 +397,8 @@ public final class OresDiagnosticRenderer {
                 case '\r' -> out.append("\\r");
                 case '\t' -> out.append("\\t");
                 default -> {
-                    if (ch < 0x20 || isBidiControl(ch) || Character.isSurrogate(ch)) {
+                    if (ch < 0x20 || isBidiControl(ch) || Character.isSurrogate(ch)
+                            || isLineSeparator(ch)) {
                         appendUnicodeEscape(out, ch);
                     } else {
                         out.append(ch);
@@ -389,6 +407,21 @@ public final class OresDiagnosticRenderer {
             }
         }
         out.append('"');
+    }
+
+    private static boolean isLineSeparator(char ch) {
+        return ch == '\u2028' || ch == '\u2029';
+    }
+
+    private static final class RenderState {
+        private final IdentityHashMap<Throwable, Boolean> active = new IdentityHashMap<>();
+        private int remaining = MAX_ERROR_NODES;
+
+        private boolean consumeNode() {
+            if (remaining <= 0) return false;
+            remaining--;
+            return true;
+        }
     }
 
     private static boolean isBidiControl(char ch) {

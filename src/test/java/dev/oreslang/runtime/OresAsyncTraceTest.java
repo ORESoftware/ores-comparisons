@@ -155,6 +155,94 @@ final class OresAsyncTraceTest {
         assertTrue(trace.render().contains("Worker.receive_message"));
     }
     @Test
+    void evolvedTraceGetsANewerSnapshotButExactRevisionDoesNotDuplicate() {
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("worker", site(80)));
+        IllegalStateException failure = new IllegalStateException("boom");
+
+        OresAsyncTrace.attach(failure, trace);
+        OresAsyncTrace.attach(failure, trace);
+        assertEquals(1, failure.getSuppressed().length);
+
+        trace.awaitAt(site(81));
+        OresAsyncTrace.attach(failure, trace);
+        OresAsyncTrace.attach(failure, trace);
+
+        java.util.List<OresAsyncTrace.LogicalAsyncStackTrace> logical =
+                java.util.Arrays.stream(failure.getSuppressed())
+                        .filter(OresAsyncTrace.LogicalAsyncStackTrace.class::isInstance)
+                        .map(OresAsyncTrace.LogicalAsyncStackTrace.class::cast)
+                        .toList();
+        assertEquals(2, logical.size(),
+                "a later revision of the same logical task must retain newer causal history");
+        assertFalse(logical.get(0).logicalTrace().contains("--- await"));
+        assertTrue(logical.get(1).logicalTrace().contains("--- await"));
+    }
+
+    @Test
+    void syntheticJavaTraceEscapesLogSplittingAndBidiMetadata() {
+        OresAsyncTrace.SourceSite hostileSite = new OresAsyncTrace.SourceSite(
+                "evil.ores\r\nFORGED\u2028line",
+                9,
+                4,
+                "gen\u202eoverride");
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("worker\nFORGED\u202e", hostileSite));
+        trace.awaitAt(hostileSite);
+
+        IllegalStateException failure = new IllegalStateException("boom");
+        OresAsyncTrace.attach(failure, trace);
+        OresAsyncTrace.LogicalAsyncStackTrace logical =
+                assertInstanceOf(
+                        OresAsyncTrace.LogicalAsyncStackTrace.class,
+                        failure.getSuppressed()[0]);
+
+        assertTrue(logical.logicalTrace().contains("worker\\nFORGED\\u202e"));
+        assertTrue(logical.logicalTrace().contains("evil.ores\\r\\nFORGED\\u2028line"));
+        assertFalse(logical.logicalTrace().contains("worker\nFORGED"));
+        for (StackTraceElement frame : logical.getStackTrace()) {
+            assertFalse(frame.getMethodName().contains("\n"));
+            assertFalse(frame.getFileName() != null && frame.getFileName().contains("\n"));
+            assertFalse(frame.getClassName().contains("\u202e"));
+        }
+    }
+
+    @Test
+    void traceScopesRejectCrossThreadAndOutOfOrderCloseWithoutLeakingCurrentTrace() throws Exception {
+        OresAsyncTrace.Trace outer = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("outer", site(90)));
+        OresAsyncTrace.Trace inner = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("inner", site(91)));
+
+        OresAsyncTrace.Scope outerScope = OresAsyncTrace.install(outer);
+        OresAsyncTrace.Scope innerScope = OresAsyncTrace.install(inner);
+        assertSame(inner, OresAsyncTrace.current());
+
+        assertThrows(IllegalStateException.class, outerScope::close);
+        assertSame(inner, OresAsyncTrace.current(),
+                "failed out-of-order close must not corrupt the installed trace");
+
+        java.util.concurrent.atomic.AtomicReference<Throwable> crossThread =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Thread wrongCarrier = new Thread(() -> {
+            try {
+                innerScope.close();
+            } catch (Throwable failure) {
+                crossThread.set(failure);
+            }
+        });
+        wrongCarrier.start();
+        wrongCarrier.join();
+        assertInstanceOf(IllegalStateException.class, crossThread.get());
+        assertSame(inner, OresAsyncTrace.current());
+
+        innerScope.close();
+        assertSame(outer, OresAsyncTrace.current());
+        outerScope.close();
+        assertNull(OresAsyncTrace.current());
+    }
+
+    @Test
     void attachedLogicalCausalTracesAreBoundedPerFailure() {
         IllegalStateException failure = new IllegalStateException("fanout");
         for (int i = 0; i < 100; i++) {

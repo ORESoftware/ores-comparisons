@@ -78,6 +78,38 @@ final class OresMainDiagnosticTest {
     }
 
     @Test
+    void multiAwaitFailureRetainsLeafMiddleTopCausalFramesInTextMode() throws Exception {
+        Run run = invoke("async-stack-chain-error.ores", false);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        assertTrue(run.stderr().contains("Oreslang causal async stack:"), run.stderr());
+        assertTrue(run.stderr().contains("leaf"), run.stderr());
+        assertTrue(run.stderr().contains("middle"), run.stderr());
+        assertTrue(run.stderr().contains("top"), run.stderr());
+        assertTrue(run.stderr().contains("--- await"), run.stderr());
+        assertFalse(run.stderr().contains("OresScheduler$TaskRunner"), run.stderr());
+        assertFalse(run.stderr().contains("java.lang.Thread"), run.stderr());
+    }
+
+    @Test
+    void multiAwaitFailureJsonKeepsStructuredCausalFramesAndDeclaredOrder() throws Exception {
+        Run run = invoke("async-stack-chain-error.ores", true);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        String json = run.stderr().trim();
+        assertTrue(json.startsWith("{\"schema\":\"oreslang.error.v1\""), json);
+        assertTrue(json.contains("\"symbol\":\"leaf\""), json);
+        assertTrue(json.contains("\"symbol\":\"middle\""), json);
+        assertTrue(json.contains("\"symbol\":\"top\""), json);
+        assertTrue(json.contains("\"kind\":\"await\""), json);
+        assertTrue(json.contains("\"event_order\":\"oldest_to_newest\""), json);
+        assertTrue(json.contains("async-stack-chain-error.ores"), json);
+        assertFalse(json.contains("OresScheduler$TaskRunner"), json);
+    }
+
+    @Test
     void usageFailureUsesExitTwoAndJsonWhenRequested() {
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();
