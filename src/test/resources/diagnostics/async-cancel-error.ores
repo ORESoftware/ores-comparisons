@@ -1,0 +1,10 @@
+pub async routine main() => void {
+  val mutex = Mutex.new(1);
+  val guard = mutex.lock();
+  val pending = mutex.lock_async();
+  pending.cancel();
+  guard.release();
+  val value = await pending;
+  stdio.println(value);
+  return;
+}

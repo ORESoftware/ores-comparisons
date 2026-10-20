@@ -779,6 +779,7 @@ public final class OresEvalRootNode extends RootNode {
                     if (waiting != null) {
                         AsyncAwait awaited = waiting;
                         waiting = null;
+                        recordFailureBoundary(trace, resume.failure(), awaited.site());
                         current = safePlan(() -> awaited.continuation().resume(
                                 resume.value(),
                                 resume.failure()));
@@ -788,7 +789,13 @@ public final class OresEvalRootNode extends RootNode {
                                     "tail-await replacement resumed as an initial task turn");
                         }
                         if (resume.failure() != null) {
-                            throw propagateAsyncFailure(resume.failure());
+                            Throwable failure = unwrapFutureFailure(resume.failure());
+                            recordFailureBoundary(
+                                    trace,
+                                    failure,
+                                    trace.currentFrame().site());
+                            OresAsyncTrace.attach(failure, trace);
+                            throw propagateAsyncFailure(failure);
                         }
                         tailDispatchPending = false;
                     } else if (!resume.initial()) {
@@ -860,6 +867,7 @@ public final class OresEvalRootNode extends RootNode {
                     if (waiting != null) {
                         AsyncAwait awaited = waiting;
                         waiting = null;
+                        recordFailureBoundary(trace, resumeFailure, awaited.site());
                         current = safePlan(() -> awaited.continuation().resume(
                                 resumeValue,
                                 resumeFailure));
@@ -908,6 +916,19 @@ public final class OresEvalRootNode extends RootNode {
                                 "ActorContext.suspendOn must unwind the actor turn");
                     }
                 }
+            }
+        }
+
+        private static void recordFailureBoundary(
+                OresAsyncTrace.Trace trace,
+                Throwable failure,
+                OresAsyncTrace.SourceSite site) {
+            if (failure == null) return;
+            Throwable actual = unwrapFutureFailure(failure);
+            if (actual instanceof java.util.concurrent.CancellationException) {
+                trace.boundary(OresAsyncTrace.BoundaryKind.CANCELLATION, site);
+            } else if (actual instanceof java.util.concurrent.TimeoutException) {
+                trace.boundary(OresAsyncTrace.BoundaryKind.TIMEOUT, site);
             }
         }
 
@@ -1974,11 +1995,15 @@ public final class OresEvalRootNode extends RootNode {
             };
 
             List<?> normalized = normalizeFunctionArguments(fn, evaluated);
+            OresAsyncTrace.Frame actorFrame = functionTraceFrame(fn);
             OresAsyncTrace.Trace actorTrace =
-                    traceForInvocation(functionTraceFrame(fn));
+                    traceForInvocation(actorFrame);
+            actorTrace.boundary(
+                    OresAsyncTrace.BoundaryKind.TASK_SPAWN,
+                    actorFrame.site());
             actorTrace.boundary(
                     OresAsyncTrace.BoundaryKind.ACTOR_MESSAGE,
-                    functionTraceFrame(fn).site());
+                    actorFrame.site());
 
             return context.actors().spawnSuspendingInvocation(
                     runtimeKind,

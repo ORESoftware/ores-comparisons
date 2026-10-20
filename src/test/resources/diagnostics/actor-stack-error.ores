@@ -1,0 +1,11 @@
+pub actor fnc explode_actor() => int {
+  val zero = 0;
+  return 1 / zero;
+}
+
+pub async routine main() => void {
+  val pending = spawn explode_actor();
+  val value = await pending.result;
+  stdio.println(value);
+  return;
+}

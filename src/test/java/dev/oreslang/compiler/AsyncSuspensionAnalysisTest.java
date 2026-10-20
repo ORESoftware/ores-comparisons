@@ -161,13 +161,13 @@ final class AsyncSuspensionAnalysisTest {
                 async fnc target(bool choose) => int {
                   val left = 10;
                   val right = 20;
-                  if choose {
+                  if choose do
                     await pause();
                     return left;
-                  } else {
+                  else
                     await pause();
                     return right;
-                  }
+                  fi
                 }
                 """, "target");
 
@@ -211,11 +211,11 @@ final class AsyncSuspensionAnalysisTest {
                 async fnc target() => int {
                   val x = 10;
 
-                  if true {
+                  if true do
                     val x = 20;
                     await pause();
                     val inner = x;
-                  }
+                  fi
 
                   await pause();
                   return x;

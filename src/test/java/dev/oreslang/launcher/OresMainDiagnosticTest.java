@@ -110,6 +110,32 @@ final class OresMainDiagnosticTest {
     }
 
     @Test
+    void cancelledAwaitRecordsCancellationBoundary() throws Exception {
+        Run run = invoke("async-cancel-error.ores", true);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        String json = run.stderr().trim();
+        assertTrue(json.contains("\"kind\":\"cancellation\""), json);
+        assertTrue(json.contains("async-cancel-error.ores"), json);
+        assertTrue(json.contains("\"kind\":\"await\""), json);
+    }
+
+    @Test
+    void actorFailureRecordsSpawnAndMessageBoundaries() throws Exception {
+        Run run = invoke("actor-stack-error.ores", true);
+
+        assertEquals(1, run.status());
+        assertEquals("", run.stdout());
+        String json = run.stderr().trim();
+        assertTrue(json.contains("\"symbol\":\"explode_actor\""), json);
+        assertTrue(json.contains("\"kind\":\"task_spawn\""), json);
+        assertTrue(json.contains("\"kind\":\"actor_message\""), json);
+        assertTrue(json.contains("actor-stack-error.ores"), json);
+        assertFalse(json.contains("ActorRuntime$"), json);
+    }
+
+    @Test
     void usageFailureUsesExitTwoAndJsonWhenRequested() {
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();

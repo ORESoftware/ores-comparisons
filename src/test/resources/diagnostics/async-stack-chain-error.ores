@@ -1,8 +1,8 @@
 async fnc leaf() => int {
   val scheduler = new OresScheduler(1);
-  scheduler.close();
   val doomed = scheduler.start(|| -> {
-    return 9;
+    val zero = 0;
+    return 9 / zero;
   });
   return await doomed;
 }
