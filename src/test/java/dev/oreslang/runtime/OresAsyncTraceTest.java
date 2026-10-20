@@ -202,6 +202,39 @@ final class OresAsyncTraceTest {
     }
 
     @Test
+    void sourceSiteRedactsUriCredentialsQueryAndFragmentEverywhere() {
+        OresAsyncTrace.SourceSite hostile = new OresAsyncTrace.SourceSite(
+                "https://alice:super-secret@example.test/pkg/main.ores?token=abc123#private",
+                12,
+                7,
+                "g1");
+        assertEquals("https://example.test/pkg/main.ores", hostile.sourceId());
+
+        OresAsyncTrace.Trace trace = OresAsyncTrace.root(
+                new OresAsyncTrace.Frame("worker", hostile));
+        IllegalStateException failure = new IllegalStateException("boom");
+        OresAsyncTrace.attach(failure, trace);
+        OresAsyncTrace.LogicalAsyncStackTrace logical =
+                assertInstanceOf(
+                        OresAsyncTrace.LogicalAsyncStackTrace.class,
+                        failure.getSuppressed()[0]);
+
+        assertTrue(logical.logicalTrace().contains("https://example.test/pkg/main.ores"));
+        assertFalse(logical.logicalTrace().contains("alice"));
+        assertFalse(logical.logicalTrace().contains("super-secret"));
+        assertFalse(logical.logicalTrace().contains("abc123"));
+        assertFalse(logical.logicalTrace().contains("private"));
+        assertEquals(
+                "https://example.test/pkg/main.ores",
+                logical.getStackTrace()[0].getFileName());
+
+        String json = OresDiagnosticRenderer.renderJson(failure);
+        assertTrue(json.contains("https://example.test/pkg/main.ores"), json);
+        assertFalse(json.contains("super-secret"), json);
+        assertFalse(json.contains("abc123"), json);
+    }
+
+    @Test
     void syntheticJavaTraceEscapesLogSplittingAndBidiMetadata() {
         OresAsyncTrace.SourceSite hostileSite = new OresAsyncTrace.SourceSite(
                 "evil.ores\r\nFORGED\u2028line",

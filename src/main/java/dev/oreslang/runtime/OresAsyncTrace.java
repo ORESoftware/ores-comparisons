@@ -53,7 +53,7 @@ public final class OresAsyncTrace {
             int column,
             String codeGenerationId) {
         public SourceSite {
-            sourceId = sourceId == null || sourceId.isBlank() ? "<unknown>" : sourceId;
+            sourceId = sanitizeSourceId(sourceId);
         }
 
         public static SourceSite unknown(String sourceId, String codeGenerationId) {
@@ -649,6 +649,36 @@ public final class OresAsyncTrace {
                 site.line() > 0 ? site.line() : -1);
     }
 
+
+    private static String sanitizeSourceId(String sourceId) {
+        String value = sourceId == null || sourceId.isBlank()
+                ? "<unknown>"
+                : sourceId;
+
+        int query = value.indexOf('?');
+        int fragment = value.indexOf('#');
+        int cut = -1;
+        if (query >= 0) cut = query;
+        if (fragment >= 0 && (cut < 0 || fragment < cut)) cut = fragment;
+        if (cut >= 0) value = value.substring(0, cut);
+
+        int scheme = value.indexOf("://");
+        if (scheme >= 0) {
+            int authorityStart = scheme + 3;
+            int slash = value.indexOf('/', authorityStart);
+            int authorityEnd = slash >= 0 ? slash : value.length();
+            int at = value.lastIndexOf('@', authorityEnd - 1);
+            if (at >= authorityStart) {
+                value = value.substring(0, authorityStart)
+                        + value.substring(at + 1);
+            }
+        }
+
+        if (value.length() > MAX_SOURCE_CHARS) {
+            value = value.substring(0, MAX_SOURCE_CHARS) + "…";
+        }
+        return value.isBlank() ? "<unknown>" : value;
+    }
 
     private static String safeText(String value, int maxChars) {
         if (value == null || value.isEmpty()) return "";
