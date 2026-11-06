@@ -7,6 +7,8 @@ import unittest
 from scripts.verify_oreslang_portability import (
     EXPECTED_FIXTURE_REPOS,
     validate_fixture_repositories,
+    validate_attolang_brand,
+    ATTO_LANGUAGE_BRAND,
 )
 
 
@@ -14,6 +16,21 @@ class OreslangPortabilityInventoryTests(unittest.TestCase):
     def setUp(self):
         with open("shared/oreslang-portability.json", encoding="utf-8") as f:
             self.inventory = json.load(f)["fixture_repositories"]
+
+    def test_attolang_brand_is_exact_and_does_not_promote_legacy_fixtures(self):
+        self.assertEqual(validate_attolang_brand(ATTO_LANGUAGE_BRAND.copy()), [])
+        for field, mutation in [
+            ("canonical_name", "oreslang"),
+            ("current_extension", ".ores"),
+            ("legacy_extension", ".atto"),
+            ("legacy_fixture_mode", "automatic"),
+            ("execution_claim", "pass"),
+        ]:
+            bad = copy.deepcopy(ATTO_LANGUAGE_BRAND)
+            bad[field] = mutation
+            self.assertTrue(validate_attolang_brand(bad), field)
+        self.assertTrue(validate_attolang_brand({**ATTO_LANGUAGE_BRAND, "compiled": True}))
+        self.assertTrue(validate_attolang_brand(None))
 
     def test_exact_real_source_fixture_inventory_is_accepted(self):
         self.assertEqual(validate_fixture_repositories(self.inventory), [])
