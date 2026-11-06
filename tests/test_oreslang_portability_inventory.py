@@ -9,6 +9,8 @@ from scripts.verify_oreslang_portability import (
     validate_fixture_repositories,
     validate_attolang_brand,
     ATTO_LANGUAGE_BRAND,
+    ATTO_BACKENDS,
+    validate_attolang_backend_matrix,
 )
 
 
@@ -31,6 +33,48 @@ class OreslangPortabilityInventoryTests(unittest.TestCase):
             self.assertTrue(validate_attolang_brand(bad), field)
         self.assertTrue(validate_attolang_brand({**ATTO_LANGUAGE_BRAND, "compiled": True}))
         self.assertTrue(validate_attolang_brand(None))
+
+    def test_attolang_five_backend_proof_ledger_never_promotes_unexecuted_sources(self):
+        with open("shared/attolang-backend-evidence.json", encoding="utf-8") as handle:
+            ledger = json.load(handle)
+        self.assertEqual(validate_attolang_backend_matrix(ledger), [])
+        self.assertEqual(tuple(t["backend"] for t in ledger["backendTargets"]), ATTO_BACKENDS)
+        for name, value in [
+            ("schema", "unknown"), ("language", "oreslang"),
+            ("sourceExtension", ".ores"), ("legacyExtension", ".atto"),
+            ("promotion", "passed"),
+        ]:
+            candidate = copy.deepcopy(ledger)
+            candidate[name] = value
+            self.assertTrue(validate_attolang_backend_matrix(candidate), name)
+
+        for index in range(len(ATTO_BACKENDS)):
+            for name, value in [
+                ("status", "passed"),
+                ("status", "skipped"),
+                ("status", "pending"),
+                ("sourceRevision", "a" * 40),
+                ("receipt", {"claim": "passed"}),
+                ("backend", "unknown"),
+            ]:
+                candidate = copy.deepcopy(ledger)
+                candidate["backendTargets"][index][name] = value
+                self.assertTrue(
+                    validate_attolang_backend_matrix(candidate),
+                    f"{index}:{name}:{value}",
+                )
+            candidate = copy.deepcopy(ledger)
+            candidate["backendTargets"][index]["extra"] = True
+            self.assertTrue(validate_attolang_backend_matrix(candidate))
+
+        for candidate in [
+            None, {}, [], {**ledger, "extra": True},
+            {**ledger, "backendTargets": []},
+            {**ledger, "backendTargets": ledger["backendTargets"][:-1]},
+            {**ledger, "backendTargets": ledger["backendTargets"] * 2},
+            {**ledger, "backendTargets": [ledger["backendTargets"][0]] * 5},
+        ]:
+            self.assertTrue(validate_attolang_backend_matrix(candidate))
 
     def test_exact_real_source_fixture_inventory_is_accepted(self):
         self.assertEqual(validate_fixture_repositories(self.inventory), [])
