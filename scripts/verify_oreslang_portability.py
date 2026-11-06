@@ -11,6 +11,21 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 NAME_RE = re.compile(r"[A-Za-z0-9_.-]+\Z")
 PORT_RE = re.compile(r"stacks/[^/]+/projects/oreslang-portability/repos/[^/]+\Z")
+ATTO_LANGUAGE_BRAND = {
+    "canonical_name": "attolang",
+    "current_extension": ".atto",
+    "legacy_extension": ".ores",
+    "legacy_fixture_mode": "explicit-compatibility-only",
+    "execution_claim": "not-executed",
+}
+
+
+def validate_attolang_brand(value: object) -> list[str]:
+    if not isinstance(value, dict) or value != ATTO_LANGUAGE_BRAND:
+        return ["AttoLang brand must preserve .atto canonical sources, explicit .ores compatibility, and no execution claim"]
+    return []
+
+
 EXPECTED_FIXTURE_REPOS = frozenset({
     "ores-dummy-org-oreslang-stack-api-server.ores",
     "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -55,6 +70,7 @@ def verify() -> list[str]:
 
     if m.get("schema") != "ores.comparisons.oreslang-portability/v1":
         bad("wrong portability schema")
+    errors.extend(validate_attolang_brand(m.get("language_brand")))
     if m.get("framework_stack") != "oreslang-stack" or m.get("source_language") != "oreslang":
         bad("wrong Oreslang stack or source identity")
     if m.get("framework_cli_repository") != "ores-truffle-oreslang/oreslang-stack-cli":
