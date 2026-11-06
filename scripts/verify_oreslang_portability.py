@@ -11,6 +11,59 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 NAME_RE = re.compile(r"[A-Za-z0-9_.-]+\Z")
 PORT_RE = re.compile(r"stacks/[^/]+/projects/oreslang-portability/repos/[^/]+\Z")
+ATTO_LANGUAGE_BRAND = {
+    "canonical_name": "attolang",
+    "current_extension": ".atto",
+    "legacy_extension": ".ores",
+    "legacy_fixture_mode": "explicit-compatibility-only",
+    "execution_claim": "not-executed",
+}
+
+
+def validate_attolang_brand(value: object) -> list[str]:
+    if not isinstance(value, dict) or value != ATTO_LANGUAGE_BRAND:
+        return ["AttoLang brand must preserve .atto canonical sources, explicit .ores compatibility, and no execution claim"]
+    return []
+
+
+ATTO_BACKENDS = ("java", "llvm", "wasm", "forge", "dotnet")
+
+
+def validate_attolang_backend_matrix(value: object) -> list[str]:
+    """A declarative backlog is not a trusted compiler or runner receipt."""
+    if not isinstance(value, dict) or set(value) != {
+        "schema", "language", "sourceExtension", "legacyExtension",
+        "promotion", "backendTargets",
+    }:
+        return ["AttoLang proof ledger must have a closed v1 envelope"]
+    if (value["schema"] != "ores.comparisons.attolang-target-evidence/v1"
+            or value["language"] != "attolang"
+            or value["sourceExtension"] != ".atto"
+            or value["legacyExtension"] != ".ores"
+            or value["promotion"] != "not-admitted"):
+        return ["AttoLang proof ledger may not claim unverified execution"]
+    targets = value["backendTargets"]
+    if not isinstance(targets, list) or len(targets) != len(ATTO_BACKENDS):
+        return ["AttoLang proof ledger must have exactly five backend targets"]
+    names = []
+    for target in targets:
+        if not isinstance(target, dict) or set(target) != {
+            "backend", "status", "sourceRevision", "receipt",
+        }:
+            return ["malformed AttoLang backend proof target"]
+        name = target["backend"]
+        if not isinstance(name, str):
+            return ["AttoLang backend identity must be a string"]
+        names.append(name)
+        if (target["status"] != "not-executed"
+                or target["sourceRevision"] is not None
+                or target["receipt"] is not None):
+            return [f"{name}: unverified guest execution evidence must not be promoted"]
+    if tuple(names) != ATTO_BACKENDS:
+        return ["AttoLang proof ledger must enumerate all five distinct backends in canonical order"]
+    return []
+
+
 EXPECTED_FIXTURE_REPOS = frozenset({
     "ores-dummy-org-oreslang-stack-api-server.ores",
     "ores-dummy-org-oreslang-stack-web-server.ores",
@@ -55,6 +108,14 @@ def verify() -> list[str]:
 
     if m.get("schema") != "ores.comparisons.oreslang-portability/v1":
         bad("wrong portability schema")
+    errors.extend(validate_attolang_brand(m.get("language_brand")))
+    proof_path = ROOT / "shared/attolang-backend-evidence.json"
+    try:
+        backend_proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        bad(f"AttoLang proof ledger missing or malformed: {error}")
+    else:
+        errors.extend(validate_attolang_backend_matrix(backend_proof))
     if m.get("framework_stack") != "oreslang-stack" or m.get("source_language") != "oreslang":
         bad("wrong Oreslang stack or source identity")
     if m.get("framework_cli_repository") != "ores-truffle-oreslang/oreslang-stack-cli":

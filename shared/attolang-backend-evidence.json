@@ -1,0 +1,39 @@
+{
+  "schema": "ores.comparisons.attolang-target-evidence/v1",
+  "language": "attolang",
+  "sourceExtension": ".atto",
+  "legacyExtension": ".ores",
+  "promotion": "not-admitted",
+  "backendTargets": [
+    {
+      "backend": "java",
+      "status": "not-executed",
+      "sourceRevision": null,
+      "receipt": null
+    },
+    {
+      "backend": "llvm",
+      "status": "not-executed",
+      "sourceRevision": null,
+      "receipt": null
+    },
+    {
+      "backend": "wasm",
+      "status": "not-executed",
+      "sourceRevision": null,
+      "receipt": null
+    },
+    {
+      "backend": "forge",
+      "status": "not-executed",
+      "sourceRevision": null,
+      "receipt": null
+    },
+    {
+      "backend": "dotnet",
+      "status": "not-executed",
+      "sourceRevision": null,
+      "receipt": null
+    }
+  ]
+}
