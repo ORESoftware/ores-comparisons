@@ -149,5 +149,12 @@
       "artifact": "oreslang-native",
       "reason": "Native Oreslang framework/host adapter requires executable proof"
     }
-  ]
+  ],
+  "language_brand": {
+    "canonical_name": "attolang",
+    "current_extension": ".atto",
+    "legacy_extension": ".ores",
+    "legacy_fixture_mode": "explicit-compatibility-only",
+    "execution_claim": "not-executed"
+  }
 }
